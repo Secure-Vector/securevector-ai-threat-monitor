@@ -24,13 +24,18 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 try:
-    from decorator import secure_ai_call, SecurityException
-    from local_engine import SecurityEngine
-    from console_logger import SecurityLogger
-except ImportError as e:
-    st.error(f"Import error: {e}")
-    st.error("Please ensure the SecureVector AI Monitor is installed.")
-    st.stop()
+    # Try importing from installed package first
+    from securevector_ai_monitor import secure_ai_call, SecurityException, SecurityEngine, SecurityLogger
+except ImportError:
+    try:
+        # Fallback to local imports for development
+        from decorator import secure_ai_call, SecurityException
+        from local_engine import SecurityEngine
+        from console_logger import SecurityLogger
+    except ImportError as e:
+        st.error(f"Import error: {e}")
+        st.error("Please ensure the SecureVector AI Monitor is installed.")
+        st.stop()
 
 
 # Page configuration
