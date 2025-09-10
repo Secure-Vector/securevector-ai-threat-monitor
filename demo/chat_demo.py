@@ -449,7 +449,7 @@ class SecureChatDemo:
         st.markdown("""
         <div style="text-align: center; color: #666;">
         🛡️ <strong>SecureVector AI Threat Monitor</strong> - Making AI applications safer<br>
-        <a href="https://github.com/secure-vector/ai-threat-monitor">GitHub</a> | 
+        <a href="https://github.com/secure-vector/ai-security-monitor">GitHub</a> | 
         <a href="#" onclick="return false;">Documentation</a> | 
         Create GitHub issue with 'commercial' label for support
         </div>

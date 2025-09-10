@@ -429,8 +429,8 @@ We welcome contributions! Please see our [Contributor Agreement](CONTRIBUTOR_AGR
 
 ## 📞 Support & Documentation
 
-- 🐛 **Bug Reports:** [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
-- 💬 **Questions:** [GitHub Discussions](https://github.com/secure-vector/ai-threat-monitor/discussions)
+- 🐛 **Bug Reports:** [GitHub Issues](https://github.com/secure-vector/ai-security-monitor/issues)
+- 💬 **Questions:** [GitHub Discussions](https://github.com/secure-vector/ai-security-monitor/discussions)
 - 🧪 **Testing Guide:** [docs/testing.md](docs/testing.md)
 - 🛡️ **Demo Instructions:** [demo/README.md](demo/README.md)
 - 📋 **Commercial Inquiries:** Create GitHub issue with "commercial" label

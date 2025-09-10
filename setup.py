@@ -25,7 +25,7 @@ setup(
     description="Real-time AI threat monitoring. Protect your apps from prompt injection, leaks, and attacks in just a few lines of code.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/secure-vector/ai-threat-monitor",
+    url="https://github.com/secure-vector/ai-security-monitor",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -64,8 +64,8 @@ setup(
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",
     project_urls={
-        "Bug Reports": "https://github.com/secure-vector/ai-threat-monitor/issues",
-        "Source": "https://github.com/secure-vector/ai-threat-monitor",
+        "Bug Reports": "https://github.com/secure-vector/ai-security-monitor/issues",
+        "Source": "https://github.com/secure-vector/ai-security-monitor",
         "Documentation": "https://docs.securevector.dev/ai-threat-monitor",
         "Homepage": "https://securevector.dev",
     },
