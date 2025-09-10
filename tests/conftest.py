@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for AI Security Monitor tests.
+Pytest configuration and fixtures for AI Threat Monitor tests.
 """
 
 import pytest

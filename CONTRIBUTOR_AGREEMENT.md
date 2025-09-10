@@ -1,7 +1,7 @@
 # SecureVector Contributor Agreement
 
 **Project:** SecureVector AI Threat Monitor  
-**Repository:** https://github.com/secure-vector/ai-security-monitor  
+**Repository:** https://github.com/secure-vector/ai-threat-monitor  
 **Effective Date:** January 1, 2025
 
 ---

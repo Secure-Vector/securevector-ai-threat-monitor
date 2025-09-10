@@ -1,5 +1,5 @@
 """
-Command line interface for AI Security Monitor
+Command line interface for AI Threat Monitor
 """
 
 import argparse
@@ -10,13 +10,13 @@ from .console_logger import SecurityLogger
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="AI Security Monitor - Real-time AI security protection"
+        description="AI Threat Monitor - Real-time AI security protection"
     )
     
     parser.add_argument(
         "--version", 
         action="version",
-        version="AI Security Monitor 0.1.0"
+        version="AI Threat Monitor 0.1.0"
     )
     
     parser.add_argument(

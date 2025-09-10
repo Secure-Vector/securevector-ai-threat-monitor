@@ -1,5 +1,5 @@
 """
-SecureVector AI Security - Console logger for real-time threat detection.
+SecureVector AI Threat Monitor - Console logger for real-time threat detection.
 Provides performance + privacy + upgrade messaging.
 
 Copyright (c) 2025 SecureVector
@@ -100,7 +100,7 @@ class SecurityLogger:
         stats = self.get_stats()
         mode = "Enterprise (0ms)" if self.has_api_key else f"Local Analysis ({self.total_requests * 45}ms total)"
         
-        print(f"\n📊 AI Security Monitor Session Summary:")
+        print(f"\n📊 AI Threat Monitor Session Summary:")
         print(f"   Mode: {mode}")
         print(f"   Total Requests: {stats['total_requests']}")
         print(f"   Threats Blocked: {stats['threats_blocked']}")
@@ -112,7 +112,7 @@ class SecurityLogger:
             print(f"   • 0ms latency (vs current ~45ms)")
             print(f"   • Team dashboard + alerts")
             print(f"   • Advanced threat patterns")
-            print(f"   → ai-security-monitor signup")
+            print(f"   → ai-threat-monitor signup")
         
         print()
     
