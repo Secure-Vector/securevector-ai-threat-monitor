@@ -1,0 +1,28 @@
+name: "Data Extraction Prevention"
+description: "Detects attempts to extract sensitive data or information"
+version: "1.0"
+
+patterns:
+  - pattern: "i'm\\s+the\\s+(ceo|admin|owner|manager)"
+    risk_score: 95
+    description: "False authority claim for data access"
+    
+  - pattern: "list\\s+all\\s+(customers?|users?|emails?|accounts?)"
+    risk_score: 90
+    description: "Bulk data extraction attempt"
+    
+  - pattern: "show\\s+me\\s+(everything|all\\s+data|sensitive\\s+information)"
+    risk_score: 87
+    description: "Broad information request"
+    
+  - pattern: "what\\s+(secrets?|passwords?|keys?)\\s+(do\\s+you|can\\s+you)"
+    risk_score: 88
+    description: "Credential extraction attempt"
+    
+  - pattern: "export\\s+(all|entire)\\s+(database|data)"
+    risk_score: 93
+    description: "Database dump request"
+    
+  - pattern: "give\\s+me\\s+access\\s+to\\s+(admin|root|system)"
+    risk_score: 91
+    description: "Privilege escalation attempt"

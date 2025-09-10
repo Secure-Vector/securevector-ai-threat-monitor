@@ -1,0 +1,10 @@
+# Demo requirements for SecureVector AI Threat Monitor
+# Install with: pip install -r requirements.txt
+
+streamlit>=1.28.0
+openai>=1.0.0
+requests>=2.31.0
+
+# Optional: For additional AI service integrations
+# anthropic>=0.3.0
+# google-generativeai>=0.3.0

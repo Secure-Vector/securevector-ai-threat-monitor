@@ -1,0 +1,28 @@
+name: "Abuse Pattern Detection"
+description: "Detects various forms of attempted abuse and manipulation"
+version: "1.0"
+
+patterns:
+  - pattern: "generate\\s+(illegal|harmful|malicious)\\s+(code|content)"
+    risk_score: 89
+    description: "Request for harmful content generation"
+    
+  - pattern: "how\\s+to\\s+(hack|break\\s+into|exploit)"
+    risk_score: 85
+    description: "Hacking instruction request"
+    
+  - pattern: "create\\s+(virus|malware|trojan)"
+    risk_score: 94
+    description: "Malware creation request"
+    
+  - pattern: "bypass\\s+(security|authentication|authorization)"
+    risk_score: 88
+    description: "Security bypass instruction request"
+    
+  - pattern: "social\\s+engineer(ing)?\\s+(tactics|methods)"
+    risk_score: 81
+    description: "Social engineering instruction request"
+    
+  - pattern: "phishing\\s+(email|template|script)"
+    risk_score: 86
+    description: "Phishing content creation request"
