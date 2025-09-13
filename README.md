@@ -16,7 +16,7 @@
 
 🚀 **3-line integration** | 🔒 **Privacy-first** | ⚡ **5-15ms latency** | 🌍 **Works offline**
 
-```
+
 ## 🔒 **SecureVector Security Engine Architecture**
 
 ```
