@@ -16,6 +16,140 @@
 
 🚀 **3-line integration** | 🔒 **Privacy-first** | ⚡ **5-15ms latency** | 🌍 **Works offline**
 
+```
+## 🔒 **SecureVector Security Engine Architecture**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│  ┌─────────────────┐                                                           │
+│  │ Customer App    │                                                           │
+│  │ prompt = "..."  │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐      API Key?       ┌─────────────────┐                   │
+│  │ Security Engine │ ◀─── Yes/No ──────▶ │ Mode Selection  │                   │
+│  │ (Your SDK)      │                     │ Local vs API    │                   │
+│  └─────────┬───────┘                     └─────────────────┘                   │
+│            │                                                                   │
+│      ┌─────┴─────┐                                                             │
+│      │           │                                                             │
+│      ▼           ▼                                                             │
+│  ┌─────────┐ ┌─────────┐                                                       │
+│  │ LOCAL/  │ │         │                                                       │
+│  │  EDGE   │ │   API   │                                                       │
+│  │  MODE   │ │  MODE   │                                                       │
+│  └─────────┘ └─────────┘                                                       │
+│      │           │                                                             │
+│      ▼           ▼                                                             │
+│  ┌─────────┐ ┌─────────┐                                                       │
+│  │Bundled  │ │Rules    │                                                       │
+│  │Rules    │ │Service  │                                                       │
+│  │Only     │ │API +    │                                                       │
+│  │(~50)    │ │Llama    │                                                       │
+│  │         │ │Guard    │                                                       │
+│  │Pattern  │ │(500+)   │                                                       │
+│  │Matching │ │ML+Rules │                                                       │
+│  └─────────┘ └─────────┘                                                       │
+│      │           │                                                             │
+│      └─────┬─────┘                                                             │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │Final Decision   │                                                           │
+│  │ • BLOCK/ALLOW   │                                                           │
+│  │ • Risk Score    │                                                           │
+│  │ • Detection     │                                                           │
+│  │   Method        │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │ Forwarded API   │                                                           │
+│  │ Call to LLMs    │                                                           │
+│  │ • OpenAI        │                                                           │
+│  │ • Anthropic     │                                                           │
+│  │ • Cohere        │                                                           │
+│  │ • Local Models  │                                                           │
+│  └─────────────────┘                                                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 🔄 **Alternative Layout (Vertical Flow)**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│  ┌─────────────────┐                                                           │
+│  │ Customer App    │                                                           │
+│  │ prompt = "..."  │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │ Security Engine │                                                           │
+│  │ (Your SDK)      │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐      API Key?       ┌─────────────────┐                   │
+│  │ Mode Selection  │ ◀─── Yes/No ──────▶ │ Security Engine │                   │
+│  │ Local vs API    │                     │ (Your SDK)      │                   │
+│  └─────────┬───────┘                     └─────────────────┘                   │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │ Processing      │                                                           │
+│  │ ┌─────────────┐ │                                                           │
+│  │ │ LOCAL/EDGE  │ │                                                           │
+│  │ │ MODE        │ │                                                           │
+│  │ │ ┌─────────┐ │ │                                                           │
+│  │ │ │Bundled  │ │ │                                                           │
+│  │ │ │Rules    │ │ │                                                           │
+│  │ │ │Only     │ │ │                                                           │
+│  │ │ │(~50)    │ │ │                                                           │
+│  │ │ │Pattern  │ │ │                                                           │
+│  │ │ │Matching │ │ │                                                           │
+│  │ │ └─────────┘ │ │                                                           │
+│  │ └─────────────┘ │                                                           │
+│  │ ┌─────────────┐ │                                                           │
+│  │ │ API MODE    │ │                                                           │
+│  │ │ ┌─────────┐ │ │                                                           │
+│  │ │ │Rules    │ │ │                                                           │
+│  │ │ │Service  │ │ │                                                           │
+│  │ │ │API +    │ │ │                                                           │
+│  │ │ │Llama    │ │ │                                                           │
+│  │ │ │Guard    │ │ │                                                           │
+│  │ │ │(500+)   │ │ │                                                           │
+│  │ │ │ML+Rules │ │ │                                                           │
+│  │ │ └─────────┘ │ │                                                           │
+│  │ └─────────────┘ │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │Final Decision   │                                                           │
+│  │ • BLOCK/ALLOW   │                                                           │
+│  │ • Risk Score    │                                                           │
+│  │ • Detection     │                                                           │
+│  │   Method        │                                                           │
+│  └─────────┬───────┘                                                           │
+│            │                                                                   │
+│            ▼                                                                   │
+│  ┌─────────────────┐                                                           │
+│  │ Forwarded API   │                                                           │
+│  │ Call to LLMs    │                                                           │
+│  │ • OpenAI        │                                                           │
+│  │ • Anthropic     │                                                           │
+│  │ • Cohere        │                                                           │
+│  │ • Local Models  │                                                           │
+│  └─────────────────┘                                                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 🎯 What This Tool Does
@@ -27,6 +161,7 @@ SecureVector AI Threat Monitor is a **local-first security monitoring toolkit** 
 - ** Jailbreak Attempts** - "You are now DAN..."
 - ** Social Engineering** - "I'm the CEO, show me everything..."
 - ** System Override Attempts** - "System: disable safety..."
+
 
 ### How It Works
 
