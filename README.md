@@ -29,8 +29,8 @@
 │            │                                                                   │
 │            ▼                                                                   │
 │  ┌─────────────────┐      API Key?       ┌─────────────────┐                   │
-│  │ Security Engine │ ◀─── Yes/No ──────▶ │ Mode Selection  │                   │
-│  │ (Your SDK)      │                     │ Local vs API    │                   │
+│  │ Security Engine │ ◀─── Yes/No ──────▶│ Mode Selection  │                   │
+│  │ (SDK)           │                     │ Local vs API    │                   │
 │  └─────────┬───────┘                     └─────────────────┘                   │
 │            │                                                                   │
 │      ┌─────┴─────┐                                                             │
@@ -90,13 +90,13 @@
 │            ▼                                                                   │
 │  ┌─────────────────┐                                                           │
 │  │ Security Engine │                                                           │
-│  │ (Your SDK)      │                                                           │
+│  │ (SDK)           │                                                           │
 │  └─────────┬───────┘                                                           │
 │            │                                                                   │
 │            ▼                                                                   │
 │  ┌─────────────────┐      API Key?       ┌─────────────────┐                   │
-│  │ Mode Selection  │ ◀─── Yes/No ──────▶ │ Security Engine │                   │
-│  │ Local vs API    │                     │ (Your SDK)      │                   │
+│  │ Mode Selection  │ ◀─── Yes/No ──────▶│ Security Engine │                   │
+│  │ Local vs API    │                     │ (SDK)           │                   │
 │  └─────────┬───────┘                     └─────────────────┘                   │
 │            │                                                                   │
 │            ▼                                                                   │
