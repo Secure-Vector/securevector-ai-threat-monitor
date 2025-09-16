@@ -36,7 +36,7 @@ jobs:
       continue-on-error: true
     
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ github.run_number }}
         path: |
@@ -59,7 +59,7 @@ jobs:
         echo '```' >> benchmark_report.md
     
     - name: Upload benchmark report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-report-${{ github.run_number }}
         path: benchmark_report.md
