@@ -7,7 +7,7 @@ Licensed under the Apache License, Version 2.0
 
 from typing import List, Optional, Union
 
-from ..models.analysis_result import AnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult
 
 
 class AssertionError(Exception):

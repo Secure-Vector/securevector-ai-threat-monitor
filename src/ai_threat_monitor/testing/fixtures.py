@@ -10,9 +10,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from ..models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
-from ..models.config_models import OperationMode, SDKConfig
-from ..models.policy_models import SecurityPolicy
+from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
+from ai_threat_monitor.models.config_models import OperationMode, SDKConfig
+from ai_threat_monitor.models.policy_models import SecurityPolicy
 
 
 class ThreatScenario(Enum):

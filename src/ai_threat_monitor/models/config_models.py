@@ -11,8 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
-from ..utils.security import mask_sensitive_value, sanitize_dict_for_logging
+from ai_threat_monitor.utils.security import mask_sensitive_value, sanitize_dict_for_logging
 
 
 class OperationMode(Enum):

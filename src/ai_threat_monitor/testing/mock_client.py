@@ -11,12 +11,12 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from ..async_client import AsyncSecureVectorClient
-from ..client import SecureVectorClient
-from ..models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
-from ..models.config_models import OperationMode, SDKConfig
-from ..models.policy_models import PolicyAction, SecurityPolicy
-from ..models.threat_types import RiskLevel, ThreatType
+from ai_threat_monitor.async_client import AsyncSecureVectorClient
+from ai_threat_monitor.client import SecureVectorClient
+from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
+from ai_threat_monitor.models.config_models import OperationMode, SDKConfig
+from ai_threat_monitor.models.policy_models import PolicyAction, SecurityPolicy
+from ai_threat_monitor.models.threat_types import RiskLevel, ThreatType
 
 
 class MockBehavior:
