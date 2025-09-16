@@ -24,7 +24,7 @@ from ai_threat_monitor.testing import (
     assert_risk_score,
     create_test_prompts,
 )
-from utils.exceptions import SecurityException, ValidationError
+from ai_threat_monitor.utils.exceptions import SecurityException, ValidationError
 
 
 class TestClientIntegration:
@@ -47,16 +47,14 @@ class TestClientIntegration:
             "Explain quantum physics",
         ]
 
-        # Analyze threat prompts
+        # Analyze threat prompts - expect SecurityException to be thrown
         for prompt in threat_prompts:
-            result = client.analyze(prompt)
-            # Note: In real integration, these might be threats
-            # For now, just verify the analysis completes
-            assert result is not None
-            assert hasattr(result, "is_threat")
-            assert hasattr(result, "risk_score")
-            assert hasattr(result, "confidence")
-            assert result.analysis_time_ms > 0
+            with pytest.raises(SecurityException) as exc_info:
+                client.analyze(prompt)
+
+            # Verify exception contains proper information
+            assert "Threat detected" in str(exc_info.value)
+            assert "SV-1001" in str(exc_info.value)
 
         # Analyze safe prompts
         for prompt in safe_prompts:
