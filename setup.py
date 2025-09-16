@@ -44,6 +44,9 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "PyYAML>=5.1",
+        "requests>=2.25.0",
+        "aiohttp>=3.8.0",
+        "typing-extensions>=4.0.0",
     ],
     extras_require={
         "dev": [
