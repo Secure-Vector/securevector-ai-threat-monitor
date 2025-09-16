@@ -25,15 +25,21 @@ jobs:
     
     - name: Generate development version
       run: |
-        # Create a unique dev version with timestamp and commit hash
-        DEV_VERSION="1.0.0.dev$(date +%Y%m%d%H%M%S)+$(git rev-parse --short HEAD)"
+        # Create a unique dev version with timestamp (no local identifier)
+        # Format: 1.0.0.devYYYYMMDDHHMMSS (PEP 440 compliant)
+        TIMESTAMP=$(date +%Y%m%d%H%M%S)
+        DEV_VERSION="1.0.0.dev${TIMESTAMP}"
         echo "DEV_VERSION=$DEV_VERSION" >> $GITHUB_ENV
+        
         # Update version in __init__.py
         sed -i "s/__version__ = \".*\"/__version__ = \"$DEV_VERSION\"/" src/ai_threat_monitor/__init__.py
+        
         # Use a test-specific package name to avoid conflicts
         sed -i "s/name=\"securevector-ai-monitor\"/name=\"securevector-ai-monitor-dev\"/" setup.py
+        
         echo "Using development version: $DEV_VERSION"
         echo "Using test package name: securevector-ai-monitor-dev"
+        echo "Git commit: $(git rev-parse --short HEAD)"
     
     - name: Build package
       run: python -m build
