@@ -10,8 +10,24 @@ import hashlib
 import hmac
 import secrets
 from typing import List, Dict, Any, Optional, Union, Protocol, TypeVar, Generic, overload
-from typing_extensions import Literal, TypedDict, ParamSpec, Concatenate
 import logging
+
+# Handle typing_extensions imports with fallbacks for older Python versions
+try:
+    from typing_extensions import Literal, TypedDict, ParamSpec, Concatenate
+except ImportError:
+    try:
+        # Python 3.8+ has some of these in typing
+        from typing import Literal, TypedDict
+        # Create dummy types for missing ones
+        ParamSpec = TypeVar
+        Concatenate = Any
+    except ImportError:
+        # Fallback for older Python versions
+        Literal = Any
+        TypedDict = dict
+        ParamSpec = TypeVar
+        Concatenate = Any
 
 from .models.analysis_result import AnalysisResult, ThreatDetection, DetectionMethod
 from .models.threat_types import ThreatType, RiskLevel

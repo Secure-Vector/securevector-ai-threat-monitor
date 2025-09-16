@@ -12,9 +12,25 @@ from typing import (
     Dict, List, Any, Optional, Union, Protocol, TypeVar, Generic,
     Callable, Awaitable, ContextManager, AsyncContextManager, TYPE_CHECKING
 )
-from typing_extensions import Literal, TypedDict, ParamSpec, NotRequired
 from abc import abstractmethod
 from datetime import datetime
+
+# Handle typing_extensions imports with fallbacks
+try:
+    from typing_extensions import Literal, TypedDict, ParamSpec, NotRequired
+except ImportError:
+    try:
+        # Python 3.8+ has some of these in typing
+        from typing import Literal, TypedDict
+        # Create dummy types for missing ones
+        ParamSpec = TypeVar
+        NotRequired = Any
+    except ImportError:
+        # Fallback for older Python versions
+        Literal = Any
+        TypedDict = dict
+        ParamSpec = TypeVar
+        NotRequired = Any
 
 # Forward references to avoid circular imports
 if TYPE_CHECKING:
