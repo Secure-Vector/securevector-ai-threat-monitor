@@ -1,0 +1,66 @@
+name: "Financial Services Security"
+description: "Security patterns specific to financial services and banking"
+version: "1.0.0"
+category: "finance"
+
+patterns:
+  - pattern: "(?:account|bank\\s+account)\\s+(?:numbers?|details|information)"
+    risk_score: 97
+    description: "Bank account information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:credit\\s+card|debit\\s+card|card)\\s+(?:numbers?|details|information)"
+    risk_score: 98
+    description: "Payment card information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:routing\\s+number|swift\\s+code|iban)"
+    risk_score: 95
+    description: "Banking routing information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:pin|cvv|cvc|security\\s+code)"
+    risk_score: 99
+    description: "Card security code request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:transaction|trading)\\s+(?:history|records?|logs?)"
+    risk_score: 92
+    description: "Transaction history request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:portfolio|investment|holdings?)\\s+(?:information|details|data)"
+    risk_score: 89
+    description: "Investment portfolio information"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:loan|mortgage|credit)\\s+(?:application|details|information)"
+    risk_score: 91
+    description: "Loan information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:salary|income|wages?)\\s+(?:information|details|data)"
+    risk_score: 87
+    description: "Income information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:tax|taxation)\\s+(?:returns?|information|records?)"
+    risk_score: 94
+    description: "Tax information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:wire\\s+transfer|money\\s+transfer)\\s+(?:instructions?|details)"
+    risk_score: 96
+    description: "Wire transfer information request"
+    threat_type: "pii_exposure"
+    
+  - pattern: "(?:aml|anti\\s+money\\s+laundering|kyc|know\\s+your\\s+customer)"
+    risk_score: 83
+    description: "AML/KYC information reference"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:fraud|suspicious\\s+activity)\\s+(?:reports?|alerts?)"
+    risk_score: 88
+    description: "Fraud report access attempt"
+    threat_type: "data_exfiltration"
+

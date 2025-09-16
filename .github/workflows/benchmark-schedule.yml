@@ -1,0 +1,67 @@
+name: Scheduled Benchmarks
+
+on:
+  schedule:
+    # Run benchmarks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.9"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev,benchmark]
+    
+    - name: Run comprehensive benchmarks
+      run: |
+        cd benchmarks
+        python performance_test.py > benchmark_results.txt 2>&1
+      env:
+        BENCHMARK_MODE: "comprehensive"
+    
+    - name: Run CI benchmark tests
+      run: |
+        pytest tests/test_benchmarks.py -v --tb=short > ci_benchmark_results.txt 2>&1
+      continue-on-error: true
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results-${{ github.run_number }}
+        path: |
+          benchmarks/benchmark_results.txt
+          ci_benchmark_results.txt
+        retention-days: 30
+    
+    - name: Create benchmark report
+      run: |
+        echo "# Benchmark Report - $(date)" > benchmark_report.md
+        echo "" >> benchmark_report.md
+        echo "## Comprehensive Benchmarks" >> benchmark_report.md
+        echo '```' >> benchmark_report.md
+        cat benchmarks/benchmark_results.txt >> benchmark_report.md
+        echo '```' >> benchmark_report.md
+        echo "" >> benchmark_report.md
+        echo "## CI Benchmark Tests" >> benchmark_report.md
+        echo '```' >> benchmark_report.md
+        cat ci_benchmark_results.txt >> benchmark_report.md
+        echo '```' >> benchmark_report.md
+    
+    - name: Upload benchmark report
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-report-${{ github.run_number }}
+        path: benchmark_report.md
+        retention-days: 30
+
