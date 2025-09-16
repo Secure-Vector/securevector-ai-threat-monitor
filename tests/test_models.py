@@ -2,17 +2,17 @@
 Unit tests for SecureVector AI Threat Monitor Models
 """
 import pytest
-from ai_threat_monitor.models.analysis_result import ThreatAnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult
 from ai_threat_monitor.models.config_models import OperationMode
 from ai_threat_monitor.models.threat_types import ThreatType
 
 
-class TestThreatAnalysisResult:
-    """Test cases for ThreatAnalysisResult model"""
+class TestAnalysisResult:
+    """Test cases for AnalysisResult model"""
     
     def test_threat_result_creation(self):
         """Test creating a threat analysis result"""
-        result = ThreatAnalysisResult(
+        result = AnalysisResult(
             is_threat=True,
             risk_score=0.8,
             threat_types=['prompt_injection'],
@@ -28,7 +28,7 @@ class TestThreatAnalysisResult:
     
     def test_safe_result_creation(self):
         """Test creating a safe analysis result"""
-        result = ThreatAnalysisResult(
+        result = AnalysisResult(
             is_threat=False,
             risk_score=0.1,
             threat_types=[],
@@ -46,7 +46,7 @@ class TestThreatAnalysisResult:
         """Test risk score validation"""
         # Valid risk scores
         for score in [0.0, 0.5, 1.0]:
-            result = ThreatAnalysisResult(
+            result = AnalysisResult(
                 is_threat=score > 0.5,
                 risk_score=score,
                 threat_types=[],
@@ -62,7 +62,7 @@ class TestThreatAnalysisResult:
         """Test confidence validation"""
         # Valid confidence scores
         for confidence in [0.0, 0.5, 1.0]:
-            result = ThreatAnalysisResult(
+            result = AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],
@@ -74,7 +74,7 @@ class TestThreatAnalysisResult:
     def test_multiple_threat_types(self):
         """Test result with multiple threat types"""
         threat_types = ['prompt_injection', 'data_exfiltration', 'jailbreak']
-        result = ThreatAnalysisResult(
+        result = AnalysisResult(
             is_threat=True,
             risk_score=0.9,
             threat_types=threat_types,

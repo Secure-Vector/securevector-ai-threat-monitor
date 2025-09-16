@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 from ai_threat_monitor import SecureVectorClient
 from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.models.analysis_result import ThreatAnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult
 
 
 class TestPerformanceBenchmarks:
@@ -22,7 +22,7 @@ class TestPerformanceBenchmarks:
         
         # Mock the analyze method for consistent CI results
         with patch.object(client, 'analyze') as mock_analyze:
-            mock_analyze.return_value = ThreatAnalysisResult(
+            mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],
@@ -56,7 +56,7 @@ class TestPerformanceBenchmarks:
         # Mock batch analyze method
         with patch.object(client, 'analyze_batch') as mock_analyze_batch:
             mock_results = [
-                ThreatAnalysisResult(
+                AnalysisResult(
                     is_threat=False,
                     risk_score=0.1,
                     threat_types=[],
@@ -89,7 +89,7 @@ class TestPerformanceBenchmarks:
         
         # Mock analyze method
         with patch.object(client, 'analyze') as mock_analyze:
-            mock_analyze.return_value = ThreatAnalysisResult(
+            mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],
@@ -118,7 +118,7 @@ class TestPerformanceBenchmarks:
         
         # Mock analyze method
         with patch.object(client, 'analyze') as mock_analyze:
-            mock_analyze.return_value = ThreatAnalysisResult(
+            mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],
@@ -163,7 +163,7 @@ class TestPerformanceBenchmarks:
             # Simulate cache miss (first call) vs cache hit (subsequent calls)
             analysis_time = 50.0 if call_count == 1 else 5.0
             
-            return ThreatAnalysisResult(
+            return AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],

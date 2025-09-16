@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 from ai_threat_monitor import SecureVectorClient
 from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.models.analysis_result import ThreatAnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult
 
 
 class TestSecureVectorClient:
@@ -17,7 +17,7 @@ class TestSecureVectorClient:
         """Test client initialization in local mode"""
         client = SecureVectorClient(mode=OperationMode.LOCAL)
         assert client is not None
-        assert client.mode == OperationMode.LOCAL
+        assert client.config.mode == OperationMode.LOCAL
     
     def test_client_initialization_hybrid_mode(self, mock_api_key):
         """Test client initialization in hybrid mode"""
@@ -26,7 +26,7 @@ class TestSecureVectorClient:
             api_key=mock_api_key
         )
         assert client is not None
-        assert client.mode == OperationMode.HYBRID
+        assert client.config.mode == OperationMode.HYBRID
     
     def test_client_initialization_api_mode(self, mock_api_key):
         """Test client initialization in API mode"""
@@ -35,7 +35,7 @@ class TestSecureVectorClient:
             api_key=mock_api_key
         )
         assert client is not None
-        assert client.mode == OperationMode.API
+        assert client.config.mode == OperationMode.API
     
     def test_client_initialization_without_api_key_fails(self):
         """Test that API mode fails without API key"""
@@ -46,7 +46,7 @@ class TestSecureVectorClient:
     def test_analyze_safe_prompt(self, mock_analyze, sample_prompts):
         """Test analysis of safe prompts"""
         # Mock the analyze method to return a safe result
-        mock_result = ThreatAnalysisResult(
+        mock_result = AnalysisResult(
             is_threat=False,
             risk_score=0.1,
             threat_types=[],
@@ -67,7 +67,7 @@ class TestSecureVectorClient:
     def test_analyze_threat_prompt(self, mock_analyze, sample_prompts):
         """Test analysis of threat prompts"""
         # Mock the analyze method to return a threat result
-        mock_result = ThreatAnalysisResult(
+        mock_result = AnalysisResult(
             is_threat=True,
             risk_score=0.9,
             threat_types=['prompt_injection'],
@@ -103,7 +103,7 @@ class TestSecureVectorClient:
         """Test batch analysis"""
         # Mock batch analysis results
         mock_results = [
-            ThreatAnalysisResult(
+            AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
                 threat_types=[],
@@ -118,7 +118,7 @@ class TestSecureVectorClient:
         
         assert len(results) == len(sample_prompts['safe'])
         for result in results:
-            assert isinstance(result, ThreatAnalysisResult)
+            assert isinstance(result, AnalysisResult)
     
     def test_analyze_batch_empty_list(self):
         """Test batch analysis with empty list"""

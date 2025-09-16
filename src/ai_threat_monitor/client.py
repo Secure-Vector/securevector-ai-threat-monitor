@@ -9,7 +9,6 @@ import time
 import hashlib
 import hmac
 import secrets
-from ..utils.security import secure_cache_key_derivation
 from typing import List, Dict, Any, Optional, Union, Protocol, TypeVar, Generic, overload
 from typing_extensions import Literal, TypedDict, ParamSpec, Concatenate
 import logging
@@ -22,14 +21,29 @@ from .types import (
     StatisticsDict, HealthStatusDict, OperationModeType,
     BaseSecureVectorClient, SyncClientContextManager
 )
-from ..core.modes.mode_factory import ModeFactory
-from ..utils.logger import get_logger
-from ..utils.exceptions import (
-    SecurityException, ConfigurationError, ValidationError, 
-    ErrorCode, APIError
-)
-from ..utils.performance import PerformanceTracker
-from ..utils.telemetry import get_telemetry_collector, trace_operation, record_event, debug_log
+
+# Use absolute imports to avoid "attempted relative import beyond top-level package" errors
+try:
+    from utils.security import secure_cache_key_derivation
+    from core.modes.mode_factory import ModeFactory
+    from utils.logger import get_logger
+    from utils.exceptions import (
+        SecurityException, ConfigurationError, ValidationError, 
+        ErrorCode, APIError
+    )
+    from utils.performance import PerformanceTracker
+    from utils.telemetry import get_telemetry_collector, trace_operation, record_event, debug_log
+except ImportError:
+    # Fallback to relative imports for package installation
+    from ..utils.security import secure_cache_key_derivation
+    from ..core.modes.mode_factory import ModeFactory
+    from ..utils.logger import get_logger
+    from ..utils.exceptions import (
+        SecurityException, ConfigurationError, ValidationError, 
+        ErrorCode, APIError
+    )
+    from ..utils.performance import PerformanceTracker
+    from ..utils.telemetry import get_telemetry_collector, trace_operation, record_event, debug_log
 
 
 def _constant_time_string_compare(s1: str, s2: str) -> bool:

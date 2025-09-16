@@ -10,11 +10,17 @@ Licensed under the Apache License, Version 2.0
 
 from typing import (
     Dict, List, Any, Optional, Union, Protocol, TypeVar, Generic,
-    Callable, Awaitable, ContextManager, AsyncContextManager
+    Callable, Awaitable, ContextManager, AsyncContextManager, TYPE_CHECKING
 )
 from typing_extensions import Literal, TypedDict, ParamSpec, NotRequired
 from abc import abstractmethod
 from datetime import datetime
+
+# Forward references to avoid circular imports
+if TYPE_CHECKING:
+    from .models.analysis_result import AnalysisResult
+    from .client import SecureVectorClient
+    from .async_client import AsyncSecureVectorClient
 
 # Type variables
 T = TypeVar('T')
