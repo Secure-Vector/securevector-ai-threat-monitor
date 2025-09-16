@@ -43,30 +43,50 @@ jobs:
         # Fix package structure - move top-level modules into ai_threat_monitor package
         echo "🔧 Fixing package structure..."
         
-        # Move utils, core, config, etc. into ai_threat_monitor package
-        if [ -d "src/utils" ]; then
+        # Move top-level modules into ai_threat_monitor package (if they don't already exist there)
+        if [ -d "src/utils" ] && [ ! -d "src/ai_threat_monitor/utils" ]; then
           mv src/utils src/ai_threat_monitor/utils
           echo "Moved utils into ai_threat_monitor package"
+        elif [ -d "src/utils" ] && [ -d "src/ai_threat_monitor/utils" ]; then
+          echo "Merging src/utils into existing src/ai_threat_monitor/utils"
+          cp -r src/utils/* src/ai_threat_monitor/utils/
+          rm -rf src/utils
         fi
         
-        if [ -d "src/core" ]; then
+        if [ -d "src/core" ] && [ ! -d "src/ai_threat_monitor/core" ]; then
           mv src/core src/ai_threat_monitor/core  
           echo "Moved core into ai_threat_monitor package"
+        elif [ -d "src/core" ] && [ -d "src/ai_threat_monitor/core" ]; then
+          echo "Merging src/core into existing src/ai_threat_monitor/core"
+          cp -r src/core/* src/ai_threat_monitor/core/
+          rm -rf src/core
         fi
         
-        if [ -d "src/config" ]; then
+        if [ -d "src/config" ] && [ ! -d "src/ai_threat_monitor/config" ]; then
           mv src/config src/ai_threat_monitor/config
           echo "Moved config into ai_threat_monitor package"
+        elif [ -d "src/config" ] && [ -d "src/ai_threat_monitor/config" ]; then
+          echo "Merging src/config into existing src/ai_threat_monitor/config"
+          cp -r src/config/* src/ai_threat_monitor/config/
+          rm -rf src/config
         fi
         
-        if [ -d "src/engines" ]; then
+        if [ -d "src/engines" ] && [ ! -d "src/ai_threat_monitor/engines" ]; then
           mv src/engines src/ai_threat_monitor/engines
           echo "Moved engines into ai_threat_monitor package"
+        elif [ -d "src/engines" ] && [ -d "src/ai_threat_monitor/engines" ]; then
+          echo "Merging src/engines into existing src/ai_threat_monitor/engines"
+          cp -r src/engines/* src/ai_threat_monitor/engines/
+          rm -rf src/engines
         fi
         
-        if [ -d "src/integrations" ]; then
+        if [ -d "src/integrations" ] && [ ! -d "src/ai_threat_monitor/integrations" ]; then
           mv src/integrations src/ai_threat_monitor/integrations
           echo "Moved integrations into ai_threat_monitor package"
+        elif [ -d "src/integrations" ] && [ -d "src/ai_threat_monitor/integrations" ]; then
+          echo "Merging src/integrations into existing src/ai_threat_monitor/integrations"
+          cp -r src/integrations/* src/ai_threat_monitor/integrations/
+          rm -rf src/integrations
         fi
         
         # Update all API URLs to use development endpoint (prevent accidental production calls)
@@ -100,6 +120,12 @@ jobs:
         
         # Fix __init__.py imports specifically (need relative imports for package root)
         sed -i 's|from utils\.auto_config import|from .utils.auto_config import|g' src/ai_threat_monitor/__init__.py
+        
+        # Fix auto_config.py imports (now that it's inside ai_threat_monitor, use relative imports)
+        if [ -f "src/ai_threat_monitor/utils/auto_config.py" ]; then
+          sed -i 's|from ai_threat_monitor\.models\.config_models|from ..models.config_models|g' src/ai_threat_monitor/utils/auto_config.py
+          echo "Fixed auto_config.py imports to use relative paths"
+        fi
         
         echo "⚠️  Development build with dev API endpoint (dev-api.securevector.io)"
     
