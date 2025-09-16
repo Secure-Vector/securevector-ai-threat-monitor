@@ -15,9 +15,9 @@ from ai_threat_monitor.models.analysis_result import (
     ThreatDetection,
 )
 from ai_threat_monitor.models.config_models import LocalModeConfig
-from utils.exceptions import RuleLoadError
-from utils.logger import get_logger
-from utils.performance import ContextTimer, PerformanceTracker
+from ai_threat_monitor.utils.exceptions import RuleLoadError
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.performance import ContextTimer, PerformanceTracker
 
 from .local_analyzer import LocalAnalyzer
 from .local_cache import LocalCache

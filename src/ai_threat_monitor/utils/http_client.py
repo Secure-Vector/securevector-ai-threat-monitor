@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
-from utils.exceptions import APIError, AuthenticationError, ErrorCode, RateLimitError
-from utils.retry import RetryConfig, with_async_retry, with_retry
-from utils.telemetry import debug_log, record_metric
+from .exceptions import APIError, AuthenticationError, ErrorCode, RateLimitError
+from .retry import RetryConfig, with_async_retry, with_retry
+from .telemetry import debug_log, record_metric
 
 
 @dataclass

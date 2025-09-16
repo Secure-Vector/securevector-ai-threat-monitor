@@ -29,7 +29,7 @@ from typing import (
     Union,
 )
 
-from utils.telemetry import record_metric, trace_operation
+from .utils.telemetry import record_metric, trace_operation
 
 from .models.analysis_result import AnalysisResult
 from .types import AsyncBaseSecureVectorClient, BaseSecureVectorClient

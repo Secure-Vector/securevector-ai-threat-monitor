@@ -44,18 +44,18 @@ from .types import (
 
 # Use absolute imports to avoid "attempted relative import beyond top-level package" errors
 try:
-    from core.modes.mode_factory import ModeFactory
-    from utils.exceptions import (
+    from .core.modes.mode_factory import ModeFactory
+    from .utils.exceptions import (
         APIError,
         ConfigurationError,
         ErrorCode,
         SecurityException,
         ValidationError,
     )
-    from utils.logger import get_logger
-    from utils.performance import PerformanceTracker
-    from utils.security import secure_cache_key_derivation
-    from utils.telemetry import debug_log, get_telemetry_collector, record_event, trace_operation
+    from .utils.logger import get_logger
+    from .utils.performance import PerformanceTracker
+    from .utils.security import secure_cache_key_derivation
+    from .utils.telemetry import debug_log, get_telemetry_collector, record_event, trace_operation
 except ImportError:
     # Fallback to relative imports for package installation
     from ..core.modes.mode_factory import ModeFactory

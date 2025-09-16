@@ -21,7 +21,7 @@ from ai_threat_monitor.models.analysis_result import (
     ThreatDetection,
 )
 from ai_threat_monitor.models.config_models import OperationMode
-from utils.exceptions import (
+from .exceptions import (
     APIError,
     AuthenticationError,
     CircuitBreakerError,
@@ -29,8 +29,8 @@ from utils.exceptions import (
     ErrorCode,
     RateLimitError,
 )
-from utils.retry import CircuitBreaker, RetryConfig, with_async_retry, with_retry
-from utils.telemetry import debug_log, record_event
+from .retry import CircuitBreaker, RetryConfig, with_async_retry, with_retry
+from .telemetry import debug_log, record_event
 
 
 class NetworkResilienceManager:

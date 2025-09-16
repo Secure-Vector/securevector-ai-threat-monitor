@@ -19,9 +19,9 @@ from ai_threat_monitor.models.analysis_result import (
     ThreatDetection,
 )
 from ai_threat_monitor.models.config_models import APIModeConfig
-from utils.exceptions import APIError, AuthenticationError, RateLimitError
-from utils.logger import get_logger
-from utils.security import mask_sensitive_value
+from ai_threat_monitor.utils.exceptions import APIError, AuthenticationError, RateLimitError
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.security import mask_sensitive_value
 
 
 class APIAnalyzer:

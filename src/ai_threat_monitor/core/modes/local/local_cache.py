@@ -11,8 +11,8 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple
 
 from ai_threat_monitor.models.analysis_result import AnalysisResult
-from utils.logger import get_logger
-from utils.security import (
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.security import (
     constant_time_cache_lookup,
     sanitize_output_for_logging,
     secure_cache_eviction,

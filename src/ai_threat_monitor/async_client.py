@@ -12,17 +12,17 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Union
 
-from core.modes.mode_factory import ModeFactory
-from utils.exceptions import (
+from .core.modes.mode_factory import ModeFactory
+from .utils.exceptions import (
     APIError,
     ConfigurationError,
     ErrorCode,
     SecurityException,
     ValidationError,
 )
-from utils.logger import get_logger
-from utils.performance import PerformanceTracker
-from utils.security import secure_cache_key_derivation
+from .utils.logger import get_logger
+from .utils.performance import PerformanceTracker
+from .utils.security import secure_cache_key_derivation
 
 from .models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from .models.config_models import OperationMode, SDKConfig

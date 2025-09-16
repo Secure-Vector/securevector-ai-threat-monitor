@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ai_threat_monitor.models.config_models import LogLevel, OperationMode, SDKConfig
-from utils.exceptions import ConfigurationError, ErrorCode
-from utils.logger import get_logger
+from .exceptions import ConfigurationError, ErrorCode
+from .logger import get_logger
 
 
 class AutoConfigurator:

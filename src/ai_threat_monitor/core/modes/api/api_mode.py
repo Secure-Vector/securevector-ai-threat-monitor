@@ -15,10 +15,10 @@ from ai_threat_monitor.models.analysis_result import (
     ThreatDetection,
 )
 from ai_threat_monitor.models.config_models import APIModeConfig
-from utils.exceptions import APIError, AuthenticationError, RateLimitError
-from utils.logger import get_logger
-from utils.performance import ContextTimer, PerformanceTracker
-from utils.security import secure_cache_key_derivation
+from ai_threat_monitor.utils.exceptions import APIError, AuthenticationError, RateLimitError
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.performance import ContextTimer, PerformanceTracker
+from ai_threat_monitor.utils.security import secure_cache_key_derivation
 
 from .api_analyzer import APIAnalyzer
 from .api_cache import APICache
@@ -185,7 +185,7 @@ class APIMode:
         """
         # Import local mode for fallback
         try:
-            from ....ai_threat_monitor.models.config_models import LocalModeConfig
+            from ai_threat_monitor.models.config_models import LocalModeConfig
             from ..local.local_mode import LocalMode
 
             # Create minimal local config

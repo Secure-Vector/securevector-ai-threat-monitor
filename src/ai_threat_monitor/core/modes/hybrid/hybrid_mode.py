@@ -15,9 +15,9 @@ from ai_threat_monitor.models.analysis_result import (
     ThreatDetection,
 )
 from ai_threat_monitor.models.config_models import APIModeConfig, HybridModeConfig, LocalModeConfig
-from utils.exceptions import APIError, ConfigurationError
-from utils.logger import get_logger
-from utils.performance import ContextTimer, PerformanceTracker
+from ai_threat_monitor.utils.exceptions import APIError, ConfigurationError
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.performance import ContextTimer, PerformanceTracker
 
 from ..api.api_mode import APIMode
 from ..local.local_mode import LocalMode

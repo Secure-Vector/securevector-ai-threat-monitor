@@ -20,10 +20,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TextIO
 
-from utils.exceptions import APIError, ConfigurationError, SecurityException
-from utils.logger import get_logger
-from utils.retry import API_RETRY_CONFIG, RetryConfig
-from utils.telemetry import TelemetryCollector, get_telemetry_collector
+from .utils.exceptions import APIError, ConfigurationError, SecurityException
+from .utils.logger import get_logger
+from .utils.retry import API_RETRY_CONFIG, RetryConfig
+from .utils.telemetry import TelemetryCollector, get_telemetry_collector
 
 from .async_client import AsyncSecureVectorClient
 from .client import SecureVectorClient

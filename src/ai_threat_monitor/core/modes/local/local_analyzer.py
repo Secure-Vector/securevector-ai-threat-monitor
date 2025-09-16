@@ -16,9 +16,9 @@ import yaml
 from ai_threat_monitor.models.analysis_result import ThreatDetection
 from ai_threat_monitor.models.config_models import LocalModeConfig
 from ai_threat_monitor.models.threat_types import ThreatType
-from utils.exceptions import RuleLoadError
-from utils.logger import get_logger
-from utils.security import (
+from ai_threat_monitor.utils.exceptions import RuleLoadError
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.security import (
     PathTraversalError,
     RegexSecurityError,
     RegexTimeoutError,

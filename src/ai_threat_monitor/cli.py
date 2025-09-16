@@ -11,8 +11,8 @@ import os
 import sys
 from typing import Any, Dict, Optional
 
-from utils.exceptions import APIError, ConfigurationError, SecurityException
-from utils.logger import get_security_logger
+from .utils.exceptions import APIError, ConfigurationError, SecurityException
+from .utils.logger import get_security_logger
 
 from .client import SecureVectorClient
 from .models.config_models import OperationMode, SDKConfig

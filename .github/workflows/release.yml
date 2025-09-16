@@ -24,26 +24,8 @@ jobs:
     
     - name: Fix package structure
       run: |
-        echo "🔧 Fixing package structure for production release..."
-        
-        # Move top-level modules into ai_threat_monitor package (if they don't already exist there)
-        if [ -d "src/utils" ] && [ ! -d "src/ai_threat_monitor/utils" ]; then
-          mv src/utils src/ai_threat_monitor/utils
-          echo "Moved utils into ai_threat_monitor package"
-        elif [ -d "src/utils" ] && [ -d "src/ai_threat_monitor/utils" ]; then
-          echo "Merging src/utils into existing src/ai_threat_monitor/utils"
-          cp -r src/utils/* src/ai_threat_monitor/utils/
-          rm -rf src/utils
-        fi
-        
-        if [ -d "src/core" ] && [ ! -d "src/ai_threat_monitor/core" ]; then
-          mv src/core src/ai_threat_monitor/core  
-          echo "Moved core into ai_threat_monitor package"
-        elif [ -d "src/core" ] && [ -d "src/ai_threat_monitor/core" ]; then
-          echo "Merging src/core into existing src/ai_threat_monitor/core"
-          cp -r src/core/* src/ai_threat_monitor/core/
-          rm -rf src/core
-        fi
+        # Package structure is now correct - core and utils are already in ai_threat_monitor package
+        echo "✅ Package structure verified for production - all modules are in ai_threat_monitor package"
         
         if [ -d "src/config" ] && [ ! -d "src/ai_threat_monitor/config" ]; then
           mv src/config src/ai_threat_monitor/config

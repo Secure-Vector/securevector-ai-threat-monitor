@@ -8,8 +8,8 @@ Licensed under the Apache License, Version 2.0
 from typing import Union
 
 from ai_threat_monitor.models.config_models import OperationMode, SDKConfig
-from utils.exceptions import ConfigurationError, ModeNotAvailableError
-from utils.logger import get_logger
+from ai_threat_monitor.utils.exceptions import ConfigurationError, ModeNotAvailableError
+from ai_threat_monitor.utils.logger import get_logger
 
 
 class ModeFactory:

@@ -11,8 +11,8 @@ from typing import Any, Dict, Optional
 
 from ai_threat_monitor.models.analysis_result import AnalysisResult
 from ai_threat_monitor.models.config_models import HybridModeConfig
-from utils.logger import get_logger
-from utils.performance import PerformanceTracker
+from ai_threat_monitor.utils.logger import get_logger
+from ai_threat_monitor.utils.performance import PerformanceTracker
 
 
 class SmartRouter:
