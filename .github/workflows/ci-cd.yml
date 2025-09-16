@@ -197,6 +197,21 @@ jobs:
           echo "Fixed auto_config.py imports to use relative paths"
         fi
         
+        # Additional comprehensive import fixes for all moved files
+        echo "🔧 Comprehensive import fixes for all moved modules..."
+        
+        # Fix any remaining absolute imports that should be relative within the package
+        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.models\.|from ..models.|g' {} \;
+        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.utils\.|from ..utils.|g' {} \;
+        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.core\.|from ..core.|g' {} \;
+        
+        # But fix back the __init__.py which needs different relative imports
+        sed -i 's|from \.\.models\.|from .models.|g' src/ai_threat_monitor/__init__.py
+        sed -i 's|from \.\.utils\.|from .utils.|g' src/ai_threat_monitor/__init__.py
+        sed -i 's|from \.\.core\.|from .core.|g' src/ai_threat_monitor/__init__.py
+        
+        echo "✅ All import paths fixed"
+        
         echo "✅ Package structure fixed for testing"
     
     - name: Install dependencies
