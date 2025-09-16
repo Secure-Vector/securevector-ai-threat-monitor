@@ -117,6 +117,23 @@ jobs:
         
         echo "✅ All import paths fixed"
         
+        # Ensure all directories have __init__.py files
+        echo "🔍 Ensuring all Python packages have __init__.py files..."
+        for dir in src/ai_threat_monitor/*/; do
+          if [ -d "$dir" ] && [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
+        # Also check nested directories
+        find src/ai_threat_monitor -type d -mindepth 2 | while read dir; do
+          if [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
         echo "✅ Package structure fixed for production release"
     
     - name: Security scan before production release

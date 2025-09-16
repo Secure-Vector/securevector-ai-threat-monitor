@@ -151,6 +151,41 @@ jobs:
         sed -i 's|from \.\.core\.|from .core.|g' src/ai_threat_monitor/__init__.py
         
         echo "✅ All import paths fixed"
+        
+        # Debug: Show final package structure
+        echo "📦 Final package structure:"
+        find src/ai_threat_monitor -type f -name "*.py" | head -20
+        echo ""
+        echo "📁 Directory structure:"
+        ls -la src/ai_threat_monitor/
+        echo ""
+        echo "📁 Models directory:"
+        ls -la src/ai_threat_monitor/models/ || echo "❌ models directory not found"
+        echo ""
+        echo "📁 Utils directory:"  
+        ls -la src/ai_threat_monitor/utils/ || echo "❌ utils directory not found"
+        echo ""
+        echo "🔍 Checking for missing __init__.py files:"
+        
+        # Ensure all directories have __init__.py files
+        for dir in src/ai_threat_monitor/*/; do
+          if [ -d "$dir" ] && [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
+        # Also check nested directories
+        find src/ai_threat_monitor -type d -mindepth 2 | while read dir; do
+          if [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
+        # Check nested directories too
+        find src/ai_threat_monitor -type d -exec test -e '{}/__init__.py' \; -print || find src/ai_threat_monitor -type d ! -path "src/ai_threat_monitor/__pycache__*" -exec sh -c 'test -e "$1/__init__.py" || echo "Missing __init__.py in: $1"' _ {} \;
+        
         echo "⚠️  Development build with dev API endpoint (dev-api.securevector.io)"
     
     - name: Security scan before build
