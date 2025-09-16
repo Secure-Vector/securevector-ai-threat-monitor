@@ -69,7 +69,14 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "ai_threat_monitor": ["rules/**/*.yml", "rules/**/*.yaml"],
+        "ai_threat_monitor": [
+            "rules/**/*.yml",
+            "rules/**/*.yaml",
+            "rules/*.md",
+            "rules/README.md",
+            "rules/RULES_ATTRIBUTION.md",
+            "rules/LICENSE_NOTICE.md"
+        ],
         "": ["NOTICE"],
     },
     entry_points={

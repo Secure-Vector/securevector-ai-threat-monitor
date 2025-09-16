@@ -68,7 +68,7 @@ class LocalModeConfig(ModeConfig):
 
     def __post_init__(self):
         if self.rules_path is None:
-            # Default to bundled rules (now inside the package)
+            # Default to bundled rules (moved into package during build)
             self.rules_path = os.path.join(os.path.dirname(__file__), "../rules/bundled")
 
 

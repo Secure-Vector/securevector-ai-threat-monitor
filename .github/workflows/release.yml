@@ -67,6 +67,23 @@ jobs:
         echo "✅ Current imports are already mostly correct - minimal fixes needed"
         echo "✅ Absolute imports like 'from ai_threat_monitor.models.analysis_result import' work correctly"
         echo "✅ Root-level relative imports like 'from .models.analysis_result import' work correctly"
+
+        # Ensure rules directory is in the right place for packaging
+        echo "🔧 Ensuring rules directory is properly positioned for packaging..."
+        if [ -d "rules" ] && [ ! -d "src/ai_threat_monitor/rules" ]; then
+          echo "Moving rules directory into package structure"
+          mv rules src/ai_threat_monitor/rules
+        elif [ -d "rules" ] && [ -d "src/ai_threat_monitor/rules" ]; then
+          echo "Rules directory already exists in package - removing duplicate"
+          rm -rf rules
+        fi
+
+        if [ -d "src/ai_threat_monitor/rules" ]; then
+          echo "✅ Rules directory is correctly positioned in package"
+        else
+          echo "❌ Rules directory not found - this may cause runtime errors"
+          ls -la src/ai_threat_monitor/
+        fi
         
         # Additional comprehensive import fixes for all moved files
         echo "🔧 Comprehensive import fixes for all moved modules..."
