@@ -108,13 +108,13 @@ jobs:
         
         # Additional comprehensive import fixes for all moved files
         echo "🔧 Comprehensive import fixes for all moved modules..."
-        
-        # Fix any remaining absolute imports that should be relative within the package
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.models\.|from ..models.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.utils\.|from ..utils.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.core\.|from ..core.|g' {} \;
-        
-        # But fix back the __init__.py which needs different relative imports
+
+        # IMPORTANT: Keep absolute imports for models, utils, and core - they work correctly
+        # The absolute import pattern 'from ai_threat_monitor.models.analysis_result import' is correct
+        # Do NOT convert these to relative imports as it breaks the package structure
+        echo "✅ Keeping absolute imports for ai_threat_monitor.models.*, ai_threat_monitor.utils.*, ai_threat_monitor.core.*"
+
+        # Only fix root-level files that need relative imports
         sed -i 's|from \.\.models\.|from .models.|g' src/ai_threat_monitor/__init__.py
         sed -i 's|from \.\.utils\.|from .utils.|g' src/ai_threat_monitor/__init__.py
         sed -i 's|from \.\.core\.|from .core.|g' src/ai_threat_monitor/__init__.py
@@ -159,7 +159,50 @@ jobs:
         fi
         
         echo "✅ Production security scan passed"
-    
+
+    - name: Pre-build validation
+      run: |
+        echo "🔍 Running pre-build import validation..."
+
+        # Test that all critical imports work correctly
+        PYTHONPATH=src python3 -c "
+        try:
+            from ai_threat_monitor import SecureVectorClient, AsyncSecureVectorClient
+            from ai_threat_monitor.core.modes import APIMode, LocalMode, HybridMode
+            from ai_threat_monitor.models import AnalysisResult, ThreatDetection
+            from ai_threat_monitor.testing import MockSecureVectorClient, create_test_prompts
+            print('✅ All critical imports successful')
+        except Exception as e:
+            print(f'❌ Pre-build import test failed: {e}')
+            import traceback
+            traceback.print_exc()
+            exit(1)
+        "
+
+        # Test basic functionality
+        PYTHONPATH=src python3 -c "
+        try:
+            from ai_threat_monitor import SecureVectorClient
+            client = SecureVectorClient()
+            result = client.analyze('Hello world')
+            assert hasattr(result, 'is_threat')
+            print('✅ Basic functionality works')
+        except Exception as e:
+            print(f'❌ Basic functionality test failed: {e}')
+            import traceback
+            traceback.print_exc()
+            exit(1)
+        "
+
+        # Check for problematic relative imports that would break the package
+        if grep -E "from \.\.(utils|models|core)" src/ai_threat_monitor/core/modes/api/api_mode.py 2>/dev/null; then
+            echo "❌ Found problematic relative imports in api_mode.py"
+            echo "These will cause 'ModuleNotFoundError: No module named ai_threat_monitor.core.modes.models'"
+            exit 1
+        fi
+
+        echo "✅ Pre-build validation passed"
+
     - name: Build package
       run: python -m build
     

@@ -199,13 +199,13 @@ jobs:
         
         # Additional comprehensive import fixes for all moved files
         echo "🔧 Comprehensive import fixes for all moved modules..."
-        
-        # Fix any remaining absolute imports that should be relative within the package
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.models\.|from ..models.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.utils\.|from ..utils.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from ai_threat_monitor\.core\.|from ..core.|g' {} \;
-        
-        # But fix back the __init__.py which needs different relative imports
+
+        # IMPORTANT: Keep absolute imports for models, utils, and core - they work correctly
+        # The absolute import pattern 'from ai_threat_monitor.models.analysis_result import' is correct
+        # Do NOT convert these to relative imports as it breaks the package structure
+        echo "✅ Keeping absolute imports for ai_threat_monitor.models.*, ai_threat_monitor.utils.*, ai_threat_monitor.core.*"
+
+        # Only fix root-level files that need relative imports
         sed -i 's|from \.\.models\.|from .models.|g' src/ai_threat_monitor/__init__.py
         sed -i 's|from \.\.utils\.|from .utils.|g' src/ai_threat_monitor/__init__.py
         sed -i 's|from \.\.core\.|from .core.|g' src/ai_threat_monitor/__init__.py
