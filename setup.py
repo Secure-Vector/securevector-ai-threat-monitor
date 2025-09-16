@@ -69,7 +69,8 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "": ["rules/*.yaml", "NOTICE"],
+        "ai_threat_monitor": ["rules/**/*.yml", "rules/**/*.yaml"],
+        "": ["NOTICE"],
     },
     entry_points={
         "console_scripts": [

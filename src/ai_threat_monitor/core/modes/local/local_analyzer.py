@@ -75,9 +75,9 @@ class LocalAnalyzer:
             try:
                 # Validate that the rules path is within allowed directories
                 if not rules_path.exists():
-                    # Try bundled rules as fallback
+                    # Try bundled rules as fallback (now inside the package)
                     bundled_path = (
-                        Path(__file__).parent.parent.parent.parent.parent / "rules" / "bundled"
+                        Path(__file__).parent.parent.parent.parent / "rules" / "bundled"
                     )
                     bundled_path = bundled_path.resolve()
 
@@ -94,9 +94,9 @@ class LocalAnalyzer:
 
             except PathTraversalError as e:
                 self.logger.error(f"Path traversal detected in rules path: {e}")
-                # Fallback to bundled rules
+                # Fallback to bundled rules (now inside the package)
                 bundled_path = (
-                    Path(__file__).parent.parent.parent.parent.parent / "rules" / "bundled"
+                    Path(__file__).parent.parent.parent.parent / "rules" / "bundled"
                 )
                 bundled_path = bundled_path.resolve()
                 if bundled_path.exists():
