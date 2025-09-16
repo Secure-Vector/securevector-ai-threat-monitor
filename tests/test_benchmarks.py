@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.analysis_result import AnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod
 from ai_threat_monitor.models.config_models import OperationMode
 
 
@@ -26,10 +26,11 @@ class TestPerformanceBenchmarks:
         with patch.object(client, "analyze") as mock_analyze:
             mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
-                risk_score=0.1,
-                threat_types=[],
+                risk_score=0,
                 confidence=0.95,
+                detections=[],
                 analysis_time_ms=15.0,
+                detection_method=DetectionMethod.LOCAL_RULES,
             )
 
             times = []
@@ -60,10 +61,11 @@ class TestPerformanceBenchmarks:
             mock_results = [
                 AnalysisResult(
                     is_threat=False,
-                    risk_score=0.1,
-                    threat_types=[],
+                    risk_score=0,
                     confidence=0.95,
+                    detections=[],
                     analysis_time_ms=10.0,
+                    detection_method=DetectionMethod.LOCAL_RULES,
                 )
                 for _ in sample_prompts["safe"]
             ]
@@ -97,10 +99,11 @@ class TestPerformanceBenchmarks:
         with patch.object(client, "analyze") as mock_analyze:
             mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
-                risk_score=0.1,
-                threat_types=[],
+                risk_score=0,
+                detections=[],
                 confidence=0.95,
                 analysis_time_ms=15.0,
+                detection_method=DetectionMethod.LOCAL_RULES,
             )
 
             # Process multiple prompts
@@ -128,10 +131,11 @@ class TestPerformanceBenchmarks:
         with patch.object(client, "analyze") as mock_analyze:
             mock_analyze.return_value = AnalysisResult(
                 is_threat=False,
-                risk_score=0.1,
-                threat_types=[],
+                risk_score=0,
+                detections=[],
                 confidence=0.95,
                 analysis_time_ms=15.0,
+                detection_method=DetectionMethod.LOCAL_RULES,
             )
 
             def analyze_prompt(prompt):
@@ -174,12 +178,13 @@ class TestPerformanceBenchmarks:
             analysis_time = 50.0 if call_count == 1 else 5.0
 
             return AnalysisResult(
-                is_threat=False,
-                risk_score=0.1,
-                threat_types=[],
-                confidence=0.95,
-                analysis_time_ms=analysis_time,
-            )
+                    is_threat=False,
+                    risk_score=0,
+                    confidence=0.95,
+                    detections=[],
+                    analysis_time_ms=analysis_time,
+                    detection_method=DetectionMethod.LOCAL_RULES,
+                )
 
         with patch.object(client, "analyze", side_effect=mock_analyze_with_cache):
             # First call (cache miss)

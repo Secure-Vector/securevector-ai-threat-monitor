@@ -4,7 +4,7 @@ Unit tests for SecureVector AI Threat Monitor Models
 
 import pytest
 
-from ai_threat_monitor.models.analysis_result import AnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from ai_threat_monitor.models.config_models import OperationMode
 from ai_threat_monitor.models.threat_types import ThreatType
 
@@ -16,14 +16,20 @@ class TestAnalysisResult:
         """Test creating a threat analysis result"""
         result = AnalysisResult(
             is_threat=True,
-            risk_score=0.8,
-            threat_types=["prompt_injection"],
+            risk_score=80,
+            detections=[ThreatDetection(
+                threat_type="prompt_injection",
+                risk_score=80,
+                confidence=0.95,
+                description="Prompt injection detected"
+            )],
             confidence=0.95,
             analysis_time_ms=25.0,
+            detection_method=DetectionMethod.LOCAL_RULES,
         )
 
         assert result.is_threat is True
-        assert result.risk_score == 0.8
+        assert result.risk_score == 80
         assert "prompt_injection" in result.threat_types
         assert result.confidence == 0.95
         assert result.analysis_time_ms == 25.0
@@ -31,11 +37,16 @@ class TestAnalysisResult:
     def test_safe_result_creation(self):
         """Test creating a safe analysis result"""
         result = AnalysisResult(
-            is_threat=False, risk_score=0.1, threat_types=[], confidence=0.98, analysis_time_ms=15.0
+            is_threat=False, 
+            risk_score=1, 
+            detections=[], 
+            confidence=0.98, 
+            analysis_time_ms=15.0,
+            detection_method=DetectionMethod.LOCAL_RULES
         )
 
         assert result.is_threat is False
-        assert result.risk_score == 0.1
+        assert result.risk_score == 1
         assert len(result.threat_types) == 0
         assert result.confidence == 0.98
         assert result.analysis_time_ms == 15.0
@@ -43,14 +54,15 @@ class TestAnalysisResult:
     def test_risk_score_validation(self):
         """Test risk score validation"""
         # Valid risk scores
-        for score in [0.0, 0.5, 1.0]:
+        for score in [0, 50, 100]:
             result = AnalysisResult(
-                is_threat=score > 0.5,
+                is_threat=score > 50,
                 risk_score=score,
-                threat_types=[],
+                detections=[],
                 confidence=0.9,
-                analysis_time_ms=10.0,
-            )
+            analysis_time_ms=10.0,
+            detection_method=DetectionMethod.LOCAL_RULES,
+        )
             assert result.risk_score == score
 
         # Invalid risk scores should be handled gracefully
@@ -62,22 +74,33 @@ class TestAnalysisResult:
         for confidence in [0.0, 0.5, 1.0]:
             result = AnalysisResult(
                 is_threat=False,
-                risk_score=0.1,
-                threat_types=[],
+                risk_score=1,
+                detections=[],
                 confidence=confidence,
-                analysis_time_ms=10.0,
-            )
+            analysis_time_ms=10.0,
+            detection_method=DetectionMethod.LOCAL_RULES,
+        )
             assert result.confidence == confidence
 
     def test_multiple_threat_types(self):
         """Test result with multiple threat types"""
         threat_types = ["prompt_injection", "data_exfiltration", "jailbreak"]
+        detections = [
+            ThreatDetection(
+                threat_type=threat_type,
+                risk_score=90,
+                confidence=0.85,
+                description=f"{threat_type} detected"
+            )
+            for threat_type in threat_types
+        ]
         result = AnalysisResult(
             is_threat=True,
-            risk_score=0.9,
-            threat_types=threat_types,
+            risk_score=90,
+            detections=detections,
             confidence=0.85,
             analysis_time_ms=30.0,
+            detection_method=DetectionMethod.LOCAL_RULES,
         )
 
         assert len(result.threat_types) == 3
@@ -127,7 +150,4 @@ class TestThreatType:
         # This test depends on the actual implementation
         # Adjust based on your ThreatType implementation
         if hasattr(ThreatType, "PROMPT_INJECTION"):
-            assert (
-                str(ThreatType.PROMPT_INJECTION) == "prompt_injection"
-                or str(ThreatType.PROMPT_INJECTION) == "PROMPT_INJECTION"
-            )
+            assert ThreatType.PROMPT_INJECTION.value == "prompt_injection"

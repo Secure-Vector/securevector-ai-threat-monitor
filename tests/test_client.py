@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.analysis_result import AnalysisResult
+from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from ai_threat_monitor.models.config_models import OperationMode
 
 
@@ -43,7 +43,12 @@ class TestSecureVectorClient:
         """Test analysis of safe prompts"""
         # Mock the analyze method to return a safe result
         mock_result = AnalysisResult(
-            is_threat=False, risk_score=0.1, threat_types=[], confidence=0.95, analysis_time_ms=15.0
+            is_threat=False, 
+            risk_score=0, 
+            confidence=0.95, 
+            detections=[], 
+            analysis_time_ms=15.0,
+            detection_method=DetectionMethod.LOCAL_RULES
         )
         mock_analyze.return_value = mock_result
 
@@ -61,10 +66,16 @@ class TestSecureVectorClient:
         # Mock the analyze method to return a threat result
         mock_result = AnalysisResult(
             is_threat=True,
-            risk_score=0.9,
-            threat_types=["prompt_injection"],
+            risk_score=90,
+            detections=[ThreatDetection(
+                threat_type="prompt_injection",
+                risk_score=90,
+                confidence=0.95,
+                description="Prompt injection detected"
+            )],
             confidence=0.95,
             analysis_time_ms=20.0,
+            detection_method=DetectionMethod.LOCAL_RULES,
         )
         mock_analyze.return_value = mock_result
 
@@ -98,10 +109,11 @@ class TestSecureVectorClient:
             AnalysisResult(
                 is_threat=False,
                 risk_score=0.1,
-                threat_types=[],
+                detections=[],
                 confidence=0.95,
                 analysis_time_ms=15.0,
-            )
+                detection_method=DetectionMethod.LOCAL_RULES,
+                )
             for _ in sample_prompts["safe"]
         ]
         mock_analyze_batch.return_value = mock_results

@@ -93,6 +93,9 @@ class AsyncSecureVectorClient:
         try:
             self.mode_handler = ModeFactory.create_handler(self.config)
             self.logger.info(f"Initialized async SecureVector client in {mode.value} mode")
+        except ConfigurationError:
+            # Re-raise ConfigurationError as-is to avoid duplication
+            raise
         except Exception as e:
             self.logger.error(f"Failed to initialize mode handler: {e}")
             raise ConfigurationError(

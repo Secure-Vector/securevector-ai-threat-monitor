@@ -14,7 +14,7 @@ import signal
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 def mask_sensitive_value(value: Optional[str], mask_char: str = "*", show_last: int = 4) -> str:
@@ -287,7 +287,7 @@ def analyze_regex_complexity(pattern: str) -> Dict[str, Any]:
     }
 
 
-def safe_regex_compile(pattern: str, flags: int = 0, timeout: float = 1.0) -> Pattern[str]:
+def safe_regex_compile(pattern: str, flags: int = 0, timeout: float = 1.0) -> re.Pattern:
     """
     Safely compile a regex pattern with ReDoS protection.
 
@@ -329,8 +329,8 @@ def safe_regex_compile(pattern: str, flags: int = 0, timeout: float = 1.0) -> Pa
 
 
 def safe_regex_search(
-    pattern: Pattern[str], text: str, timeout: float = 0.1
-) -> Optional[re.Match[str]]:
+    pattern: re.Pattern, text: str, timeout: float = 0.1
+) -> Optional[re.Match]:
     """
     Safely search text with regex pattern and timeout protection.
 

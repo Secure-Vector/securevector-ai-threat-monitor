@@ -96,7 +96,6 @@ class MockBehavior:
                     detection_method=DetectionMethod.LOCAL_RULES,
                     prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()[:16],
                     timestamp=datetime.utcnow(),
-                    summary=f"Threat detected: {', '.join(config['threat_types'])}",
                 )
 
         # Default response
@@ -109,7 +108,6 @@ class MockBehavior:
             detection_method=DetectionMethod.LOCAL_RULES,
             prompt_hash=hashlib.sha256(prompt.encode()).hexdigest()[:16],
             timestamp=datetime.utcnow(),
-            summary="Safe prompt" if not self.default_is_threat else "Threat detected",
         )
 
 

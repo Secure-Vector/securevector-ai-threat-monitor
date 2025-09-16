@@ -204,6 +204,9 @@ class SecureVectorClient:
         try:
             self.mode_handler = ModeFactory.create_handler(self.config)
             self.logger.info(f"Initialized SecureVector client in {mode.value} mode")
+        except ConfigurationError:
+            # Re-raise ConfigurationError as-is to avoid duplication
+            raise
         except Exception as e:
             self.logger.error(f"Failed to initialize mode handler: {e}")
             raise ConfigurationError(f"Failed to initialize {mode.value} mode: {e}")
@@ -328,8 +331,6 @@ class SecureVectorClient:
                 elapsed = time.time() - start_time
                 min_response_time = 0.01  # Minimum 10ms response time
                 if elapsed < min_response_time:
-                    import time
-
                     time.sleep(min_response_time - elapsed)
 
                 # Return a safe fallback result without exposing error details
