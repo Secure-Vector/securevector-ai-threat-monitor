@@ -5,7 +5,7 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-from .mock_client import MockSecureVectorClient, MockAsyncSecureVectorClient
+from .mock_client import MockSecureVectorClient, MockAsyncSecureVectorClient, MockBehavior
 from .fixtures import (
     create_test_prompts, create_test_results, create_test_config,
     ThreatScenario, TestDataGenerator
@@ -17,7 +17,8 @@ from .assertions import (
 
 __all__ = [
     "MockSecureVectorClient",
-    "MockAsyncSecureVectorClient", 
+    "MockAsyncSecureVectorClient",
+    "MockBehavior",
     "create_test_prompts",
     "create_test_results",
     "create_test_config",
