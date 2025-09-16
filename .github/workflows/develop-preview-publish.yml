@@ -40,13 +40,15 @@ jobs:
         # Add development warning to package description
         sed -i 's/description="Real-time AI threat monitoring\./description="[DEVELOPMENT BUILD] Real-time AI threat monitoring./' setup.py
         
-        # Update default API URL to use a test endpoint (prevent accidental production calls)
-        sed -i 's|api_url: str = "https://api.securevector.io"|api_url: str = "https://api-test.securevector.io"|' src/ai_threat_monitor/models/config_models.py
+        # Update all API URLs to use development endpoint (prevent accidental production calls)
+        sed -i 's|api_url: str = "https://api.securevector.io"|api_url: str = "https://dev-api.securevector.io"|' src/ai_threat_monitor/models/config_models.py
+        sed -i 's|api.securevector.io|dev-api.securevector.io|g' src/core/modes/api/api_analyzer.py
+        sed -i 's|api.securevector.io|dev-api.securevector.io|g' src/ai_threat_monitor/__init__.py
         
         echo "Using development version: $DEV_VERSION"
         echo "Using test package name: securevector-ai-monitor-dev"
         echo "Git commit: $(git rev-parse --short HEAD)"
-        echo "⚠️  Development build with test API endpoint"
+        echo "⚠️  Development build with dev API endpoint (dev-api.securevector.io)"
     
     - name: Security scan before build
       run: |
@@ -60,8 +62,12 @@ jobs:
         fi
         
         # Check for hardcoded production URLs (already handled above, but double-check)
-        if grep -r "api\.securevector\.io" src/ | grep -v "api-test\.securevector\.io"; then
-          echo "❌ Production API URLs still present!"
+        PROD_URLS=$(grep -r "api\.securevector\.io" src/ | grep -v "dev-api\.securevector\.io" || true)
+        if [ -n "$PROD_URLS" ]; then
+          echo "❌ Production API URLs still present:"
+          echo "$PROD_URLS"
+          echo ""
+          echo "These should be replaced with dev-api.securevector.io for development builds"
           exit 1
         fi
         
