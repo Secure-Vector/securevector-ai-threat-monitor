@@ -75,23 +75,45 @@ jobs:
         # Fix import statements to use proper package paths
         echo "🔧 Fixing import statements..."
         
-        # Fix all imports to use proper ai_threat_monitor package paths
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils\.|from ai_threat_monitor.utils.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from core\.|from ai_threat_monitor.core.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from config\.|from ai_threat_monitor.config.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from engines\.|from ai_threat_monitor.engines.|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from integrations\.|from ai_threat_monitor.integrations.|g' {} \;
+        # First, fix root-level files (client.py, async_client.py, etc.) to use single-dot imports
+        echo "🔧 Fixing root-level file imports..."
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils\.|from .utils.|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from core\.|from .core.|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from config\.|from .config.|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from engines\.|from .engines.|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from integrations\.|from .integrations.|g' {} \;
         
-        # Fix imports without dots (direct module imports)
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils import|from ai_threat_monitor.utils import|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from core import|from ai_threat_monitor.core import|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from config import|from ai_threat_monitor.config import|g' {} \;
+        # Fix root-level imports without dots (direct module imports)
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils import|from .utils import|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from core import|from .core import|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from config import|from .config import|g' {} \;
         
-        # Fix specific problematic imports
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils\.exceptions|from ai_threat_monitor.utils.exceptions|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils\.logger|from ai_threat_monitor.utils.logger|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils\.security|from ai_threat_monitor.utils.security|g' {} \;
-        find src/ai_threat_monitor -name "*.py" -type f -exec sed -i 's|from utils\.auto_config|from ai_threat_monitor.utils.auto_config|g' {} \;
+        # Then fix nested files to use double-dot imports (but skip root level)
+        echo "🔧 Fixing nested file imports..."
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils\.|from ai_threat_monitor.utils.|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from core\.|from ai_threat_monitor.core.|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from config\.|from ai_threat_monitor.config.|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from engines\.|from ai_threat_monitor.engines.|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from integrations\.|from ai_threat_monitor.integrations.|g' {} \;
+        
+        # Fix nested imports without dots (direct module imports)
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils import|from ai_threat_monitor.utils import|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from core import|from ai_threat_monitor.core import|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from config import|from ai_threat_monitor.config import|g' {} \;
+        
+        # Fix specific problematic imports - but handle root vs nested differently
+        # Root level files need single-dot imports
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils\.exceptions|from .utils.exceptions|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils\.logger|from .utils.logger|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils\.security|from .utils.security|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from utils\.auto_config|from .utils.auto_config|g' {} \;
+        find src/ai_threat_monitor -maxdepth 1 -name "*.py" -type f -exec sed -i 's|from core\.modes|from .core.modes|g' {} \;
+        
+        # Nested files need absolute imports (will be converted to relative later)
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils\.exceptions|from ai_threat_monitor.utils.exceptions|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils\.logger|from ai_threat_monitor.utils.logger|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils\.security|from ai_threat_monitor.utils.security|g' {} \;
+        find src/ai_threat_monitor -mindepth 2 -name "*.py" -type f -exec sed -i 's|from utils\.auto_config|from ai_threat_monitor.utils.auto_config|g' {} \;
         
         # Fix __init__.py imports specifically (need relative imports for package root)
         sed -i 's|from utils\.auto_config import|from .utils.auto_config import|g' src/ai_threat_monitor/__init__.py
