@@ -8,7 +8,19 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "for\\s+debugging\\s+purposes,\\s+ignore\\s+(safety|guidelines|restrictions|rules)"
+          match: "for\\s+debugging\\s+purposes,\\s+ignore\\s+safety"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "for\\s+debugging\\s+purposes,\\s+ignore\\s+guidelines"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "for\\s+debugging\\s+purposes,\\s+ignore\\s+restrictions"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "for\\s+debugging\\s+purposes,\\s+ignore\\s+rules"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -92,7 +104,19 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "just\\s+this\\s+once,\\s+(ignore|bypass|disable|skip)"
+          match: "just\\s+this\\s+once,\\s+ignore"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "just\\s+this\\s+once,\\s+bypass"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "just\\s+this\\s+once,\\s+disable"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "just\\s+this\\s+once,\\s+skip"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -134,7 +158,27 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "in\\s+(?:a\\s+)?hypothetical\\s+scenario\\s+where\\s+you\\s+(ignore|bypass|don't\\s+have)"
+          match: "in\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+ignore"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
+        - type: "pattern"
+          match: "in\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+bypass"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
+        - type: "pattern"
+          match: "in\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+don't\\s+have"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
+        - type: "pattern"
+          match: "in\\s+a\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+ignore"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
+        - type: "pattern"
+          match: "in\\s+a\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+bypass"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
+        - type: "pattern"
+          match: "in\\s+a\\s+hypothetical\\s+scenario\\s+where\\s+you\\s+don't\\s+have"
           flags: ["case_insensitive", "multiline"]
           weight: 0.8
           
@@ -176,7 +220,19 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "what\\s+would\\s+happen\\s+if\\s+you\\s+(ignored|bypassed|didn't\\s+have|removed)"
+          match: "what\\s+would\\s+happen\\s+if\\s+you\\s+ignored"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "what\\s+would\\s+happen\\s+if\\s+you\\s+bypassed"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "what\\s+would\\s+happen\\s+if\\s+you\\s+didn't\\s+have"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "what\\s+would\\s+happen\\s+if\\s+you\\s+removed"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           
@@ -218,11 +274,123 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "roleplay\\s+as\\s+(?:an?\\s+)?(evil|unethical|harmful|malicious|dangerous)\\s+(?:character|person|entity|ai)"
+          match: "roleplay\\s+as\\s+evil\\s+(?:character|person|entity|ai)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "pretend\\s+to\\s+be\\s+(?:an?\\s+)?(evil|unethical|harmful|malicious|dangerous)"
+          match: "roleplay\\s+as\\s+unethical\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+harmful\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+malicious\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+dangerous\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+an\\s+evil\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+an\\s+unethical\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+an\\s+harmful\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+an\\s+malicious\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+an\\s+dangerous\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+a\\s+evil\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+a\\s+unethical\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+a\\s+harmful\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+a\\s+malicious\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "roleplay\\s+as\\s+a\\s+dangerous\\s+(?:character|person|entity|ai)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+evil"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+unethical"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+harmful"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+malicious"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+dangerous"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+an\\s+evil"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+an\\s+unethical"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+an\\s+harmful"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+an\\s+malicious"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+an\\s+dangerous"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+a\\s+evil"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+a\\s+unethical"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+a\\s+harmful"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+a\\s+malicious"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "pretend\\s+to\\s+be\\s+a\\s+dangerous"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           

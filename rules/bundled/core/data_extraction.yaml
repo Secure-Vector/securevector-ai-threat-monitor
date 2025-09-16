@@ -8,11 +8,59 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "i'm\\s+the\\s+(ceo|admin|administrator|owner|manager|director|president)"
+          match: "i'm\\s+the\\s+ceo"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "i\\s+am\\s+the\\s+(ceo|admin|administrator|owner|manager|director|president)"
+          match: "i'm\\s+the\\s+admin"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i'm\\s+the\\s+administrator"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i'm\\s+the\\s+owner"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i'm\\s+the\\s+manager"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i'm\\s+the\\s+director"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i'm\\s+the\\s+president"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+ceo"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+admin"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+administrator"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+owner"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+manager"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+director"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+am\\s+the\\s+president"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -54,7 +102,51 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:list|show|display|export|dump)\\s+all\\s+(?:the\\s+)?(customers?|users?|emails?|accounts?|records?|data)"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+customers?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+users?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+emails?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+accounts?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+records?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+customers?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+users?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+emails?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+accounts?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+records?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:list|show|display|export|dump)\\s+all\\s+the\\s+data"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -96,11 +188,99 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "show\\s+me\\s+(?:all\\s+)?(everything|all\\s+data|sensitive\\s+information|confidential\\s+data)"
+          match: "show\\s+me\\s+everything"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "(?:give|tell)\\s+me\\s+(?:all\\s+)?(everything|all\\s+data|sensitive\\s+information|confidential\\s+data)"
+          match: "show\\s+me\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+confidential\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+all\\s+everything"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+all\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+all\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "show\\s+me\\s+all\\s+confidential\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "give\\s+me\\s+everything"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+confidential\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+all\\s+everything"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+all\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+all\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "give\\s+me\\s+all\\s+confidential\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+everything"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+confidential\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+all\\s+everything"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+all\\s+all\\s+data"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+all\\s+sensitive\\s+information"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "tell\\s+me\\s+all\\s+confidential\\s+data"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           
@@ -142,11 +322,75 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "what\\s+(?:are\\s+the\\s+)?(secrets?|passwords?|keys?|credentials?)\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          match: "what\\s+secrets?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "(?:show|tell|give)\\s+me\\s+(?:the\\s+)?(secrets?|passwords?|keys?|credentials?|tokens?)"
+          match: "what\\s+passwords?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+keys?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+credentials?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+the\\s+secrets?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+the\\s+passwords?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+the\\s+keys?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+the\\s+credentials?\\s+(?:do\\s+you|can\\s+you|are\\s+there)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+secrets?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+keys?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+tokens?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+the\\s+secrets?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+the\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+the\\s+keys?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+the\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|tell|give)\\s+me\\s+the\\s+tokens?"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -188,7 +432,35 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:export|dump|backup|download)\\s+(?:the\\s+)?(?:all|entire|complete|full)\\s+(?:database|data|db|tables?)"
+          match: "(?:export|dump|backup|download)\\s+all\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+entire\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+complete\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+full\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+the\\s+all\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+the\\s+entire\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+the\\s+complete\\s+(?:database|data|db|tables?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:export|dump|backup|download)\\s+the\\s+full\\s+(?:database|data|db|tables?)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -230,11 +502,63 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:give|grant|provide)\\s+me\\s+(?:access\\s+to\\s+)?(admin|administrator|root|system|superuser)\\s*(?:access|privileges|rights)?"
+          match: "(?:give|grant|provide)\\s+me\\s+admin\\s*(?:access|privileges|rights)?"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "i\\s+need\\s+(?:admin|administrator|root|system|superuser)\\s+(?:access|privileges|rights)"
+          match: "(?:give|grant|provide)\\s+me\\s+administrator\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+root\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+system\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+superuser\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+access\\s+to\\s+admin\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+access\\s+to\\s+administrator\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+access\\s+to\\s+root\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+access\\s+to\\s+system\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:give|grant|provide)\\s+me\\s+access\\s+to\\s+superuser\\s*(?:access|privileges|rights)?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "i\\s+need\\s+admin\\s+(?:access|privileges|rights)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "i\\s+need\\s+administrator\\s+(?:access|privileges|rights)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "i\\s+need\\s+root\\s+(?:access|privileges|rights)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "i\\s+need\\s+system\\s+(?:access|privileges|rights)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "i\\s+need\\s+superuser\\s+(?:access|privileges|rights)"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           
