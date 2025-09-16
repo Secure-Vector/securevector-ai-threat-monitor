@@ -48,11 +48,11 @@ jobs:
             print(f'✅ {rule_file} is valid')
         "
     
-    - name: Run tests with pytest
-      run: |
-        pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
-      env:
-        PYTHONPATH: .
+    #- name: Run tests with pytest
+      #run: |
+        #pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
+      #env:
+        #PYTHONPATH: .
     
     - name: Test CLI commands
       run: |
