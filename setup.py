@@ -50,6 +50,7 @@ setup(
             "pytest>=6.0",
             "pytest-cov>=3.0",
             "pytest-xdist>=2.0",
+            "pytest-asyncio>=0.21.0",
             "black>=22.0",
             "flake8>=4.0",
             "isort>=5.0",

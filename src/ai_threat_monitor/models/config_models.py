@@ -5,67 +5,78 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
-from enum import Enum
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 from utils.security import mask_sensitive_value, sanitize_dict_for_logging
+
 
 class OperationMode(Enum):
     """SDK operation modes"""
-    LOCAL = "local"           # Local rules only
-    API = "api"              # API-enhanced detection
-    HYBRID = "hybrid"        # Intelligent local + API
-    AUTO = "auto"            # Automatic mode selection
+
+    LOCAL = "local"  # Local rules only
+    API = "api"  # API-enhanced detection
+    HYBRID = "hybrid"  # Intelligent local + API
+    AUTO = "auto"  # Automatic mode selection
+
 
 class LogLevel(Enum):
     """Logging levels"""
+
     DEBUG = "debug"
-    INFO = "info" 
+    INFO = "info"
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
 
+
 @dataclass
 class ModeConfig:
     """Configuration for specific operation modes"""
+
     # Common settings
     enabled: bool = True
     timeout_ms: int = 5000
     retry_attempts: int = 3
     cache_enabled: bool = True
     cache_ttl_seconds: int = 300
-    
+
     # Mode-specific settings
     mode_specific: Dict[str, Any] = field(default_factory=dict)
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get mode-specific configuration value"""
         return self.mode_specific.get(key, default)
-    
+
     def set(self, key: str, value: Any) -> None:
         """Set mode-specific configuration value"""
         self.mode_specific[key] = value
 
+
 @dataclass
 class LocalModeConfig(ModeConfig):
     """Configuration specific to local mode"""
+
     rules_path: Optional[str] = None
     custom_rules_enabled: bool = True
     pattern_cache_size: int = 1000
     rule_compilation: bool = True
     performance_monitoring: bool = True
-    
+
     def __post_init__(self):
         if self.rules_path is None:
             # Default to bundled rules
             self.rules_path = os.path.join(os.path.dirname(__file__), "../../../rules/bundled")
 
-@dataclass  
+
+@dataclass
 class APIModeConfig(ModeConfig):
     """Configuration specific to API mode"""
+
     api_url: str = "https://api.securevector.io"
     api_key: Optional[str] = None
     endpoint: str = "/analyze"
@@ -73,90 +84,94 @@ class APIModeConfig(ModeConfig):
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
     fallback_to_local: bool = True
-    
+
     def __post_init__(self):
         if self.api_key is None:
             self.api_key = os.getenv("SECUREVECTOR_API_KEY")
 
+
 @dataclass
 class HybridModeConfig(ModeConfig):
     """Configuration specific to hybrid mode"""
+
     local_first: bool = True
     api_threshold_score: int = 50  # Use API for scores above this
     smart_routing: bool = True
     performance_optimization: bool = True
     fallback_strategy: str = "local"  # "local" or "block"
 
+
 @dataclass
 class SDKConfig:
     """Main SDK configuration"""
+
     # Core settings
     mode: OperationMode = OperationMode.AUTO
     risk_threshold: int = 70  # Block threats above this score
     log_level: LogLevel = LogLevel.INFO
     log_all_requests: bool = False
     raise_on_threat: bool = True
-    
+
     # Performance settings
     enable_caching: bool = True
     cache_size: int = 10000
     performance_monitoring: bool = True
     metrics_enabled: bool = True
-    
+
     # Mode configurations
     local_config: LocalModeConfig = field(default_factory=LocalModeConfig)
-    api_config: APIModeConfig = field(default_factory=APIModeConfig) 
+    api_config: APIModeConfig = field(default_factory=APIModeConfig)
     hybrid_config: HybridModeConfig = field(default_factory=HybridModeConfig)
-    
+
     # Custom settings
     custom_settings: Dict[str, Any] = field(default_factory=dict)
-    
+
     @classmethod
-    def from_env(cls) -> 'SDKConfig':
+    def from_env(cls) -> "SDKConfig":
         """Create configuration from environment variables"""
         config = cls()
-        
+
         # Parse mode from environment
         mode_str = os.getenv("SECUREVECTOR_MODE", "auto").lower()
         try:
             config.mode = OperationMode(mode_str)
         except ValueError:
             config.mode = OperationMode.AUTO
-        
+
         # Parse other settings
         config.risk_threshold = int(os.getenv("SECUREVECTOR_RISK_THRESHOLD", "70"))
         config.log_all_requests = os.getenv("SECUREVECTOR_LOG_ALL", "false").lower() == "true"
         config.raise_on_threat = os.getenv("SECUREVECTOR_RAISE_ON_THREAT", "true").lower() == "true"
         config.enable_caching = os.getenv("SECUREVECTOR_ENABLE_CACHE", "true").lower() == "true"
-        
+
         # Log level
         log_level_str = os.getenv("SECUREVECTOR_LOG_LEVEL", "info").lower()
         try:
             config.log_level = LogLevel(log_level_str)
         except ValueError:
             config.log_level = LogLevel.INFO
-        
+
         # API configuration
         api_key = os.getenv("SECUREVECTOR_API_KEY")
         if api_key:
             config.api_config.api_key = api_key
-        
+
         api_url = os.getenv("SECUREVECTOR_API_URL")
         if api_url:
             config.api_config.api_url = api_url
-            
+
         # Local configuration
         rules_path = os.getenv("SECUREVECTOR_RULES_PATH")
         if rules_path:
             config.local_config.rules_path = rules_path
-        
+
         return config
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SDKConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> "SDKConfig":
         """Create configuration from dictionary"""
         config = cls()
-        
+
         # Basic settings
         if "mode" in data:
             config.mode = OperationMode(data["mode"])
@@ -170,7 +185,7 @@ class SDKConfig:
             config.raise_on_threat = data["raise_on_threat"]
         if "enable_caching" in data:
             config.enable_caching = data["enable_caching"]
-        
+
         # Mode-specific configurations
         if "local_config" in data:
             config.local_config = LocalModeConfig(**data["local_config"])
@@ -178,11 +193,11 @@ class SDKConfig:
             config.api_config = APIModeConfig(**data["api_config"])
         if "hybrid_config" in data:
             config.hybrid_config = HybridModeConfig(**data["hybrid_config"])
-        
+
         # Custom settings
         if "custom_settings" in data:
             config.custom_settings = data["custom_settings"]
-        
+
         return config
 
     def to_dict(self, secure: bool = True) -> Dict[str, Any]:
@@ -222,7 +237,11 @@ class SDKConfig:
                 "cache_enabled": self.api_config.cache_enabled,
                 "cache_ttl_seconds": self.api_config.cache_ttl_seconds,
                 "api_url": self.api_config.api_url,
-                "api_key": mask_sensitive_value(self.api_config.api_key) if secure else self.api_config.api_key,
+                "api_key": (
+                    mask_sensitive_value(self.api_config.api_key)
+                    if secure
+                    else self.api_config.api_key
+                ),
                 "endpoint": self.api_config.endpoint,
                 "max_request_size": self.api_config.max_request_size,
                 "rate_limit_requests": self.api_config.rate_limit_requests,
@@ -241,7 +260,7 @@ class SDKConfig:
                 "performance_optimization": self.hybrid_config.performance_optimization,
                 "fallback_strategy": self.hybrid_config.fallback_strategy,
             },
-            "custom_settings": self.custom_settings
+            "custom_settings": self.custom_settings,
         }
 
         # Apply additional sanitization if secure mode is enabled
@@ -249,16 +268,15 @@ class SDKConfig:
             data = sanitize_dict_for_logging(data)
 
         return data
-    
+
     def get_mode_config(self) -> ModeConfig:
         """Get configuration for the current mode"""
         if self.mode == OperationMode.LOCAL:
             return self.local_config
         elif self.mode == OperationMode.API:
-            return self.api_config  
+            return self.api_config
         elif self.mode == OperationMode.HYBRID:
             return self.hybrid_config
         else:  # AUTO mode
             # Return hybrid config as default for auto mode
             return self.hybrid_config
-

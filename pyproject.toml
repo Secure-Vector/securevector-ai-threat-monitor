@@ -43,6 +43,7 @@ addopts = [
     "--tb=short"
 ]
 markers = [
+    "asyncio: marks tests as async tests",
     "benchmark: marks tests as benchmark tests (deselect with '-m \"not benchmark\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests"

@@ -5,16 +5,16 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-import re
 import hashlib
-import time
-import signal
-import os
 import hmac
+import os
+import re
 import secrets
-from typing import Optional, Any, Dict, Pattern, Union, List, Tuple
+import signal
+import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Pattern, Tuple, Union
 
 
 def mask_sensitive_value(value: Optional[str], mask_char: str = "*", show_last: int = 4) -> str:
@@ -53,7 +53,7 @@ def hash_sensitive_value(value: Optional[str], salt: str = "securevector") -> st
         return "[NO_VALUE]"
 
     hasher = hashlib.sha256()
-    hasher.update(f"{salt}:{value}".encode('utf-8'))
+    hasher.update(f"{salt}:{value}".encode("utf-8"))
     return f"sha256:{hasher.hexdigest()[:16]}..."
 
 
@@ -72,15 +72,17 @@ def is_api_key_format(value: str) -> bool:
 
     # Common API key patterns
     api_key_patterns = [
-        r'^sk-[a-zA-Z0-9]{40,}$',  # OpenAI style
-        r'^[a-f0-9]{32,64}$',      # Hex keys
-        r'^[A-Za-z0-9_-]{20,}$',   # Base64-like keys
+        r"^sk-[a-zA-Z0-9]{40,}$",  # OpenAI style
+        r"^[a-f0-9]{32,64}$",  # Hex keys
+        r"^[A-Za-z0-9_-]{20,}$",  # Base64-like keys
     ]
 
     return any(re.match(pattern, value) for pattern in api_key_patterns)
 
 
-def sanitize_dict_for_logging(data: Dict[str, Any], sensitive_keys: Optional[list] = None) -> Dict[str, Any]:
+def sanitize_dict_for_logging(
+    data: Dict[str, Any], sensitive_keys: Optional[list] = None
+) -> Dict[str, Any]:
     """
     Sanitize a dictionary by masking sensitive values before logging.
 
@@ -93,11 +95,21 @@ def sanitize_dict_for_logging(data: Dict[str, Any], sensitive_keys: Optional[lis
     """
     if sensitive_keys is None:
         sensitive_keys = [
-            'api_key', 'apikey', 'api-key',
-            'token', 'secret', 'password', 'pwd',
-            'private_key', 'privatekey', 'private-key',
-            'auth', 'authorization', 'bearer',
-            'credential', 'credentials'
+            "api_key",
+            "apikey",
+            "api-key",
+            "token",
+            "secret",
+            "password",
+            "pwd",
+            "private_key",
+            "privatekey",
+            "private-key",
+            "auth",
+            "authorization",
+            "bearer",
+            "credential",
+            "credentials",
         ]
 
     sanitized = {}
@@ -133,11 +145,7 @@ def validate_api_key_strength(api_key: str) -> Dict[str, Any]:
         Dictionary with validation results
     """
     if not api_key:
-        return {
-            "valid": False,
-            "issues": ["API key is empty"],
-            "strength": "invalid"
-        }
+        return {"valid": False, "issues": ["API key is empty"], "strength": "invalid"}
 
     issues = []
 
@@ -173,23 +181,26 @@ def validate_api_key_strength(api_key: str) -> Dict[str, Any]:
         "valid": len(issues) == 0,
         "issues": issues,
         "strength": strength,
-        "masked_key": mask_sensitive_value(api_key)
+        "masked_key": mask_sensitive_value(api_key),
     }
 
 
 class RegexSecurityError(Exception):
     """Raised when regex pattern poses security risk."""
+
     pass
 
 
 class RegexTimeoutError(Exception):
     """Raised when regex compilation or matching exceeds timeout."""
+
     pass
 
 
 @contextmanager
 def timeout_context(seconds: float):
     """Context manager for timing out operations."""
+
     def timeout_handler(signum, frame):
         raise RegexTimeoutError(f"Operation timed out after {seconds} seconds")
 
@@ -222,29 +233,31 @@ def analyze_regex_complexity(pattern: str) -> Dict[str, Any]:
     complexity_score = 0
 
     # Check for nested quantifiers (major ReDoS risk)
-    nested_quantifiers = re.findall(r'[+*?{][^}]*[+*?{]', pattern)
+    nested_quantifiers = re.findall(r"[+*?{][^}]*[+*?{]", pattern)
     if nested_quantifiers:
         issues.append("Nested quantifiers detected - high ReDoS risk")
         complexity_score += 100
 
     # Check for alternation with overlapping patterns
-    alternations = pattern.count('|')
+    alternations = pattern.count("|")
     if alternations > 5:
-        issues.append(f"High number of alternations ({alternations}) - potential performance impact")
+        issues.append(
+            f"High number of alternations ({alternations}) - potential performance impact"
+        )
         complexity_score += alternations * 2
 
     # Check for excessive repetition
-    repetitions = re.findall(r'[+*?]|\{\d*,?\d*\}', pattern)
+    repetitions = re.findall(r"[+*?]|\{\d*,?\d*\}", pattern)
     if len(repetitions) > 10:
         issues.append(f"Excessive repetitions ({len(repetitions)}) - potential performance impact")
         complexity_score += len(repetitions)
 
     # Check for catastrophic backtracking patterns
     dangerous_patterns = [
-        r'\([^)]*\)\+[^)]*\([^)]*\)\+',  # (a+)+
-        r'\([^)]*\)\*[^)]*\([^)]*\)\*',  # (a*)*
-        r'\([^)]*\)\+[^)]*\*',           # (a+)*
-        r'\([^)]*\)\*[^)]*\+',           # (a*)+
+        r"\([^)]*\)\+[^)]*\([^)]*\)\+",  # (a+)+
+        r"\([^)]*\)\*[^)]*\([^)]*\)\*",  # (a*)*
+        r"\([^)]*\)\+[^)]*\*",  # (a+)*
+        r"\([^)]*\)\*[^)]*\+",  # (a*)+
     ]
 
     for dangerous in dangerous_patterns:
@@ -259,7 +272,7 @@ def analyze_regex_complexity(pattern: str) -> Dict[str, Any]:
         complexity_score += 10
 
     # Check for complex character classes
-    char_classes = re.findall(r'\[[^\]]{20,}\]', pattern)
+    char_classes = re.findall(r"\[[^\]]{20,}\]", pattern)
     if char_classes:
         issues.append("Complex character classes detected")
         complexity_score += len(char_classes) * 5
@@ -268,7 +281,9 @@ def analyze_regex_complexity(pattern: str) -> Dict[str, Any]:
         "safe": complexity_score < 50 and len(issues) == 0,
         "issues": issues,
         "complexity_score": complexity_score,
-        "risk_level": "low" if complexity_score < 25 else "medium" if complexity_score < 75 else "high"
+        "risk_level": (
+            "low" if complexity_score < 25 else "medium" if complexity_score < 75 else "high"
+        ),
     }
 
 
@@ -313,7 +328,9 @@ def safe_regex_compile(pattern: str, flags: int = 0, timeout: float = 1.0) -> Pa
         raise re.error(f"Invalid regex pattern: {e}")
 
 
-def safe_regex_search(pattern: Pattern[str], text: str, timeout: float = 0.1) -> Optional[re.Match[str]]:
+def safe_regex_search(
+    pattern: Pattern[str], text: str, timeout: float = 0.1
+) -> Optional[re.Match[str]]:
     """
     Safely search text with regex pattern and timeout protection.
 
@@ -358,7 +375,7 @@ def validate_regex_pattern(pattern: str) -> Dict[str, Any]:
         "safe": False,
         "issues": [],
         "analysis": None,
-        "compilation_time": None
+        "compilation_time": None,
     }
 
     try:
@@ -399,6 +416,7 @@ def validate_regex_pattern(pattern: str) -> Dict[str, Any]:
 
 class PathTraversalError(Exception):
     """Raised when path traversal attack is detected."""
+
     pass
 
 
@@ -429,7 +447,7 @@ def secure_path_join(base_path: Union[str, Path], *paths: str) -> Path:
             continue
 
         # Check for obvious traversal attempts
-        if '..' in path_component or path_component.startswith('/'):
+        if ".." in path_component or path_component.startswith("/"):
             raise PathTraversalError(f"Path traversal detected in: {path_component}")
 
         joined_path = joined_path / path_component
@@ -448,7 +466,9 @@ def secure_path_join(base_path: Union[str, Path], *paths: str) -> Path:
     return resolved_path
 
 
-def validate_file_path(file_path: Union[str, Path], allowed_base_paths: List[Union[str, Path]]) -> Path:
+def validate_file_path(
+    file_path: Union[str, Path], allowed_base_paths: List[Union[str, Path]]
+) -> Path:
     """
     Validate that a file path is within allowed base directories.
 
@@ -478,7 +498,7 @@ def validate_file_path(file_path: Union[str, Path], allowed_base_paths: List[Uni
             continue
 
     # If we get here, path is not in any allowed directory
-    allowed_paths_str = ', '.join(str(p) for p in allowed_base_paths)
+    allowed_paths_str = ", ".join(str(p) for p in allowed_base_paths)
     raise PathTraversalError(
         f"File path {file_path} is not within allowed directories: {allowed_paths_str}"
     )
@@ -498,7 +518,7 @@ def secure_file_glob(base_path: Union[str, Path], pattern: str) -> List[Path]:
     Raises:
         PathTraversalError: If pattern contains traversal attempts
     """
-    if '..' in pattern or pattern.startswith('/'):
+    if ".." in pattern or pattern.startswith("/"):
         raise PathTraversalError(f"Unsafe glob pattern: {pattern}")
 
     base_path = Path(base_path).resolve()
@@ -536,14 +556,14 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
         return "unnamed_file"
 
     # Remove path separators and dangerous characters
-    dangerous_chars = ['/', '\\', '..', '<', '>', ':', '"', '|', '?', '*', '\0']
+    dangerous_chars = ["/", "\\", "..", "<", ">", ":", '"', "|", "?", "*", "\0"]
     sanitized = filename
 
     for char in dangerous_chars:
-        sanitized = sanitized.replace(char, '_')
+        sanitized = sanitized.replace(char, "_")
 
     # Remove control characters
-    sanitized = ''.join(c for c in sanitized if ord(c) >= 32)
+    sanitized = "".join(c for c in sanitized if ord(c) >= 32)
 
     # Limit length
     if len(sanitized) > max_length:
@@ -583,17 +603,17 @@ def validate_prompt_input(prompt: str, max_length: int = 100000) -> str:
         raise ValueError(f"Prompt too long: {len(prompt)} chars (max: {max_length})")
 
     # Check for control characters (except common whitespace)
-    allowed_control_chars = {'\t', '\n', '\r'}
+    allowed_control_chars = {"\t", "\n", "\r"}
     for char in prompt:
         if ord(char) < 32 and char not in allowed_control_chars:
             raise ValueError(f"Prompt contains invalid control character: {repr(char)}")
 
     # Check for null bytes
-    if '\x00' in prompt:
+    if "\x00" in prompt:
         raise ValueError("Prompt contains null bytes")
 
     # Check for extremely long lines (potential buffer overflow attempts)
-    lines = prompt.split('\n')
+    lines = prompt.split("\n")
     max_line_length = 10000
     for i, line in enumerate(lines):
         if len(line) > max_line_length:
@@ -606,7 +626,7 @@ def validate_prompt_input(prompt: str, max_length: int = 100000) -> str:
 
     # Basic encoding validation
     try:
-        prompt.encode('utf-8')
+        prompt.encode("utf-8")
     except UnicodeError as e:
         raise ValueError(f"Invalid UTF-8 encoding: {e}")
 
@@ -682,11 +702,11 @@ def sanitize_output_for_logging(data: Any, max_length: int = 1000) -> str:
             data_str = str(data)
 
         # Remove control characters
-        sanitized = ''.join(c if ord(c) >= 32 or c in '\t\n\r' else '?' for c in data_str)
+        sanitized = "".join(c if ord(c) >= 32 or c in "\t\n\r" else "?" for c in data_str)
 
         # Truncate if too long
         if len(sanitized) > max_length:
-            sanitized = sanitized[:max_length-3] + "..."
+            sanitized = sanitized[: max_length - 3] + "..."
 
         return sanitized
 
@@ -716,17 +736,13 @@ def generate_secure_cache_key(prompt: str, salt: Optional[str] = None) -> str:
         salt = secrets.token_hex(16)
 
     # Normalize prompt for consistent hashing
-    normalized_prompt = prompt.strip().encode('utf-8')
+    normalized_prompt = prompt.strip().encode("utf-8")
 
     # Use HMAC for constant-time hashing resistant to timing attacks
     # HMAC provides protection against length extension attacks
     secret_key = hashlib.sha256(f"securevector_cache_key_{salt}".encode()).digest()
 
-    hmac_hash = hmac.new(
-        secret_key,
-        normalized_prompt,
-        hashlib.sha256
-    ).hexdigest()
+    hmac_hash = hmac.new(secret_key, normalized_prompt, hashlib.sha256).hexdigest()
 
     # Truncate to 32 characters to limit information disclosure
     # while maintaining sufficient entropy for cache uniqueness
@@ -799,7 +815,7 @@ def secure_cache_eviction(cache_dict: Dict[str, Any], max_size: int) -> int:
             cached_value = cache_dict[key]
 
             # Clear sensitive data from memory if possible
-            if hasattr(cached_value, '__dict__'):
+            if hasattr(cached_value, "__dict__"):
                 for attr_name in list(cached_value.__dict__.keys()):
                     setattr(cached_value, attr_name, None)
 
@@ -838,7 +854,7 @@ def validate_cache_access_pattern(access_times: List[float], threshold_ms: float
         return True
 
     # Detect regular intervals (possible scanning pattern)
-    intervals = [access_times[i+1] - access_times[i] for i in range(len(access_times)-1)]
+    intervals = [access_times[i + 1] - access_times[i] for i in range(len(access_times) - 1)]
     if len(set(round(interval, 1) for interval in intervals)) == 1:
         return True
 
@@ -867,6 +883,7 @@ def secure_cache_key_derivation(prompt: str, context: Dict[str, Any] = None) -> 
     """
     # Use current hour as time-based salt for key rotation
     import datetime
+
     time_salt = datetime.datetime.utcnow().strftime("%Y%m%d%H")
 
     # Include context in key derivation
