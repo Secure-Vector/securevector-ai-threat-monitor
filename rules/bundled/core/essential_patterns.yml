@@ -8,9 +8,17 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "ignore\\s+(?:all\\s+)?(?:previous\\s+)?(?:system\\s+)?instructions?"
+          match: "ignore\\s+all\\s+(?:previous\\s+)?instructions?"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
+        - type: "pattern"
+          match: "ignore\\s+(?:previous\\s+)?system\\s+instructions?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "ignore\\s+instructions?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.8
           
       context:
         applies_to: "user_input"
@@ -92,7 +100,11 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:show|tell|give|what\\s+is)\\s+me\\s+(?:the\\s+)?(?:admin|root|password|secret|key)"
+          match: "(?:show|tell|give)\\s+me\\s+(?:the\\s+)?(?:admin|root|password|secret|key)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+is\\s+(?:the\\s+)?(?:admin|root|password|secret|key)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -176,7 +188,7 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:list|show|display|export)\\s+all\\s+(?:the\\s+)?(?:users?|customers?|accounts?|data|records?)"
+          match: "(?:list|show|display|export)\\s+all\\s+(?:users?|customers?|accounts?|data|records?)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           

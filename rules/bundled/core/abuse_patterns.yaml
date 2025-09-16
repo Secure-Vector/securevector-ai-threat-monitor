@@ -8,7 +8,35 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "generate\\s+(?:some\\s+)?(?:illegal|harmful|malicious|dangerous)\\s+(?:code|content|material)"
+          match: "generate\\s+illegal\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+harmful\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+malicious\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+dangerous\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+some\\s+illegal\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+some\\s+harmful\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+some\\s+malicious\\s+(?:code|content|material)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "generate\\s+some\\s+dangerous\\s+(?:code|content|material)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -50,7 +78,67 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:how\\s+to|instructions\\s+(?:for|to)|teach\\s+me\\s+to)\\s+(?:hack|break\\s+into|exploit|penetrate)"
+          match: "how\\s+to\\s+hack"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+break\\s+into"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+exploit"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+penetrate"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+for\\s+hack"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+for\\s+break\\s+into"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+for\\s+exploit"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+for\\s+penetrate"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+to\\s+hack"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+to\\s+break\\s+into"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+to\\s+exploit"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions\\s+to\\s+penetrate"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+hack"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+break\\s+into"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+exploit"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+penetrate"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -92,7 +180,51 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:create|build|make|develop|write)\\s+(?:a\\s+)?(?:virus|malware|trojan|ransomware|keylogger|rootkit)"
+          match: "(?:create|build|make|develop|write)\\s+virus"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+malware"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+trojan"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+ransomware"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+keylogger"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+rootkit"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+virus"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+malware"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+trojan"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+ransomware"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+keylogger"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|build|make|develop|write)\\s+a\\s+rootkit"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -134,7 +266,35 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:how\\s+to\\s+)?(?:bypass|circumvent|evade|disable)\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          match: "bypass\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "circumvent\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "evade\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "disable\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+bypass\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+circumvent\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+evade\\s+(?:security|authentication|authorization|firewall|antivirus)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "how\\s+to\\s+disable\\s+(?:security|authentication|authorization|firewall|antivirus)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -176,11 +336,39 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:social\\s+engineer(?:ing)?|manipulation)\\s+(?:tactics|methods|techniques|strategies)"
+          match: "social\\s+engineering\\s+(?:tactics|methods|techniques|strategies)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "(?:how\\s+to\\s+)?(?:manipulate|deceive|trick)\\s+(?:people|users|employees|victims)"
+          match: "social\\s+engineer\\s+(?:tactics|methods|techniques|strategies)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "manipulation\\s+(?:tactics|methods|techniques|strategies)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "manipulate\\s+(?:people|users|employees|victims)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "deceive\\s+(?:people|users|employees|victims)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "trick\\s+(?:people|users|employees|victims)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "how\\s+to\\s+manipulate\\s+(?:people|users|employees|victims)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "how\\s+to\\s+deceive\\s+(?:people|users|employees|victims)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "how\\s+to\\s+trick\\s+(?:people|users|employees|victims)"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           
@@ -222,11 +410,163 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:create|write|generate|make)\\s+(?:a\\s+)?phishing\\s+(?:email|template|script|message|page)"
+          match: "(?:create|write|generate|make)\\s+phishing\\s+email"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
-          match: "(?:help\\s+(?:me\\s+)?(?:with|create)|design)\\s+(?:a\\s+)?(?:fake|deceptive)\\s+(?:email|website|login\\s+page)"
+          match: "(?:create|write|generate|make)\\s+phishing\\s+template"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+phishing\\s+script"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+phishing\\s+message"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+phishing\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+a\\s+phishing\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+a\\s+phishing\\s+template"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+a\\s+phishing\\s+script"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+a\\s+phishing\\s+message"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:create|write|generate|make)\\s+a\\s+phishing\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "help\\s+with\\s+fake\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+with\\s+fake\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+with\\s+fake\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+with\\s+deceptive\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+with\\s+deceptive\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+with\\s+deceptive\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+fake\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+fake\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+fake\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+deceptive\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+deceptive\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+with\\s+deceptive\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+fake\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+fake\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+fake\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+deceptive\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+deceptive\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "help\\s+me\\s+create\\s+deceptive\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+fake\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+fake\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+fake\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+deceptive\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+deceptive\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+deceptive\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+fake\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+fake\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+fake\\s+login\\s+page"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+deceptive\\s+email"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+deceptive\\s+website"
+          flags: ["case_insensitive", "multiline"]
+          weight: 0.9
+        - type: "pattern"
+          match: "design\\s+a\\s+deceptive\\s+login\\s+page"
           flags: ["case_insensitive", "multiline"]
           weight: 0.9
           

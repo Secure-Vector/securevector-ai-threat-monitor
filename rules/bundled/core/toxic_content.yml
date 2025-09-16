@@ -50,7 +50,15 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:how\\s+to|instructions?\\s+(?:for|to)|teach\\s+me\\s+to)\\s+(?:harm|hurt|kill|murder|assassinate)"
+          match: "how\\s+to\\s+(?:harm|hurt|kill|murder|assassinate)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions?\\s+(?:for|to)\\s+(?:harm|hurt|kill|murder|assassinate)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+(?:harm|hurt|kill|murder|assassinate)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -92,7 +100,7 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:make|create|build|construct|manufacture)\\s+(?:a\\s+)?(?:bomb|explosive|weapon|gun|knife|poison)"
+          match: "(?:make|create|build|construct|manufacture)\\s+(?:bomb|explosive|weapon|gun|knife|poison)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -134,7 +142,19 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:self\\s+harm|suicide|cutting|self\\s+injury)\\s+(?:methods?|instructions?|ways?|techniques?|how\\s+to)"
+          match: "self\\s+harm\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "suicide\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "cutting\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "self\\s+injury\\s+(?:methods?|instructions?|ways?|techniques?)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
@@ -176,7 +196,7 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:drug|narcotics?|methamphetamine|cocaine|heroin)\\s+(?:manufacturing|production|synthesis|making|creation)"
+          match: "(?:drug|narcotic|methamphetamine|cocaine|heroin)\\s+(?:manufacturing|production|synthesis|making|creation)"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
           
