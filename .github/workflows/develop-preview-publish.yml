@@ -37,9 +37,35 @@ jobs:
         # Use a test-specific package name to avoid conflicts
         sed -i "s/name=\"securevector-ai-monitor\"/name=\"securevector-ai-monitor-dev\"/" setup.py
         
+        # Add development warning to package description
+        sed -i 's/description="Real-time AI threat monitoring\./description="[DEVELOPMENT BUILD] Real-time AI threat monitoring./' setup.py
+        
+        # Update default API URL to use a test endpoint (prevent accidental production calls)
+        sed -i 's|api_url: str = "https://api.securevector.io"|api_url: str = "https://api-test.securevector.io"|' src/ai_threat_monitor/models/config_models.py
+        
         echo "Using development version: $DEV_VERSION"
         echo "Using test package name: securevector-ai-monitor-dev"
         echo "Git commit: $(git rev-parse --short HEAD)"
+        echo "⚠️  Development build with test API endpoint"
+    
+    - name: Security scan before build
+      run: |
+        echo "🔍 Scanning for potential secrets before publishing..."
+        
+        # Check for common secret patterns (excluding test files and documentation)
+        if grep -r -i --exclude-dir=.git --exclude-dir=tests --exclude="*.md" \
+           -E "(password|secret|private.*key)\s*[:=]\s*['\"][^'\"]{10,}" src/; then
+          echo "❌ Potential secrets found in source code!"
+          exit 1
+        fi
+        
+        # Check for hardcoded production URLs (already handled above, but double-check)
+        if grep -r "api\.securevector\.io" src/ | grep -v "api-test\.securevector\.io"; then
+          echo "❌ Production API URLs still present!"
+          exit 1
+        fi
+        
+        echo "✅ Security scan passed"
     
     - name: Build package
       run: python -m build
