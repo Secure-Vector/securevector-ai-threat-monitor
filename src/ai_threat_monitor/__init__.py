@@ -18,7 +18,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 # Import zero-config utilities
-from utils.auto_config import (
+from .utils.auto_config import (
     create_zero_config_async_client,
     create_zero_config_client,
     get_auto_configurator,
