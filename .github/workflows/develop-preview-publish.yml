@@ -94,19 +94,38 @@ jobs:
 
         # Ensure rules directory is in the right place for packaging
         echo "🔧 Ensuring rules directory is properly positioned for packaging..."
-        if [ -d "rules" ] && [ ! -d "src/ai_threat_monitor/rules" ]; then
+
+        if [ -d "rules" ]; then
+          echo "Found rules directory at project root"
+
+          # Remove any existing symlink or directory at target location
+          if [ -e "src/ai_threat_monitor/rules" ] || [ -L "src/ai_threat_monitor/rules" ]; then
+            echo "Removing existing rules at target location (could be symlink or directory)"
+            rm -rf src/ai_threat_monitor/rules
+          fi
+
+          # Move rules into package structure
           echo "Moving rules directory into package structure"
           mv rules src/ai_threat_monitor/rules
-        elif [ -d "rules" ] && [ -d "src/ai_threat_monitor/rules" ]; then
-          echo "Rules directory already exists in package - removing duplicate"
-          rm -rf rules
-        fi
 
-        if [ -d "src/ai_threat_monitor/rules" ]; then
-          echo "✅ Rules directory is correctly positioned in package"
+          # Verify the move was successful
+          if [ -d "src/ai_threat_monitor/rules/bundled" ]; then
+            echo "✅ Rules directory successfully moved into package"
+            echo "📦 Rules structure:"
+            ls -la src/ai_threat_monitor/rules/
+          else
+            echo "❌ Failed to move rules directory properly"
+            exit 1
+          fi
+        elif [ -d "src/ai_threat_monitor/rules" ]; then
+          echo "✅ Rules directory already in package structure"
         else
-          echo "❌ Rules directory not found - this may cause runtime errors"
+          echo "❌ Rules directory not found anywhere - this will cause runtime errors"
+          echo "Project structure:"
+          ls -la .
+          echo "Package structure:"
           ls -la src/ai_threat_monitor/
+          exit 1
         fi
         
         # Additional comprehensive import fixes for all moved files
