@@ -304,7 +304,7 @@ jobs:
         echo "Version: $DEV_VERSION"
 
         # Install the package
-        if pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ securevector-ai-monitor-dev; then
+        if pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/securevector-ai-monitor-dev; then
           echo "✅ Package installation successful"
         else
           echo "❌ Package installation failed"
