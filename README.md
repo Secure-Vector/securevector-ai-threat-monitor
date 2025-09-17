@@ -116,7 +116,7 @@ streamlit run demo/chat_demo.py
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+
 - Compatible with: OpenAI, Anthropic Claude, Azure OpenAI, local models, any text-based LLM
 
 ## Documentation

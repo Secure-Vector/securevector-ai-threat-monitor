@@ -9,7 +9,7 @@ on:
     types: [ published ]
 
 env:
-  PYTHON_VERSION: "3.10"
+  PYTHON_VERSION: "3.9"
   
 jobs:
   # Linting and Code Quality
@@ -114,7 +114,7 @@ jobs:
     needs: [lint, security]
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
     
     steps:
     - uses: actions/checkout@v4
