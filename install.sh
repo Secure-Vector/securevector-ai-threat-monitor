@@ -43,7 +43,7 @@ test_installation() {
     # Try to import the module
     if python3 -c "
 try:
-    from ai_threat_monitor import SecureVectorClient
+    from securevector import SecureVectorClient
     client = SecureVectorClient()
     print('✅ SDK imported successfully')
     print('✅ Client created successfully')

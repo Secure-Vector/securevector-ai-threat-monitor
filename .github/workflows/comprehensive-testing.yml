@@ -158,7 +158,7 @@ jobs:
         # Test basic import after package installation
         python -c "
         try:
-            import ai_threat_monitor
+            import securevector
             print('✅ Package imports successfully after installation')
         except ImportError as e:
             print(f'⚠️  Package import issue: {e}')

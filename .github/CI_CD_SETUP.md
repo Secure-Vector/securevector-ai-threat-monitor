@@ -206,7 +206,7 @@ The CI/CD pipeline includes several monitoring features:
 
 ### Version Management
 
-- Version is defined in `src/ai_threat_monitor/__init__.py`
+- Version is defined in `src/securevector/__init__.py`
 - Follows semantic versioning (MAJOR.MINOR.PATCH)
 - GitHub releases should match version tags
 
@@ -226,7 +226,7 @@ The CI/CD pipeline includes several monitoring features:
 pip install dist/*.whl
 
 # Verify package imports
-python -c "import ai_threat_monitor; print(ai_threat_monitor.__version__)"
+python -c "import securevector; print(securevector.__version__)"
 
 # Check package metadata
 python -m pip show securevector-ai-monitor

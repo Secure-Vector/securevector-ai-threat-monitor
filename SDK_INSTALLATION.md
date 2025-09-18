@@ -45,7 +45,7 @@ PowerShell -ExecutionPolicy Bypass -File install.ps1 -UserInstall
 
 ## 🛠️ **Manual Troubleshooting**
 
-### **Issue: "No module named 'ai_threat_monitor'"**
+### **Issue: "No module named 'securevector'"**
 ```bash
 # Try user installation
 pip install --user securevector-ai-monitor
@@ -102,7 +102,7 @@ Our installation scripts automatically:
 
 After installation, run this one-liner to confirm everything works:
 ```bash
-python -c "from ai_threat_monitor import SecureVectorClient; print('🎉 SDK installed and working!')"
+python -c "from securevector import SecureVectorClient; print('🎉 SDK installed and working!')"
 ```
 
 ---
@@ -110,7 +110,7 @@ python -c "from ai_threat_monitor import SecureVectorClient; print('🎉 SDK ins
 ## 💡 **Usage Example**
 
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 
 # Initialize client
 client = SecureVectorClient()

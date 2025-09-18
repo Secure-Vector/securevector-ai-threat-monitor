@@ -131,8 +131,8 @@ streamlit run demo/chat_demo.py
 
 - **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation
 - **[Operation Modes](docs/OPERATION_MODES.md)** - Detailed mode information
-- **[Security Rules](src/ai_threat_monitor/rules/README.md)** - Rule documentation and legal information
-- **[Rules Attribution](src/ai_threat_monitor/rules/RULES_ATTRIBUTION.md)** - Legal attribution and compliance details
+- **[Security Rules](src/securevector/rules/README.md)** - Rule documentation and legal information
+- **[Rules Attribution](src/securevector/rules/RULES_ATTRIBUTION.md)** - Legal attribution and compliance details
 - **[Demo Guide](demo/README.md)** - Interactive examples
 
 ## Support

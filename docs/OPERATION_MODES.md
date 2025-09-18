@@ -31,8 +31,8 @@ Local mode provides fast, privacy-first threat detection using bundled security 
 ### Configuration
 
 ```python
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
 
 # Basic local mode
 client = SecureVectorClient(mode=OperationMode.LOCAL)
@@ -105,7 +105,7 @@ client = SecureVectorClient(
 )
 
 # Advanced API configuration
-from ai_threat_monitor.models.config_models import SDKConfig
+from securevector.models.config_models import SDKConfig
 
 config = SDKConfig()
 config.mode = OperationMode.API

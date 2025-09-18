@@ -27,33 +27,33 @@ jobs:
     
     - name: Fix package structure
       run: |
-        # Package structure is now correct - core and utils are already in ai_threat_monitor package
-        echo "✅ Package structure verified for production - all modules are in ai_threat_monitor package"
+        # Package structure is now correct - core and utils are already in securevector package
+        echo "✅ Package structure verified for production - all modules are in securevector package"
         
-        if [ -d "src/config" ] && [ ! -d "src/ai_threat_monitor/config" ]; then
-          mv src/config src/ai_threat_monitor/config
-          echo "Moved config into ai_threat_monitor package"
-        elif [ -d "src/config" ] && [ -d "src/ai_threat_monitor/config" ]; then
-          echo "Merging src/config into existing src/ai_threat_monitor/config"
-          cp -r src/config/* src/ai_threat_monitor/config/
+        if [ -d "src/config" ] && [ ! -d "src/securevector/config" ]; then
+          mv src/config src/securevector/config
+          echo "Moved config into securevector package"
+        elif [ -d "src/config" ] && [ -d "src/securevector/config" ]; then
+          echo "Merging src/config into existing src/securevector/config"
+          cp -r src/config/* src/securevector/config/
           rm -rf src/config
         fi
         
-        if [ -d "src/engines" ] && [ ! -d "src/ai_threat_monitor/engines" ]; then
-          mv src/engines src/ai_threat_monitor/engines
-          echo "Moved engines into ai_threat_monitor package"
-        elif [ -d "src/engines" ] && [ -d "src/ai_threat_monitor/engines" ]; then
-          echo "Merging src/engines into existing src/ai_threat_monitor/engines"
-          cp -r src/engines/* src/ai_threat_monitor/engines/
+        if [ -d "src/engines" ] && [ ! -d "src/securevector/engines" ]; then
+          mv src/engines src/securevector/engines
+          echo "Moved engines into securevector package"
+        elif [ -d "src/engines" ] && [ -d "src/securevector/engines" ]; then
+          echo "Merging src/engines into existing src/securevector/engines"
+          cp -r src/engines/* src/securevector/engines/
           rm -rf src/engines
         fi
         
-        if [ -d "src/integrations" ] && [ ! -d "src/ai_threat_monitor/integrations" ]; then
-          mv src/integrations src/ai_threat_monitor/integrations
-          echo "Moved integrations into ai_threat_monitor package"
-        elif [ -d "src/integrations" ] && [ -d "src/ai_threat_monitor/integrations" ]; then
-          echo "Merging src/integrations into existing src/ai_threat_monitor/integrations"
-          cp -r src/integrations/* src/ai_threat_monitor/integrations/
+        if [ -d "src/integrations" ] && [ ! -d "src/securevector/integrations" ]; then
+          mv src/integrations src/securevector/integrations
+          echo "Moved integrations into securevector package"
+        elif [ -d "src/integrations" ] && [ -d "src/securevector/integrations" ]; then
+          echo "Merging src/integrations into existing src/securevector/integrations"
+          cp -r src/integrations/* src/securevector/integrations/
           rm -rf src/integrations
         fi
         
@@ -65,7 +65,7 @@ jobs:
         # 2. Keep absolute imports for nested files (they work correctly)
 
         echo "✅ Current imports are already mostly correct - minimal fixes needed"
-        echo "✅ Absolute imports like 'from ai_threat_monitor.models.analysis_result import' work correctly"
+        echo "✅ Absolute imports like 'from securevector.models.analysis_result import' work correctly"
         echo "✅ Root-level relative imports like 'from .models.analysis_result import' work correctly"
 
         # Ensure rules directory is in the right place for packaging
@@ -75,32 +75,32 @@ jobs:
           echo "Found rules directory at project root"
 
           # Remove any existing symlink or directory at target location
-          if [ -e "src/ai_threat_monitor/rules" ] || [ -L "src/ai_threat_monitor/rules" ]; then
+          if [ -e "src/securevector/rules" ] || [ -L "src/securevector/rules" ]; then
             echo "Removing existing rules at target location (could be symlink or directory)"
-            rm -rf src/ai_threat_monitor/rules
+            rm -rf src/securevector/rules
           fi
 
           # Move rules into package structure
           echo "Moving rules directory into package structure"
-          mv rules src/ai_threat_monitor/rules
+          mv rules src/securevector/rules
 
           # Verify the move was successful
-          if [ -d "src/ai_threat_monitor/rules/bundled" ]; then
+          if [ -d "src/securevector/rules/bundled" ]; then
             echo "✅ Rules directory successfully moved into package"
             echo "📦 Rules structure:"
-            ls -la src/ai_threat_monitor/rules/
+            ls -la src/securevector/rules/
           else
             echo "❌ Failed to move rules directory properly"
             exit 1
           fi
-        elif [ -d "src/ai_threat_monitor/rules" ]; then
+        elif [ -d "src/securevector/rules" ]; then
           echo "✅ Rules directory already in package structure"
         else
           echo "❌ Rules directory not found anywhere - this will cause runtime errors"
           echo "Project structure:"
           ls -la .
           echo "Package structure:"
-          ls -la src/ai_threat_monitor/
+          ls -la src/securevector/
           exit 1
         fi
         
@@ -108,20 +108,20 @@ jobs:
         echo "🔧 Comprehensive import fixes for all moved modules..."
 
         # IMPORTANT: Keep absolute imports for models, utils, and core - they work correctly
-        # The absolute import pattern 'from ai_threat_monitor.models.analysis_result import' is correct
+        # The absolute import pattern 'from securevector.models.analysis_result import' is correct
         # Do NOT convert these to relative imports as it breaks the package structure
-        echo "✅ Keeping absolute imports for ai_threat_monitor.models.*, ai_threat_monitor.utils.*, ai_threat_monitor.core.*"
+        echo "✅ Keeping absolute imports for securevector.models.*, securevector.utils.*, securevector.core.*"
 
         # Only fix root-level files that need relative imports
-        sed -i 's|from \.\.models\.|from .models.|g' src/ai_threat_monitor/__init__.py
-        sed -i 's|from \.\.utils\.|from .utils.|g' src/ai_threat_monitor/__init__.py
-        sed -i 's|from \.\.core\.|from .core.|g' src/ai_threat_monitor/__init__.py
+        sed -i 's|from \.\.models\.|from .models.|g' src/securevector/__init__.py
+        sed -i 's|from \.\.utils\.|from .utils.|g' src/securevector/__init__.py
+        sed -i 's|from \.\.core\.|from .core.|g' src/securevector/__init__.py
         
         echo "✅ All import paths fixed"
         
         # Ensure all directories have __init__.py files
         echo "🔍 Ensuring all Python packages have __init__.py files..."
-        for dir in src/ai_threat_monitor/*/; do
+        for dir in src/securevector/*/; do
           if [ -d "$dir" ] && [ ! -f "$dir/__init__.py" ]; then
             echo "Creating missing __init__.py in $dir"
             echo '"""Package module"""' > "$dir/__init__.py"
@@ -129,7 +129,7 @@ jobs:
         done
         
         # Also check nested directories
-        find src/ai_threat_monitor -type d -mindepth 2 | while read dir; do
+        find src/securevector -type d -mindepth 2 | while read dir; do
           if [ ! -f "$dir/__init__.py" ]; then
             echo "Creating missing __init__.py in $dir"
             echo '"""Package module"""' > "$dir/__init__.py"
@@ -167,16 +167,16 @@ jobs:
         PYTHONPATH=src python3 -c "
         import sys
         try:
-            from ai_threat_monitor import SecureVectorClient, AsyncSecureVectorClient
+            from securevector import SecureVectorClient, AsyncSecureVectorClient
             print('✅ Main client imports successful')
 
-            from ai_threat_monitor.core.modes import APIMode, LocalMode, HybridMode
+            from securevector.core.modes import APIMode, LocalMode, HybridMode
             print('✅ Mode imports successful')
 
-            from ai_threat_monitor.models import AnalysisResult, ThreatDetection
+            from securevector.models import AnalysisResult, ThreatDetection
             print('✅ Model imports successful')
 
-            from ai_threat_monitor.testing import MockSecureVectorClient, create_test_prompts
+            from securevector.testing import MockSecureVectorClient, create_test_prompts
             print('✅ Testing imports successful')
 
             print('✅ All critical imports successful')
@@ -200,9 +200,9 @@ jobs:
 
         # Check for problematic relative imports that would break the package
         echo "Checking for problematic import patterns..."
-        if grep -E "from \.\.(utils|models|core)" src/ai_threat_monitor/core/modes/api/api_mode.py 2>/dev/null; then
+        if grep -E "from \.\.(utils|models|core)" src/securevector/core/modes/api/api_mode.py 2>/dev/null; then
             echo "❌ Found problematic relative imports in api_mode.py"
-            echo "These will cause 'ModuleNotFoundError: No module named ai_threat_monitor.core.modes.models'"
+            echo "These will cause 'ModuleNotFoundError: No module named securevector.core.modes.models'"
             exit 1
         fi
 

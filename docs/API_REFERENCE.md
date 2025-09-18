@@ -42,7 +42,7 @@ SecureVectorClient(
 
 **Example:**
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 
 # Basic initialization (local mode)
 client = SecureVectorClient()
@@ -233,7 +233,7 @@ async def analyze(self, prompt: str, **kwargs) -> AnalysisResult
 **Example:**
 ```python
 import asyncio
-from ai_threat_monitor import AsyncSecureVectorClient
+from securevector import AsyncSecureVectorClient
 
 async def main():
     async_client = AsyncSecureVectorClient()
@@ -355,7 +355,7 @@ class SDKConfig:
 
 **Example:**
 ```python
-from ai_threat_monitor.models.config_models import SDKConfig, OperationMode
+from securevector.models.config_models import SDKConfig, OperationMode
 
 config = SDKConfig()
 config.mode = OperationMode.LOCAL
@@ -429,7 +429,7 @@ The SDK includes comprehensive testing utilities.
 ### Mock Clients
 
 ```python
-from ai_threat_monitor.testing import MockSecureVectorClient, MockBehavior
+from securevector.testing import MockSecureVectorClient, MockBehavior
 
 # Basic mock
 mock_client = MockSecureVectorClient()
@@ -446,7 +446,7 @@ mock_client = MockSecureVectorClient(mock_behavior=behavior)
 ### Test Data Generation
 
 ```python
-from ai_threat_monitor.testing import create_test_prompts, ThreatScenario
+from securevector.testing import create_test_prompts, ThreatScenario
 
 # Generate test prompts
 safe_prompts = create_test_prompts("safe", count=10)
@@ -460,7 +460,7 @@ injection_prompts = create_test_prompts("prompt_injection", count=5)
 ### Testing Assertions
 
 ```python
-from ai_threat_monitor.testing import (
+from securevector.testing import (
     assert_is_threat, assert_is_safe, assert_risk_score
 )
 
@@ -477,7 +477,7 @@ assert_threat_types(result, ["prompt_injection"])
 ### Convenience Functions
 
 ```python
-from ai_threat_monitor import (
+from securevector import (
     create_client, create_async_client,
     analyze_prompt, analyze_prompt_async
 )
@@ -515,7 +515,7 @@ custom_config = RetryConfig(
 ### Basic Usage
 
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 
 # Simple usage
 client = SecureVectorClient()
@@ -526,8 +526,8 @@ print(f"Safe: {not result.is_threat}")
 ### Production Usage
 
 ```python
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
 
 # Production configuration
 client = SecureVectorClient(
@@ -557,7 +557,7 @@ except Exception as e:
 
 ```python
 import asyncio
-from ai_threat_monitor import AsyncSecureVectorClient
+from securevector import AsyncSecureVectorClient
 
 async def analyze_content_batch(content_list):
     async with AsyncSecureVectorClient(mode="hybrid") as client:
@@ -585,7 +585,7 @@ async def analyze_content_batch(content_list):
 
 ```python
 import pytest
-from ai_threat_monitor.testing import (
+from securevector.testing import (
     MockSecureVectorClient, MockBehavior,
     assert_is_safe, create_test_prompts
 )
@@ -604,7 +604,7 @@ def test_content_filter():
 
 @pytest.mark.asyncio
 async def test_async_processing():
-    from ai_threat_monitor.testing import MockAsyncSecureVectorClient
+    from securevector.testing import MockAsyncSecureVectorClient
     
     async_mock = MockAsyncSecureVectorClient()
     
@@ -620,7 +620,7 @@ async def test_async_processing():
 ## Error Handling Best Practices
 
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 from utils.exceptions import ValidationError, APIError, SecurityException
 
 client = SecureVectorClient()

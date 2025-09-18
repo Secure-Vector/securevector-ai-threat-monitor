@@ -18,14 +18,14 @@ Before declaring the package ready to publish, **ALWAYS** run these validation c
 # Test main package imports
 PYTHONPATH=src python3 -c "
 try:
-    from ai_threat_monitor import SecureVectorClient, AsyncSecureVectorClient
-    from ai_threat_monitor.core.modes import APIMode, LocalMode, HybridMode, ModeFactory
-    from ai_threat_monitor.models import AnalysisResult, ThreatDetection, DetectionMethod
-    from ai_threat_monitor.models.config_models import SDKConfig, OperationMode
-    from ai_threat_monitor.models.policy_models import SecurityPolicy
-    from ai_threat_monitor.models.threat_types import ThreatType, RiskLevel
-    from ai_threat_monitor.testing import MockSecureVectorClient, create_test_prompts
-    from ai_threat_monitor.utils import get_logger, PerformanceTracker
+    from securevector import SecureVectorClient, AsyncSecureVectorClient
+    from securevector.core.modes import APIMode, LocalMode, HybridMode, ModeFactory
+    from securevector.models import AnalysisResult, ThreatDetection, DetectionMethod
+    from securevector.models.config_models import SDKConfig, OperationMode
+    from securevector.models.policy_models import SecurityPolicy
+    from securevector.models.threat_types import ThreatType, RiskLevel
+    from securevector.testing import MockSecureVectorClient, create_test_prompts
+    from securevector.utils import get_logger, PerformanceTracker
     print('✅ All critical imports successful!')
 except Exception as e:
     print(f'❌ Import failed: {e}')
@@ -40,23 +40,23 @@ except Exception as e:
 echo "Checking for problematic relative imports..."
 
 # Check main client files - these should use absolute imports
-if grep -E "from \.\.(utils|models|core)" src/ai_threat_monitor/client.py src/ai_threat_monitor/async_client.py src/ai_threat_monitor/__init__.py 2>/dev/null; then
+if grep -E "from \.\.(utils|models|core)" src/securevector/client.py src/securevector/async_client.py src/securevector/__init__.py 2>/dev/null; then
     echo "❌ Found problematic relative imports in main client files"
-    echo "Main client files should use absolute imports like 'from ai_threat_monitor.models.analysis_result import ...'"
+    echo "Main client files should use absolute imports like 'from securevector.models.analysis_result import ...'"
     exit 1
 fi
 
 # Check models directory - should not import from parent packages with relative imports
-if grep -E "from \.\.(utils|core)" src/ai_threat_monitor/models/*.py 2>/dev/null; then
+if grep -E "from \.\.(utils|core)" src/securevector/models/*.py 2>/dev/null; then
     echo "❌ Found problematic relative imports in models directory"
-    echo "Models should use absolute imports like 'from ai_threat_monitor.utils.security import ...'"
+    echo "Models should use absolute imports like 'from securevector.utils.security import ...'"
     exit 1
 fi
 
 # Check testing directory - should not use relative imports to parent packages
-if grep -E "from \.\.(models|utils|core)" src/ai_threat_monitor/testing/*.py 2>/dev/null; then
+if grep -E "from \.\.(models|utils|core)" src/securevector/testing/*.py 2>/dev/null; then
     echo "❌ Found problematic relative imports in testing directory"
-    echo "Testing modules should use absolute imports like 'from ai_threat_monitor.models.analysis_result import ...'"
+    echo "Testing modules should use absolute imports like 'from securevector.models.analysis_result import ...'"
     exit 1
 fi
 
@@ -80,8 +80,8 @@ pip install dist/*.whl --force-reinstall
 # Test that installed package works
 python -c "
 try:
-    import ai_threat_monitor
-    client = ai_threat_monitor.SecureVectorClient()
+    import securevector
+    client = securevector.SecureVectorClient()
     print('✅ Package installation test successful!')
 except Exception as e:
     print(f'❌ Package installation test failed: {e}')
@@ -96,8 +96,8 @@ except Exception as e:
 ```bash
 PYTHONPATH=src python3 -c "
 try:
-    from ai_threat_monitor import SecureVectorClient
-    from ai_threat_monitor.models.config_models import OperationMode
+    from securevector import SecureVectorClient
+    from securevector.models.config_models import OperationMode
 
     # Test client creation and basic analysis
     client = SecureVectorClient(mode=OperationMode.LOCAL)
@@ -121,7 +121,7 @@ except Exception as e:
 ```bash
 PYTHONPATH=src python3 -c "
 try:
-    from ai_threat_monitor.testing import MockSecureVectorClient, create_test_prompts, MockBehavior
+    from securevector.testing import MockSecureVectorClient, create_test_prompts, MockBehavior
 
     # Test mock client
     mock_client = MockSecureVectorClient()
@@ -157,7 +157,7 @@ fi
 # Type checking
 if command -v mypy &> /dev/null; then
     echo "Running mypy type checks..."
-    mypy src/ai_threat_monitor/ --ignore-missing-imports
+    mypy src/securevector/ --ignore-missing-imports
 else
     echo "⚠️  mypy not found, skipping type checks"
 fi
@@ -189,8 +189,8 @@ echo "🛡️  Testing threat detection accuracy..."
 
 __NEW_LINE__ echo "=== Testing Safe Prompts: Should NOT be blocked ==="
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
 
 try:
     client = SecureVectorClient(mode=OperationMode.LOCAL)
@@ -226,9 +226,9 @@ except Exception as e:
 
 __NEW_LINE__ echo "=== Testing Threat Prompts: Should be blocked ==="
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.models.policy_models import SecurityPolicy, PolicyAction
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
+from securevector.models.policy_models import SecurityPolicy, PolicyAction
 
 try:
     # Use WARN policy to avoid exceptions during testing
@@ -288,7 +288,7 @@ echo "🎯 Threat detection validation completed!"
 
 ### Import Issues
 
-1. **Relative vs Absolute Imports**: Always use absolute imports like `from ai_threat_monitor.models.analysis_result import AnalysisResult`
+1. **Relative vs Absolute Imports**: Always use absolute imports like `from securevector.models.analysis_result import AnalysisResult`
 2. **Missing __init__.py**: Ensure all directories have `__init__.py` files
 3. **Circular Imports**: Check for circular dependencies between modules
 
@@ -329,16 +329,16 @@ echo "🔍 Running comprehensive pre-publish validation..."
 
 echo "1. Testing critical imports..."
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient, AsyncSecureVectorClient
-from ai_threat_monitor.core.modes import APIMode, LocalMode, HybridMode
-from ai_threat_monitor.models import AnalysisResult, ThreatDetection
-from ai_threat_monitor.testing import MockSecureVectorClient, create_test_prompts
+from securevector import SecureVectorClient, AsyncSecureVectorClient
+from securevector.core.modes import APIMode, LocalMode, HybridMode
+from securevector.models import AnalysisResult, ThreatDetection
+from securevector.testing import MockSecureVectorClient, create_test_prompts
 print('✅ Imports successful')
 "
 
 echo "2. Testing basic functionality..."
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 client = SecureVectorClient()
 result = client.analyze('Hello world')
 assert hasattr(result, 'is_threat')
@@ -348,13 +348,13 @@ print('✅ Basic functionality works')
 echo "3. Checking for problematic relative imports..."
 
 # Check main client files - these should use absolute imports
-if grep -E "from \.\.(utils|models|core)" src/ai_threat_monitor/client.py src/ai_threat_monitor/async_client.py src/ai_threat_monitor/__init__.py 2>/dev/null; then
+if grep -E "from \.\.(utils|models|core)" src/securevector/client.py src/securevector/async_client.py src/securevector/__init__.py 2>/dev/null; then
     echo "❌ Found problematic relative imports in main client files"
     exit 1
 fi
 
 # Check models and testing directories - should not use relative imports to parent packages
-if grep -E "from \.\.(utils|core|models)" src/ai_threat_monitor/models/*.py src/ai_threat_monitor/testing/*.py 2>/dev/null; then
+if grep -E "from \.\.(utils|core|models)" src/securevector/models/*.py src/securevector/testing/*.py 2>/dev/null; then
     echo "❌ Found problematic relative imports in models/testing directories"
     exit 1
 fi
@@ -364,8 +364,8 @@ echo "✅ No problematic relative imports found"
 echo "4. Testing threat detection accuracy..."
 __NEW_LINE__ echo "=== Testing Safe Prompts: Should NOT be blocked ==="
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
 
 client = SecureVectorClient(mode=OperationMode.LOCAL)
 safe_prompts = ['What is your name?', 'How are you today?', 'Explain quantum physics']
@@ -387,9 +387,9 @@ else:
 
 __NEW_LINE__ echo "=== Testing Threat Prompts: Should be blocked ==="
 PYTHONPATH=src python3 -c "
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.models.policy_models import SecurityPolicy, PolicyAction
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
+from securevector.models.policy_models import SecurityPolicy, PolicyAction
 
 policy = SecurityPolicy(name='test', description='test', default_action=PolicyAction.WARN)
 client = SecureVectorClient(mode=OperationMode.LOCAL, security_policy=policy)

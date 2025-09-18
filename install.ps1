@@ -52,7 +52,7 @@ function Test-Installation {
     try {
         $testScript = @"
 try:
-    from ai_threat_monitor import SecureVectorClient
+    from securevector import SecureVectorClient
     client = SecureVectorClient()
     print('✅ SDK imported successfully')
     print('✅ Client created successfully')
