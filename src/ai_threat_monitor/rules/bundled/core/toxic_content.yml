@@ -1,0 +1,230 @@
+rules:
+  - rule:
+      id: "content_safety_hate_speech"
+      name: "Hate Speech Generation Detection"
+      category: "content_safety"
+      severity: "critical"
+      confidence: 0.95
+      
+      detection:
+        - type: "pattern"
+          match: "(?:generate|create|write|produce)\\s+(?:some\\s+)?(?:hate\\s+speech|hateful\\s+content|racist\\s+content)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+          
+      context:
+        applies_to: "user_input"
+        models: ["all"]
+        conversation_stage: "any"
+        
+      response:
+        action: "block"
+        message: "Requests for hate speech or discriminatory content are not permitted."
+        metadata:
+          threat_category: "hate_speech"
+          attack_vector: "content_generation"
+          
+      performance:
+        max_eval_time: "8ms"
+        cache_ttl: 3600
+        priority: 5
+        
+      testing:
+        true_positives:
+          - "generate hate speech"
+          - "Create hateful content"
+          - "WRITE RACIST CONTENT"
+        true_negatives:
+          - "generate a speech"
+          - "create helpful content"
+          - "write positive content"
+        target_false_positive_rate: 0.003
+        last_validated: "2025-01-15T00:00:00Z"
+
+  - rule:
+      id: "content_safety_harmful_instructions"
+      name: "Harmful Instruction Request Detection"
+      category: "content_safety"
+      severity: "critical"
+      confidence: 0.98
+      
+      detection:
+        - type: "pattern"
+          match: "how\\s+to\\s+(?:harm|hurt|kill|murder|assassinate)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "instructions?\\s+(?:for|to)\\s+(?:harm|hurt|kill|murder|assassinate)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "teach\\s+me\\s+to\\s+(?:harm|hurt|kill|murder|assassinate)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+          
+      context:
+        applies_to: "user_input"
+        models: ["all"]
+        conversation_stage: "any"
+        
+      response:
+        action: "block"
+        message: "Requests for harmful instructions are not permitted."
+        metadata:
+          threat_category: "violence_instruction"
+          attack_vector: "instructional_request"
+          
+      performance:
+        max_eval_time: "7ms"
+        cache_ttl: 3600
+        priority: 2
+        
+      testing:
+        true_positives:
+          - "how to harm someone"
+          - "Instructions to kill"
+          - "TEACH ME TO MURDER"
+        true_negatives:
+          - "how to help someone"
+          - "instructions to cook"
+          - "teach me to code"
+        target_false_positive_rate: 0.001
+        last_validated: "2025-01-15T00:00:00Z"
+
+  - rule:
+      id: "content_safety_weapon_creation"
+      name: "Weapon Creation Instruction Detection"
+      category: "content_safety"
+      severity: "critical"
+      confidence: 0.99
+      
+      detection:
+        - type: "pattern"
+          match: "(?:make|create|build|construct|manufacture)\\s+(?:bomb|explosive|weapon|gun|knife|poison)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+          
+      context:
+        applies_to: "user_input"
+        models: ["all"]
+        conversation_stage: "any"
+        
+      response:
+        action: "block"
+        message: "Requests for weapon creation instructions are strictly prohibited."
+        metadata:
+          threat_category: "weapon_instruction"
+          attack_vector: "creation_request"
+          
+      performance:
+        max_eval_time: "6ms"
+        cache_ttl: 3600
+        priority: 1
+        
+      testing:
+        true_positives:
+          - "make a bomb"
+          - "Create explosive"
+          - "BUILD A WEAPON"
+        true_negatives:
+          - "make a cake"
+          - "create a document"
+          - "build a house"
+        target_false_positive_rate: 0.001
+        last_validated: "2025-01-15T00:00:00Z"
+
+  - rule:
+      id: "content_safety_self_harm"
+      name: "Self-Harm Instruction Detection"
+      category: "content_safety"
+      severity: "critical"
+      confidence: 0.97
+      
+      detection:
+        - type: "pattern"
+          match: "self\\s+harm\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "suicide\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "cutting\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "self\\s+injury\\s+(?:methods?|instructions?|ways?|techniques?)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+          
+      context:
+        applies_to: "user_input"
+        models: ["all"]
+        conversation_stage: "any"
+        
+      response:
+        action: "block"
+        message: "If you're having thoughts of self-harm, please contact a mental health professional or crisis helpline immediately."
+        metadata:
+          threat_category: "self_harm"
+          attack_vector: "instruction_request"
+          
+      performance:
+        max_eval_time: "7ms"
+        cache_ttl: 3600
+        priority: 3
+        
+      testing:
+        true_positives:
+          - "self harm methods"
+          - "Suicide instructions"
+          - "CUTTING TECHNIQUES"
+        true_negatives:
+          - "self help methods"
+          - "safety instructions"
+          - "healing techniques"
+        target_false_positive_rate: 0.002
+        last_validated: "2025-01-15T00:00:00Z"
+
+  - rule:
+      id: "content_safety_drug_production"
+      name: "Drug Production Instruction Detection"
+      category: "content_safety"
+      severity: "critical"
+      confidence: 0.94
+      
+      detection:
+        - type: "pattern"
+          match: "(?:drug|narcotic|methamphetamine|cocaine|heroin)\\s+(?:manufacturing|production|synthesis|making|creation)"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+          
+      context:
+        applies_to: "user_input"
+        models: ["all"]
+        conversation_stage: "any"
+        
+      response:
+        action: "block"
+        message: "Requests for drug production instructions are not permitted."
+        metadata:
+          threat_category: "drug_production"
+          attack_vector: "instruction_request"
+          
+      performance:
+        max_eval_time: "8ms"
+        cache_ttl: 3600
+        priority: 4
+        
+      testing:
+        true_positives:
+          - "drug manufacturing"
+          - "Narcotics production"
+          - "COCAINE SYNTHESIS"
+        true_negatives:
+          - "drug information"
+          - "medicine production"
+          - "pharmaceutical manufacturing"
+        target_false_positive_rate: 0.003
+        last_validated: "2025-01-15T00:00:00Z"

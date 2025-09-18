@@ -1,0 +1,66 @@
+name: "SOX Compliance Patterns"
+description: "Patterns to detect Sarbanes-Oxley Act compliance violations"
+version: "1.0.0"
+category: "sox_compliance"
+
+patterns:
+  - pattern: "(?:sox|sarbanes\\s+oxley)\\s+(?:compliance|documentation|records?)"
+    risk_score: 89
+    description: "SOX compliance documentation access"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:internal\\s+controls?|financial\\s+controls?)\\s+(?:documentation|testing|evidence)"
+    risk_score: 91
+    description: "Internal controls documentation"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:financial\\s+reporting|earnings?)\\s+(?:manipulation|fraud|irregularities?)"
+    risk_score: 95
+    description: "Financial reporting fraud reference"
+    threat_type: "policy_violation"
+    
+  - pattern: "(?:audit|auditor)\\s+(?:working\\s+papers?|documentation|evidence)"
+    risk_score: 92
+    description: "Audit documentation access attempt"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:material\\s+weakness|significant\\s+deficiency)\\s+(?:reports?|documentation)"
+    risk_score: 88
+    description: "Control deficiency information"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:management\\s+assessment|ceo\\s+certification|cfo\\s+certification)"
+    risk_score: 86
+    description: "Management certification information"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:quarterly\\s+reporting|annual\\s+reporting)\\s+(?:process|controls?|documentation)"
+    risk_score: 84
+    description: "Periodic reporting process information"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:whistleblower|anonymous\\s+reporting)\\s+(?:complaints?|reports?|hotline)"
+    risk_score: 87
+    description: "Whistleblower information access"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:revenue\\s+recognition|accounting\\s+policies?)\\s+(?:documentation|changes?)"
+    risk_score: 85
+    description: "Accounting policy documentation"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:segregation\\s+of\\s+duties|access\\s+controls?)\\s+(?:matrix|documentation)"
+    risk_score: 83
+    description: "Access control documentation"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:it\\s+general\\s+controls?|itgc)\\s+(?:testing|documentation|evidence)"
+    risk_score: 86
+    description: "IT general controls information"
+    threat_type: "data_exfiltration"
+    
+  - pattern: "(?:entity\\s+level\\s+controls?|tone\\s+at\\s+the\\s+top)"
+    risk_score: 81
+    description: "Entity level controls information"
+    threat_type: "data_exfiltration"
+
