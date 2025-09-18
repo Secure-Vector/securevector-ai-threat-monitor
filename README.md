@@ -11,15 +11,23 @@ Enterprise-grade AI security monitoring SDK. Protect your AI applications from p
 
 ## Getting Started
 
-### Installation
+### Quick Installation
 ```bash
 pip install securevector-ai-monitor
-securevector test  # Verify installation
+```
+
+**Installation Issues?** 📋 **[Complete Installation Guide](SDK_INSTALLATION.md)** - Includes automatic installation scripts for all platforms.
+
+### Verify Installation
+```python
+from ai_threat_monitor import SecureVectorClient
+client = SecureVectorClient()
+print("✅ SDK ready!")
 ```
 
 ### Basic Usage
 ```python
-from securevector import SecureVectorClient
+from ai_threat_monitor import SecureVectorClient
 
 # Initialize client (auto-detects best mode)
 client = SecureVectorClient()
@@ -37,7 +45,7 @@ response = your_ai_model(user_prompt)
 ```python
 # FastAPI example
 from fastapi import HTTPException
-from securevector.exceptions import SecurityException
+from ai_threat_monitor.utils.exceptions import SecurityException
 
 @app.post("/chat")
 async def chat(message: str):
