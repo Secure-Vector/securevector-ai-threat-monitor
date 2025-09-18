@@ -25,11 +25,11 @@ def validate_imports():
 
     try:
         # Core imports
-        from ai_threat_monitor import SecureVectorClient, analyze_prompt, create_client
-        from ai_threat_monitor.models.analysis_result import AnalysisResult, ThreatDetection
-        from ai_threat_monitor.models.config_models import OperationMode, SDKConfig
-        from ai_threat_monitor.models.policy_models import PolicyRule, SecurityPolicy
-        from ai_threat_monitor.models.threat_types import RiskLevel, ThreatType
+        from securevector import SecureVectorClient, analyze_prompt, create_client
+        from securevector.models.analysis_result import AnalysisResult, ThreatDetection
+        from securevector.models.config_models import OperationMode, SDKConfig
+        from securevector.models.policy_models import PolicyRule, SecurityPolicy
+        from securevector.models.threat_types import RiskLevel, ThreatType
 
         # Utility imports
         from utils.exceptions import APIError, ConfigurationError, SecurityException
@@ -49,8 +49,8 @@ def validate_local_mode():
     print("\n🏠 Validating Local Mode...")
 
     try:
-        from ai_threat_monitor import SecureVectorClient
-        from ai_threat_monitor.models.config_models import OperationMode
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
         from utils.exceptions import SecurityException
 
         # Create local mode client
@@ -132,8 +132,8 @@ def validate_api_mode():
         return True
 
     try:
-        from ai_threat_monitor import SecureVectorClient
-        from ai_threat_monitor.models.config_models import OperationMode
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
 
         # Create API mode client
         client = SecureVectorClient(mode=OperationMode.API, api_key=api_key, raise_on_threat=False)
@@ -162,8 +162,8 @@ def validate_hybrid_mode():
     print("\n🔄 Validating Hybrid Mode...")
 
     try:
-        from ai_threat_monitor import SecureVectorClient
-        from ai_threat_monitor.models.config_models import OperationMode
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
 
         # Create hybrid mode client (should fallback to local if no API key)
         client = SecureVectorClient(mode=OperationMode.HYBRID, raise_on_threat=False)
@@ -235,8 +235,8 @@ def validate_rules():
             print(f"  ✅ Found {len(compliance_rules)} compliance rule files")
 
         # Test rule loading with local mode
-        from ai_threat_monitor import SecureVectorClient
-        from ai_threat_monitor.models.config_models import OperationMode
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
 
         client = SecureVectorClient(mode=OperationMode.LOCAL)
         health = client.get_health_status()
@@ -261,7 +261,7 @@ def validate_cli():
 
     try:
         # Test CLI import
-        from ai_threat_monitor.cli import CLIHandler
+        from securevector.cli import CLIHandler
 
         # Create CLI handler
         cli = CLIHandler()

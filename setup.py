@@ -11,7 +11,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 # Read version from __init__.py
 def get_version():
-    version_file = os.path.join("src", "ai_threat_monitor", "__init__.py")
+    version_file = os.path.join("src", "securevector", "__init__.py")
     with open(version_file, "r") as f:
         for line in f:
             if line.startswith("__version__"):
@@ -70,7 +70,7 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "ai_threat_monitor": [
+        "securevector": [
             "rules/**/*.yml",
             "rules/**/*.yaml",
             "rules/*.md",
@@ -82,8 +82,8 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "sv-monitor=ai_threat_monitor.cli:main",
-            "securevector-monitor=ai_threat_monitor.cli:main",
+            "sv-monitor=securevector.cli:main",
+            "securevector-monitor=securevector.cli:main",
         ],
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",

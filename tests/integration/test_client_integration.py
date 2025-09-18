@@ -13,9 +13,9 @@ from typing import List
 
 import pytest
 
-from ai_threat_monitor import AsyncSecureVectorClient, SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.testing import (
+from securevector import AsyncSecureVectorClient, SecureVectorClient
+from securevector.models.config_models import OperationMode
+from securevector.testing import (
     MockAsyncSecureVectorClient,
     MockBehavior,
     MockSecureVectorClient,
@@ -24,7 +24,7 @@ from ai_threat_monitor.testing import (
     assert_risk_score,
     create_test_prompts,
 )
-from ai_threat_monitor.utils.exceptions import SecurityException, ValidationError
+from securevector.utils.exceptions import SecurityException, ValidationError
 
 
 class TestClientIntegration:

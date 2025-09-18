@@ -9,7 +9,7 @@ pip install securevector-ai-monitor
 
 ### Verify Installation
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 client = SecureVectorClient()
 print("✅ SDK ready!")
 ```

@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod
+from securevector.models.config_models import OperationMode
 
 
 class TestPerformanceBenchmarks:

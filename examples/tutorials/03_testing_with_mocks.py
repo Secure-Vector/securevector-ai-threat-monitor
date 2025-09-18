@@ -16,7 +16,7 @@ import sys
 # Add the SDK to the path for this example
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from ai_threat_monitor.testing import (
+from securevector.testing import (
     MockSecureVectorClient, MockAsyncSecureVectorClient, MockBehavior,
     create_test_prompts, create_test_results, create_test_config,
     ThreatScenario, TestDataGenerator,
@@ -104,7 +104,7 @@ def test_custom_responses():
     print("\n📝 Custom Response Mapping")
     print("-" * 25)
     
-    from ai_threat_monitor.models.analysis_result import AnalysisResult, ThreatDetection, DetectionMethod
+    from securevector.models.analysis_result import AnalysisResult, ThreatDetection, DetectionMethod
     from datetime import datetime
     
     # Create custom responses for specific prompts

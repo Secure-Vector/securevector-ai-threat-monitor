@@ -20,14 +20,14 @@ pip install securevector-ai-monitor
 
 ### Verify Installation
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 client = SecureVectorClient()
 print("✅ SDK ready!")
 ```
 
 ### Basic Usage
 ```python
-from ai_threat_monitor import SecureVectorClient
+from securevector import SecureVectorClient
 
 # Initialize client (auto-detects best mode)
 client = SecureVectorClient()
@@ -45,7 +45,7 @@ response = your_ai_model(user_prompt)
 ```python
 # FastAPI example
 from fastapi import HTTPException
-from ai_threat_monitor.utils.exceptions import SecurityException
+from securevector.utils.exceptions import SecurityException
 
 @app.post("/chat")
 async def chat(message: str):

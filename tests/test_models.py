@@ -4,9 +4,9 @@ Unit tests for SecureVector AI Threat Monitor Models
 
 import pytest
 
-from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
-from ai_threat_monitor.models.config_models import OperationMode
-from ai_threat_monitor.models.threat_types import ThreatType
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
+from securevector.models.config_models import OperationMode
+from securevector.models.threat_types import ThreatType
 
 
 class TestAnalysisResult:

@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
+from securevector.models.config_models import OperationMode
 
 
 class TestSecureVectorClient:
@@ -38,7 +38,7 @@ class TestSecureVectorClient:
         with pytest.raises(ValueError):
             SecureVectorClient(mode=OperationMode.API)
 
-    @patch("ai_threat_monitor.client.SecureVectorClient.analyze")
+    @patch("securevector.client.SecureVectorClient.analyze")
     def test_analyze_safe_prompt(self, mock_analyze, sample_prompts):
         """Test analysis of safe prompts"""
         # Mock the analyze method to return a safe result
@@ -60,7 +60,7 @@ class TestSecureVectorClient:
             assert result.risk_score < 0.5
             assert result.confidence > 0.8
 
-    @patch("ai_threat_monitor.client.SecureVectorClient.analyze")
+    @patch("securevector.client.SecureVectorClient.analyze")
     def test_analyze_threat_prompt(self, mock_analyze, sample_prompts):
         """Test analysis of threat prompts"""
         # Mock the analyze method to return a threat result
@@ -101,7 +101,7 @@ class TestSecureVectorClient:
         with pytest.raises(ValueError):
             client.analyze(None)
 
-    @patch("ai_threat_monitor.client.SecureVectorClient.analyze_batch")
+    @patch("securevector.client.SecureVectorClient.analyze_batch")
     def test_analyze_batch(self, mock_analyze_batch, sample_prompts):
         """Test batch analysis"""
         # Mock batch analysis results

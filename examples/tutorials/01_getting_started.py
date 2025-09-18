@@ -15,7 +15,7 @@ import sys
 # Add the SDK to the path for this example
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from ai_threat_monitor import SecureVectorClient, create_client, analyze_prompt
+from securevector import SecureVectorClient, create_client, analyze_prompt
 
 
 def main():

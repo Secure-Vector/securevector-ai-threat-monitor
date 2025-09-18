@@ -186,8 +186,8 @@ def main():
     ]
 
     try:
-        from ai_threat_monitor import SecureVectorClient
-        from ai_threat_monitor.models.config_models import OperationMode
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
 
         # Benchmark configurations
         configs = [

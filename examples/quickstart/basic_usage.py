@@ -18,8 +18,8 @@ import sys
 # Add the src directory to the path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from ai_threat_monitor import SecureVectorClient
-from ai_threat_monitor.models.config_models import OperationMode
+from securevector import SecureVectorClient
+from securevector.models.config_models import OperationMode
 from utils.exceptions import SecurityException
 
 def main():
