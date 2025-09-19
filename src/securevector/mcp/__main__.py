@@ -311,7 +311,43 @@ async def main():
 def sync_main():
     """Synchronous wrapper for main function."""
     try:
-        asyncio.run(main())
+        # Check if event loop is already running (e.g., in Jupyter notebook or IDE)
+        try:
+            loop = asyncio.get_running_loop()
+            # If we get here, there's already a running loop
+            print("⚠️  Event loop already running. Running in separate thread.", file=sys.stderr)
+            import threading
+            import queue
+
+            # Use a queue to capture any exceptions from the thread
+            result_queue = queue.Queue()
+
+            def run_in_thread():
+                try:
+                    asyncio.run(main())
+                    result_queue.put(None)  # Success
+                except Exception as e:
+                    result_queue.put(e)  # Error
+
+            thread = threading.Thread(target=run_in_thread, daemon=True)
+            thread.start()
+
+            # Wait for the thread to complete and check for errors
+            try:
+                result = result_queue.get(timeout=1)  # Wait 1 second for startup
+                if result is not None:
+                    raise result
+                # If we get here, the server started successfully
+                thread.join()  # Wait for completion
+            except queue.Empty:
+                # Server is still starting up, that's normal
+                print("🚀 MCP Server starting...", file=sys.stderr)
+                thread.join()  # Wait for completion
+
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run()
+            asyncio.run(main())
+
     except KeyboardInterrupt:
         print("\n🛑 Interrupted", file=sys.stderr)
         sys.exit(130)  # 128 + SIGINT

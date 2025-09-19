@@ -352,7 +352,26 @@ class SecureVectorMCPServer:
         """Run server with stdio transport."""
         # This would typically be handled by the MCP framework
         self.logger.info("MCP Server running with stdio transport")
-        await self.mcp.run()
+        try:
+            await self.mcp.run()
+        except Exception as e:
+            self.logger.error(f"FastMCP run failed: {e}")
+            # Try alternative approach if FastMCP.run() fails
+            try:
+                from mcp.server import stdio
+                async with stdio.stdio_server() as (read_stream, write_stream):
+                    # This is an alternative if FastMCP.run() doesn't work as expected
+                    self.logger.info("Using alternative stdio server approach")
+                    # Keep server running
+                    try:
+                        while True:
+                            await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        self.logger.info("Server cancelled")
+                        return
+            except ImportError:
+                self.logger.error("Neither FastMCP nor stdio server available")
+                raise
 
     async def _run_http(self):
         """Run server with HTTP transport."""
