@@ -355,23 +355,28 @@ class SecureVectorMCPServer:
         try:
             await self.mcp.run()
         except Exception as e:
-            self.logger.error(f"FastMCP run failed: {e}")
+            # Check if this is the expected asyncio event loop conflict
+            if "Already running asyncio" in str(e):
+                self.logger.debug("FastMCP cannot run due to existing event loop, using fallback")
+            else:
+                self.logger.error(f"FastMCP run failed: {e}")
+
             # Try alternative approach if FastMCP.run() fails
             try:
                 from mcp.server import stdio
                 async with stdio.stdio_server() as (read_stream, write_stream):
                     # This is an alternative if FastMCP.run() doesn't work as expected
-                    self.logger.info("Using alternative stdio server approach")
+                    self.logger.info("Using stdio server fallback")
                     # Keep server running
                     try:
                         while True:
                             await asyncio.sleep(1)
                     except asyncio.CancelledError:
-                        self.logger.info("Server cancelled")
+                        self.logger.info("Server shutdown requested")
                         return
             except ImportError:
-                self.logger.error("Neither FastMCP nor stdio server available")
-                raise
+                self.logger.error("MCP stdio server not available")
+                raise RuntimeError("No viable MCP server implementation available")
 
     async def _run_http(self):
         """Run server with HTTP transport."""

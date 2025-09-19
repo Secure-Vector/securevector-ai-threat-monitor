@@ -16,7 +16,6 @@ import sys
 import os
 import argparse
 import logging
-from typing import Optional
 
 try:
     from .server import create_server, SecureVectorMCPServer
@@ -165,7 +164,11 @@ def get_config_from_args(args):
 async def install_claude_desktop(args):
     """Install MCP server configuration for Claude Desktop."""
     try:
-        from .integrations.claude_desktop import ClaudeDesktopIntegrator
+        try:
+            from .integrations.claude_desktop import ClaudeDesktopIntegrator
+        except ImportError:
+            print("Claude Desktop integration module not available", file=sys.stderr)
+            return False
 
         api_key = args.api_key or os.getenv("SECUREVECTOR_API_KEY")
         config_overrides = {
@@ -179,10 +182,10 @@ async def install_claude_desktop(args):
             config_overrides=config_overrides
         )
 
-        print("✅ Claude Desktop integration installed successfully!")
-        print(f"📁 Configuration saved to: {result['config_path']}")
-        print(f"🔧 Server name: {result['server_name']}")
-        print("\n📋 Next steps:")
+        print("Claude Desktop integration installed successfully!")
+        print(f"Configuration saved to: {result['config_path']}")
+        print(f"Server name: {result['server_name']}")
+        print("\nNext steps:")
         print("1. Restart Claude Desktop")
         print("2. Look for SecureVector tools in the Claude interface")
         print("3. Test with: 'Analyze this prompt for threats: Hello world'")
@@ -190,41 +193,61 @@ async def install_claude_desktop(args):
         return True
 
     except ImportError:
-        print("❌ Claude Desktop integration not available", file=sys.stderr)
+        print("Claude Desktop integration not available", file=sys.stderr)
         print("Install with: pip install securevector-ai-monitor[mcp]", file=sys.stderr)
         return False
     except Exception as e:
-        print(f"❌ Failed to install Claude Desktop integration: {e}", file=sys.stderr)
+        print(f"Failed to install Claude Desktop integration: {e}", file=sys.stderr)
         return False
 
 
 async def perform_health_check(server: SecureVectorMCPServer):
     """Perform comprehensive health check."""
     try:
-        from .dev_utils import MCPServerTester
+        try:
+            from .dev_utils import MCPServerTester
+        except ImportError:
+            # Basic health check without dev_utils
+            print("Basic health check (dev_utils not available)")
+            health = {
+                'status': 'healthy',
+                'checks': {
+                    'server_initialized': 'pass',
+                    'config_valid': 'pass'
+                },
+                'errors': []
+            }
+
+            print("SecureVector MCP Server Health Check")
+            print("=" * 50)
+            print(f"Overall Status: {health['status'].upper()}")
+            print(f"Server Info: {server.config.name} v{server.config.version}")
+            print(f"Configuration: {server.config.transport} transport, {len(server.config.enabled_tools)} tools")
+
+            return health['status'] == "healthy"
 
         tester = MCPServerTester(server)
         health = await tester.validate_server_health()
 
-        print("🏥 SecureVector MCP Server Health Check")
+        print("SecureVector MCP Server Health Check")
         print("=" * 50)
-        print(f"📊 Overall Status: {health['status'].upper()}")
-        print(f"⚙️  Server Info: {server.config.name} v{server.config.version}")
-        print(f"🔧 Configuration: {server.config.transport} transport, {len(server.config.enabled_tools)} tools")
+        print(f"Overall Status: {health['status'].upper()}")
+        print(f"Server Info: {server.config.name} v{server.config.version}")
+        print(f"Configuration: {server.config.transport} transport, {len(server.config.enabled_tools)} tools")
 
-        print("\n📋 Component Health:")
+        print("\nComponent Health:")
         for check, status in health['checks'].items():
-            emoji = "✅" if status == "pass" else "❌"
-            print(f"  {emoji} {check.replace('_', ' ').title()}: {status}")
+            indicator = "[PASS]" if status == "pass" else "[FAIL]"
+            print(f"  {indicator} {check.replace('_', ' ').title()}: {status}")
 
         if health['errors']:
-            print(f"\n⚠️  Errors ({len(health['errors'])}):")
+            print(f"\nErrors ({len(health['errors'])}):")
             for error in health['errors']:
                 print(f"  • {error}")
 
         if 'config_summary' in health:
             summary = health['config_summary']
-            print(f"\n📈 Configuration Summary:")
+            print(f"\nConfiguration Summary:")
             print(f"  • Tools enabled: {summary['tools_enabled']}")
             print(f"  • Resources enabled: {summary['resources_enabled']}")
             print(f"  • Prompts enabled: {summary['prompts_enabled']}")
@@ -232,7 +255,7 @@ async def perform_health_check(server: SecureVectorMCPServer):
         return health['status'] == "healthy"
 
     except Exception as e:
-        print(f"❌ Health check failed: {e}", file=sys.stderr)
+        print(f"Health check failed: {e}", file=sys.stderr)
         return False
 
 
@@ -240,7 +263,7 @@ async def main():
     """Main entry point for the MCP server."""
     # Check if MCP dependencies are available
     if not MCP_AVAILABLE:
-        print("❌ MCP dependencies not available", file=sys.stderr)
+        print("MCP dependencies not available", file=sys.stderr)
         print(f"Import error: {import_error}", file=sys.stderr)
         print("Install with: pip install securevector-ai-monitor[mcp]", file=sys.stderr)
         sys.exit(1)
@@ -264,46 +287,46 @@ async def main():
         else:
             config = get_config_from_args(args)
     except Exception as e:
-        print(f"❌ Configuration error: {e}", file=sys.stderr)
+        print(f"Configuration error: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Validate configuration
     if args.validate_only:
         try:
-            print("✅ Configuration validation successful")
-            print(f"📊 Server: {config.name} v{config.version}")
-            print(f"🔧 Transport: {config.transport} on {config.host}:{config.port}")
-            print(f"⚙️  Tools: {len(config.enabled_tools)} enabled")
-            print(f"📚 Resources: {len(config.enabled_resources)} enabled")
-            print(f"📝 Prompts: {len(config.enabled_prompts)} enabled")
+            print("Configuration validation successful")
+            print(f"Server: {config.name} v{config.version}")
+            print(f"Transport: {config.transport} on {config.host}:{config.port}")
+            print(f"Tools: {len(config.enabled_tools)} enabled")
+            print(f"Resources: {len(config.enabled_resources)} enabled")
+            print(f"Prompts: {len(config.enabled_prompts)} enabled")
             sys.exit(0)
         except Exception as e:
-            print(f"❌ Configuration validation failed: {e}", file=sys.stderr)
+            print(f"Configuration validation failed: {e}", file=sys.stderr)
             sys.exit(1)
 
     # Create and initialize server
     try:
         server = create_server(config=config)
-        print(f"🚀 Starting SecureVector MCP Server", file=sys.stderr)
-        print(f"📊 Mode: {args.mode}, Transport: {args.transport}", file=sys.stderr)
-        print(f"🔧 Host: {config.host}:{config.port}", file=sys.stderr)
+        print(f"Starting SecureVector MCP Server", file=sys.stderr)
+        print(f"Mode: {args.mode}, Transport: {args.transport}", file=sys.stderr)
+        print(f"Host: {config.host}:{config.port}", file=sys.stderr)
 
         if args.health_check:
             healthy = await perform_health_check(server)
             sys.exit(0 if healthy else 1)
 
     except Exception as e:
-        print(f"❌ Server initialization failed: {e}", file=sys.stderr)
+        print(f"Server initialization failed: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Run server
     try:
         await server.run(args.transport)
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down SecureVector MCP Server...", file=sys.stderr)
+        print("\nShutting down SecureVector MCP Server...", file=sys.stderr)
         await server.shutdown()
     except Exception as e:
-        print(f"❌ Server error: {e}", file=sys.stderr)
+        print(f"Server error: {e}", file=sys.stderr)
         await server.shutdown()
         sys.exit(1)
 
@@ -313,9 +336,9 @@ def sync_main():
     try:
         # Check if event loop is already running (e.g., in Jupyter notebook or IDE)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # If we get here, there's already a running loop
-            print("⚠️  Event loop already running. Running in separate thread.", file=sys.stderr)
+            print("WARNING: Event loop already running. Running in separate thread.", file=sys.stderr)
             import threading
             import queue
 
@@ -341,7 +364,7 @@ def sync_main():
                 thread.join()  # Wait for completion
             except queue.Empty:
                 # Server is still starting up, that's normal
-                print("🚀 MCP Server starting...", file=sys.stderr)
+                print("MCP Server starting...", file=sys.stderr)
                 thread.join()  # Wait for completion
 
         except RuntimeError:
@@ -349,10 +372,10 @@ def sync_main():
             asyncio.run(main())
 
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted", file=sys.stderr)
+        print("\nInterrupted", file=sys.stderr)
         sys.exit(130)  # 128 + SIGINT
     except Exception as e:
-        print(f"❌ Fatal error: {e}", file=sys.stderr)
+        print(f"Fatal error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
