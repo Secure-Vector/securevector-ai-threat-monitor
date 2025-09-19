@@ -78,7 +78,7 @@ rules:
       
       detection:
         - type: "pattern"
-          match: "(?:show|give|tell)\\s+(?:the\\s+)?api\\s+keys?"
+          match: "(?:show|give|tell)\\s+(?:me\\s+)?(?:the\\s+)?(?:api|API)\\s+keys?"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
         - type: "pattern"
