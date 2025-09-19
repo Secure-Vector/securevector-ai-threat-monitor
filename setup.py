@@ -50,6 +50,10 @@ setup(
         "typing-extensions>=4.0.0",
     ],
     extras_require={
+        "mcp": [
+            "mcp>=0.1.0",
+            "fastmcp>=0.1.0",
+        ],
         "dev": [
             "pytest>=6.0",
             "pytest-cov>=3.0",
@@ -64,6 +68,12 @@ setup(
             "psutil>=5.8",  # For benchmark memory tests
         ],
         "benchmark": [
+            "psutil>=5.8",
+            "memory-profiler>=0.60",
+        ],
+        "all": [
+            "mcp>=0.1.0",
+            "fastmcp>=0.1.0",
             "psutil>=5.8",
             "memory-profiler>=0.60",
         ],
@@ -84,6 +94,7 @@ setup(
         "console_scripts": [
             "sv-monitor=securevector.cli:main",
             "securevector-monitor=securevector.cli:main",
+            "securevector-mcp=securevector.mcp.__main__:main",
         ],
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",

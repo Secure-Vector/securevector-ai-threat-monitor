@@ -45,6 +45,30 @@ from .types import (  # Type definitions for better IDE support
     ThreatAnalyzer,
 )
 
+# MCP Server imports (optional - only if MCP dependencies available)
+try:
+    from .mcp import (
+        SecureVectorMCPServer,
+        MCPServerConfig,
+        create_mcp_server,
+        check_mcp_dependencies,
+        MCP_AVAILABLE,
+    )
+    _MCP_IMPORTS_AVAILABLE = True
+except ImportError:
+    # MCP dependencies not installed
+    _MCP_IMPORTS_AVAILABLE = False
+    MCP_AVAILABLE = False
+
+    def create_mcp_server(*args, **kwargs):
+        raise ImportError(
+            "MCP dependencies not installed. Install with: "
+            "pip install securevector-ai-monitor[mcp]"
+        )
+
+    def check_mcp_dependencies():
+        return False
+
 # Main public interface
 __version__ = "1.0.0"
 __all__ = [
@@ -65,6 +89,10 @@ __all__ = [
     "ModeConfig",
     "SecurityPolicy",
     "PolicyRule",
+    # MCP Server (optional)
+    "create_mcp_server",
+    "check_mcp_dependencies",
+    "MCP_AVAILABLE",
     # Type definitions for IDE support
     "OperationModeType",
     "LogLevelType",
@@ -79,6 +107,13 @@ __all__ = [
     "ThreatAnalyzer",
     "AsyncThreatAnalyzer",
 ]
+
+# Add MCP exports to __all__ if available
+if _MCP_IMPORTS_AVAILABLE:
+    __all__.extend([
+        "SecureVectorMCPServer",
+        "MCPServerConfig",
+    ])
 
 
 # Convenience functions for quick setup

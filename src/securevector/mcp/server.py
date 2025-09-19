@@ -1,0 +1,400 @@
+"""
+SecureVector MCP Server Implementation
+
+This module provides the main MCP server implementation for SecureVector AI Threat Monitor,
+using FastMCP to expose threat analysis capabilities to LLMs through the Model Context Protocol.
+
+Copyright (c) 2025 SecureVector
+Licensed under the Apache License, Version 2.0
+"""
+
+import asyncio
+import logging
+import time
+from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
+
+try:
+    from mcp.server.fastmcp import FastMCP
+    from mcp.server.session import ServerSession
+    from mcp import types
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    # Create dummy classes
+    FastMCP = None
+    ServerSession = None
+    types = None
+
+from securevector import SecureVectorClient, AsyncSecureVectorClient
+from securevector.models.config_models import OperationMode
+from securevector.utils.logger import get_logger
+from securevector.utils.exceptions import SecurityException, APIError, ConfigurationError
+
+from .config.server_config import MCPServerConfig, create_default_config
+
+
+class RateLimiter:
+    """Simple rate limiter for MCP requests."""
+
+    def __init__(self, requests_per_minute: int = 60, burst_size: int = 10):
+        self.requests_per_minute = requests_per_minute
+        self.burst_size = burst_size
+        self.client_requests = defaultdict(deque)
+        self.logger = get_logger(__name__)
+
+    def is_allowed(self, client_id: str) -> bool:
+        """Check if request is allowed for client."""
+        now = time.time()
+        minute_ago = now - 60
+
+        # Clean old requests
+        client_queue = self.client_requests[client_id]
+        while client_queue and client_queue[0] < minute_ago:
+            client_queue.popleft()
+
+        # Check rate limit
+        if len(client_queue) >= self.requests_per_minute:
+            self.logger.warning(f"Rate limit exceeded for client {client_id}")
+            return False
+
+        # Check burst limit
+        recent_requests = sum(1 for req_time in client_queue if req_time > now - 10)
+        if recent_requests >= self.burst_size:
+            self.logger.warning(f"Burst limit exceeded for client {client_id}")
+            return False
+
+        # Allow request and record it
+        client_queue.append(now)
+        return True
+
+
+class AuditLogger:
+    """Audit logger for MCP server operations."""
+
+    def __init__(self, enabled: bool = True, log_path: Optional[str] = None):
+        self.enabled = enabled
+        self.logger = logging.getLogger("securevector.mcp.audit")
+
+        if enabled and log_path:
+            handler = logging.FileHandler(log_path)
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+
+    def log_request(self, client_id: str, tool_name: str, args: Dict[str, Any]):
+        """Log MCP tool request."""
+        if self.enabled:
+            self.logger.info(
+                f"MCP_REQUEST client={client_id} tool={tool_name} "
+                f"args_keys={list(args.keys())}"
+            )
+
+    def log_response(self, client_id: str, tool_name: str, success: bool,
+                    response_time: float, error: Optional[str] = None):
+        """Log MCP tool response."""
+        if self.enabled:
+            status = "SUCCESS" if success else "ERROR"
+            error_msg = f" error={error}" if error else ""
+            self.logger.info(
+                f"MCP_RESPONSE client={client_id} tool={tool_name} "
+                f"status={status} time={response_time:.3f}s{error_msg}"
+            )
+
+
+class SecureVectorMCPServer:
+    """
+    SecureVector MCP Server implementation.
+
+    Provides MCP tools, resources, and prompts for AI threat analysis
+    using the SecureVector AI Threat Monitor SDK.
+    """
+
+    def __init__(
+        self,
+        name: str = "SecureVector AI Threat Monitor",
+        config: Optional[MCPServerConfig] = None,
+        api_key: Optional[str] = None,
+        **kwargs
+    ):
+        """
+        Initialize SecureVector MCP Server.
+
+        Args:
+            name: Server name for MCP identification
+            config: MCP server configuration
+            api_key: Optional API key for SecureVector client
+            **kwargs: Additional configuration options
+        """
+        if not MCP_AVAILABLE:
+            raise ImportError(
+                "MCP dependencies not available. Install with: "
+                "pip install securevector-ai-monitor[mcp]"
+            )
+
+        # Configuration
+        self.config = config or create_default_config(api_key=api_key, **kwargs)
+        self.logger = get_logger(__name__)
+
+        # Initialize FastMCP server
+        self.mcp = FastMCP(name)
+
+        # Initialize SecureVector clients
+        self._init_securevector_clients(api_key)
+
+        # Initialize security components
+        self.rate_limiter = RateLimiter(
+            requests_per_minute=self.config.security.requests_per_minute,
+            burst_size=self.config.security.burst_requests
+        )
+        self.audit_logger = AuditLogger(
+            enabled=self.config.security.enable_audit_logging,
+            log_path=self.config.security.audit_log_path
+        )
+
+        # Performance tracking
+        self.request_stats = {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "avg_response_time": 0.0,
+            "last_request_time": None,
+        }
+
+        # Setup MCP components
+        self._setup_tools()
+        self._setup_resources()
+        self._setup_prompts()
+
+        self.logger.info(f"SecureVector MCP Server initialized: {name}")
+
+    def _init_securevector_clients(self, api_key: Optional[str]):
+        """Initialize SecureVector clients."""
+        client_config = self.config.securevector_config.copy()
+
+        if api_key:
+            client_config["api_key"] = api_key
+        elif self.config.security.api_key:
+            client_config["api_key"] = self.config.security.api_key
+
+        # Set mode
+        if "mode" not in client_config:
+            client_config["mode"] = self.config.securevector_mode
+
+        try:
+            self.sync_client = SecureVectorClient(**client_config)
+            self.async_client = AsyncSecureVectorClient(**client_config)
+            self.logger.info("SecureVector clients initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize SecureVector clients: {e}")
+            raise ConfigurationError(f"SecureVector client initialization failed: {e}")
+
+    def _setup_tools(self):
+        """Setup MCP tools."""
+        if not self.config.enable_tools:
+            return
+
+        # Import and register tools
+        from .tools.analyze_prompt import setup_analyze_prompt_tool
+        from .tools.batch_analysis import setup_batch_analysis_tool
+        from .tools.threat_stats import setup_threat_stats_tool
+
+        if "analyze_prompt" in self.config.enabled_tools:
+            setup_analyze_prompt_tool(self.mcp, self)
+
+        if "batch_analyze" in self.config.enabled_tools:
+            setup_batch_analysis_tool(self.mcp, self)
+
+        if "get_threat_statistics" in self.config.enabled_tools:
+            setup_threat_stats_tool(self.mcp, self)
+
+        self.logger.info(f"MCP tools enabled: {self.config.enabled_tools}")
+
+    def _setup_resources(self):
+        """Setup MCP resources."""
+        if not self.config.enable_resources:
+            return
+
+        # Import and register resources
+        from .resources.rules import setup_rules_resource
+        from .resources.policies import setup_policies_resource
+
+        if "rules" in self.config.enabled_resources:
+            setup_rules_resource(self.mcp, self)
+
+        if "policies" in self.config.enabled_resources:
+            setup_policies_resource(self.mcp, self)
+
+        self.logger.info(f"MCP resources enabled: {self.config.enabled_resources}")
+
+    def _setup_prompts(self):
+        """Setup MCP prompts."""
+        if not self.config.enable_prompts:
+            return
+
+        # Import and register prompts
+        from .prompts.templates import setup_prompt_templates
+
+        setup_prompt_templates(self.mcp, self, self.config.enabled_prompts)
+
+        self.logger.info(f"MCP prompts enabled: {self.config.enabled_prompts}")
+
+    async def validate_request(self, client_id: str, tool_name: str, args: Dict[str, Any]) -> bool:
+        """
+        Validate incoming MCP request.
+
+        Args:
+            client_id: Client identifier
+            tool_name: Name of the tool being called
+            args: Tool arguments
+
+        Returns:
+            True if request is valid, False otherwise
+
+        Raises:
+            SecurityException: If request is invalid or unauthorized
+        """
+        # Rate limiting
+        if not self.rate_limiter.is_allowed(client_id):
+            raise SecurityException(
+                "Rate limit exceeded",
+                error_code="RATE_LIMIT_EXCEEDED",
+                details={"client_id": client_id, "tool": tool_name}
+            )
+
+        # Authentication (if required)
+        if self.config.security.require_authentication:
+            if not self.config.security.api_key:
+                raise SecurityException(
+                    "Authentication required but no API key configured",
+                    error_code="AUTH_NOT_CONFIGURED"
+                )
+
+        # Input validation
+        if "prompt" in args:
+            prompt = args["prompt"]
+            if len(prompt) > self.config.security.max_prompt_length:
+                raise SecurityException(
+                    f"Prompt too long: {len(prompt)} > {self.config.security.max_prompt_length}",
+                    error_code="PROMPT_TOO_LONG",
+                    details={"length": len(prompt), "max_length": self.config.security.max_prompt_length}
+                )
+
+        if "prompts" in args:
+            prompts = args["prompts"]
+            if len(prompts) > self.config.security.max_batch_size:
+                raise SecurityException(
+                    f"Batch too large: {len(prompts)} > {self.config.security.max_batch_size}",
+                    error_code="BATCH_TOO_LARGE",
+                    details={"size": len(prompts), "max_size": self.config.security.max_batch_size}
+                )
+
+        return True
+
+    def update_stats(self, success: bool, response_time: float):
+        """Update performance statistics."""
+        self.request_stats["total_requests"] += 1
+        self.request_stats["last_request_time"] = datetime.now()
+
+        if success:
+            self.request_stats["successful_requests"] += 1
+        else:
+            self.request_stats["failed_requests"] += 1
+
+        # Update average response time
+        total = self.request_stats["total_requests"]
+        current_avg = self.request_stats["avg_response_time"]
+        self.request_stats["avg_response_time"] = (
+            (current_avg * (total - 1) + response_time) / total
+        )
+
+    def get_server_info(self) -> Dict[str, Any]:
+        """Get server information and statistics."""
+        return {
+            "name": self.config.name,
+            "version": self.config.version,
+            "description": self.config.description,
+            "config": self.config.to_dict(),
+            "stats": self.request_stats,
+            "uptime": time.time(),  # Will be calculated by client
+            "status": "running",
+        }
+
+    async def run(self, transport: str = "stdio"):
+        """
+        Run the MCP server.
+
+        Args:
+            transport: Transport protocol (stdio, sse, http)
+        """
+        transport = transport or self.config.transport
+
+        self.logger.info(f"Starting SecureVector MCP Server with {transport} transport")
+
+        try:
+            if transport == "stdio":
+                await self._run_stdio()
+            elif transport == "http":
+                await self._run_http()
+            elif transport == "sse":
+                await self._run_sse()
+            else:
+                raise ValueError(f"Unsupported transport: {transport}")
+        except Exception as e:
+            self.logger.error(f"MCP Server error: {e}")
+            raise
+
+    async def _run_stdio(self):
+        """Run server with stdio transport."""
+        # This would typically be handled by the MCP framework
+        self.logger.info("MCP Server running with stdio transport")
+        await self.mcp.run()
+
+    async def _run_http(self):
+        """Run server with HTTP transport."""
+        self.logger.info(f"MCP Server running with HTTP transport on {self.config.host}:{self.config.port}")
+        # HTTP transport implementation would go here
+        pass
+
+    async def _run_sse(self):
+        """Run server with SSE transport."""
+        self.logger.info(f"MCP Server running with SSE transport on {self.config.host}:{self.config.port}")
+        # SSE transport implementation would go here
+        pass
+
+    async def shutdown(self):
+        """Shutdown the MCP server gracefully."""
+        self.logger.info("Shutting down SecureVector MCP Server")
+        # Cleanup resources
+        if hasattr(self.async_client, 'close'):
+            await self.async_client.close()
+
+
+def create_server(
+    name: str = "SecureVector AI Threat Monitor",
+    api_key: Optional[str] = None,
+    config: Optional[MCPServerConfig] = None,
+    **kwargs
+) -> SecureVectorMCPServer:
+    """
+    Create a SecureVector MCP server instance.
+
+    Args:
+        name: Server name
+        api_key: Optional API key
+        config: Optional configuration
+        **kwargs: Additional configuration options
+
+    Returns:
+        SecureVectorMCPServer instance
+    """
+    return SecureVectorMCPServer(
+        name=name,
+        config=config,
+        api_key=api_key,
+        **kwargs
+    )

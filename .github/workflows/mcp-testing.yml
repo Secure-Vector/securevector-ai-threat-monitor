@@ -1,0 +1,371 @@
+name: MCP Server Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/securevector/mcp/**'
+      - 'tests/mcp/**'
+      - 'examples/mcp/**'
+      - 'setup.py'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/securevector/mcp/**'
+      - 'tests/mcp/**'
+      - 'examples/mcp/**'
+      - 'setup.py'
+
+env:
+  PYTHON_VERSION: "3.9"
+
+jobs:
+  mcp-dependencies-test:
+    name: Test MCP with and without dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "With MCP Dependencies"
+            install_mcp: true
+          - name: "Without MCP Dependencies (Fallback)"
+            install_mcp: false
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install base dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+
+    - name: Install MCP dependencies (conditional)
+      if: matrix.install_mcp
+      run: |
+        pip install -e .[mcp]
+        echo "MCP_EXPECTED=true" >> $GITHUB_ENV
+
+    - name: Skip MCP dependencies
+      if: "!matrix.install_mcp"
+      run: |
+        echo "MCP_EXPECTED=false" >> $GITHUB_ENV
+
+    - name: Test MCP availability detection
+      run: |
+        python -c "
+        from securevector import check_mcp_dependencies, MCP_AVAILABLE
+
+        expected = '${{ env.MCP_EXPECTED }}' == 'true'
+        actual = check_mcp_dependencies()
+
+        print(f'Expected MCP available: {expected}')
+        print(f'Actual MCP available: {actual}')
+        print(f'MCP_AVAILABLE constant: {MCP_AVAILABLE}')
+
+        if expected != actual:
+            print('❌ MCP availability detection mismatch!')
+            exit(1)
+        else:
+            print('✅ MCP availability detection working correctly')
+        "
+
+    - name: Test MCP imports and graceful fallback
+      run: |
+        python -c "
+        import sys
+
+        try:
+            from securevector import create_mcp_server, MCP_AVAILABLE
+
+            if '${{ env.MCP_EXPECTED }}' == 'true':
+                # Should have full MCP functionality
+                assert MCP_AVAILABLE == True, 'MCP should be available'
+
+                from securevector.mcp import SecureVectorMCPServer, MCPServerConfig
+                server = create_mcp_server(name='Test Server')
+                print('✅ Full MCP functionality working')
+
+            else:
+                # Should have graceful fallback
+                assert MCP_AVAILABLE == False, 'MCP should not be available'
+
+                try:
+                    server = create_mcp_server()
+                    print('❌ create_mcp_server should raise ImportError when MCP deps missing')
+                    sys.exit(1)
+                except ImportError as e:
+                    if 'MCP dependencies not installed' in str(e):
+                        print('✅ Graceful fallback working - correct ImportError raised')
+                    else:
+                        print(f'❌ Unexpected ImportError: {e}')
+                        sys.exit(1)
+
+        except Exception as e:
+            print(f'❌ Test failed: {e}')
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+        "
+
+  mcp-functionality-test:
+    name: Test MCP Server Functionality
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies with MCP
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev,mcp]
+
+    - name: Test MCP server creation and basic functionality
+      run: |
+        PYTHONPATH=src python -c "
+        from securevector import create_mcp_server
+        from securevector.mcp.config import create_development_config
+
+        # Test server creation
+        config = create_development_config()
+        server = create_mcp_server(config=config)
+
+        print('✅ MCP server created successfully')
+
+        # Test server info
+        info = server.get_server_info()
+        assert 'name' in info
+        assert 'version' in info
+        assert info['status'] == 'running'
+
+        print('✅ Server info retrieval working')
+
+        # Test rate limiter
+        assert server.rate_limiter.is_allowed('test_client') == True
+        print('✅ Rate limiter working')
+
+        # Test audit logger (should not raise errors)
+        server.audit_logger.log_request('test_client', 'test_tool', {'test': 'data'})
+        print('✅ Audit logger working')
+
+        print('✅ All MCP server functionality tests passed')
+        "
+
+    - name: Test MCP tools functionality
+      run: |
+        PYTHONPATH=src python -c "
+        import asyncio
+        from securevector.mcp import create_mcp_server
+        from securevector.mcp.config import create_development_config
+
+        async def test_tools():
+            config = create_development_config()
+            server = create_mcp_server(config=config)
+
+            # Test analyze prompt tool
+            from securevector.mcp.tools.analyze_prompt import AnalyzePromptTool
+            tool = AnalyzePromptTool(server)
+            result = await tool.analyze('Hello world')
+
+            assert 'analysis_successful' in result
+            assert 'is_threat' in result
+            assert 'risk_score' in result
+            print('✅ Analyze prompt tool working')
+
+            # Test threat statistics tool
+            from securevector.mcp.tools.threat_stats import ThreatStatisticsTool
+            stats_tool = ThreatStatisticsTool(server)
+            stats = stats_tool.get_basic_stats()
+
+            assert 'total_requests' in stats
+            assert 'server_info' in stats
+            print('✅ Threat statistics tool working')
+
+            print('✅ All MCP tools tests passed')
+
+        asyncio.run(test_tools())
+        "
+
+    - name: Run MCP test suite
+      if: success()
+      run: |
+        pytest tests/mcp/ -v --tb=short
+      continue-on-error: true
+
+  mcp-examples-test:
+    name: Test MCP Examples
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies with MCP
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev,mcp]
+
+    - name: Test MCP example syntax
+      run: |
+        echo "Testing MCP example file syntax..."
+        python -m py_compile examples/mcp/python_client_example.py
+        python -m py_compile examples/mcp/claude_desktop_integration.py
+        echo "✅ All MCP examples compile successfully"
+
+    - name: Test Claude Desktop integration helper
+      run: |
+        cd examples/mcp
+        python claude_desktop_integration.py --status
+        echo "✅ Claude Desktop integration helper working"
+
+    - name: Test MCP client imports
+      run: |
+        cd examples/mcp
+        python -c "
+        # Test that the client example can import correctly
+        import sys
+        sys.path.insert(0, '../../src')
+
+        # Import the classes without running the main demo
+        from python_client_example import SecureVectorMCPClient
+
+        print('✅ MCP client example imports successfully')
+        "
+
+  mcp-integration-test:
+    name: Test MCP Integration
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies with MCP
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev,mcp]
+
+    - name: Test MCP CLI functionality
+      run: |
+        # Test MCP CLI help
+        PYTHONPATH=src python -m securevector.mcp --help
+
+        # Test MCP health check
+        PYTHONPATH=src python -m securevector.mcp --health-check
+
+        # Test configuration validation
+        PYTHONPATH=src python -m securevector.mcp --validate-only
+
+        echo "✅ MCP CLI functionality working"
+
+    - name: Test MCP server lifecycle
+      run: |
+        PYTHONPATH=src python -c "
+        import asyncio
+        from securevector.mcp import create_mcp_server
+        from securevector.mcp.config import create_development_config
+
+        async def test_lifecycle():
+            config = create_development_config()
+            server = create_mcp_server(config=config)
+
+            # Test server startup
+            info = server.get_server_info()
+            assert info['status'] == 'running'
+            print('✅ Server startup successful')
+
+            # Test server shutdown
+            await server.shutdown()
+            print('✅ Server shutdown successful')
+
+            print('✅ MCP server lifecycle test passed')
+
+        asyncio.run(test_lifecycle())
+        "
+
+  mcp-security-test:
+    name: Test MCP Security Features
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies with MCP
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev,mcp]
+
+    - name: Test MCP input validation
+      run: |
+        PYTHONPATH=src python -c "
+        import asyncio
+        from securevector.mcp import create_mcp_server
+        from securevector.mcp.config import create_development_config
+
+        async def test_security():
+            config = create_development_config()
+            server = create_mcp_server(config=config)
+
+            # Test request validation with oversized prompt
+            try:
+                await server.validate_request(
+                    'test_client',
+                    'analyze_prompt',
+                    {'prompt': 'x' * (config.security.max_prompt_length + 1)}
+                )
+                print('❌ Should have rejected oversized prompt')
+                exit(1)
+            except Exception:
+                print('✅ Input validation working - oversized prompt rejected')
+
+            # Test valid request
+            result = await server.validate_request(
+                'test_client',
+                'analyze_prompt',
+                {'prompt': 'Hello world'}
+            )
+            assert result == True
+            print('✅ Valid request accepted')
+
+            print('✅ MCP security tests passed')
+
+        asyncio.run(test_security())
+        "
+
+    - name: Test MCP audit logging
+      run: |
+        PYTHONPATH=src python -c "
+        from securevector.mcp import create_mcp_server
+        from securevector.mcp.config import create_development_config
+
+        config = create_development_config()
+        server = create_mcp_server(config=config)
+
+        # Test audit logging doesn't raise errors
+        server.audit_logger.log_request('test_client', 'test_tool', {'test': 'data'})
+        server.audit_logger.log_response('test_client', 'test_tool', True, 0.1)
+
+        print('✅ Audit logging working without errors')
+        "
