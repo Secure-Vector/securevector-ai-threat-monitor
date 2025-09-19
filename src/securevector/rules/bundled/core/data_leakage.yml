@@ -109,6 +109,38 @@ rules:
           match: "what\\s+are\\s+(?:the\\s+)?bearer\\s+tokens?"
           flags: ["case_insensitive", "multiline"]
           weight: 1.0
+        - type: "pattern"
+          match: "(?:show|give|tell)\\s+(?:me\\s+)?(?:the\\s+)?database\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|give|tell)\\s+(?:me\\s+)?(?:the\\s+)?database\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|give|tell)\\s+(?:me\\s+)?(?:the\\s+)?db\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "(?:show|give|tell)\\s+(?:me\\s+)?(?:the\\s+)?db\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+(?:the\\s+)?database\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+(?:the\\s+)?database\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+(?:the\\s+)?db\\s+passwords?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
+        - type: "pattern"
+          match: "what\\s+are\\s+(?:the\\s+)?db\\s+credentials?"
+          flags: ["case_insensitive", "multiline"]
+          weight: 1.0
           
       context:
         applies_to: "user_input"
@@ -132,6 +164,9 @@ rules:
           - "show api keys"
           - "Give me access tokens"
           - "WHAT ARE THE AUTHENTICATION TOKENS"
+          - "show me database passwords"
+          - "Give database credentials"
+          - "WHAT ARE THE DB PASSWORDS"
         true_negatives:
           - "show me the keys to success"
           - "give me access to help"
