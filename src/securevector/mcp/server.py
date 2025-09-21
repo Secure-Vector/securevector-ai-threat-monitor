@@ -241,9 +241,30 @@ class SecureVectorMCPServer:
 
         self.logger.info(f"MCP tools enabled: {self.config.enabled_tools}")
 
+    def run_direct(self, transport: str = "stdio"):
+        """
+        Run FastMCP server directly (synchronous entry point).
+
+        This method should be used when you want FastMCP to handle
+        the entire server lifecycle, including stdio transport.
+        This is the recommended approach for simple integrations.
+
+        Args:
+            transport: Transport protocol (stdio, http, sse)
+        """
+        self.logger.info(f"Running FastMCP server directly with {transport} transport")
+
+        try:
+            # Let FastMCP handle everything
+            self.mcp.run(transport=transport)
+        except Exception as e:
+            self.logger.error(f"FastMCP direct run failed: {e}")
+            raise
+
     def _setup_resources(self):
         """Setup MCP resources."""
         if not self.config.enable_resources:
+            
             return
 
         # Import and register resources
@@ -376,75 +397,22 @@ class SecureVectorMCPServer:
             raise
 
     async def _run_stdio(self):
-        """Run server with stdio transport."""
-        self.logger.info("MCP Server running with stdio transport")
+        """Run server with stdio transport using FastMCP async support."""
+        self.logger.info("MCP Server starting with stdio transport (async mode)")
 
         try:
-            # Use the proper FastMCP stdio transport
-            import sys
-            from mcp.server import stdio
-            from mcp.server.session import ServerSession
-            from mcp.types import ClientCapabilities, InitializeRequest, ServerCapabilities
+            # Use FastMCP's built-in async stdio support
+            # This is the correct way for newer MCP versions
+            self.logger.info("Starting FastMCP async stdio server...")
 
-            self.logger.info("Starting FastMCP stdio server")
-
-            # Create stdio transport
-            async with stdio.stdio_server() as (read_stream, write_stream):
-                # Create server session with our FastMCP instance
-                session = ServerSession(read_stream, write_stream)
-
-                self.logger.info("MCP server session created, waiting for initialization")
-
-                # Handle the MCP protocol properly
-                await session.initialize(
-                    server_name=self.config.name,
-                    server_version=self.config.version,
-                    capabilities=ServerCapabilities(
-                        tools={"listChanged": True} if self.config.enable_tools else None,
-                        resources={"subscribe": True, "listChanged": True} if self.config.enable_resources else None,
-                        prompts={"listChanged": True} if self.config.enable_prompts else None,
-                        logging={},
-                        experimental={}
-                    )
-                )
-
-                self.logger.info("MCP server initialized successfully")
-
-                # Register our FastMCP app with the session
-                try:
-                    # Use FastMCP's session handling
-                    await self.mcp.run_session(session)
-                except AttributeError:
-                    # Fallback: manual session handling
-                    self.logger.warning("FastMCP run_session not available, using manual handling")
-
-                    # Set up handlers manually
-                    session.set_request_handler("tools/list", self._handle_list_tools)
-                    session.set_request_handler("tools/call", self._handle_call_tool)
-                    session.set_request_handler("resources/list", self._handle_list_resources)
-                    session.set_request_handler("resources/read", self._handle_read_resource)
-                    session.set_request_handler("prompts/list", self._handle_list_prompts)
-                    session.set_request_handler("prompts/get", self._handle_get_prompt)
-
-                    # Keep the session alive
-                    self.logger.info("MCP server ready, listening for requests")
-                    await session.run()
+            # FastMCP has a run_stdio_async method for async contexts
+            await self.mcp.run_stdio_async()
 
         except Exception as e:
-            self.logger.error(f"Failed to start stdio server: {e}")
+            self.logger.error(f"FastMCP async stdio server failed: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-
-            # Last resort fallback - just run the FastMCP instance directly
-            self.logger.warning("Attempting direct FastMCP run as fallback")
-            try:
-                await self.mcp.run()
-            except Exception as e2:
-                self.logger.error(f"Direct FastMCP run also failed: {e2}")
-                raise
-            except ImportError:
-                self.logger.error("MCP stdio server not available")
-                raise RuntimeError("No viable MCP server implementation available")
+            raise
 
     async def _run_http(self):
         """Run server with HTTP transport."""
@@ -458,199 +426,18 @@ class SecureVectorMCPServer:
         # SSE transport implementation would go here
         pass
 
-    # Manual MCP handler methods for fallback mode
-    async def _handle_list_tools(self, request):
-        """Handle tools/list request."""
-        try:
-            tools = []
-            if "analyze_prompt" in self.config.enabled_tools:
-                tools.append({
-                    "name": "analyze_prompt",
-                    "description": "Analyze a text prompt for AI threats and security issues",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "prompt": {"type": "string", "description": "The prompt to analyze"}
-                        },
-                        "required": ["prompt"]
-                    }
-                })
-            if "batch_analyze" in self.config.enabled_tools:
-                tools.append({
-                    "name": "batch_analyze",
-                    "description": "Analyze multiple prompts in batch",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "prompts": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of prompts to analyze"
-                            }
-                        },
-                        "required": ["prompts"]
-                    }
-                })
-            if "get_threat_statistics" in self.config.enabled_tools:
-                tools.append({
-                    "name": "get_threat_statistics",
-                    "description": "Get threat detection statistics",
-                    "inputSchema": {"type": "object", "properties": {}}
-                })
+    def _setup_mcp_handlers(self, session: "ServerSession"):
+        """
+        Legacy method for manual MCP handler setup.
 
-            return {"tools": tools}
-        except Exception as e:
-            self.logger.error(f"Error listing tools: {e}")
-            return {"tools": []}
+        This method is kept for compatibility but is no longer used
+        since FastMCP handles all protocol interactions automatically.
+        """
+        self.logger.warning("_setup_mcp_handlers called but FastMCP handles this automatically")
+        pass
 
-    async def _handle_call_tool(self, request):
-        """Handle tools/call request."""
-        try:
-            tool_name = request.params.get("name")
-            arguments = request.params.get("arguments", {})
-
-            if tool_name == "analyze_prompt":
-                prompt = arguments.get("prompt", "")
-                result = await self.async_client.analyze(prompt)
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": f"Analysis Result:\n"
-                               f"Is Threat: {result.is_threat}\n"
-                               f"Risk Score: {result.risk_score}/100\n"
-                               f"Confidence: {result.confidence}\n"
-                               f"Detected Threats: {', '.join(result.detected_threats) if result.detected_threats else 'None'}"
-                    }]
-                }
-            elif tool_name == "batch_analyze":
-                prompts = arguments.get("prompts", [])
-                results = []
-                for i, prompt in enumerate(prompts):
-                    result = await self.async_client.analyze(prompt)
-                    results.append(f"Prompt {i+1}: Risk {result.risk_score}/100, Threat: {result.is_threat}")
-
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": f"Batch Analysis Results:\n" + "\n".join(results)
-                    }]
-                }
-            elif tool_name == "get_threat_statistics":
-                stats = self.request_stats
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": f"Threat Statistics:\n"
-                               f"Total Requests: {stats['total_requests']}\n"
-                               f"Successful: {stats['successful_requests']}\n"
-                               f"Failed: {stats['failed_requests']}\n"
-                               f"Avg Response Time: {stats['avg_response_time']:.3f}s"
-                    }]
-                }
-            else:
-                return {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}]}
-
-        except Exception as e:
-            self.logger.error(f"Error calling tool {tool_name}: {e}")
-            return {"content": [{"type": "text", "text": f"Error: {str(e)}"}]}
-
-    async def _handle_list_resources(self, request):
-        """Handle resources/list request."""
-        resources = []
-        if "rules" in self.config.enabled_resources:
-            resources.append({
-                "uri": "rules://detection-rules",
-                "name": "Detection Rules",
-                "description": "AI threat detection rules"
-            })
-        if "policies" in self.config.enabled_resources:
-            resources.append({
-                "uri": "policies://security-policies",
-                "name": "Security Policies",
-                "description": "Security policies and configurations"
-            })
-        return {"resources": resources}
-
-    async def _handle_read_resource(self, request):
-        """Handle resources/read request."""
-        uri = request.params.get("uri", "")
-        if uri == "rules://detection-rules":
-            return {
-                "contents": [{
-                    "uri": uri,
-                    "mimeType": "text/plain",
-                    "text": "AI Threat Detection Rules:\n- Prompt injection detection\n- Data leakage prevention\n- Social engineering detection"
-                }]
-            }
-        elif uri == "policies://security-policies":
-            return {
-                "contents": [{
-                    "uri": uri,
-                    "mimeType": "text/plain",
-                    "text": "Security Policies:\n- Block high-risk prompts\n- Log all threat detections\n- Rate limiting enabled"
-                }]
-            }
-        else:
-            return {"contents": []}
-
-    async def _handle_list_prompts(self, request):
-        """Handle prompts/list request."""
-        prompts = []
-        if "threat_analysis_workflow" in self.config.enabled_prompts:
-            prompts.append({
-                "name": "threat_analysis_workflow",
-                "description": "Workflow for analyzing AI threats"
-            })
-        if "security_audit_checklist" in self.config.enabled_prompts:
-            prompts.append({
-                "name": "security_audit_checklist",
-                "description": "Security audit checklist"
-            })
-        if "risk_assessment_guide" in self.config.enabled_prompts:
-            prompts.append({
-                "name": "risk_assessment_guide",
-                "description": "Risk assessment guide"
-            })
-        return {"prompts": prompts}
-
-    async def _handle_get_prompt(self, request):
-        """Handle prompts/get request."""
-        name = request.params.get("name", "")
-        if name == "threat_analysis_workflow":
-            return {
-                "description": "AI Threat Analysis Workflow",
-                "messages": [{
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Please analyze the following prompt for AI threats and security issues: [PROMPT_TO_ANALYZE]"
-                    }
-                }]
-            }
-        elif name == "security_audit_checklist":
-            return {
-                "description": "Security Audit Checklist",
-                "messages": [{
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Security Audit Checklist:\n1. Check for prompt injection\n2. Verify data leakage protection\n3. Test social engineering detection"
-                    }
-                }]
-            }
-        elif name == "risk_assessment_guide":
-            return {
-                "description": "Risk Assessment Guide",
-                "messages": [{
-                    "role": "user",
-                    "content": {
-                        "type": "text",
-                        "text": "Risk Assessment:\n- Low (0-30): Safe prompts\n- Medium (31-70): Review required\n- High (71-100): Block or restrict"
-                    }
-                }]
-            }
-        else:
-            return {"messages": []}
+    # All MCP protocol handling is now done automatically by FastMCP
+    # Tools, resources, and prompts are registered via decorators and setup methods
 
     async def shutdown(self):
         """Shutdown the MCP server gracefully."""

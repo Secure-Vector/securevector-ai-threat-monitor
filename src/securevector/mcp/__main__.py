@@ -135,6 +135,12 @@ Environment Variables:
         help="Install MCP server configuration for Claude Desktop"
     )
 
+    parser.add_argument(
+        "--direct-mode",
+        action="store_true",
+        help="Use FastMCP direct mode (simpler, for stdio only)"
+    )
+
     return parser.parse_args()
 
 
@@ -321,7 +327,15 @@ async def main():
 
     # Run server
     try:
-        await server.run(args.transport)
+        if args.direct_mode and args.transport == "stdio":
+            # Use FastMCP direct mode for stdio
+            print("Using FastMCP direct mode for stdio transport", file=sys.stderr)
+            # This must be called synchronously from the main thread
+            server.run_direct(args.transport)
+        else:
+            # Use async mode for other transports or manual control
+            print("Using async mode for server transport", file=sys.stderr)
+            await server.run(args.transport)
     except KeyboardInterrupt:
         print("\nShutting down SecureVector MCP Server...", file=sys.stderr)
         await server.shutdown()
@@ -334,42 +348,46 @@ async def main():
 def sync_main():
     """Synchronous wrapper for main function."""
     try:
-        # Check if event loop is already running (e.g., in Jupyter notebook or IDE)
-        try:
-            asyncio.get_running_loop()
-            # If we get here, there's already a running loop
-            print("WARNING: Event loop already running. Running in separate thread.", file=sys.stderr)
-            import threading
-            import queue
+        # Parse arguments to determine mode
+        args = parse_args()
 
-            # Use a queue to capture any exceptions from the thread
-            result_queue = queue.Queue()
+        # For direct mode with stdio, we handle it completely synchronously
+        if args.direct_mode and args.transport == "stdio":
+            # Setup logging
+            setup_logging(args.log_level)
 
-            def run_in_thread():
-                try:
-                    asyncio.run(main())
-                    result_queue.put(None)  # Success
-                except Exception as e:
-                    result_queue.put(e)  # Error
+            # Create server synchronously
+            if args.config_file:
+                from .config.server_config import MCPServerConfig
+                config = MCPServerConfig.from_file(args.config_file)
+            else:
+                config = get_config_from_args(args)
 
-            thread = threading.Thread(target=run_in_thread, daemon=True)
-            thread.start()
-
-            # Wait for the thread to complete and check for errors
             try:
-                result = result_queue.get(timeout=1)  # Wait 1 second for startup
-                if result is not None:
-                    raise result
-                # If we get here, the server started successfully
-                thread.join()  # Wait for completion
-            except queue.Empty:
-                # Server is still starting up, that's normal
-                print("MCP Server starting...", file=sys.stderr)
-                thread.join()  # Wait for completion
+                server = create_server(config=config)
+                print(f"Starting SecureVector MCP Server (direct mode)", file=sys.stderr)
+                print(f"Mode: {args.mode}, Transport: {args.transport}", file=sys.stderr)
 
-        except RuntimeError:
-            # No event loop running, safe to use asyncio.run()
-            asyncio.run(main())
+                # Run directly - FastMCP handles everything
+                server.run_direct(args.transport)
+
+            except Exception as e:
+                print(f"Server error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        else:
+            # For all other modes, use async approach
+            # Check if event loop is already running
+            try:
+                asyncio.get_running_loop()
+                # If we get here, there's already a running loop
+                print("ERROR: Event loop already running. Cannot start MCP server.", file=sys.stderr)
+                print("Please run the MCP server from a clean process.", file=sys.stderr)
+                sys.exit(1)
+
+            except RuntimeError:
+                # No event loop running - safe to use asyncio.run()
+                asyncio.run(main())
 
     except KeyboardInterrupt:
         print("\nInterrupted", file=sys.stderr)
