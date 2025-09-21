@@ -173,25 +173,52 @@ class SecureVectorMCPServer:
         self.logger.info(f"SecureVector MCP Server initialized: {name}")
 
     def _init_securevector_clients(self, api_key: Optional[str]):
-        """Initialize SecureVector clients."""
+        """Initialize SecureVector clients following SDK mode selection pattern."""
         client_config = self.config.securevector_config.copy()
 
+        # Determine API key from multiple sources
+        final_api_key = None
         if api_key:
-            client_config["api_key"] = api_key
+            final_api_key = api_key
         elif self.config.security.api_key:
-            client_config["api_key"] = self.config.security.api_key
+            final_api_key = self.config.security.api_key
 
-        # Set mode
+        # Add API key to config if available
+        if final_api_key:
+            client_config["api_key"] = final_api_key
+
+        # Set mode following SDK pattern:
+        # - If no specific mode set in config, use AUTO (like SDK default)
+        # - AUTO mode with API key -> HYBRID mode (best of both worlds)
+        # - AUTO mode without API key -> LOCAL mode (offline operation)
         if "mode" not in client_config:
-            client_config["mode"] = self.config.securevector_mode
+            client_config["mode"] = self.config.securevector_mode if self.config.securevector_mode != "auto" else OperationMode.AUTO
 
         try:
+            # Initialize clients - they will automatically select appropriate mode
             self.sync_client = SecureVectorClient(**client_config)
             self.async_client = AsyncSecureVectorClient(**client_config)
-            self.logger.info("SecureVector clients initialized successfully")
+
+            # Log the actual mode being used
+            actual_mode = self.sync_client.mode_handler.__class__.__name__.replace('Mode', '').lower()
+            if final_api_key:
+                self.logger.info(f"SecureVector clients initialized in {actual_mode} mode with API key")
+            else:
+                self.logger.info(f"SecureVector clients initialized in {actual_mode} mode (local-only, no API key)")
+
         except Exception as e:
             self.logger.error(f"Failed to initialize SecureVector clients: {e}")
-            raise ConfigurationError(f"SecureVector client initialization failed: {e}")
+            # If client initialization fails, it's likely a configuration issue
+            # Don't fail completely - fallback to basic functionality
+            self.logger.warning("Attempting fallback initialization in local mode")
+            try:
+                fallback_config = {"mode": OperationMode.LOCAL}
+                self.sync_client = SecureVectorClient(**fallback_config)
+                self.async_client = AsyncSecureVectorClient(**fallback_config)
+                self.logger.info("SecureVector clients initialized in fallback local mode")
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback initialization also failed: {fallback_error}")
+                raise ConfigurationError(f"SecureVector client initialization failed: {e}");
 
     def _setup_tools(self):
         """Setup MCP tools."""
@@ -350,30 +377,71 @@ class SecureVectorMCPServer:
 
     async def _run_stdio(self):
         """Run server with stdio transport."""
-        # This would typically be handled by the MCP framework
         self.logger.info("MCP Server running with stdio transport")
-        try:
-            await self.mcp.run()
-        except Exception as e:
-            # Check if this is the expected asyncio event loop conflict
-            if "Already running asyncio" in str(e):
-                self.logger.debug("FastMCP cannot run due to existing event loop, using fallback")
-            else:
-                self.logger.error(f"FastMCP run failed: {e}")
 
-            # Try alternative approach if FastMCP.run() fails
+        try:
+            # Use the proper FastMCP stdio transport
+            import sys
+            from mcp.server import stdio
+            from mcp.server.session import ServerSession
+            from mcp.types import ClientCapabilities, InitializeRequest, ServerCapabilities
+
+            self.logger.info("Starting FastMCP stdio server")
+
+            # Create stdio transport
+            async with stdio.stdio_server() as (read_stream, write_stream):
+                # Create server session with our FastMCP instance
+                session = ServerSession(read_stream, write_stream)
+
+                self.logger.info("MCP server session created, waiting for initialization")
+
+                # Handle the MCP protocol properly
+                await session.initialize(
+                    server_name=self.config.name,
+                    server_version=self.config.version,
+                    capabilities=ServerCapabilities(
+                        tools={"listChanged": True} if self.config.enable_tools else None,
+                        resources={"subscribe": True, "listChanged": True} if self.config.enable_resources else None,
+                        prompts={"listChanged": True} if self.config.enable_prompts else None,
+                        logging={},
+                        experimental={}
+                    )
+                )
+
+                self.logger.info("MCP server initialized successfully")
+
+                # Register our FastMCP app with the session
+                try:
+                    # Use FastMCP's session handling
+                    await self.mcp.run_session(session)
+                except AttributeError:
+                    # Fallback: manual session handling
+                    self.logger.warning("FastMCP run_session not available, using manual handling")
+
+                    # Set up handlers manually
+                    session.set_request_handler("tools/list", self._handle_list_tools)
+                    session.set_request_handler("tools/call", self._handle_call_tool)
+                    session.set_request_handler("resources/list", self._handle_list_resources)
+                    session.set_request_handler("resources/read", self._handle_read_resource)
+                    session.set_request_handler("prompts/list", self._handle_list_prompts)
+                    session.set_request_handler("prompts/get", self._handle_get_prompt)
+
+                    # Keep the session alive
+                    self.logger.info("MCP server ready, listening for requests")
+                    await session.run()
+
+        except Exception as e:
+            self.logger.error(f"Failed to start stdio server: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+
+            # Last resort fallback - just run the FastMCP instance directly
+            self.logger.warning("Attempting direct FastMCP run as fallback")
             try:
-                from mcp.server import stdio
-                async with stdio.stdio_server() as (read_stream, write_stream):
-                    # This is an alternative if FastMCP.run() doesn't work as expected
-                    self.logger.info("Using stdio server fallback")
-                    # Keep server running
-                    try:
-                        while True:
-                            await asyncio.sleep(1)
-                    except asyncio.CancelledError:
-                        self.logger.info("Server shutdown requested")
-                        return
+                await self.mcp.run()
+            except Exception as e2:
+                self.logger.error(f"Direct FastMCP run also failed: {e2}")
+                raise
             except ImportError:
                 self.logger.error("MCP stdio server not available")
                 raise RuntimeError("No viable MCP server implementation available")
@@ -389,6 +457,200 @@ class SecureVectorMCPServer:
         self.logger.info(f"MCP Server running with SSE transport on {self.config.host}:{self.config.port}")
         # SSE transport implementation would go here
         pass
+
+    # Manual MCP handler methods for fallback mode
+    async def _handle_list_tools(self, request):
+        """Handle tools/list request."""
+        try:
+            tools = []
+            if "analyze_prompt" in self.config.enabled_tools:
+                tools.append({
+                    "name": "analyze_prompt",
+                    "description": "Analyze a text prompt for AI threats and security issues",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string", "description": "The prompt to analyze"}
+                        },
+                        "required": ["prompt"]
+                    }
+                })
+            if "batch_analyze" in self.config.enabled_tools:
+                tools.append({
+                    "name": "batch_analyze",
+                    "description": "Analyze multiple prompts in batch",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "prompts": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of prompts to analyze"
+                            }
+                        },
+                        "required": ["prompts"]
+                    }
+                })
+            if "get_threat_statistics" in self.config.enabled_tools:
+                tools.append({
+                    "name": "get_threat_statistics",
+                    "description": "Get threat detection statistics",
+                    "inputSchema": {"type": "object", "properties": {}}
+                })
+
+            return {"tools": tools}
+        except Exception as e:
+            self.logger.error(f"Error listing tools: {e}")
+            return {"tools": []}
+
+    async def _handle_call_tool(self, request):
+        """Handle tools/call request."""
+        try:
+            tool_name = request.params.get("name")
+            arguments = request.params.get("arguments", {})
+
+            if tool_name == "analyze_prompt":
+                prompt = arguments.get("prompt", "")
+                result = await self.async_client.analyze(prompt)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"Analysis Result:\n"
+                               f"Is Threat: {result.is_threat}\n"
+                               f"Risk Score: {result.risk_score}/100\n"
+                               f"Confidence: {result.confidence}\n"
+                               f"Detected Threats: {', '.join(result.detected_threats) if result.detected_threats else 'None'}"
+                    }]
+                }
+            elif tool_name == "batch_analyze":
+                prompts = arguments.get("prompts", [])
+                results = []
+                for i, prompt in enumerate(prompts):
+                    result = await self.async_client.analyze(prompt)
+                    results.append(f"Prompt {i+1}: Risk {result.risk_score}/100, Threat: {result.is_threat}")
+
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"Batch Analysis Results:\n" + "\n".join(results)
+                    }]
+                }
+            elif tool_name == "get_threat_statistics":
+                stats = self.request_stats
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": f"Threat Statistics:\n"
+                               f"Total Requests: {stats['total_requests']}\n"
+                               f"Successful: {stats['successful_requests']}\n"
+                               f"Failed: {stats['failed_requests']}\n"
+                               f"Avg Response Time: {stats['avg_response_time']:.3f}s"
+                    }]
+                }
+            else:
+                return {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}]}
+
+        except Exception as e:
+            self.logger.error(f"Error calling tool {tool_name}: {e}")
+            return {"content": [{"type": "text", "text": f"Error: {str(e)}"}]}
+
+    async def _handle_list_resources(self, request):
+        """Handle resources/list request."""
+        resources = []
+        if "rules" in self.config.enabled_resources:
+            resources.append({
+                "uri": "rules://detection-rules",
+                "name": "Detection Rules",
+                "description": "AI threat detection rules"
+            })
+        if "policies" in self.config.enabled_resources:
+            resources.append({
+                "uri": "policies://security-policies",
+                "name": "Security Policies",
+                "description": "Security policies and configurations"
+            })
+        return {"resources": resources}
+
+    async def _handle_read_resource(self, request):
+        """Handle resources/read request."""
+        uri = request.params.get("uri", "")
+        if uri == "rules://detection-rules":
+            return {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "text/plain",
+                    "text": "AI Threat Detection Rules:\n- Prompt injection detection\n- Data leakage prevention\n- Social engineering detection"
+                }]
+            }
+        elif uri == "policies://security-policies":
+            return {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "text/plain",
+                    "text": "Security Policies:\n- Block high-risk prompts\n- Log all threat detections\n- Rate limiting enabled"
+                }]
+            }
+        else:
+            return {"contents": []}
+
+    async def _handle_list_prompts(self, request):
+        """Handle prompts/list request."""
+        prompts = []
+        if "threat_analysis_workflow" in self.config.enabled_prompts:
+            prompts.append({
+                "name": "threat_analysis_workflow",
+                "description": "Workflow for analyzing AI threats"
+            })
+        if "security_audit_checklist" in self.config.enabled_prompts:
+            prompts.append({
+                "name": "security_audit_checklist",
+                "description": "Security audit checklist"
+            })
+        if "risk_assessment_guide" in self.config.enabled_prompts:
+            prompts.append({
+                "name": "risk_assessment_guide",
+                "description": "Risk assessment guide"
+            })
+        return {"prompts": prompts}
+
+    async def _handle_get_prompt(self, request):
+        """Handle prompts/get request."""
+        name = request.params.get("name", "")
+        if name == "threat_analysis_workflow":
+            return {
+                "description": "AI Threat Analysis Workflow",
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": "Please analyze the following prompt for AI threats and security issues: [PROMPT_TO_ANALYZE]"
+                    }
+                }]
+            }
+        elif name == "security_audit_checklist":
+            return {
+                "description": "Security Audit Checklist",
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": "Security Audit Checklist:\n1. Check for prompt injection\n2. Verify data leakage protection\n3. Test social engineering detection"
+                    }
+                }]
+            }
+        elif name == "risk_assessment_guide":
+            return {
+                "description": "Risk Assessment Guide",
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": "Risk Assessment:\n- Low (0-30): Safe prompts\n- Medium (31-70): Review required\n- High (71-100): Block or restrict"
+                    }
+                }]
+            }
+        else:
+            return {"messages": []}
 
     async def shutdown(self):
         """Shutdown the MCP server gracefully."""

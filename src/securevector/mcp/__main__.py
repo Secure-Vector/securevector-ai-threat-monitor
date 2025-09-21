@@ -70,7 +70,7 @@ Environment Variables:
     parser.add_argument(
         "--api-key",
         type=str,
-        help="SecureVector API key for authentication"
+        help="SecureVector API key (enables cloud/hybrid mode, local-only without key)"
     )
 
     parser.add_argument(
@@ -78,7 +78,7 @@ Environment Variables:
         type=str,
         choices=["development", "production", "balanced"],
         default="balanced",
-        help="Server configuration mode (default: balanced)"
+        help="Server configuration mode - affects security/performance settings (default: balanced)"
     )
 
     parser.add_argument(
