@@ -402,17 +402,24 @@ class SecureVectorMCPServer:
 
         try:
             # Use FastMCP's built-in async stdio support
-            # This is the correct way for newer MCP versions
             self.logger.info("Starting FastMCP async stdio server...")
 
-            # FastMCP has a run_stdio_async method for async contexts
+            # Use the correct FastMCP async method
             await self.mcp.run_stdio_async()
 
         except Exception as e:
-            self.logger.error(f"FastMCP async stdio server failed: {e}")
+            self.logger.error(f"Failed to start stdio server: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            raise
+
+            # Try fallback to direct mode
+            self.logger.warning("Attempting direct FastMCP run as fallback")
+            try:
+                # This runs synchronously - no await needed
+                self.mcp.run(transport="stdio")
+            except Exception as fallback_error:
+                self.logger.error(f"Direct FastMCP run also failed: {fallback_error}")
+                raise
 
     async def _run_http(self):
         """Run server with HTTP transport."""

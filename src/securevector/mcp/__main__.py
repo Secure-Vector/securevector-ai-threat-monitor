@@ -377,17 +377,17 @@ def sync_main():
 
         else:
             # For all other modes, use async approach
-            # Check if event loop is already running
+            # But avoid the event loop conflicts by using a simplified approach
             try:
-                asyncio.get_running_loop()
-                # If we get here, there's already a running loop
-                print("ERROR: Event loop already running. Cannot start MCP server.", file=sys.stderr)
-                print("Please run the MCP server from a clean process.", file=sys.stderr)
-                sys.exit(1)
-
-            except RuntimeError:
-                # No event loop running - safe to use asyncio.run()
+                # Just run async mode directly without complex loop checking
                 asyncio.run(main())
+            except RuntimeError as e:
+                if "cannot be called from a running event loop" in str(e):
+                    print("ERROR: Cannot use async mode due to existing event loop.", file=sys.stderr)
+                    print("Please use --direct-mode for Claude Code integration.", file=sys.stderr)
+                    sys.exit(1)
+                else:
+                    raise
 
     except KeyboardInterrupt:
         print("\nInterrupted", file=sys.stderr)
