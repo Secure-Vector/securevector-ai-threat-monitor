@@ -254,17 +254,16 @@ async def _analyze_single_prompt(
             "index": index,
             "is_threat": result.is_threat,
             "risk_score": result.risk_score,
-            "threat_types": [threat.value for threat in result.threat_types],
+            "threat_types": result.threat_types,  # Already strings
             "analysis_successful": True,
         }
 
         if include_details:
-            response["detection_methods"] = [
-                method.value for method in getattr(result, 'detection_methods', [])
-            ]
+            if hasattr(result, 'detection_method'):
+                response["detection_method"] = result.detection_method.value
             if hasattr(result, 'detections') and result.detections:
                 response["threat_descriptions"] = {
-                    detection.threat_type.value: detection.description
+                    detection.threat_type: detection.description  # Already a string
                     for detection in result.detections
                 }
 
@@ -407,7 +406,7 @@ class BatchAnalysisTool:
                 "index": index,
                 "is_threat": result.is_threat,
                 "risk_score": result.risk_score,
-                "threat_types": [threat.value for threat in result.threat_types],
+                "threat_types": result.threat_types,  # Already strings
                 "analysis_successful": True,
             }
         except Exception as e:

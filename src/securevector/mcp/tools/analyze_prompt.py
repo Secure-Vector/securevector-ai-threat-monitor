@@ -124,8 +124,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             response = {
                 "is_threat": result.is_threat,
                 "risk_score": result.risk_score,
-                "threat_types": [threat.value for threat in result.threat_types],
-                "action_recommended": result.policy_action.value if hasattr(result, 'policy_action') else "allow",
+                "threat_types": result.threat_types,  # Already strings from property
+                "action_recommended": "block" if result.is_threat and result.risk_score > 70 else "warn" if result.is_threat else "allow",
                 "analysis_time_ms": round((time.time() - start_time) * 1000, 2),
             }
 
@@ -134,13 +134,13 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                 response["confidence_score"] = result.confidence
 
             if include_details:
-                response["detection_methods"] = [
-                    method.value for method in getattr(result, 'detection_methods', [])
-                ]
+                # detection_method is a single enum value, not a list
+                if hasattr(result, 'detection_method'):
+                    response["detection_method"] = result.detection_method.value
 
                 if hasattr(result, 'detections') and result.detections:
                     response["threat_descriptions"] = {
-                        detection.threat_type.value: detection.description
+                        detection.threat_type: detection.description  # threat_type is already a string
                         for detection in result.detections
                     }
 
@@ -218,7 +218,7 @@ class AnalyzePromptTool:
             return {
                 "is_threat": result.is_threat,
                 "risk_score": result.risk_score,
-                "threat_types": [threat.value for threat in result.threat_types],
+                "threat_types": result.threat_types,  # Already strings
                 "analysis_successful": True,
             }
 
