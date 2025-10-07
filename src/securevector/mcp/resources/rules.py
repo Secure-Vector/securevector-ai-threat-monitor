@@ -256,8 +256,10 @@ async def _get_sanitized_rule_by_id(rule_id: str, server: "SecureVectorMCPServer
 
                 if "rules" in rules_data:
                     for rule in rules_data["rules"]:
-                        if rule.get("rule", {}).get("id") == rule_id:
-                            return _sanitize_rule(rule["rule"])
+                        # Support both old format ({"rule": {...}}) and community format (direct entry)
+                        rule_obj = rule.get("rule", rule)  # Use nested or direct format
+                        if rule_obj.get("id") == rule_id:
+                            return _sanitize_rule(rule_obj)
             except Exception as e:
                 logger.warning(f"Error reading rule file {rule_file}: {e}")
                 continue
@@ -308,7 +310,9 @@ async def _load_all_rules(rules_dir: Path) -> Dict[str, Any]:
 
             if "rules" in rules_data:
                 for rule in rules_data["rules"]:
-                    sanitized_rule = _sanitize_rule(rule["rule"])
+                    # Support both old format ({"rule": {...}}) and community format (direct entry)
+                    rule_obj = rule.get("rule", rule)  # Use nested or direct format
+                    sanitized_rule = _sanitize_rule(rule_obj)
                     all_rules["rules"].append({"rule": sanitized_rule})
 
         except Exception as e:
@@ -322,13 +326,13 @@ async def _load_category_rules(rules_dir: Path, category: str) -> Dict[str, Any]
     """Load rules for a specific category."""
     category_rules = {"rules": []}
 
-    # Map category to file names
+    # Map category to file names (community rule files)
     category_files = {
-        "prompt_injection": ["prompt_injection.yaml"],
-        "data_exfiltration": ["data_extraction.yaml"],
-        "social_engineering": ["social_engineering.yaml"],
-        "content_safety": ["content_safety.yml"],
-        "data_leakage": ["data_leakage.yml"],
+        "prompt_injection": ["sv_community_prompt_injection.yml"],
+        "data_exfiltration": ["sv_community_data_extraction.yml"],
+        "social_engineering": ["sv_community_social_engineering.yml"],
+        "content_safety": ["sv_community_harmful_content.yml"],
+        "data_leakage": ["sv_community_pii_detection.yml"],
     }
 
     files_to_check = category_files.get(category, [f"{category}.yml", f"{category}.yaml"])
@@ -342,7 +346,9 @@ async def _load_category_rules(rules_dir: Path, category: str) -> Dict[str, Any]
 
                 if "rules" in rules_data:
                     for rule in rules_data["rules"]:
-                        sanitized_rule = _sanitize_rule(rule["rule"])
+                        # Support both old format ({"rule": {...}}) and community format (direct entry)
+                        rule_obj = rule.get("rule", rule)  # Use nested or direct format
+                        sanitized_rule = _sanitize_rule(rule_obj)
                         category_rules["rules"].append({"rule": sanitized_rule})
 
             except Exception as e:
@@ -371,11 +377,28 @@ def _sanitize_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
         sanitized["attack_examples"] = rule["attack_examples"]
 
     # Add testing examples (sanitized)
+    # Support both old format ("testing") and community format ("test_cases")
     if "testing" in rule and "true_positives" in rule["testing"]:
         sanitized["example_threats"] = rule["testing"]["true_positives"][:3]  # Limit to 3 examples
+    elif "test_cases" in rule:
+        # Community format: extract inputs where expected_result is "match"
+        true_positives = [
+            tc.get("input") for tc in rule["test_cases"]
+            if tc.get("expected_result") == "match"
+        ][:3]
+        if true_positives:
+            sanitized["example_threats"] = true_positives
 
     if "testing" in rule and "true_negatives" in rule["testing"]:
         sanitized["example_safe_inputs"] = rule["testing"]["true_negatives"][:3]
+    elif "test_cases" in rule:
+        # Community format: extract inputs where expected_result is "no_match"
+        true_negatives = [
+            tc.get("input") for tc in rule["test_cases"]
+            if tc.get("expected_result") == "no_match"
+        ][:3]
+        if true_negatives:
+            sanitized["example_safe_inputs"] = true_negatives
 
     # Add metadata about detection methods (without actual patterns)
     if "detection" in rule:
