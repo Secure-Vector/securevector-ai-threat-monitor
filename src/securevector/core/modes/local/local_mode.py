@@ -27,7 +27,7 @@ class LocalMode:
     """
     Local mode handler for offline threat detection.
 
-    Uses bundled rules and local pattern matching for fast, privacy-preserving
+    Uses community rules and local pattern matching for fast, privacy-preserving
     threat detection without external API calls.
     """
 

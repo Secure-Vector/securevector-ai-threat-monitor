@@ -275,15 +275,15 @@ def _find_rules_directory() -> Optional[Path]:
         # Look for rules in the package
         import securevector
         package_dir = Path(securevector.__file__).parent
-        rules_dir = package_dir / "rules" / "bundled" / "core"
+        rules_dir = package_dir / "rules" / "community"
 
         if rules_dir.exists():
             return rules_dir
 
         # Alternative locations
         alternative_paths = [
-            Path(__file__).parent.parent.parent / "rules" / "bundled" / "core",
-            Path.cwd() / "src" / "securevector" / "rules" / "bundled" / "core",
+            Path(__file__).parent.parent.parent / "rules" / "community",
+            Path.cwd() / "src" / "securevector" / "rules" / "community",
         ]
 
         for path in alternative_paths:

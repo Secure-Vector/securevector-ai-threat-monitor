@@ -26,7 +26,7 @@ if result.is_threat:
     # Output: BLOCKED: prompt_injection (Risk: 87/100)
 ```
 
-**That's it!** Your AI app is now protected against 518+ threat patterns with 5-15ms latency.
+**That's it!** Your AI app is now protected using community threat detection rules with 5-15ms latency.
 
 ---
 
@@ -225,7 +225,7 @@ The MCP server automatically chooses the best detection mode based on your confi
 
 | Scenario | Mode Selected | Capabilities |
 |----------|---------------|--------------|
-| **No API key** | **LOCAL** | Offline detection, 518+ patterns, 5-15ms latency |
+| **No API key** | **LOCAL** | Offline detection using community rules, 5-15ms latency |
 | **With API key** | **HYBRID** | Local + cloud detection, enhanced accuracy, fallback protection |
 
 **Benefits:**
@@ -337,7 +337,7 @@ claude chat --mcp securevector
 ```bash
 # LOCAL MODE (No API Key) - Works Offline
 python -m securevector.mcp
-# → Loads 518 patterns from 15 rule files
+# → Loads community threat detection rules
 # → 5-15ms response time
 # → 100% privacy (no data leaves your machine)
 
@@ -675,13 +675,13 @@ client = SecureVectorClient(config=config)
 
 | Mode | Speed | Accuracy | Coverage | Analysis Type | Best For |
 |------|-------|----------|----------|---------------|----------|
-| **LOCAL** | 5-15ms | Good | 518 patterns | Rule-based | Development, offline |
+| **LOCAL** | 5-15ms | Good | Community rules | Rule-based | Development, offline |
 | **API** | 100-500ms | **Highest** | **1000+ patterns** | **LLM + Rules** | **Production, critical security** |
 | **HYBRID** | 10-100ms | Balanced | Local + Cloud | Smart fallback | Production, optimized |
 | **AUTO** | Adaptive | Adaptive | Adaptive | Context-aware | Zero-config (recommended) |
 
 ### Local Mode
-- **518+ bundled patterns** from 15 rule files
+- **Community threat detection rules** from llm-rules-builder project
 - **Works completely offline** - no internet required
 - **Maximum privacy** - no data leaves your machine
 - **5-15ms response time** - fastest option
@@ -714,7 +714,7 @@ client = SecureVectorClient(mode="hybrid", api_key="your-key")
 - **Requires internet** - cloud-based analysis
 
 **Why API Mode Matters:**
-- **2x more threat patterns** - covers emerging attack vectors
+- **Extended threat coverage** - covers emerging attack vectors beyond community rules
 - **LLM intelligence** - understands context and intent, not just patterns
 - **Real-time updates** - gets latest threat intelligence automatically
 - **Complex attack detection** - catches multi-step and social engineering attacks

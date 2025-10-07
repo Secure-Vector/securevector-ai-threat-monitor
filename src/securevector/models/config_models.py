@@ -68,8 +68,8 @@ class LocalModeConfig(ModeConfig):
 
     def __post_init__(self):
         if self.rules_path is None:
-            # Default to bundled rules (moved into package during build)
-            self.rules_path = os.path.join(os.path.dirname(__file__), "../rules/bundled")
+            # Default to community rules from llm-rules-builder
+            self.rules_path = os.path.join(os.path.dirname(__file__), "../rules/community")
 
 
 @dataclass

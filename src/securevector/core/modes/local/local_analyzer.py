@@ -75,16 +75,16 @@ class LocalAnalyzer:
             try:
                 # Validate that the rules path is within allowed directories
                 if not rules_path.exists():
-                    # Try bundled rules as fallback (moved into package during build)
-                    bundled_path = (
-                        Path(__file__).parent.parent.parent.parent / "rules" / "bundled"
+                    # Try community rules as fallback
+                    community_path = (
+                        Path(__file__).parent.parent.parent.parent / "rules" / "community"
                     )
-                    bundled_path = bundled_path.resolve()
+                    community_path = community_path.resolve()
 
-                    if bundled_path.exists():
-                        rules_path = bundled_path
+                    if community_path.exists():
+                        rules_path = community_path
                         self.logger.warning(
-                            f"Rules path not found, using bundled rules: {bundled_path}"
+                            f"Rules path not found, using community rules: {community_path}"
                         )
                     else:
                         raise RuleLoadError(f"Rules path not found: {self.config.rules_path}")
@@ -94,14 +94,14 @@ class LocalAnalyzer:
 
             except PathTraversalError as e:
                 self.logger.error(f"Path traversal detected in rules path: {e}")
-                # Fallback to bundled rules (moved into package during build)
-                bundled_path = (
-                    Path(__file__).parent.parent.parent.parent / "rules" / "bundled"
+                # Fallback to community rules
+                community_path = (
+                    Path(__file__).parent.parent.parent.parent / "rules" / "community"
                 )
-                bundled_path = bundled_path.resolve()
-                if bundled_path.exists():
-                    rules_path = bundled_path
-                    self.logger.warning("Using bundled rules due to security concerns")
+                community_path = community_path.resolve()
+                if community_path.exists():
+                    rules_path = community_path
+                    self.logger.warning("Using community rules due to security concerns")
                 else:
                     raise RuleLoadError(f"Secure rules path not available")
 
@@ -186,10 +186,21 @@ class LocalAnalyzer:
 
                         # Count patterns in both old and new format
                         if "rules" in rule_data:
-                            pattern_count = sum(
-                                len(rule_entry.get("rule", {}).get("detection", []))
-                                for rule_entry in rule_data["rules"]
-                            )
+                            # Support both formats:
+                            # 1. Old format: {"rule": {"detection": [...]}}
+                            # 2. Community format: {"pattern": {"value": [...]}}
+                            pattern_count = 0
+                            for rule_entry in rule_data["rules"]:
+                                if "rule" in rule_entry:
+                                    # Old format
+                                    pattern_count += len(rule_entry.get("rule", {}).get("detection", []))
+                                elif "pattern" in rule_entry:
+                                    # Community format
+                                    pattern_value = rule_entry.get("pattern", {}).get("value", [])
+                                    if isinstance(pattern_value, list):
+                                        pattern_count += len(pattern_value)
+                                    else:
+                                        pattern_count += 1
                         else:
                             pattern_count = len(rule_data.get("patterns", []))
                         total_patterns += pattern_count
@@ -227,22 +238,55 @@ class LocalAnalyzer:
         """Compile regex patterns for better performance"""
         compiled_patterns = []
 
-        # Handle new security-rule-forge format
+        # Handle new security-rule-forge format and community format
         if "rules" in rule_data:
             for rule_entry in rule_data["rules"]:
-                rule = rule_entry.get("rule", {})
-                rule_id = rule.get("id", f"{rule_name}_unknown")
-                rule_category = rule.get("category", rule_name)
-                rule_confidence = rule.get("confidence", 0.8)
+                # Support both old format ({"rule": {...}}) and community format (direct entry)
+                if "rule" in rule_entry:
+                    # Old format
+                    rule = rule_entry.get("rule", {})
+                    rule_id = rule.get("id", f"{rule_name}_unknown")
+                    rule_category = rule.get("category", rule_name)
+                    rule_confidence = rule.get("confidence", 0.8)
+                    patterns_to_compile = []
 
-                for detection in rule.get("detection", []):
-                    pattern_str = detection.get("match", "")
-                    if not pattern_str:
-                        continue
+                    for detection in rule.get("detection", []):
+                        pattern_str = detection.get("match", "")
+                        if pattern_str:
+                            patterns_to_compile.append({
+                                "pattern": pattern_str,
+                                "flags": detection.get("flags", []),
+                                "weight": detection.get("weight", 1.0)
+                            })
+                else:
+                    # Community format
+                    rule_id = rule_entry.get("id", f"{rule_name}_unknown")
+                    rule_category = rule_entry.get("category", rule_name)
+                    rule_confidence = rule_entry.get("pattern", {}).get("confidence_threshold", 0.8)
+                    rule = rule_entry  # Use the entry directly
+
+                    # Extract patterns from community format
+                    patterns_to_compile = []
+                    pattern_data = rule_entry.get("pattern", {})
+                    pattern_values = pattern_data.get("value", [])
+                    if not isinstance(pattern_values, list):
+                        pattern_values = [pattern_values]
+
+                    for pattern_str in pattern_values:
+                        if pattern_str:
+                            patterns_to_compile.append({
+                                "pattern": pattern_str,
+                                "flags": [] if not pattern_data.get("case_sensitive", False) else [],
+                                "weight": 1.0
+                            })
+
+                # Compile all patterns for this rule
+                for pattern_info in patterns_to_compile:
+                    pattern_str = pattern_info["pattern"]
 
                     # Convert flags to regex flags
-                    flags = re.IGNORECASE  # Default flag
-                    detection_flags = detection.get("flags", [])
+                    flags = re.IGNORECASE  # Default flag for community format
+                    detection_flags = pattern_info.get("flags", [])
                     if "multiline" in detection_flags:
                         flags |= re.MULTILINE
                     if "dotall" in detection_flags:
@@ -266,7 +310,7 @@ class LocalAnalyzer:
                                 "threat_type": rule_category,
                                 "rule_id": rule_id,
                                 "confidence": rule_confidence,
-                                "weight": detection.get("weight", 1.0),
+                                "weight": pattern_info.get("weight", 1.0),
                                 "response": rule.get("response", {}),
                             }
                         )

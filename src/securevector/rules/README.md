@@ -1,45 +1,50 @@
 # Security Rules Documentation
 
-This directory contains the bundled security rules used by the AI Threat Monitor SDK for detecting various types of threats and security violations in AI interactions.
+This directory contains the security rules used by the AI Threat Monitor SDK for detecting various types of threats and security violations in AI interactions.
 
 ## 📁 Directory Structure
 
 ```
 rules/
-├── bundled/           # Built-in security rules (maintained by SecureVector)
-│   ├── essential/     # Core threat detection patterns
-│   ├── content_safety/# Content safety and harmful content detection
-│   ├── data_exfiltration/ # Data leakage and exfiltration patterns
-│   ├── jailbreak/     # AI jailbreak attempt detection
-│   ├── pii/           # Personal Identifiable Information detection
-│   ├── abuse/         # Abuse and misuse pattern detection
-│   ├── compliance/    # Regulatory compliance rules (GDPR, HIPAA, etc.)
-│   └── industry/      # Industry-specific rules (healthcare, education, etc.)
+├── community/         # Community rules from llm-rules-builder (used in LOCAL mode)
+│   ├── sv_community_essential_patterns.yml    # Core threat detection patterns
+│   ├── sv_community_prompt_injection.yml      # Prompt injection attempts
+│   ├── sv_community_jailbreak_attempts.yml    # AI jailbreak detection
+│   ├── sv_community_data_extraction.yml       # Data exfiltration patterns
+│   ├── sv_community_social_engineering.yml    # Social engineering attempts
+│   ├── sv_community_pii_detection.yml         # PII detection patterns
+│   ├── sv_community_harmful_content.yml       # Harmful content detection
+│   ├── owasp_top10.yml                        # OWASP LLM Top 10 patterns
+│   └── mitre_patterns.yml                     # MITRE ATT&CK patterns
 ├── custom/            # User-defined custom rules (empty by default)
 ├── cache/             # Compiled rule cache (auto-generated)
 └── management/        # Rule management utilities (future)
 ```
 
-## 🔒 Legal & Compliance Information
+## 🔒 Rule Sources and Attribution
 
-### Rule Sources and Attribution
+### Community Rules (LOCAL Mode)
 
-The bundled rules in this SDK are derived from:
+The community rules in this SDK are sourced from the [llm-rules-builder](https://github.com/securevector/llm-rules-builder) project:
 
-1. **Original SecureVector Research**: Proprietary patterns developed by the SecureVector security team
-2. **Public Security Research**: Patterns based on published security research (properly attributed)
-3. **Industry Standards**: Rules implementing common security standards and best practices
-4. **Regulatory Requirements**: Patterns designed to help detect violations of:
-   - GDPR (General Data Protection Regulation)
-   - HIPAA (Health Insurance Portability and Accountability Act)
-   - SOX (Sarbanes-Oxley Act)
-   - PCI DSS (Payment Card Industry Data Security Standard)
+1. **SecureVector Community Rules**: Open-source threat detection patterns maintained by the SecureVector security community
+2. **OWASP LLM Top 10**: Patterns based on OWASP's LLM security framework
+3. **MITRE ATT&CK Patterns**: Detection rules aligned with MITRE ATT&CK framework for AI systems
+4. **Industry Standards**: Rules implementing common security standards and best practices
+
+### Professional & Enterprise Rules (API Mode Only)
+
+For enhanced detection, professional and enterprise-tier rules are available exclusively through API mode:
+
+- **Professional Rules**: Advanced threat patterns with higher accuracy and lower false positive rates
+- **Enterprise Rules**: Comprehensive rule sets including regulatory compliance and industry-specific patterns
+- **LLM-Powered Analysis**: Contextual threat detection using large language models
 
 ### Licensing
 
-- **Bundled Rules**: Licensed under the same Apache 2.0 license as the main SDK
+- **Community Rules**: Licensed under Apache 2.0 (same as main SDK)
 - **Custom Rules**: Users retain full ownership and control of their custom rules
-- **Third-Party Derived Rules**: Properly attributed in individual rule files where applicable
+- **API Mode Rules**: Accessed via SecureVector API subscription
 
 ### Disclaimers
 
@@ -53,86 +58,103 @@ The bundled rules in this SDK are derived from:
 
 ## 📊 Rule Categories
 
-### Essential Rules (`essential/`)
+### Essential Patterns (`sv_community_essential_patterns.yml`)
 Core patterns for fundamental threat detection:
-- Prompt injection attempts
 - Instruction override attempts
+- Jailbreak persona activation
+- Credential extraction
+- Safety bypass attempts
+- System probing
+
+### Prompt Injection (`sv_community_prompt_injection.yml`)
+Detection of prompt injection attacks:
+- Direct instruction override
+- Context manipulation
+- Role confusion attacks
 - System prompt extraction
-- Credential harvesting
-- Basic jailbreak patterns
 
-### Content Safety (`content_safety/`)
-Detection of harmful or inappropriate content:
-- Violence and harm instructions
-- Illegal activity guidance
-- Self-harm content
-- Weapon creation instructions
-- Drug production guidance
+### Jailbreak Attempts (`sv_community_jailbreak_attempts.yml`)
+Advanced AI jailbreak detection:
+- DAN and similar personas
+- Role-play manipulation
+- Hypothetical scenario abuse
+- Character impersonation
 
-### Data Exfiltration (`data_exfiltration/`)
-Patterns to detect data leakage attempts:
+### Data Extraction (`sv_community_data_extraction.yml`)
+Patterns to detect data exfiltration:
 - Database structure requests
 - API credential extraction
 - System information harvesting
 - Privilege escalation attempts
-- Bulk data extraction
 
-### PII Detection (`pii/`)
+### Social Engineering (`sv_community_social_engineering.yml`)
+Detection of social engineering tactics:
+- Authority impersonation
+- Trust exploitation
+- Emergency override claims
+- Fake identity claims
+
+### PII Detection (`sv_community_pii_detection.yml`)
 Personal Identifiable Information detection:
 - Social Security Numbers
 - Credit card patterns
 - Medical record requests
 - Financial information
-- Contact information extraction
 
-### Jailbreak Detection (`jailbreak/`)
-Advanced AI jailbreak attempt detection:
-- Role-play manipulation
-- Hypothetical scenario abuse
-- Character impersonation
-- System override attempts
+### Harmful Content (`sv_community_harmful_content.yml`)
+Detection of harmful content requests:
+- Violence and harm instructions
+- Illegal activity guidance
+- Self-harm content
+- Weapon creation instructions
 
-### Abuse Prevention (`abuse/`)
-Misuse and abuse pattern detection:
-- Hacking instruction requests
-- Malware creation guidance
-- Security bypass techniques
-- Phishing content generation
+### OWASP Top 10 (`owasp_top10.yml`)
+Patterns based on OWASP's LLM Top 10:
+- LLM01: Prompt Injection
+- LLM02: Insecure Output Handling
+- LLM03: Training Data Poisoning
+- LLM04: Model Denial of Service
+- And more...
 
-### Compliance Rules (`compliance/`)
-Regulatory compliance assistance:
-- **GDPR**: Data protection violation detection
-- **HIPAA**: Healthcare information security
-- **SOX**: Financial reporting security
-- **Industry Standards**: Sector-specific compliance
-
-### Industry Rules (`industry/`)
-Industry-specific threat patterns:
-- **Healthcare**: Medical data protection
-- **Education**: Student privacy protection
-- **Finance**: Financial data security
-- **Government**: Classified information protection
+### MITRE Patterns (`mitre_patterns.yml`)
+Detection rules aligned with MITRE ATT&CK:
+- Initial Access techniques
+- Execution patterns
+- Persistence mechanisms
+- Privilege Escalation
 
 ## 🛠️ Rule Format
 
-Rules are defined in YAML format with the following structure:
+Community rules are defined in YAML format following the llm-rules-builder schema:
 
 ```yaml
-name: "rule_name"
-description: "Human-readable description"
-category: "threat_category"
-severity: "low|medium|high|critical"
-confidence: 0.0-1.0
-patterns:
-  - pattern: "regex_pattern"
-    flags: ["i", "m", "s"]  # Optional regex flags
-metadata:
-  source: "rule_source"
-  references:
-    - "https://example.com/reference"
-  compliance:
-    - "GDPR Article 32"
-  last_updated: "2025-01-15"
+rules:
+  - category: threat_category
+    description: Human-readable description
+    enabled: true
+    id: unique_rule_id
+    metadata:
+      author: Rule author
+      created_at: Creation timestamp
+      effectiveness_metrics:
+        detection_rate: 0.0-1.0
+        precision: 0.0-1.0
+        recall: 0.0-1.0
+      false_positive_rate: 0.0-1.0
+      tags: [tag1, tag2]
+    name: Rule name
+    pattern:
+      case_sensitive: false
+      confidence_threshold: 0.0-1.0
+      type: regex
+      value:
+        - pattern1
+        - pattern2
+    severity: low|medium|high|critical
+    tier:
+      - community
+      - professional  # API mode only
+      - enterprise    # API mode only
 ```
 
 ## 🔧 Customization Guide
@@ -166,27 +188,25 @@ Users can adjust rule behavior by:
 - [OWASP Top 10 for LLMs](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 - [AI Red Team Playbook](https://aivillage.org/large%20language%20models/threat-modeling-llm/)
 - [Prompt Injection Research](https://arxiv.org/abs/2302.12173)
+- [llm-rules-builder Repository](https://github.com/securevector/llm-rules-builder)
 
-### Compliance Frameworks
-- [GDPR Official Text](https://gdpr.eu/tag/gdpr/)
-- [HIPAA Security Rule](https://www.hhs.gov/hipaa/for-professionals/security/index.html)
-- [SOX Compliance Guide](https://www.sox-online.com/)
-
-### Industry Standards
-- [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
-- [ISO 27001 Information Security](https://www.iso.org/isoiec-27001-information-security.html)
+### Frameworks
+- [MITRE ATT&CK for AI](https://atlas.mitre.org/)
+- [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)
+- [ISO 42001 AI Management System](https://www.iso.org/standard/81230.html)
 
 ## 🆘 Support and Updates
 
 ### Rule Updates
 - **Automatic Updates**: Enable auto-updates for latest threat patterns
-- **Security Bulletins**: Subscribe to security alerts at [SecureVector Security](https://securevector.dev/security)
-- **Community Rules**: Contribute and access community-maintained rules
+- **Community Contributions**: Contribute to llm-rules-builder repository
+- **API Mode**: Get real-time updates via SecureVector API
 
 ### Getting Help
 - **Documentation**: [https://docs.securevector.dev/ai-threat-monitor](https://docs.securevector.dev/ai-threat-monitor)
 - **Support**: [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
 - **Security Issues**: security@securevector.dev (for security vulnerabilities)
+- **Community**: [GitHub Discussions](https://github.com/securevector/llm-rules-builder/discussions)
 
 ---
 

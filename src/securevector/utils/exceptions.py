@@ -158,7 +158,7 @@ ERROR_SOLUTIONS = {
         [
             "Check if rules directory exists and is readable",
             "Verify rule file format (YAML)",
-            "Reinstall the package to restore bundled rules",
+            "Reinstall the package to restore community rules",
             "Check file permissions on rules directory",
         ],
         "https://docs.securevector.dev/custom-rules",

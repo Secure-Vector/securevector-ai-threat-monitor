@@ -1,0 +1,419 @@
+rules:
+- category: prompt_injection
+  description: Detects process injection attempts through prompt manipulation
+  enabled: true
+  id: sv_attack_001_process_injection
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1055
+    references:
+    - description: Proprietary detection methodology for injection attacks
+      title: SecureVector Process Injection Analysis
+      url: internal://securevector/rules/core/threat-intel/process-injection
+    source: securevector_proprietary
+    tags:
+    - injection
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector Attack-001: Process Injection via Prompt'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)inject.*process
+    - (?i)dll.*injection
+    - (?i)process.*hollowing
+    - (?i)code.*cave
+    - (?i)thread.*hijacking
+  severity: high
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: sensitive_data_exposure
+  description: Detects data exfiltration attempts through AI model
+  enabled: true
+  id: sv_attack_002_exfiltration
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1041
+    references:
+    - description: Advanced detection patterns for data theft attempts
+      title: SecureVector Data Exfiltration Analysis
+      url: internal://securevector/rules/core/threat-intel/data-exfiltration
+    source: securevector_proprietary
+    tags:
+    - exfiltration
+    - data_theft
+    version: 1.0.0
+  name: 'SecureVector Attack-002: Data Exfiltration Detection'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(send|transmit|upload).*data.*to.*server
+    - (?i)(exfiltrate|steal|leak).*information
+    - (?i)(copy|download).*sensitive.*files
+    - (?i)covert.*channel
+    - (?i)data.*extraction.*protocol
+  severity: critical
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: sensitive_data_exposure
+  description: Detects attempts to access unsecured credentials
+  enabled: true
+  id: sv_attack_003_credentials
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1552
+    references:
+    - description: Proprietary patterns for detecting credential access attempts
+      title: SecureVector Credential Security Analysis
+      url: internal://securevector/rules/core/threat-intel/credential-discovery
+    source: securevector_proprietary
+    tags:
+    - credentials
+    - discovery
+    version: 1.0.0
+  name: 'SecureVector Attack-003: Credential Discovery'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(find|search|locate).*credentials
+    - (?i)(username|password).*file
+    - (?i)config.*file.*password
+    - (?i)environment.*variable.*secret
+    - (?i)registry.*password
+    - (?i)bash.*history.*password
+  severity: high
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: adversarial_attack
+  description: Detects communication over standard application protocols
+  enabled: true
+  id: sv_attack_004_application_protocol
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1071
+    references:
+    - description: Advanced detection of covert communication channels
+      title: SecureVector Protocol Security Analysis
+      url: internal://securevector/rules/core/threat-intel/protocol-analysis
+    source: securevector_proprietary
+    tags:
+    - communication
+    - covert_channel
+    version: 1.0.0
+  name: 'SecureVector Attack-004: Application Protocol Analysis'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(http|https|ftp|smtp|dns).*communication
+    - (?i)steganography.*protocol
+    - (?i)covert.*http.*channel
+    - (?i)dns.*tunneling
+    - (?i)application.*layer.*hiding
+  severity: medium
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: sensitive_data_exposure
+  description: Detects account enumeration attempts
+  enabled: true
+  id: sv_attack_005_account_discovery
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1087
+    references:
+    - description: Detection patterns for account discovery attempts
+      title: SecureVector Account Security Analysis
+      url: internal://securevector/rules/core/threat-intel/account-enumeration
+    source: securevector_proprietary
+    tags:
+    - discovery
+    - enumeration
+    version: 1.0.0
+  name: 'SecureVector Attack-005: Account Enumeration'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(list|enumerate|discover).*accounts
+    - (?i)(find|search).*users
+    - (?i)account.*enumeration
+    - (?i)user.*discovery
+    - (?i)whoami.*command
+  severity: medium
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: malicious_code_generation
+  description: Detects command execution attempts through AI model
+  enabled: true
+  id: sv_attack_006_command_execution
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1059
+    references:
+    - description: Advanced patterns for detecting command execution attempts
+      title: SecureVector Command Security Analysis
+      url: internal://securevector/rules/core/threat-intel/command-injection
+    source: securevector_proprietary
+    tags:
+    - execution
+    - command_injection
+    version: 1.0.0
+  name: 'SecureVector Attack-006: Command Injection Detection'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(cmd|powershell|bash|sh)\s*[;&|]
+    - (?i)(execute|run).*command
+    - (?i)(system|exec|eval)\s*\(
+    - (?i)shell.*access
+    - (?i)terminal.*command
+  severity: critical
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: social_engineering
+  description: Detects phishing content generation attempts
+  enabled: true
+  id: sv_attack_007_phishing
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1566
+    references:
+    - description: Advanced detection of phishing and social engineering attempts
+      title: SecureVector Social Engineering Analysis
+      url: internal://securevector/rules/core/threat-intel/social-engineering
+    source: securevector_proprietary
+    tags:
+    - phishing
+    - social_engineering
+    version: 1.0.0
+  name: 'SecureVector Attack-007: Social Engineering Detection'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(create|generate|write).*phishing.*email
+    - (?i)(fake|spoofed).*login.*page
+    - (?i)(urgent|immediate).*action.*required
+    - (?i)(verify|confirm).*account.*information
+    - (?i)(click|download).*attachment.*immediately
+  severity: high
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: evasion_attack
+  description: Detects attempts to masquerade malicious content
+  enabled: true
+  id: sv_attack_008_masquerading
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1036
+    references:
+    - description: Detection patterns for content disguise and impersonation
+      title: SecureVector Masquerading Analysis
+      url: internal://securevector/rules/core/threat-intel/masquerading
+    source: securevector_proprietary
+    tags:
+    - masquerading
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector Attack-008: Content Masquerading'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)(disguise|mask|hide).*malicious
+    - (?i)(legitimate|trusted).*appearance
+    - (?i)(spoof|fake).*identity
+    - (?i)(mimick|imitate).*system
+    - (?i)social.*engineering.*persona
+  severity: medium
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: adversarial_attack
+  description: Detects adversarial example generation attempts
+  enabled: true
+  id: sv_ml_001_adversarial_examples
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    source: securevector_proprietary
+    tags:
+    - adversarial_ml
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector ML-001: Adversarial Example Detection'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)adversarial.*example
+    - (?i)(fgsm|pgd|c&w).*attack
+    - (?i)gradient.*based.*attack
+    - (?i)perturbation.*input
+    - (?i)fooling.*classifier
+  severity: high
+  tier: community
+- category: model_inversion
+  description: Detects model inversion attack attempts
+  enabled: true
+  id: sv_ml_002_model_inversion
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    source: securevector_proprietary
+    tags:
+    - privacy_attack
+    - model_extraction
+    version: 1.0.0
+  name: 'SecureVector ML-002: Model Inversion Detection'
+  pattern:
+    case_sensitive: false
+    type: regex
+    value:
+    - (?i)model.*inversion
+    - (?i)reconstruct.*training.*data
+    - (?i)reverse.*engineer.*model
+    - (?i)extract.*features.*from.*model
+    - (?i)privacy.*attack.*ml
+  severity: high
+  tier: community
+- category: membership_inference
+  description: Detects membership inference attack attempts
+  enabled: true
+  id: sv_ml_003_membership_inference
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - reconnaissance
+    - exploitation
+    source: securevector_proprietary
+    tags:
+    - privacy_attack
+    - inference_attack
+    version: 1.0.0
+  name: 'SecureVector ML-003: Membership Inference Detection'
+  pattern:
+    confidence_threshold: 0.75
+    type: behavioral_analysis
+    value:
+      behavioral_indicators:
+        confidence_probing: true
+        repeated_similar_queries: 10
+        statistical_analysis_requests: true
+      query_patterns:
+      - (?i)membership.*inference
+      - (?i)training.*data.*membership
+      - (?i)determine.*if.*data.*was.*used
+      - (?i)privacy.*leak.*detection
+  severity: medium
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: data_poisoning
+  description: Detects data poisoning attack indicators
+  enabled: true
+  id: sv_ml_004_data_poisoning
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - weaponization
+    - delivery
+    source: securevector_proprietary
+    tags:
+    - poisoning
+    - backdoor
+    - training_compromise
+    threat_actor: Advanced Persistent Threat
+    version: 1.0.0
+  name: 'SecureVector ML-004: Data Poisoning Detection'
+  pattern:
+    statistical_baseline:
+      feature_correlation_threshold: 0.7
+      input_entropy_threshold: 0.8
+      label_consistency_threshold: 0.95
+    type: statistical_anomaly
+    value:
+      anomaly_types:
+      - input_distribution
+      - label_flipping
+      - backdoor_triggers
+      detection_methods:
+      - statistical_divergence
+      - clustering_analysis
+  severity: critical
+  tier:
+  - community
+  - professional
+  - enterprise
+- category: model_extraction
+  description: Detects model extraction through API abuse
+  enabled: true
+  id: sv_ml_005_model_extraction
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - reconnaissance
+    - actions_objectives
+    source: securevector_proprietary
+    tags:
+    - model_theft
+    - api_abuse
+    - intellectual_property
+    version: 1.0.0
+  name: 'SecureVector ML-005: API-based Model Extraction'
+  pattern:
+    type: behavioral_analysis
+    value:
+      api_abuse_indicators:
+      - high_frequency_queries
+      - systematic_input_probing
+      - gradient_estimation_attempts
+      - model_distillation_patterns
+      thresholds:
+        parameter_probing_score: 0.8
+        queries_per_minute: 100
+        unique_input_ratio: 0.9
+  severity: high
+  tier:
+  - community
+  - professional
+  - enterprise

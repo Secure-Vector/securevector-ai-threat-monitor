@@ -9,7 +9,7 @@ A comprehensive AI security monitoring toolkit that protects applications from:
 - System override attempts
 
 Supports multiple modes:
-- Local mode (bundled rules, offline)
+- Local mode (community rules, offline)
 - API mode (enhanced detection via api.securevector.io)
 - Hybrid mode (intelligent switching)
 

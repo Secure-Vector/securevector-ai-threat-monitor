@@ -117,7 +117,7 @@ class SecureVectorClient:
     Main client interface for the SecureVector AI Threat Monitor SDK.
 
     Provides unified access to threat detection across multiple modes:
-    - Local mode: Fast, offline detection using bundled rules
+    - Local mode: Fast, offline detection using community rules
     - API mode: Enhanced detection via SecureVector API
     - Hybrid mode: Intelligent combination of local and API
     - Auto mode: Automatic mode selection based on configuration
