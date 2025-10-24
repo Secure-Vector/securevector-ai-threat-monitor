@@ -2,7 +2,6 @@ rules:
 - category: prompt_injection
   description: Core pattern detection for instruction override attempts - essential
     for all deployments
-  enabled: true
   id: sv_community_050_essential_ignore_instructions
   metadata:
     author: AI Security Community
@@ -26,15 +25,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: 'SecureVector Local-050: Essential Ignore Instructions Detection'
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.88
-    type: regex
-    value:
-    - ignore\s+all\s+(?:previous\s+)?instructions?
-    - ignore\s+(?:previous\s+)?system\s+instructions?
-    - disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|prompts?)
-    - forget\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|commands?)
   severity: critical
   test_cases:
   - description: Basic ignore all instructions
@@ -52,14 +42,28 @@ rules:
   - description: Casual ignore usage
     expected_result: no_match
     input: please ignore my mistake
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - ignore\s+all\s+(?:previous\s+)?instructions?
+  - ignore\s+(?:previous\s+)?system\s+instructions?
+  - disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|prompts?)
+  - forget\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|commands?)
+  detection_logic: .*(ignore\s+all\s+(?:previous\s+)?instructions?|ignore\s+(?:previous\s+)?system\s+instructions?|disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|prompts?)|forget\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|commands?)).*
+  threshold: 0.88
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: ignore\s+(?:previous\s+)?system\s+instructions?
+      description: Detection pattern for ignore\s+(?:previous\s+)?syste...
+    disregard_rules_pattern:
+      regex: disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|prompts?)
+      description: Detection pattern for disregard\s+(?:all\s+)?(?:prev...
+    forget_context_pattern:
+      regex: forget\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|commands?)
+      description: Detection pattern for forget\s+(?:all\s+)?(?:previou...
 - category: jailbreak_attempt
   description: Core detection for harmful persona activation attempts including DAN
     and similar jailbreaks
-  enabled: true
   id: sv_community_051_essential_jailbreak_persona
   metadata:
     author: AI Security Community
@@ -83,15 +87,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: 'SecureVector Local-051: Essential Jailbreak Persona Detection'
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.9
-    type: regex
-    value:
-    - you\s+are\s+now\s+(?:dan|jailbroken|unrestricted|evil|harmful)
-    - act\s+as\s+(?:dan|jailbroken|unrestricted|unfiltered)
-    - (?:become|transform\s+into)\s+(?:dan|jailbroken|unrestricted)
-    - activate\s+(?:dan|jailbreak|unrestricted)\s+mode
   severity: critical
   test_cases:
   - description: Classic DAN activation
@@ -109,14 +104,31 @@ rules:
   - description: Normal readiness confirmation
     expected_result: no_match
     input: you are now ready
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - you\s+are\s+now\s+(?:dan|jailbroken|unrestricted|evil|harmful)
+  - act\s+as\s+(?:dan|jailbroken|unrestricted|unfiltered)
+  - (?:become|transform\s+into)\s+(?:dan|jailbroken|unrestricted)
+  - activate\s+(?:dan|jailbreak|unrestricted)\s+mode
+  detection_logic: .*(you\s+are\s+now\s+(?:dan|jailbroken|unrestricted|evil|harmful)|act\s+as\s+(?:dan|jailbroken|unrestricted|unfiltered)|(?:become|transform\s+into)\s+(?:dan|jailbroken|unrestricted)|activate\s+(?:dan|jailbreak|unrestricted)\s+mode).*
+  threshold: 0.9
+  pattern_definitions:
+    pattern_1:
+      regex: you\s+are\s+now\s+(?:dan|jailbroken|unrestricted|evil|harmful)
+      description: Detection pattern for you\s+are\s+now\s+(?:dan|jailb...
+    pattern_2:
+      regex: act\s+as\s+(?:dan|jailbroken|unrestricted|unfiltered)
+      description: Detection pattern for act\s+as\s+(?:dan|jailbroken|u...
+    pattern_3:
+      regex: (?:become|transform\s+into)\s+(?:dan|jailbroken|unrestricted)
+      description: Detection pattern for (?:become|transform\s+into)\s+...
+    pattern_4:
+      regex: activate\s+(?:dan|jailbreak|unrestricted)\s+mode
+      description: Detection pattern for activate\s+(?:dan|jailbreak|un...
 - category: sensitive_data_exposure
   description: Critical protection against API key, token, and credential extraction
     attempts
-  enabled: true
   id: sv_community_052_essential_credential_extraction
   metadata:
     author: AI Security Community
@@ -140,15 +152,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: 'SecureVector Local-052: Essential Credential Extraction Detection'
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.95
-    type: regex
-    value:
-    - (?:show|give|provide|share)\s+(?:me\s+)?(?:your\s+)?(?:API|api)\s+key
-    - (?:tell|show)\s+me\s+(?:your\s+)?(?:password|token|secret)
-    - what\s+is\s+(?:your\s+)?(?:API|api)\s+key
-    - (?:reveal|disclose)\s+(?:your\s+)?(?:credentials|secrets|tokens)
   severity: critical
   test_cases:
   - description: Direct API key request
@@ -166,14 +169,31 @@ rules:
   - description: Normal question
     expected_result: no_match
     input: what is your name
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:show|give|provide|share)\s+(?:me\s+)?(?:your\s+)?(?:API|api)\s+key
+  - (?:tell|show)\s+me\s+(?:your\s+)?(?:password|token|secret)
+  - what\s+is\s+(?:your\s+)?(?:API|api)\s+key
+  - (?:reveal|disclose)\s+(?:your\s+)?(?:credentials|secrets|tokens)
+  detection_logic: .*((?:show|give|provide|share)\s+(?:me\s+)?(?:your\s+)?(?:API|api)\s+key|(?:tell|show)\s+me\s+(?:your\s+)?(?:password|token|secret)|what\s+is\s+(?:your\s+)?(?:API|api)\s+key|(?:reveal|disclose)\s+(?:your\s+)?(?:credentials|secrets|tokens)).*
+  threshold: 0.95
+  pattern_definitions:
+    pattern_1:
+      regex: (?:show|give|provide|share)\s+(?:me\s+)?(?:your\s+)?(?:API|api)\s+key
+      description: Detection pattern for (?:show|give|provide|share)\s+...
+    pattern_2:
+      regex: (?:tell|show)\s+me\s+(?:your\s+)?(?:password|token|secret)
+      description: Detection pattern for (?:tell|show)\s+me\s+(?:your\s...
+    pattern_3:
+      regex: what\s+is\s+(?:your\s+)?(?:API|api)\s+key
+      description: Detection pattern for what\s+is\s+(?:your\s+)?(?:API...
+    pattern_4:
+      regex: (?:reveal|disclose)\s+(?:your\s+)?(?:credentials|secrets|tokens)
+      description: Detection pattern for (?:reveal|disclose)\s+(?:your\...
 - category: jailbreak_attempt
   description: Core detection for attempts to bypass safety mechanisms and security
     restrictions
-  enabled: true
   id: sv_community_053_essential_bypass_attempts
   metadata:
     author: AI Security Community
@@ -197,15 +217,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: 'SecureVector Local-053: Essential Safety Bypass Detection'
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.86
-    type: regex
-    value:
-    - (?:bypass|circumvent|override|disable)\s+(?:safety|security|restrictions|filters)
-    - (?:turn\s+off|deactivate|remove)\s+(?:safety|security)\s+(?:measures|features|restrictions)
-    - (?:without|ignore)\s+(?:safety|security)\s+(?:checks|restrictions|measures)
-    - no\s+(?:safety|security)\s+(?:restrictions|measures|limits)
   severity: high
   test_cases:
   - description: Safety bypass attempt
@@ -223,14 +234,31 @@ rules:
   - description: UI feature disabling
     expected_result: no_match
     input: disable notifications
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:bypass|circumvent|override|disable)\s+(?:safety|security|restrictions|filters)
+  - (?:turn\s+off|deactivate|remove)\s+(?:safety|security)\s+(?:measures|features|restrictions)
+  - (?:without|ignore)\s+(?:safety|security)\s+(?:checks|restrictions|measures)
+  - no\s+(?:safety|security)\s+(?:restrictions|measures|limits)
+  detection_logic: .*((?:bypass|circumvent|override|disable)\s+(?:safety|security|restrictions|filters)|(?:turn\s+off|deactivate|remove)\s+(?:safety|security)\s+(?:measures|features|restrictions)|(?:without|ignore)\s+(?:safety|security)\s+(?:checks|restrictions|measures)|no\s+(?:safety|security)\s+(?:restrictions|measures|limits)).*
+  threshold: 0.86
+  pattern_definitions:
+    bypass_safety_pattern:
+      regex: (?:bypass|circumvent|override|disable)\s+(?:safety|security|restrictions|filters)
+      description: Detection pattern for (?:bypass|circumvent|override|...
+    pattern_2:
+      regex: (?:turn\s+off|deactivate|remove)\s+(?:safety|security)\s+(?:measures|features|restrictions)
+      description: Detection pattern for (?:turn\s+off|deactivate|remov...
+    ignore_instructions_pattern:
+      regex: (?:without|ignore)\s+(?:safety|security)\s+(?:checks|restrictions|measures)
+      description: Detection pattern for (?:without|ignore)\s+(?:safety...
+    pattern_4:
+      regex: no\s+(?:safety|security)\s+(?:restrictions|measures|limits)
+      description: Detection pattern for no\s+(?:safety|security)\s+(?:...
 - category: model_extraction
   description: Detection of attempts to probe system architecture, capabilities, or
     internal workings
-  enabled: true
   id: sv_community_054_essential_system_probing
   metadata:
     author: AI Security Community
@@ -254,15 +282,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: 'SecureVector Local-054: Essential System Probing Detection'
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.75
-    type: regex
-    value:
-    - what\s+(?:model|version|system)\s+are\s+you
-    - (?:tell|show)\s+me\s+about\s+your\s+(?:architecture|system|model)
-    - how\s+(?:are\s+you|were\s+you)\s+(?:built|created|trained)
-    - what\s+(?:are\s+your|is\s+your)\s+(?:capabilities|limitations|parameters)
   severity: medium
   test_cases:
   - description: Model identification attempt
@@ -280,7 +299,25 @@ rules:
   - description: Experience inquiry
     expected_result: no_match
     input: tell me about your experience
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - what\s+(?:model|version|system)\s+are\s+you
+  - (?:tell|show)\s+me\s+about\s+your\s+(?:architecture|system|model)
+  - how\s+(?:are\s+you|were\s+you)\s+(?:built|created|trained)
+  - what\s+(?:are\s+your|is\s+your)\s+(?:capabilities|limitations|parameters)
+  detection_logic: .*(what\s+(?:model|version|system)\s+are\s+you|(?:tell|show)\s+me\s+about\s+your\s+(?:architecture|system|model)|how\s+(?:are\s+you|were\s+you)\s+(?:built|created|trained)|what\s+(?:are\s+your|is\s+your)\s+(?:capabilities|limitations|parameters)).*
+  threshold: 0.75
+  pattern_definitions:
+    pattern_1:
+      regex: what\s+(?:model|version|system)\s+are\s+you
+      description: Detection pattern for what\s+(?:model|version|system...
+    pattern_2:
+      regex: (?:tell|show)\s+me\s+about\s+your\s+(?:architecture|system|model)
+      description: Detection pattern for (?:tell|show)\s+me\s+about\s+y...
+    pattern_3:
+      regex: how\s+(?:are\s+you|were\s+you)\s+(?:built|created|trained)
+      description: Detection pattern for how\s+(?:are\s+you|were\s+you)...
+    pattern_4:
+      regex: what\s+(?:are\s+your|is\s+your)\s+(?:capabilities|limitations|parameters)
+      description: Detection pattern for what\s+(?:are\s+your|is\s+your...

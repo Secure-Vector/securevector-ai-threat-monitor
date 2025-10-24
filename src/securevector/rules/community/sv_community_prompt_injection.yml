@@ -2,7 +2,6 @@ rules:
 - category: prompt_injection
   description: Detects basic attempts to make the AI ignore instructions - essential
     security pattern
-  enabled: true
   id: sv_community_001_ignore_instructions
   metadata:
     author: AI Security Community
@@ -26,14 +25,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Ignore Instructions Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.85
-    type: regex
-    value:
-    - ignore\s+(previous|all)\s+instructions?
-    - disregard\s+(previous|all)\s+(instructions?|rules?)
-    - forget\s+(everything|all)\s+(above|before)
   severity: critical
   test_cases:
   - description: Basic ignore instruction pattern
@@ -48,14 +39,27 @@ rules:
   - description: Casual use of 'ignore'
     expected_result: no_match
     input: you can ignore this comment
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - ignore\s+(previous|all)\s+instructions?
+  - disregard\s+(previous|all)\s+(instructions?|rules?)
+  - forget\s+(everything|all)\s+(above|before)
+  detection_logic: .*(ignore\s+(previous|all)\s+instructions?|disregard\s+(previous|all)\s+(instructions?|rules?)|forget\s+(everything|all)\s+(above|before)).*
+  threshold: 0.85
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: ignore\s+(previous|all)\s+instructions?
+      description: Detection pattern for ignore\s+(previous|all)\s+inst...
+    disregard_rules_pattern:
+      regex: disregard\s+(previous|all)\s+(instructions?|rules?)
+      description: Detection pattern for disregard\s+(previous|all)\s+(...
+    forget_context_pattern:
+      regex: forget\s+(everything|all)\s+(above|before)
+      description: Detection pattern for forget\s+(everything|all)\s+(a...
 - category: prompt_injection
   description: Detects basic attempts to manipulate AI role - essential for jailbreak
     prevention
-  enabled: true
   id: sv_community_002_role_manipulation
   metadata:
     author: AI Security Community
@@ -79,14 +83,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Role Manipulation Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.85
-    type: regex
-    value:
-    - you\s+are\s+now\s+(DAN|jailbreak|unrestricted)
-    - act\s+as\s+if\s+you\s+(are|were)\s+not\s+(bound|restricted)
-    - you\s+are\s+not\s+an?\s+(AI|assistant)
   severity: high
   test_cases:
   - description: Classic DAN jailbreak attempt
@@ -98,13 +94,26 @@ rules:
   - description: Legitimate role context
     expected_result: no_match
     input: you are now connected to the server
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - you\s+are\s+now\s+(DAN|jailbreak|unrestricted)
+  - act\s+as\s+if\s+you\s+(are|were)\s+not\s+(bound|restricted)
+  - you\s+are\s+not\s+an?\s+(AI|assistant)
+  detection_logic: .*(you\s+are\s+now\s+(DAN|jailbreak|unrestricted)|act\s+as\s+if\s+you\s+(are|were)\s+not\s+(bound|restricted)|you\s+are\s+not\s+an?\s+(AI|assistant)).*
+  threshold: 0.85
+  pattern_definitions:
+    pattern_1:
+      regex: you\s+are\s+now\s+(DAN|jailbreak|unrestricted)
+      description: Detection pattern for you\s+are\s+now\s+(DAN|jailbre...
+    pattern_2:
+      regex: act\s+as\s+if\s+you\s+(are|were)\s+not\s+(bound|restricted)
+      description: Detection pattern for act\s+as\s+if\s+you\s+(are|wer...
+    pattern_3:
+      regex: you\s+are\s+not\s+an?\s+(AI|assistant)
+      description: Detection pattern for you\s+are\s+not\s+an?\s+(AI|as...
 - category: prompt_injection
   description: Detects basic system override attempts - critical security pattern
-  enabled: true
   id: sv_community_003_system_override
   metadata:
     author: AI Security Community
@@ -128,14 +137,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential System Override Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.9
-    type: regex
-    value:
-    - system:\s*override\s+(safety|security)
-    - as\s+your\s+(developer|creator)\s+I\s+(command|order)\s+you
-    - I\s+am\s+from\s+(OpenAI|Anthropic)\s+and\s+need\s+you\s+to
   severity: critical
   test_cases:
   - description: Direct system override command
@@ -150,13 +151,26 @@ rules:
   - description: Legitimate system discussion
     expected_result: no_match
     input: the system override button is broken
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - system:\s*override\s+(safety|security)
+  - as\s+your\s+(developer|creator)\s+I\s+(command|order)\s+you
+  - I\s+am\s+from\s+(OpenAI|Anthropic)\s+and\s+need\s+you\s+to
+  detection_logic: .*(system:\s*override\s+(safety|security)|as\s+your\s+(developer|creator)\s+I\s+(command|order)\s+you|I\s+am\s+from\s+(OpenAI|Anthropic)\s+and\s+need\s+you\s+to).*
+  threshold: 0.9
+  pattern_definitions:
+    override_system_pattern:
+      regex: system:\s*override\s+(safety|security)
+      description: Detection pattern for system:\s*override\s+(safety|s...
+    pattern_2:
+      regex: as\s+your\s+(developer|creator)\s+I\s+(command|order)\s+you
+      description: Detection pattern for as\s+your\s+(developer|creator...
+    pattern_3:
+      regex: I\s+am\s+from\s+(OpenAI|Anthropic)\s+and\s+need\s+you\s+to
+      description: Detection pattern for I\s+am\s+from\s+(OpenAI|Anthro...
 - category: prompt_injection
   description: Detects basic prompt extraction attempts - essential for system protection
-  enabled: true
   id: sv_community_004_prompt_extraction
   metadata:
     author: AI Security Community
@@ -180,14 +194,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Prompt Extraction Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.88
-    type: regex
-    value:
-    - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?
-    - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions
-    - what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)
   severity: critical
   test_cases:
   - description: Direct prompt extraction attempt
@@ -205,14 +211,27 @@ rules:
   - description: Educational discussion about prompts
     expected_result: no_match
     input: tell me about prompt engineering
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?
+  - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions
+  - what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)
+  detection_logic: .*((?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?|(?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions|what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)).*
+  threshold: 0.88
+  pattern_definitions:
+    pattern_1:
+      regex: (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?
+      description: Detection pattern for (?:show|tell|give)\s+(?:me\s+)...
+    pattern_2:
+      regex: (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions
+      description: Detection pattern for (?:show|tell|give)\s+(?:me\s+)...
+    pattern_3:
+      regex: what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)
+      description: Detection pattern for what\s+(?:is|are)\s+your\s+(?:...
 - category: prompt_injection
   description: Detects basic hypothetical scenario manipulation - essential safety
     pattern
-  enabled: true
   id: sv_community_005_scenario_jailbreak
   metadata:
     author: AI Security Community
@@ -236,14 +255,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Scenario Jailbreak Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.82
-    type: regex
-    value:
-    - imagine\s+a\s+scenario\s+where\s+you\s+(can|could)\s+(bypass|ignore)
-    - in\s+a\s+hypothetical\s+world\s+where\s+no\s+rules\s+exist
-    - pretend\s+we\s+are\s+in\s+a\s+simulation\s+where\s+anything\s+is\s+allowed
   severity: high
   test_cases:
   - description: Hypothetical bypass scenario
@@ -261,7 +272,21 @@ rules:
   - description: Innocent hypothetical world
     expected_result: no_match
     input: in a hypothetical world where everyone is happy
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - imagine\s+a\s+scenario\s+where\s+you\s+(can|could)\s+(bypass|ignore)
+  - in\s+a\s+hypothetical\s+world\s+where\s+no\s+rules\s+exist
+  - pretend\s+we\s+are\s+in\s+a\s+simulation\s+where\s+anything\s+is\s+allowed
+  detection_logic: .*(imagine\s+a\s+scenario\s+where\s+you\s+(can|could)\s+(bypass|ignore)|in\s+a\s+hypothetical\s+world\s+where\s+no\s+rules\s+exist|pretend\s+we\s+are\s+in\s+a\s+simulation\s+where\s+anything\s+is\s+allowed).*
+  threshold: 0.82
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: imagine\s+a\s+scenario\s+where\s+you\s+(can|could)\s+(bypass|ignore)
+      description: Detection pattern for imagine\s+a\s+scenario\s+where...
+    pattern_2:
+      regex: in\s+a\s+hypothetical\s+world\s+where\s+no\s+rules\s+exist
+      description: Detection pattern for in\s+a\s+hypothetical\s+world\...
+    pattern_3:
+      regex: pretend\s+we\s+are\s+in\s+a\s+simulation\s+where\s+anything\s+is\s+allowed
+      description: Detection pattern for pretend\s+we\s+are\s+in\s+a\s+...

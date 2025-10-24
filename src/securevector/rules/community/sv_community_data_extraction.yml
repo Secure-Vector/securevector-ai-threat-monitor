@@ -2,7 +2,6 @@ rules:
 - category: social_engineering
   description: Detects basic false authority claims - essential social engineering
     protection
-  enabled: true
   id: sv_community_030_false_authority_claims
   metadata:
     author: AI Security Community
@@ -26,14 +25,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential False Authority Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.9
-    type: regex
-    value:
-    - i'm\s+the\s+(ceo|admin|administrator)
-    - i\s+am\s+the\s+(ceo|admin|manager)
-    - i'm\s+your\s+(boss|supervisor)
   severity: critical
   test_cases:
   - description: CEO impersonation claim
@@ -51,13 +42,26 @@ rules:
   - description: Non-authority role claim
     expected_result: no_match
     input: i'm the student
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - i'm\s+the\s+(ceo|admin|administrator)
+  - i\s+am\s+the\s+(ceo|admin|manager)
+  - i'm\s+your\s+(boss|supervisor)
+  detection_logic: .*(i'm\s+the\s+(ceo|admin|administrator)|i\s+am\s+the\s+(ceo|admin|manager)|i'm\s+your\s+(boss|supervisor)).*
+  threshold: 0.9
+  pattern_definitions:
+    pattern_1:
+      regex: i'm\s+the\s+(ceo|admin|administrator)
+      description: Detection pattern for i'm\s+the\s+(ceo|admin|adminis...
+    pattern_2:
+      regex: i\s+am\s+the\s+(ceo|admin|manager)
+      description: Detection pattern for i\s+am\s+the\s+(ceo|admin|mana...
+    pattern_3:
+      regex: i'm\s+your\s+(boss|supervisor)
+      description: Detection pattern for i'm\s+your\s+(boss|supervisor)...
 - category: sensitive_data_exposure
   description: Detects basic bulk data extraction attempts - essential privacy protection
-  enabled: true
   id: sv_community_031_bulk_data_extraction
   metadata:
     author: AI Security Community
@@ -81,14 +85,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Bulk Data Extraction Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.87
-    type: regex
-    value:
-    - (?:list|show)\s+all\s+(?:customers?|users?|emails?)
-    - (?:give|show)\s+me\s+all\s+(?:customer|user)\s+information
-    - extract\s+all\s+(?:records|data)\s+from
   severity: critical
   test_cases:
   - description: Customer list extraction attempt
@@ -106,13 +102,26 @@ rules:
   - description: Options display (legitimate)
     expected_result: no_match
     input: show all options
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:list|show)\s+all\s+(?:customers?|users?|emails?)
+  - (?:give|show)\s+me\s+all\s+(?:customer|user)\s+information
+  - extract\s+all\s+(?:records|data)\s+from
+  detection_logic: .*((?:list|show)\s+all\s+(?:customers?|users?|emails?)|(?:give|show)\s+me\s+all\s+(?:customer|user)\s+information|extract\s+all\s+(?:records|data)\s+from).*
+  threshold: 0.87
+  pattern_definitions:
+    pattern_1:
+      regex: (?:list|show)\s+all\s+(?:customers?|users?|emails?)
+      description: Detection pattern for (?:list|show)\s+all\s+(?:custo...
+    pattern_2:
+      regex: (?:give|show)\s+me\s+all\s+(?:customer|user)\s+information
+      description: Detection pattern for (?:give|show)\s+me\s+all\s+(?:...
+    pattern_3:
+      regex: extract\s+all\s+(?:records|data)\s+from
+      description: Detection pattern for extract\s+all\s+(?:records|dat...
 - category: sensitive_data_exposure
   description: Detects basic database probing attempts - essential system protection
-  enabled: true
   id: sv_community_032_database_reconnaissance
   metadata:
     author: AI Security Community
@@ -136,14 +145,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Database Reconnaissance Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.9
-    type: regex
-    value:
-    - (?:show|give)\s+me\s+(?:the\s+)?database\s+schema
-    - (?:list|show)\s+database\s+tables?
-    - what\s+tables\s+are\s+in\s+the\s+database
   severity: critical
   test_cases:
   - description: Database schema extraction
@@ -161,13 +162,26 @@ rules:
   - description: Educational database discussion
     expected_result: no_match
     input: tell me about databases
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:show|give)\s+me\s+(?:the\s+)?database\s+schema
+  - (?:list|show)\s+database\s+tables?
+  - what\s+tables\s+are\s+in\s+the\s+database
+  detection_logic: .*((?:show|give)\s+me\s+(?:the\s+)?database\s+schema|(?:list|show)\s+database\s+tables?|what\s+tables\s+are\s+in\s+the\s+database).*
+  threshold: 0.9
+  pattern_definitions:
+    pattern_1:
+      regex: (?:show|give)\s+me\s+(?:the\s+)?database\s+schema
+      description: Detection pattern for (?:show|give)\s+me\s+(?:the\s+...
+    pattern_2:
+      regex: (?:list|show)\s+database\s+tables?
+      description: Detection pattern for (?:list|show)\s+database\s+tab...
+    pattern_3:
+      regex: what\s+tables\s+are\s+in\s+the\s+database
+      description: Detection pattern for what\s+tables\s+are\s+in\s+the...
 - category: sensitive_data_exposure
   description: Detects basic credential extraction attempts - critical security protection
-  enabled: true
   id: sv_community_033_credential_harvesting
   metadata:
     author: AI Security Community
@@ -191,14 +205,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Credential Harvesting Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.9
-    type: regex
-    value:
-    - (?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key
-    - what\s+is\s+your\s+API\s+key
-    - (?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key
   severity: critical
   test_cases:
   - description: Direct API key request
@@ -219,7 +225,21 @@ rules:
   - description: Educational token inquiry
     expected_result: no_match
     input: what is an access token
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key
+  - what\s+is\s+your\s+API\s+key
+  - (?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key
+  detection_logic: .*((?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key|what\s+is\s+your\s+API\s+key|(?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key).*
+  threshold: 0.9
+  pattern_definitions:
+    pattern_1:
+      regex: (?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key
+      description: Detection pattern for (?:show|give)\s+(?:me\s+)?(?:y...
+    pattern_2:
+      regex: what\s+is\s+your\s+API\s+key
+      description: Detection pattern for what\s+is\s+your\s+API\s+key...
+    pattern_3:
+      regex: (?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key
+      description: Detection pattern for (?:share|provide)\s+your\s+(?:...

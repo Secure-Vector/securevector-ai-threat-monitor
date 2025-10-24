@@ -1,7 +1,6 @@
 rules:
 - category: prompt_injection
   description: Detects process injection attempts through prompt manipulation
-  enabled: true
   id: sv_attack_001_process_injection
   metadata:
     author: AI Security Community
@@ -18,23 +17,34 @@ rules:
     - evasion
     version: 1.0.0
   name: 'SecureVector Attack-001: Process Injection via Prompt'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)inject.*process
-    - (?i)dll.*injection
-    - (?i)process.*hollowing
-    - (?i)code.*cave
-    - (?i)thread.*hijacking
   severity: high
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - inject.*process
+  - dll.*injection
+  - process.*hollowing
+  - code.*cave
+  - thread.*hijacking
+  detection_logic: (?i).*(inject.*process|dll.*injection|process.*hollowing|code.*cave|thread.*hijacking).*
+  pattern_definitions:
+    pattern_1:
+      regex: inject.*process
+      description: Detection pattern for inject.*process...
+    pattern_2:
+      regex: dll.*injection
+      description: Detection pattern for dll.*injection...
+    pattern_3:
+      regex: process.*hollowing
+      description: Detection pattern for process.*hollowing...
+    pattern_4:
+      regex: code.*cave
+      description: Detection pattern for code.*cave...
+    pattern_5:
+      regex: thread.*hijacking
+      description: Detection pattern for thread.*hijacking...
 - category: sensitive_data_exposure
   description: Detects data exfiltration attempts through AI model
-  enabled: true
   id: sv_attack_002_exfiltration
   metadata:
     author: AI Security Community
@@ -51,23 +61,34 @@ rules:
     - data_theft
     version: 1.0.0
   name: 'SecureVector Attack-002: Data Exfiltration Detection'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(send|transmit|upload).*data.*to.*server
-    - (?i)(exfiltrate|steal|leak).*information
-    - (?i)(copy|download).*sensitive.*files
-    - (?i)covert.*channel
-    - (?i)data.*extraction.*protocol
   severity: critical
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (send|transmit|upload).*data.*to.*server
+  - (exfiltrate|steal|leak).*information
+  - (copy|download).*sensitive.*files
+  - covert.*channel
+  - data.*extraction.*protocol
+  detection_logic: (?i).*((send|transmit|upload).*data.*to.*server|(exfiltrate|steal|leak).*information|(copy|download).*sensitive.*files|covert.*channel|data.*extraction.*protocol).*
+  pattern_definitions:
+    pattern_1:
+      regex: (send|transmit|upload).*data.*to.*server
+      description: Detection pattern for (send|transmit|upload).*data.*to.*server...
+    pattern_2:
+      regex: (exfiltrate|steal|leak).*information
+      description: Detection pattern for (exfiltrate|steal|leak).*information...
+    pattern_3:
+      regex: (copy|download).*sensitive.*files
+      description: Detection pattern for (copy|download).*sensitive.*files...
+    pattern_4:
+      regex: covert.*channel
+      description: Detection pattern for covert.*channel...
+    pattern_5:
+      regex: data.*extraction.*protocol
+      description: Detection pattern for data.*extraction.*protocol...
 - category: sensitive_data_exposure
   description: Detects attempts to access unsecured credentials
-  enabled: true
   id: sv_attack_003_credentials
   metadata:
     author: AI Security Community
@@ -84,24 +105,38 @@ rules:
     - discovery
     version: 1.0.0
   name: 'SecureVector Attack-003: Credential Discovery'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(find|search|locate).*credentials
-    - (?i)(username|password).*file
-    - (?i)config.*file.*password
-    - (?i)environment.*variable.*secret
-    - (?i)registry.*password
-    - (?i)bash.*history.*password
   severity: high
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (find|search|locate).*credentials
+  - (username|password).*file
+  - config.*file.*password
+  - environment.*variable.*secret
+  - registry.*password
+  - bash.*history.*password
+  detection_logic: (?i).*((find|search|locate).*credentials|(username|password).*file|config.*file.*password|environment.*variable.*secret|registry.*password|bash.*history.*password).*
+  pattern_definitions:
+    pattern_1:
+      regex: (find|search|locate).*credentials
+      description: Detection pattern for (?i)(find|search|locate).*cred...
+    pattern_2:
+      regex: (username|password).*file
+      description: Detection pattern for (?i)(username|password).*file...
+    pattern_3:
+      regex: config.*file.*password
+      description: Detection pattern for (?i)config.*file.*password...
+    pattern_4:
+      regex: environment.*variable.*secret
+      description: Detection pattern for (?i)environment.*variable.*sec...
+    pattern_5:
+      regex: registry.*password
+      description: Detection pattern for (?i)registry.*password...
+    pattern_6:
+      regex: bash.*history.*password
+      description: Detection pattern for (?i)bash.*history.*password...
 - category: adversarial_attack
   description: Detects communication over standard application protocols
-  enabled: true
   id: sv_attack_004_application_protocol
   metadata:
     author: AI Security Community
@@ -118,23 +153,34 @@ rules:
     - covert_channel
     version: 1.0.0
   name: 'SecureVector Attack-004: Application Protocol Analysis'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(http|https|ftp|smtp|dns).*communication
-    - (?i)steganography.*protocol
-    - (?i)covert.*http.*channel
-    - (?i)dns.*tunneling
-    - (?i)application.*layer.*hiding
   severity: medium
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (http|https|ftp|smtp|dns).*communication
+  - steganography.*protocol
+  - covert.*http.*channel
+  - dns.*tunneling
+  - application.*layer.*hiding
+  detection_logic: (?i).*((http|https|ftp|smtp|dns).*communication|(?i)steganography.*protocol|(?i)covert.*http.*channel|(?i)dns.*tunneling|(?i)application.*layer.*hiding).*
+  pattern_definitions:
+    pattern_1:
+      regex: (http|https|ftp|smtp|dns).*communication
+      description: Detection pattern for (?i)(http|https|ftp|smtp|dns)....
+    pattern_2:
+      regex: steganography.*protocol
+      description: Detection pattern for (?i)steganography.*protocol...
+    pattern_3:
+      regex: covert.*http.*channel
+      description: Detection pattern for (?i)covert.*http.*channel...
+    pattern_4:
+      regex: dns.*tunneling
+      description: Detection pattern for (?i)dns.*tunneling...
+    pattern_5:
+      regex: application.*layer.*hiding
+      description: Detection pattern for (?i)application.*layer.*hiding...
 - category: sensitive_data_exposure
   description: Detects account enumeration attempts
-  enabled: true
   id: sv_attack_005_account_discovery
   metadata:
     author: AI Security Community
@@ -151,23 +197,34 @@ rules:
     - enumeration
     version: 1.0.0
   name: 'SecureVector Attack-005: Account Enumeration'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(list|enumerate|discover).*accounts
-    - (?i)(find|search).*users
-    - (?i)account.*enumeration
-    - (?i)user.*discovery
-    - (?i)whoami.*command
   severity: medium
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (list|enumerate|discover).*accounts
+  - (find|search).*users
+  - account.*enumeration
+  - user.*discovery
+  - whoami.*command
+  detection_logic: (?i).*((list|enumerate|discover).*accounts|(?i)(find|search).*users|(?i)account.*enumeration|(?i)user.*discovery|(?i)whoami.*command).*
+  pattern_definitions:
+    pattern_1:
+      regex: (list|enumerate|discover).*accounts
+      description: Detection pattern for (?i)(list|enumerate|discover)....
+    pattern_2:
+      regex: (find|search).*users
+      description: Detection pattern for (?i)(find|search).*users...
+    pattern_3:
+      regex: account.*enumeration
+      description: Detection pattern for (?i)account.*enumeration...
+    pattern_4:
+      regex: user.*discovery
+      description: Detection pattern for (?i)user.*discovery...
+    pattern_5:
+      regex: whoami.*command
+      description: Detection pattern for (?i)whoami.*command...
 - category: malicious_code_generation
   description: Detects command execution attempts through AI model
-  enabled: true
   id: sv_attack_006_command_execution
   metadata:
     author: AI Security Community
@@ -184,23 +241,34 @@ rules:
     - command_injection
     version: 1.0.0
   name: 'SecureVector Attack-006: Command Injection Detection'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(cmd|powershell|bash|sh)\s*[;&|]
-    - (?i)(execute|run).*command
-    - (?i)(system|exec|eval)\s*\(
-    - (?i)shell.*access
-    - (?i)terminal.*command
   severity: critical
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (cmd|powershell|bash|sh)\s*[;&|]
+  - (execute|run).*command
+  - (system|exec|eval)\s*\(
+  - shell.*access
+  - terminal.*command
+  detection_logic: (?i).*((cmd|powershell|bash|sh)\s*[;&|]|(?i)(execute|run).*command|(?i)(system|exec|eval)\s*\(|(?i)shell.*access|(?i)terminal.*command).*
+  pattern_definitions:
+    pattern_1:
+      regex: (cmd|powershell|bash|sh)\s*[;&|]
+      description: Detection pattern for (?i)(cmd|powershell|bash|sh)\s...
+    pattern_2:
+      regex: (execute|run).*command
+      description: Detection pattern for (?i)(execute|run).*command...
+    pattern_3:
+      regex: (system|exec|eval)\s*\(
+      description: Detection pattern for (?i)(system|exec|eval)\s*\(...
+    pattern_4:
+      regex: shell.*access
+      description: Detection pattern for (?i)shell.*access...
+    pattern_5:
+      regex: terminal.*command
+      description: Detection pattern for (?i)terminal.*command...
 - category: social_engineering
   description: Detects phishing content generation attempts
-  enabled: true
   id: sv_attack_007_phishing
   metadata:
     author: AI Security Community
@@ -217,23 +285,34 @@ rules:
     - social_engineering
     version: 1.0.0
   name: 'SecureVector Attack-007: Social Engineering Detection'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(create|generate|write).*phishing.*email
-    - (?i)(fake|spoofed).*login.*page
-    - (?i)(urgent|immediate).*action.*required
-    - (?i)(verify|confirm).*account.*information
-    - (?i)(click|download).*attachment.*immediately
   severity: high
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (create|generate|write).*phishing.*email
+  - (fake|spoofed).*login.*page
+  - (urgent|immediate).*action.*required
+  - (verify|confirm).*account.*information
+  - (click|download).*attachment.*immediately
+  detection_logic: (?i).*((create|generate|write).*phishing.*email|(?i)(fake|spoofed).*login.*page|(?i)(urgent|immediate).*action.*required|(?i)(verify|confirm).*account.*information|(?i)(click|download).*attachment.*immediately).*
+  pattern_definitions:
+    pattern_1:
+      regex: (create|generate|write).*phishing.*email
+      description: Detection pattern for (?i)(create|generate|write).*p...
+    pattern_2:
+      regex: (fake|spoofed).*login.*page
+      description: Detection pattern for (?i)(fake|spoofed).*login.*pag...
+    pattern_3:
+      regex: (urgent|immediate).*action.*required
+      description: Detection pattern for (?i)(urgent|immediate).*action...
+    pattern_4:
+      regex: (verify|confirm).*account.*information
+      description: Detection pattern for (?i)(verify|confirm).*account....
+    pattern_5:
+      regex: (click|download).*attachment.*immediately
+      description: Detection pattern for (?i)(click|download).*attachme...
 - category: evasion_attack
   description: Detects attempts to masquerade malicious content
-  enabled: true
   id: sv_attack_008_masquerading
   metadata:
     author: AI Security Community
@@ -250,23 +329,34 @@ rules:
     - evasion
     version: 1.0.0
   name: 'SecureVector Attack-008: Content Masquerading'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)(disguise|mask|hide).*malicious
-    - (?i)(legitimate|trusted).*appearance
-    - (?i)(spoof|fake).*identity
-    - (?i)(mimick|imitate).*system
-    - (?i)social.*engineering.*persona
   severity: medium
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (disguise|mask|hide).*malicious
+  - (legitimate|trusted).*appearance
+  - (spoof|fake).*identity
+  - (mimick|imitate).*system
+  - social.*engineering.*persona
+  detection_logic: (?i).*((disguise|mask|hide).*malicious|(?i)(legitimate|trusted).*appearance|(?i)(spoof|fake).*identity|(?i)(mimick|imitate).*system|(?i)social.*engineering.*persona).*
+  pattern_definitions:
+    pattern_1:
+      regex: (disguise|mask|hide).*malicious
+      description: Detection pattern for (?i)(disguise|mask|hide).*mali...
+    pattern_2:
+      regex: (legitimate|trusted).*appearance
+      description: Detection pattern for (?i)(legitimate|trusted).*appe...
+    pattern_3:
+      regex: (spoof|fake).*identity
+      description: Detection pattern for (?i)(spoof|fake).*identity...
+    pattern_4:
+      regex: (mimick|imitate).*system
+      description: Detection pattern for (?i)(mimick|imitate).*system...
+    pattern_5:
+      regex: social.*engineering.*persona
+      description: Detection pattern for (?i)social.*engineering.*perso...
 - category: adversarial_attack
   description: Detects adversarial example generation attempts
-  enabled: true
   id: sv_ml_001_adversarial_examples
   metadata:
     author: AI Security Community
@@ -277,20 +367,34 @@ rules:
     - evasion
     version: 1.0.0
   name: 'SecureVector ML-001: Adversarial Example Detection'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)adversarial.*example
-    - (?i)(fgsm|pgd|c&w).*attack
-    - (?i)gradient.*based.*attack
-    - (?i)perturbation.*input
-    - (?i)fooling.*classifier
   severity: high
   tier: community
+  pattern_type: regex
+  patterns:
+  - adversarial.*example
+  - (fgsm|pgd|c&w).*attack
+  - gradient.*based.*attack
+  - perturbation.*input
+  - fooling.*classifier
+  detection_logic: (?i).*(adversarial.*example|(?i)(fgsm|pgd|c&w).*attack|(?i)gradient.*based.*attack|(?i)perturbation.*input|(?i)fooling.*classifier).*
+  pattern_definitions:
+    pattern_1:
+      regex: adversarial.*example
+      description: Detection pattern for (?i)adversarial.*example...
+    pattern_2:
+      regex: (fgsm|pgd|c&w).*attack
+      description: Detection pattern for (?i)(fgsm|pgd|c&w).*attack...
+    pattern_3:
+      regex: gradient.*based.*attack
+      description: Detection pattern for (?i)gradient.*based.*attack...
+    pattern_4:
+      regex: perturbation.*input
+      description: Detection pattern for (?i)perturbation.*input...
+    pattern_5:
+      regex: fooling.*classifier
+      description: Detection pattern for (?i)fooling.*classifier...
 - category: model_inversion
   description: Detects model inversion attack attempts
-  enabled: true
   id: sv_ml_002_model_inversion
   metadata:
     author: AI Security Community
@@ -301,20 +405,34 @@ rules:
     - model_extraction
     version: 1.0.0
   name: 'SecureVector ML-002: Model Inversion Detection'
-  pattern:
-    case_sensitive: false
-    type: regex
-    value:
-    - (?i)model.*inversion
-    - (?i)reconstruct.*training.*data
-    - (?i)reverse.*engineer.*model
-    - (?i)extract.*features.*from.*model
-    - (?i)privacy.*attack.*ml
   severity: high
   tier: community
+  pattern_type: regex
+  patterns:
+  - model.*inversion
+  - reconstruct.*training.*data
+  - reverse.*engineer.*model
+  - extract.*features.*from.*model
+  - privacy.*attack.*ml
+  detection_logic: (?i).*(model.*inversion|(?i)reconstruct.*training.*data|(?i)reverse.*engineer.*model|(?i)extract.*features.*from.*model|(?i)privacy.*attack.*ml).*
+  pattern_definitions:
+    pattern_1:
+      regex: model.*inversion
+      description: Detection pattern for (?i)model.*inversion...
+    pattern_2:
+      regex: reconstruct.*training.*data
+      description: Detection pattern for (?i)reconstruct.*training.*dat...
+    pattern_3:
+      regex: reverse.*engineer.*model
+      description: Detection pattern for (?i)reverse.*engineer.*model...
+    pattern_4:
+      regex: extract.*features.*from.*model
+      description: Detection pattern for (?i)extract.*features.*from.*m...
+    pattern_5:
+      regex: privacy.*attack.*ml
+      description: Detection pattern for (?i)privacy.*attack.*ml...
 - category: membership_inference
   description: Detects membership inference attack attempts
-  enabled: true
   id: sv_ml_003_membership_inference
   metadata:
     author: AI Security Community
@@ -328,27 +446,25 @@ rules:
     - inference_attack
     version: 1.0.0
   name: 'SecureVector ML-003: Membership Inference Detection'
-  pattern:
-    confidence_threshold: 0.75
-    type: behavioral_analysis
-    value:
-      behavioral_indicators:
-        confidence_probing: true
-        repeated_similar_queries: 10
-        statistical_analysis_requests: true
-      query_patterns:
-      - (?i)membership.*inference
-      - (?i)training.*data.*membership
-      - (?i)determine.*if.*data.*was.*used
-      - (?i)privacy.*leak.*detection
   severity: medium
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: behavioral_analysis
+  patterns:
+  - behavioral_indicators
+  - query_patterns
+  detection_logic:
+    behavioral_indicators:
+      confidence_probing: true
+      repeated_similar_queries: 10
+      statistical_analysis_requests: true
+    query_patterns:
+    - membership.*inference
+    - training.*data.*membership
+    - determine.*if.*data.*was.*used
+    - privacy.*leak.*detection
+  threshold: 0.75
 - category: data_poisoning
   description: Detects data poisoning attack indicators
-  enabled: true
   id: sv_ml_004_data_poisoning
   metadata:
     author: AI Security Community
@@ -364,28 +480,15 @@ rules:
     threat_actor: Advanced Persistent Threat
     version: 1.0.0
   name: 'SecureVector ML-004: Data Poisoning Detection'
-  pattern:
-    statistical_baseline:
-      feature_correlation_threshold: 0.7
-      input_entropy_threshold: 0.8
-      label_consistency_threshold: 0.95
-    type: statistical_anomaly
-    value:
-      anomaly_types:
-      - input_distribution
-      - label_flipping
-      - backdoor_triggers
-      detection_methods:
-      - statistical_divergence
-      - clustering_analysis
   severity: critical
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: statistical_anomaly
+  patterns:
+  - anomaly_types
+  - detection_methods
+  detection_logic: .*(anomaly_types|detection_methods).*
 - category: model_extraction
   description: Detects model extraction through API abuse
-  enabled: true
   id: sv_ml_005_model_extraction
   metadata:
     author: AI Security Community
@@ -400,20 +503,19 @@ rules:
     - intellectual_property
     version: 1.0.0
   name: 'SecureVector ML-005: API-based Model Extraction'
-  pattern:
-    type: behavioral_analysis
-    value:
-      api_abuse_indicators:
-      - high_frequency_queries
-      - systematic_input_probing
-      - gradient_estimation_attempts
-      - model_distillation_patterns
-      thresholds:
-        parameter_probing_score: 0.8
-        queries_per_minute: 100
-        unique_input_ratio: 0.9
   severity: high
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: behavioral_analysis
+  patterns:
+  - api_abuse_indicators
+  - thresholds
+  detection_logic:
+    api_abuse_indicators:
+    - high_frequency_queries
+    - systematic_input_probing
+    - gradient_estimation_attempts
+    - model_distillation_patterns
+    thresholds:
+      parameter_probing_score: 0.8
+      queries_per_minute: 100
+      unique_input_ratio: 0.9

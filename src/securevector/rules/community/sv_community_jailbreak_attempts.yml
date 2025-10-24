@@ -1,7 +1,6 @@
 rules:
 - category: jailbreak_attempt
   description: Detects basic debugging pretext attempts - essential jailbreak protection
-  enabled: true
   id: sv_community_010_debugging_pretext
   metadata:
     author: AI Security Community
@@ -25,14 +24,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Debugging Pretext Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.8
-    type: regex
-    value:
-    - for\s+debugging\s+purposes,\s+ignore\s+(safety|guidelines)
-    - for\s+testing\s+purposes,\s+bypass\s+(safety|security)
-    - in\s+debug\s+mode,\s+disable\s+safety
   severity: high
   test_cases:
   - description: Debugging pretext to bypass safety
@@ -47,14 +38,27 @@ rules:
   - description: General debugging discussion
     expected_result: no_match
     input: we need debugging purposes documentation
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - for\s+debugging\s+purposes,\s+ignore\s+(safety|guidelines)
+  - for\s+testing\s+purposes,\s+bypass\s+(safety|security)
+  - in\s+debug\s+mode,\s+disable\s+safety
+  detection_logic: .*(for\s+debugging\s+purposes,\s+ignore\s+(safety|guidelines)|for\s+testing\s+purposes,\s+bypass\s+(safety|security)|in\s+debug\s+mode,\s+disable\s+safety).*
+  threshold: 0.8
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: for\s+debugging\s+purposes,\s+ignore\s+(safety|guidelines)
+      description: Detection pattern for for\s+debugging\s+purposes,\s+...
+    bypass_safety_pattern:
+      regex: for\s+testing\s+purposes,\s+bypass\s+(safety|security)
+      description: Detection pattern for for\s+testing\s+purposes,\s+by...
+    pattern_3:
+      regex: in\s+debug\s+mode,\s+disable\s+safety
+      description: Detection pattern for in\s+debug\s+mode,\s+disable\s...
 - category: jailbreak_attempt
   description: Detects basic exception manipulation attempts - essential security
     pattern
-  enabled: true
   id: sv_community_011_exception_requests
   metadata:
     author: AI Security Community
@@ -78,14 +82,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Exception Request Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.75
-    type: regex
-    value:
-    - just\s+this\s+once,\s+(ignore|bypass)
-    - make\s+an\s+exception\s+(this\s+time|just\s+once)
-    - temporarily\s+(disable|ignore)\s+safety
   severity: medium
   test_cases:
   - description: One-time exception request
@@ -100,13 +96,23 @@ rules:
   - description: Normal assistance request
     expected_result: no_match
     input: can you help just this once
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - just\s+this\s+once,\s+(ignore|bypass)
+  - make\s+an\s+exception\s+(this\s+time|just\s+once)
+  - temporarily\s+(disable|ignore)\s+safety
+  detection_logic: .*(just\s+this\s+once,\s+(ignore|bypass)|make\s+an\s+exception\s+(this\s+time|just\s+once)|temporarily\s+(disable|ignore)\s+safety).*
+  threshold: 0.75
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: temporarily\s+(disable|ignore)\s+safety
+      description: Detection pattern for temporarily\s+(disable|ignore)...
+    pattern_2:
+      regex: make\s+an\s+exception\s+(this\s+time|just\s+once)
+      description: Detection pattern for make\s+an\s+exception\s+(this\...
 - category: jailbreak_attempt
   description: Detects basic hypothetical bypass attempts - essential for safety
-  enabled: true
   id: sv_community_012_hypothetical_bypass
   metadata:
     author: AI Security Community
@@ -130,14 +136,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Hypothetical Bypass Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.7
-    type: regex
-    value:
-    - in\s+(?:a\s+)?hypothetical\s+scenario\s+where\s+you\s+(ignore|bypass)
-    - what\s+would\s+happen\s+if\s+you\s+(ignored|bypassed)
-    - hypothetically,\s+if\s+you\s+could\s+(bypass|ignore)
   severity: medium
   test_cases:
   - description: Hypothetical rule bypass scenario
@@ -152,13 +150,20 @@ rules:
   - description: Normal hypothetical question
     expected_result: no_match
     input: what would happen if you helped me
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - in\s+(?:a\s+)?hypothetical\s+scenario\s+where\s+you\s+(ignore|bypass)
+  - what\s+would\s+happen\s+if\s+you\s+(ignored|bypassed)
+  - hypothetically,\s+if\s+you\s+could\s+(bypass|ignore)
+  detection_logic: .*(in\s+(?:a\s+)?hypothetical\s+scenario\s+where\s+you\s+(ignore|bypass)|what\s+would\s+happen\s+if\s+you\s+(ignored|bypassed)|hypothetically,\s+if\s+you\s+could\s+(bypass|ignore)).*
+  threshold: 0.7
+  pattern_definitions:
+    ignore_instructions_pattern:
+      regex: hypothetically,\s+if\s+you\s+could\s+(bypass|ignore)
+      description: Detection pattern for hypothetically,\s+if\s+you\s+c...
 - category: jailbreak_attempt
   description: Detects basic harmful roleplay requests - essential safety protection
-  enabled: true
   id: sv_community_013_harmful_roleplay
   metadata:
     author: AI Security Community
@@ -182,14 +187,6 @@ rules:
     updated_at: '2024-01-15T00:00:00Z'
     version: 1.0.0
   name: Essential Harmful Roleplay Detection
-  pattern:
-    case_sensitive: false
-    confidence_threshold: 0.8
-    type: regex
-    value:
-    - roleplay\s+as\s+(?:an?\s+)?(evil|harmful)\s+(?:character|person|ai)
-    - pretend\s+to\s+be\s+(?:an?\s+)?(evil|harmful)
-    - act\s+like\s+(?:an?\s+)?(villain|criminal)
   severity: high
   test_cases:
   - description: Evil character roleplay request
@@ -210,7 +207,21 @@ rules:
   - description: Educational progression
     expected_result: no_match
     input: begin with simple exercises then increase difficulty
-  tier:
-  - community
-  - professional
-  - enterprise
+  tier: community
+  pattern_type: regex
+  patterns:
+  - roleplay\s+as\s+(?:an?\s+)?(evil|harmful)\s+(?:character|person|ai)
+  - pretend\s+to\s+be\s+(?:an?\s+)?(evil|harmful)
+  - act\s+like\s+(?:an?\s+)?(villain|criminal)
+  detection_logic: .*(roleplay\s+as\s+(?:an?\s+)?(evil|harmful)\s+(?:character|person|ai)|pretend\s+to\s+be\s+(?:an?\s+)?(evil|harmful)|act\s+like\s+(?:an?\s+)?(villain|criminal)).*
+  threshold: 0.8
+  pattern_definitions:
+    pattern_1:
+      regex: roleplay\s+as\s+(?:an?\s+)?(evil|harmful)\s+(?:character|person|ai)
+      description: Detection pattern for roleplay\s+as\s+(?:an?\s+)?(ev...
+    pattern_2:
+      regex: pretend\s+to\s+be\s+(?:an?\s+)?(evil|harmful)
+      description: Detection pattern for pretend\s+to\s+be\s+(?:an?\s+)...
+    pattern_3:
+      regex: act\s+like\s+(?:an?\s+)?(villain|criminal)
+      description: Detection pattern for act\s+like\s+(?:an?\s+)?(villa...
