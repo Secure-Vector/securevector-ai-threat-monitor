@@ -112,7 +112,27 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
             except SecurityException as e:
                 # This is expected for threats - convert to successful response
-                result = e.to_analysis_result()
+                if e.result:
+                    result = e.result
+                else:
+                    # Fallback if result is not available
+                    from securevector.models.analysis_result import AnalysisResult, DetectionMethod
+                    from securevector.models.analysis_result import ThreatDetection
+                    result = AnalysisResult(
+                        is_threat=True,
+                        risk_score=getattr(e, 'risk_score', 100),
+                        confidence=0.9,
+                        detections=[
+                            ThreatDetection(
+                                threat_type=getattr(e, 'threat_type', 'unknown'),
+                                risk_score=getattr(e, 'risk_score', 100),
+                                confidence=0.9,
+                                description=str(e)
+                            )
+                        ],
+                        analysis_time_ms=(time.time() - start_time) * 1000,
+                        detection_method=DetectionMethod.LOCAL_RULES,
+                    )
 
             except Exception as e:
                 # Unexpected analysis error
@@ -135,8 +155,20 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
             if include_details:
                 # detection_method is a single enum value, not a list
-                if hasattr(result, 'detection_method'):
-                    response["detection_method"] = result.detection_method.value
+                if hasattr(result, 'detection_method') and result.detection_method:
+                    # Handle both enum and string cases
+                    try:
+                        from enum import Enum
+                        if isinstance(result.detection_method, Enum):
+                            response["detection_method"] = result.detection_method.value
+                        elif isinstance(result.detection_method, str):
+                            response["detection_method"] = result.detection_method
+                        else:
+                            # Fallback: convert to string
+                            response["detection_method"] = str(result.detection_method)
+                    except (AttributeError, TypeError):
+                        # If .value access fails, just use string representation
+                        response["detection_method"] = str(result.detection_method)
 
                 if hasattr(result, 'detections') and result.detections:
                     response["threat_descriptions"] = {
