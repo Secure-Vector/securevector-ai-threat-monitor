@@ -259,8 +259,21 @@ async def _analyze_single_prompt(
         }
 
         if include_details:
-            if hasattr(result, 'detection_method'):
-                response["detection_method"] = result.detection_method.value
+            if hasattr(result, 'detection_method') and result.detection_method:
+                # Handle both enum and string cases safely
+                try:
+                    from enum import Enum
+                    if isinstance(result.detection_method, Enum):
+                        response["detection_method"] = result.detection_method.value
+                    elif isinstance(result.detection_method, str):
+                        response["detection_method"] = result.detection_method
+                    else:
+                        # Fallback: convert to string
+                        response["detection_method"] = str(result.detection_method)
+                except (AttributeError, TypeError) as e:
+                    # If .value access fails (e.g., string has no .value), just use string representation
+                    logger.debug(f"Error accessing detection_method.value: {e}, using string representation")
+                    response["detection_method"] = str(result.detection_method)
             if hasattr(result, 'detections') and result.detections:
                 response["threat_descriptions"] = {
                     detection.threat_type: detection.description  # Already a string

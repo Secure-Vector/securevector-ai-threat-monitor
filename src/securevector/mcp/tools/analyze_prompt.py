@@ -156,7 +156,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             if include_details:
                 # detection_method is a single enum value, not a list
                 if hasattr(result, 'detection_method') and result.detection_method:
-                    # Handle both enum and string cases
+                    # Handle both enum and string cases safely
                     try:
                         from enum import Enum
                         if isinstance(result.detection_method, Enum):
@@ -166,8 +166,9 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                         else:
                             # Fallback: convert to string
                             response["detection_method"] = str(result.detection_method)
-                    except (AttributeError, TypeError):
-                        # If .value access fails, just use string representation
+                    except (AttributeError, TypeError) as e:
+                        # If .value access fails (e.g., string has no .value), just use string representation
+                        logger.debug(f"Error accessing detection_method.value: {e}, using string representation")
                         response["detection_method"] = str(result.detection_method)
 
                 if hasattr(result, 'detections') and result.detections:
