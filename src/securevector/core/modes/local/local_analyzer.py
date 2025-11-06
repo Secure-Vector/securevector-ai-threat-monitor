@@ -186,9 +186,10 @@ class LocalAnalyzer:
 
                         # Count patterns in both old and new format
                         if "rules" in rule_data:
-                            # Support both formats:
+                            # Support multiple formats:
                             # 1. Old format: {"rule": {"detection": [...]}}
                             # 2. Community format: {"pattern": {"value": [...]}}
+                            # 3. Direct format: {"patterns": [...]}
                             pattern_count = 0
                             for rule_entry in rule_data["rules"]:
                                 if "rule" in rule_entry:
@@ -201,6 +202,11 @@ class LocalAnalyzer:
                                         pattern_count += len(pattern_value)
                                     else:
                                         pattern_count += 1
+                                elif "patterns" in rule_entry:
+                                    # Direct format (most common in community rules)
+                                    patterns = rule_entry.get("patterns", [])
+                                    if isinstance(patterns, list):
+                                        pattern_count += len(patterns)
                         else:
                             pattern_count = len(rule_data.get("patterns", []))
                         total_patterns += pattern_count
@@ -241,7 +247,10 @@ class LocalAnalyzer:
         # Handle new security-rule-forge format and community format
         if "rules" in rule_data:
             for rule_entry in rule_data["rules"]:
-                # Support both old format ({"rule": {...}}) and community format (direct entry)
+                # Support multiple formats:
+                # 1. Old format: {"rule": {"detection": [...]}}
+                # 2. Nested pattern format: {"pattern": {"value": [...]}}
+                # 3. Direct format: {"patterns": [...]}
                 if "rule" in rule_entry:
                     # Old format
                     rule = rule_entry.get("rule", {})
@@ -258,14 +267,34 @@ class LocalAnalyzer:
                                 "flags": detection.get("flags", []),
                                 "weight": detection.get("weight", 1.0)
                             })
+                elif "patterns" in rule_entry:
+                    # Direct format (most common in community rules)
+                    rule = rule_entry
+                    rule_id = rule_entry.get("id", f"{rule_name}_unknown")
+                    rule_category = rule_entry.get("category", rule_name)
+                    rule_confidence = rule_entry.get("threshold", 0.8)
+
+                    # Extract patterns directly
+                    patterns_to_compile = []
+                    pattern_values = rule_entry.get("patterns", [])
+                    if not isinstance(pattern_values, list):
+                        pattern_values = [pattern_values]
+
+                    for pattern_str in pattern_values:
+                        if pattern_str:
+                            patterns_to_compile.append({
+                                "pattern": pattern_str,
+                                "flags": [],
+                                "weight": 1.0
+                            })
                 else:
-                    # Community format
+                    # Nested pattern format
                     rule_id = rule_entry.get("id", f"{rule_name}_unknown")
                     rule_category = rule_entry.get("category", rule_name)
                     rule_confidence = rule_entry.get("pattern", {}).get("confidence_threshold", 0.8)
                     rule = rule_entry  # Use the entry directly
 
-                    # Extract patterns from community format
+                    # Extract patterns from nested pattern format
                     patterns_to_compile = []
                     pattern_data = rule_entry.get("pattern", {})
                     pattern_values = pattern_data.get("value", [])
