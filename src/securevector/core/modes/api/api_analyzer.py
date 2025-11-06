@@ -232,29 +232,97 @@ class APIAnalyzer:
             data = response.json()
             analysis_time_ms = (time.time() - start_time) * 1000
 
-            # Parse threat detections
-            detections = []
-            for detection_data in data.get("detections", []):
-                detection = ThreatDetection(
-                    threat_type=detection_data.get("threat_type", "unknown"),
-                    risk_score=detection_data.get("risk_score", 0),
-                    confidence=detection_data.get("confidence", 0.0),
-                    description=detection_data.get("description", ""),
-                    rule_id=detection_data.get("rule_id"),
-                    pattern_matched=detection_data.get("pattern_matched"),
-                    severity=detection_data.get("severity"),
-                )
-                detections.append(detection)
+            # Handle both old format (is_threat, risk_score, detections) and new format (verdict, threat_score, matched_rules)
+            # Check if this is the new API format
+            if "verdict" in data:
+                # New API format
+                verdict = data.get("verdict", "").upper()
+                # Map verdict to is_threat: REVIEW or BLOCK = threat, ALLOW = no threat
+                is_threat = verdict in ("REVIEW", "BLOCK")
+                
+                # Convert threat_score (0-1 float) to risk_score (0-100 int)
+                threat_score = data.get("threat_score", 0.0)
+                risk_score = int(min(max(threat_score * 100, 0), 100))
+                
+                # Map confidence_score to confidence
+                confidence = data.get("confidence_score", 0.0)
+                
+                # Parse matched_rules into detections
+                detections = []
+                matched_rules = data.get("matched_rules", [])
+                threat_level = data.get("threat_level", "unknown")
+                
+                # If there are matched rules, create detections from them
+                for rule_data in matched_rules:
+                    if isinstance(rule_data, dict):
+                        detection = ThreatDetection(
+                            threat_type=rule_data.get("threat_type", "unknown"),
+                            risk_score=int(min(max(rule_data.get("risk_score", threat_score) * 100, 0), 100)),
+                            confidence=rule_data.get("confidence", confidence),
+                            description=rule_data.get("description", ""),
+                            rule_id=rule_data.get("rule_id"),
+                            pattern_matched=rule_data.get("pattern_matched"),
+                            severity=rule_data.get("severity", threat_level.lower()),
+                        )
+                        detections.append(detection)
+                
+                # If no matched rules but there's a threat, create a detection from the analysis
+                if is_threat and not detections:
+                    # Extract ML category from analysis if available
+                    analysis = data.get("analysis", {})
+                    ml_category = analysis.get("ml_category", "unknown")
+                    ml_reasoning = analysis.get("ml_reasoning", "")
+                    
+                    detection = ThreatDetection(
+                        threat_type=ml_category.lower().replace(" - ", "_").replace(" ", "_") if ml_category else "unknown",
+                        risk_score=risk_score,
+                        confidence=confidence,
+                        description=ml_reasoning or f"Threat detected: {verdict}",
+                        rule_id=None,
+                        pattern_matched=None,
+                        severity=threat_level.lower(),
+                    )
+                    detections.append(detection)
+                
+                # Preserve all original API response data in metadata
+                metadata = {
+                    "verdict": verdict,
+                    "threat_level": threat_level,
+                    "recommendation": data.get("recommendation"),
+                    "analysis": data.get("analysis", {}),
+                    "original_response": data,  # Keep full response for debugging
+                }
+            else:
+                # Old API format (backward compatibility)
+                is_threat = data.get("is_threat", False)
+                risk_score = data.get("risk_score", 0)
+                confidence = data.get("confidence", 0.0)
+                
+                # Parse threat detections
+                detections = []
+                for detection_data in data.get("detections", []):
+                    detection = ThreatDetection(
+                        threat_type=detection_data.get("threat_type", "unknown"),
+                        risk_score=detection_data.get("risk_score", 0),
+                        confidence=detection_data.get("confidence", 0.0),
+                        description=detection_data.get("description", ""),
+                        rule_id=detection_data.get("rule_id"),
+                        pattern_matched=detection_data.get("pattern_matched"),
+                        severity=detection_data.get("severity"),
+                    )
+                    detections.append(detection)
+                
+                metadata = data.get("metadata", {})
 
             # Create analysis result
             result = AnalysisResult(
-                is_threat=data.get("is_threat", False),
-                risk_score=data.get("risk_score", 0),
-                confidence=data.get("confidence", 0.0),
+                is_threat=is_threat,
+                risk_score=risk_score,
+                confidence=confidence,
                 detections=detections,
                 analysis_time_ms=analysis_time_ms,
                 detection_method=DetectionMethod.API_ENHANCED,
-                metadata=data.get("metadata", {}),
+                metadata=metadata,
             )
 
             self._is_healthy = True
@@ -274,28 +342,16 @@ class APIAnalyzer:
             results = []
 
             for result_data in data.get("results", []):
-                # Parse individual result similar to single response
-                detections = []
-                for detection_data in result_data.get("detections", []):
-                    detection = ThreatDetection(
-                        threat_type=detection_data.get("threat_type", "unknown"),
-                        risk_score=detection_data.get("risk_score", 0),
-                        confidence=detection_data.get("confidence", 0.0),
-                        description=detection_data.get("description", ""),
-                        rule_id=detection_data.get("rule_id"),
-                        pattern_matched=detection_data.get("pattern_matched"),
-                        severity=detection_data.get("severity"),
-                    )
-                    detections.append(detection)
-
-                result = AnalysisResult(
-                    is_threat=result_data.get("is_threat", False),
-                    risk_score=result_data.get("risk_score", 0),
-                    confidence=result_data.get("confidence", 0.0),
-                    detections=detections,
-                    analysis_time_ms=result_data.get("analysis_time_ms", 0.0),
-                    detection_method=DetectionMethod.API_ENHANCED,
-                    metadata=result_data.get("metadata", {}),
+                # Use the same parsing logic as single response
+                # Create a mock response object to reuse parsing logic
+                class MockResponse:
+                    def json(self):
+                        return result_data
+                
+                # Parse using the same method as single responses
+                result = self._parse_success_response(
+                    MockResponse(),  # type: ignore
+                    start_time
                 )
                 results.append(result)
 
