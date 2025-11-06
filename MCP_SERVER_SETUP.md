@@ -10,7 +10,25 @@ pip install securevector-ai-monitor[mcp]
 
 ## Configuration
 
-### Sample mcp.json (Local Mode - No API Key)
+### Sample mcp.json (Local Mode - Offline, No API Key Required)
+
+Works completely offline with community threat detection rules (518 patterns).
+
+```json
+{
+  "mcpServers": {
+    "securevector": {
+      "command": "python",
+      "args": ["-m", "securevector.mcp"],
+      "env": {
+        "SECUREVECTOR_MODE": "local"
+      }
+    }
+  }
+}
+```
+
+**Or simply use empty env (auto-selects local mode without API key):**
 
 ```json
 {
@@ -24,7 +42,7 @@ pip install securevector-ai-monitor[mcp]
 }
 ```
 
-### Sample mcp.json (Hybrid Mode - With API Key)
+### Sample mcp.json (Hybrid Mode - Enhanced Detection with API Key)
 
 ```json
 {
@@ -43,6 +61,7 @@ pip install securevector-ai-monitor[mcp]
 ### Configuration File Locations
 
 - **Claude Desktop**: `~/.config/claude/mcp.json` (Linux/Mac) or `%APPDATA%\Claude\mcp.json` (Windows)
+- **Claude Code/Cursor**: `~/.cursor/mcp.json` (Linux/Mac) or `%APPDATA%\Cursor\mcp.json` (Windows)
 - **Claude CLI**: `~/.config/claude-cli/mcp.json`
 
 ## Quick Setup
