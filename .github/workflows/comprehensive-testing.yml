@@ -1,8 +1,10 @@
 name: Comprehensive Testing Suite
 
+# Runs on Pull Requests only
+# Direct pushes are handled by:
+# - develop-preview-publish.yml (for develop branch)
+# - release.yml (for main/master releases)
 on:
-  push:
-    branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master, develop ]
 

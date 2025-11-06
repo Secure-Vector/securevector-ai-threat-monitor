@@ -1,12 +1,18 @@
 name: CI/CD Pipeline
 
+# DISABLED: Redundant with comprehensive-testing.yml and dedicated publish workflows
+# This workflow is kept for reference but will not run automatically
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
-  release:
-    types: [ published ]
+  workflow_dispatch:  # Manual trigger only
+
+# Original triggers (now disabled):
+# on:
+#   push:
+#     branches: [ main, develop ]
+#   pull_request:
+#     branches: [ main, develop ]
+#   release:
+#     types: [ published ]
 
 env:
   PYTHON_VERSION: "3.9"

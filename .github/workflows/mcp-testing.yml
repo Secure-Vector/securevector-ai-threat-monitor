@@ -1,20 +1,26 @@
 name: MCP Server Testing
 
+# DISABLED: MCP tests are now included in comprehensive-testing.yml
+# This workflow is kept for reference but will not run automatically
 on:
-  push:
-    branches: [ main, develop ]
-    paths:
-      - 'src/securevector/mcp/**'
-      - 'tests/mcp/**'
-      - 'examples/mcp/**'
-      - 'setup.py'
-  pull_request:
-    branches: [ main, develop ]
-    paths:
-      - 'src/securevector/mcp/**'
-      - 'tests/mcp/**'
-      - 'examples/mcp/**'
-      - 'setup.py'
+  workflow_dispatch:  # Manual trigger only
+
+# Original triggers (now disabled):
+# on:
+#   push:
+#     branches: [ main, develop ]
+#     paths:
+#       - 'src/securevector/mcp/**'
+#       - 'tests/mcp/**'
+#       - 'examples/mcp/**'
+#       - 'setup.py'
+#   pull_request:
+#     branches: [ main, develop ]
+#     paths:
+#       - 'src/securevector/mcp/**'
+#       - 'tests/mcp/**'
+#       - 'examples/mcp/**'
+#       - 'setup.py'
 
 env:
   PYTHON_VERSION: "3.9"
