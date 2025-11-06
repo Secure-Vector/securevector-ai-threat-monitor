@@ -40,6 +40,13 @@ if result.is_threat:
 
 > **Need specific examples?** → [**View Complete Use Cases Guide**](USECASES.md) with real code examples for web apps, chatbots, CI/CD, and enterprise monitoring.
 
+## 📚 Documentation
+
+- **[SDK Usage Guide](SDK_USAGE.md)** - Complete Python SDK integration guide
+- **[MCP Server Setup Guide](MCP_SERVER_SETUP.md)** - MCP server configuration and deployment
+- **[Use Cases & Examples](USECASES.md)** - Real-world integration scenarios
+- **[Development Guide](CLAUDE.md)** - Development workflows and validation
+
 ---
 
 ## Why SecureVector?
@@ -175,6 +182,8 @@ if result.is_threat: return "Blocked for security"
 - Custom AI workflows
 - Automated security scanning
 
+📖 **[View Complete SDK Usage Guide →](docs/SDK_USAGE.md)**
+
 ### **MCP Server** - For Claude Desktop/Code/CLI Users
 Perfect for **adding AI security tools directly to Claude Desktop, Claude Code, or Claude CLI** through native MCP integration.
 
@@ -200,9 +209,13 @@ python examples/mcp/claude_cli_integration.py --install
 - Interactive threat analysis
 - Educational security demonstrations
 
+📖 **[View Complete MCP Server Setup Guide →](docs/MCP_SERVER_SETUP.md)**
+
 ---
 
 ## MCP Server Setup & Usage
+
+> 📖 **For detailed MCP server configuration, including sample mcp.json configurations and advanced setup, see the [MCP Server Setup Guide](docs/MCP_SERVER_SETUP.md)**
 
 ### Quick MCP Server Start
 ```bash
@@ -235,6 +248,29 @@ The MCP server automatically chooses the best detection mode based on your confi
 - **Automatic fallback** - Gracefully handles API outages by switching to local mode
 
 ### Claude Desktop Integration
+
+**Sample mcp.json Configuration:**
+
+Add this to your Claude Desktop `mcp.json` file (located at `~/.config/claude/mcp.json` on Linux/Mac or `%APPDATA%\Claude\mcp.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "securevector": {
+      "command": "python",
+      "args": ["-m", "securevector.mcp"],
+      "env": {
+        "SECUREVECTOR_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Note**: Remove the `SECUREVECTOR_API_KEY` environment variable to use local mode (offline, no API key required).
+
+**Automated Setup:**
+
 ```bash
 # Auto-install MCP server for Claude Desktop
 python -c "
@@ -246,6 +282,8 @@ print('Installed! Restart Claude Desktop to use SecureVector tools.')
 # Or use the integration script
 python examples/mcp/claude_desktop_integration.py --install
 ```
+
+📖 **[View detailed MCP configuration options →](docs/MCP_SERVER_SETUP.md#configuration)**
 
 ### Claude CLI Integration
 ```bash
@@ -379,6 +417,8 @@ rules:
 ---
 
 ## Python SDK Usage & Integration
+
+> 📖 **For comprehensive SDK documentation, including all operation modes, framework integrations, and advanced features, see the [SDK Usage Guide](docs/SDK_USAGE.md)**
 
 ### Basic Usage
 ```python
@@ -850,9 +890,11 @@ python -m securevector.mcp --health-check
 
 ## Documentation & Examples
 
-### Essential Files
-- **[USECASES.md](USECASES.md)** - Real-world integration examples
-- **[CLAUDE.md](CLAUDE.md)** - Development guidelines and validation commands
+### Essential Documentation
+- **[SDK Usage Guide](docs/SDK_USAGE.md)** - Complete Python SDK integration guide
+- **[MCP Server Setup Guide](docs/MCP_SERVER_SETUP.md)** - MCP server configuration and deployment
+- **[Use Cases & Examples](USECASES.md)** - Real-world integration examples
+- **[Development Guide](CLAUDE.md)** - Development guidelines and validation commands
 
 ### Examples Directory
 - **`examples/mcp/`** - Claude Desktop, CLI, and Code integrations
