@@ -266,10 +266,12 @@ class APIAnalyzer:
                         )
                         detections.append(detection)
                 
+                # Extract analysis data
+                analysis = data.get("analysis", {})
+                
                 # If no matched rules but there's a threat, create a detection from the analysis
                 if is_threat and not detections:
                     # Extract ML category from analysis if available
-                    analysis = data.get("analysis", {})
                     ml_category = analysis.get("ml_category", "unknown")
                     ml_reasoning = analysis.get("ml_reasoning", "")
                     
@@ -284,14 +286,75 @@ class APIAnalyzer:
                     )
                     detections.append(detection)
                 
-                # Preserve all original API response data in metadata
-                metadata = {
+                # Build metadata with essential security fields prioritized
+                # 
+                # FIELD SELECTION RATIONALE (Security & Product Expert Analysis):
+                # 
+                # ESSENTIAL (Always included):
+                # - verdict: Core security decision (BLOCK/REVIEW/ALLOW) - required for policy enforcement
+                # - threat_level: Severity classification - needed for risk prioritization
+                # - recommendation: User guidance - important for actionable responses
+                # 
+                # IMPORTANT (Conditionally included):
+                # - ml_invoked, ml_category, ml_reasoning: CRITICAL when ML detects threats
+                #   * Needed to understand ML-based detection reasoning
+                #   * Essential for false positive analysis and model improvement
+                # - reviewer_invoked, reviewer_reasoning: Important when reviewer is invoked
+                #   * Explains why reviewer was called and what it determined
+                # - reviewer_adjusted_confidence: Only if significantly different from main confidence
+                #   * Reduces noise while preserving important adjustments
+                # - ml_error, reviewer_error: Only if errors occurred
+                #   * Critical for debugging and understanding failures
+                # - rules_matched: Only if rules were matched
+                #   * Useful for understanding detection coverage
+                # 
+                # NOT INCLUDED (Performance/Internal metrics - not needed for security decisions):
+                # - scan_duration_ms, stage*_duration_ms: Performance metrics, not security-relevant
+                # - stages_executed, early_exit: Internal implementation details
+                # - rules_evaluated: Statistic, less useful than rules_matched
+                # - bundle_version, engine_version: Version info, only needed for debugging
+                # - original_response: Full duplicate (can be enabled for advanced debugging if needed)
+                #
+                essential_fields = {
                     "verdict": verdict,
                     "threat_level": threat_level,
                     "recommendation": data.get("recommendation"),
-                    "analysis": data.get("analysis", {}),
-                    "original_response": data,  # Keep full response for debugging
                 }
+                
+                # Important: Analysis fields needed for security context and debugging
+                analysis_fields = {}
+                if analysis:
+                    # ML detection info - CRITICAL for understanding ML-based threats
+                    if analysis.get("ml_invoked"):
+                        analysis_fields["ml_invoked"] = True
+                        analysis_fields["ml_category"] = analysis.get("ml_category")
+                        analysis_fields["ml_reasoning"] = analysis.get("ml_reasoning")
+                        if analysis.get("ml_error"):
+                            analysis_fields["ml_error"] = analysis.get("ml_error")
+                    
+                    # Reviewer info - Important when reviewer is invoked
+                    if analysis.get("reviewer_invoked"):
+                        analysis_fields["reviewer_invoked"] = True
+                        analysis_fields["reviewer_reasoning"] = analysis.get("reviewer_reasoning")
+                        # Only include adjusted confidence if it differs from main confidence
+                        reviewer_confidence = analysis.get("reviewer_adjusted_confidence")
+                        if reviewer_confidence is not None and abs(reviewer_confidence - confidence) > 0.01:
+                            analysis_fields["reviewer_adjusted_confidence"] = reviewer_confidence
+                        if analysis.get("reviewer_error"):
+                            analysis_fields["reviewer_error"] = analysis.get("reviewer_error")
+                    
+                    # Rule statistics - Useful for understanding detection coverage
+                    if analysis.get("rules_matched", 0) > 0:
+                        analysis_fields["rules_matched"] = analysis.get("rules_matched")
+                
+                # Combine metadata (essential + important analysis fields)
+                metadata = {**essential_fields}
+                if analysis_fields:
+                    metadata["analysis"] = analysis_fields
+                
+                # Debug fields: Only include full response if needed for advanced debugging
+                # (Can be enabled via config or removed entirely to reduce payload size)
+                # metadata["_debug"] = {"full_response": data}  # Commented out - enable if needed
             else:
                 # Old API format (backward compatibility)
                 is_threat = data.get("is_threat", False)
