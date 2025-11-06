@@ -6,10 +6,9 @@ Licensed under the Apache License, Version 2.0
 """
 
 import os
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from securevector.utils.security import mask_sensitive_value, sanitize_dict_for_logging
 
@@ -74,19 +73,38 @@ class LocalModeConfig(ModeConfig):
 
 @dataclass
 class APIModeConfig(ModeConfig):
-    """Configuration specific to API mode"""
+    """
+    Configuration specific to API mode.
 
-    api_url: str = "https://api.securevector.io"
+    The default API URL is set during package build:
+    - Production builds (from main/master): https://scan.securevector.io
+    - Development builds (from develop): https://scandev.securevector.io
+
+    This can be overridden via SECUREVECTOR_API_URL environment variable.
+    """
+
+    api_url: str = "https://scan.securevector.io"  # Default to production, overridden during build
     api_key: Optional[str] = None
     endpoint: str = "/analyze"
+    user_tier: str = "community"  # User tier: community, professional, enterprise
     max_request_size: int = 1024 * 1024  # 1MB
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
     fallback_to_local: bool = True
 
     def __post_init__(self):
+        # Allow override from environment variable
+        api_url_env = os.getenv("SECUREVECTOR_API_URL")
+        if api_url_env:
+            self.api_url = api_url_env
+
         if self.api_key is None:
             self.api_key = os.getenv("SECUREVECTOR_API_KEY")
+
+        # Get user tier from environment if set
+        user_tier_env = os.getenv("SECUREVECTOR_USER_TIER")
+        if user_tier_env:
+            self.user_tier = user_tier_env
 
 
 @dataclass
@@ -242,6 +260,7 @@ class SDKConfig:
                     else self.api_config.api_key
                 ),
                 "endpoint": self.api_config.endpoint,
+                "user_tier": self.api_config.user_tier,
                 "max_request_size": self.api_config.max_request_size,
                 "rate_limit_requests": self.api_config.rate_limit_requests,
                 "rate_limit_window_seconds": self.api_config.rate_limit_window_seconds,

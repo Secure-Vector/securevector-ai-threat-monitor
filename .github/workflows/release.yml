@@ -144,21 +144,30 @@ jobs:
     - name: Security scan before production release
       run: |
         echo "🔍 Production security scan..."
-        
+
         # Check for common secret patterns (excluding test files and documentation)
         if grep -r -i --exclude-dir=.git --exclude-dir=tests --exclude="*.md" \
            -E "(password|secret|private.*key)\s*[:=]\s*['\"][^'\"]{10,}" src/; then
           echo "❌ Potential secrets found in source code!"
           exit 1
         fi
-        
-        # Ensure we're using production API endpoints (not dev)
-        if grep -r "dev-api\.securevector\.io\|api-test\.securevector\.io" src/; then
-          echo "❌ Development/test API URLs found in production release!"
-          echo "Production releases should use api.securevector.io"
+
+        # Verify production API URL is set correctly
+        if ! grep -q 'api_url: str = "https://scan.securevector.io"' src/securevector/models/config_models.py; then
+          echo "❌ Production API URL not set correctly!"
+          echo "Expected: api_url: str = \"https://scan.securevector.io\""
+          echo "Actual:"
+          grep 'api_url: str =' src/securevector/models/config_models.py || echo "Not found"
           exit 1
         fi
-        
+
+        # Ensure no development URLs are present
+        if grep -E 'scandev\.securevector\.io|scan\.dev\.securevector\.io|dev-api\.securevector\.io|api\.dev\.securevector\.io' src/securevector/models/config_models.py; then
+          echo "❌ Development API URL found in production release!"
+          exit 1
+        fi
+
+        echo "✅ Production API URL correctly set to https://scan.securevector.io"
         echo "✅ Production security scan passed"
 
     - name: Pre-build validation

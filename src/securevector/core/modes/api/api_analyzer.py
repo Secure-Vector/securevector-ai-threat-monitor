@@ -70,7 +70,7 @@ class APIAnalyzer:
         # Security headers
         self.session.headers.update(
             {
-                "Authorization": f"Bearer {config.api_key}",
+                "X-Api-Key": config.api_key,
                 "Content-Type": "application/json",
                 "User-Agent": "SecureVector-SDK/1.0.0",
                 "Accept": "application/json",
@@ -126,8 +126,11 @@ class APIAnalyzer:
         # Check rate limiting
         self._check_rate_limit()
 
-        # Prepare request payload
-        payload = {"prompt": prompt, "timestamp": datetime.utcnow().isoformat(), "options": kwargs}
+        # Prepare request payload according to API specification
+        payload = {
+            "prompt": prompt,
+            "user_tier": self.config.user_tier
+        }
 
         try:
             # Make API request
@@ -184,11 +187,10 @@ class APIAnalyzer:
         # Check rate limiting
         self._check_rate_limit()
 
-        # Prepare batch request payload
+        # Prepare batch request payload according to API specification
         payload = {
             "prompts": prompts,
-            "timestamp": datetime.utcnow().isoformat(),
-            "options": kwargs,
+            "user_tier": self.config.user_tier
         }
 
         try:
@@ -415,7 +417,7 @@ class APIAnalyzer:
         self.config = config
 
         # Update session headers
-        self.session.headers.update({"Authorization": f"Bearer {config.api_key}"})
+        self.session.headers.update({"X-Api-Key": config.api_key})
 
         # Update timeout
         self.timeout = (config.timeout_ms / 1000, config.timeout_ms / 1000)
