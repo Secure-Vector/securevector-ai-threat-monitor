@@ -58,9 +58,9 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             - threat_types: List of detected threat categories
             - action_recommended: Recommended action:
                 * "allow" - Safe to proceed (risk_score < 60)
-                * "warn" - Low risk, proceed with caution (60 <= risk_score < 85)
-                * "review" - Requires user approval before proceeding (60 <= risk_score < 85)
-                * "block" - High risk, execution will be blocked (risk_score >= 85)
+                * "warn" - Low risk, proceed with caution (60 <= risk_score < 75)
+                * "review" - Requires user approval before proceeding (60 <= risk_score < 75)
+                * "block" - High risk, execution will be blocked (risk_score >= 75)
             - analysis_time_ms: Time taken for analysis
             - requires_user_approval: True if action is "review" (only present for review action)
             - review_message: Message explaining why review is needed (only present for review action)
@@ -70,8 +70,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             - system_notice: Important notices for the user (MUST be displayed prominently if present)
 
         Behavior:
-            - BLOCK action (risk >= 85): Raises SecurityException to prevent LLM continuation
-            - REVIEW action (60 <= risk < 85): Returns response with requires_user_approval=True,
+            - BLOCK action (risk >= 75): Raises SecurityException to prevent LLM continuation
+            - REVIEW action (60 <= risk < 75): Returns response with requires_user_approval=True,
               LLM should ask user for permission before proceeding
             - WARN action (risk < 60, is_threat=True): Returns response with warning
             - ALLOW action (is_threat=False): Returns safe response
@@ -89,7 +89,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             }
 
         Raises:
-            SecurityException: If high-risk threat detected (risk_score >= 85) or request is invalid
+            SecurityException: If high-risk threat detected (risk_score >= 75) or request is invalid
             APIError: If the analysis fails due to service issues
         """
         start_time = time.time()
@@ -154,7 +154,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
             # Determine action based on risk score
             if result.is_threat:
-                if result.risk_score >= 85:
+                if result.risk_score >= 75:
                     action_recommended = "block"
                 elif result.risk_score >= 60:
                     action_recommended = "review"

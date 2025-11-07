@@ -251,7 +251,7 @@ async def _analyze_single_prompt(
 
         # Determine action based on risk score
         if result.is_threat:
-            if result.risk_score >= 85:
+            if result.risk_score >= 75:
                 action_recommended = "block"
             elif result.risk_score >= 60:
                 action_recommended = "review"
