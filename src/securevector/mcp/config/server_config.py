@@ -150,6 +150,10 @@ class MCPServerConfig:
         if env_api_key := os.getenv("SECUREVECTOR_API_KEY"):
             self.security.api_key = env_api_key
 
+        # SecureVector mode settings
+        if env_mode := os.getenv("SECUREVECTOR_MODE"):
+            self.securevector_mode = env_mode.lower()
+
         # Performance settings
         if env_timeout := os.getenv("SECUREVECTOR_MCP_TIMEOUT"):
             try:

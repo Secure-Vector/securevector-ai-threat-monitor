@@ -171,6 +171,44 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                 "analysis_time_ms": round((time.time() - start_time) * 1000, 2),
             }
 
+            # Add API key signup information if using local mode without API key
+            if hasattr(result, 'detection_method'):
+                from securevector.models.analysis_result import DetectionMethod
+                detection_method_value = None
+                if hasattr(result.detection_method, 'value'):
+                    detection_method_value = result.detection_method.value
+                elif isinstance(result.detection_method, str):
+                    detection_method_value = result.detection_method
+
+                # If using local rules only, suggest getting an API key for enhanced detection
+                if detection_method_value in ['local_rules', 'local']:
+                    response["upgrade_info"] = {
+                        "current_plan": "Community Edition",
+                        "detection_method": "Local Rules (195+ patterns)",
+                        "message": (
+                            "\n"
+                            "┌─────────────────────────────────────────────────────────┐\n"
+                            "│  UPGRADE TO ENHANCED DETECTION                          │\n"
+                            "├─────────────────────────────────────────────────────────┤\n"
+                            "│  • AI-Powered Analysis                                  │\n"
+                            "│  • Advanced Threat Intelligence                         │\n"
+                            "│  • Real-time Security Updates                           │\n"
+                            "│  • Improved Detection Accuracy                          │\n"
+                            "├─────────────────────────────────────────────────────────┤\n"
+                            "│  Get your FREE API key:                                 │\n"
+                            "│  https://securevector.io/signup                         │\n"
+                            "└─────────────────────────────────────────────────────────┘\n"
+                        ),
+                        "signup_url": "https://securevector.io/signup",
+                        "benefits": [
+                            "AI-powered threat analysis",
+                            "Advanced pattern recognition",
+                            "Real-time threat intelligence",
+                            "Higher detection accuracy",
+                            "Reduced false positives"
+                        ]
+                    }
+
             # Add optional fields
             if include_confidence and hasattr(result, 'confidence'):
                 response["confidence_score"] = result.confidence
