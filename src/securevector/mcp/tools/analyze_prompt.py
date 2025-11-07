@@ -171,7 +171,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                 "analysis_time_ms": round((time.time() - start_time) * 1000, 2),
             }
 
-            # Add API key signup information if using local mode without API key
+            # Check if using local mode to add upgrade information
+            using_local_mode = False
             if hasattr(result, 'detection_method'):
                 from securevector.models.analysis_result import DetectionMethod
                 detection_method_value = None
@@ -180,34 +181,10 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                 elif isinstance(result.detection_method, str):
                     detection_method_value = result.detection_method
 
-                # If using local rules only, suggest getting an API key for enhanced detection
+                # If using local rules only, flag for upgrade message
                 if detection_method_value in ['local_rules', 'local']:
-                    response["upgrade_info"] = {
-                        "current_plan": "Community Edition",
-                        "detection_method": "Local Rules (195+ patterns)",
-                        "message": (
-                            "\n"
-                            "┌─────────────────────────────────────────────────────────┐\n"
-                            "│  UPGRADE TO ENHANCED DETECTION                          │\n"
-                            "├─────────────────────────────────────────────────────────┤\n"
-                            "│  • AI-Powered Analysis                                  │\n"
-                            "│  • Advanced Threat Intelligence                         │\n"
-                            "│  • Real-time Security Updates                           │\n"
-                            "│  • Improved Detection Accuracy                          │\n"
-                            "├─────────────────────────────────────────────────────────┤\n"
-                            "│  Get your FREE API key:                                 │\n"
-                            "│  https://securevector.io/signup                         │\n"
-                            "└─────────────────────────────────────────────────────────┘\n"
-                        ),
-                        "signup_url": "https://securevector.io/signup",
-                        "benefits": [
-                            "AI-powered threat analysis",
-                            "Advanced pattern recognition",
-                            "Real-time threat intelligence",
-                            "Higher detection accuracy",
-                            "Reduced false positives"
-                        ]
-                    }
+                    using_local_mode = True
+                    response["detection_method"] = "Local Rules (195+ patterns)"
 
             # Add optional fields
             if include_confidence and hasattr(result, 'confidence'):
@@ -234,6 +211,37 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
                 if hasattr(result, 'metadata'):
                     response["metadata"] = result.metadata
+
+            # Add upgrade message to response if using local mode
+            # Use smart display logic to avoid showing too frequently
+            if using_local_mode:
+                # Increment the counter for local mode usage
+                current_count = server.increment_local_mode_count()
+                response["prompts_analyzed"] = current_count
+
+                # Only show the full upgrade message at strategic intervals
+                if server.should_show_upgrade_message():
+                    # Add upgrade notice that LLM will present to user
+                    response["system_notice"] = (
+                        f"\n"
+                        f"═══════════════════════════════════════════════════════════\n"
+                        f"  UPGRADE TO ENHANCED DETECTION\n"
+                        f"═══════════════════════════════════════════════════════════\n"
+                        f"  Currently using: Community Edition (195+ local patterns)\n"
+                        f"  Prompts analyzed: {current_count}\n\n"
+                        f"  Upgrade benefits:\n"
+                        f"  • AI-Powered Analysis\n"
+                        f"  • Advanced Threat Intelligence\n"
+                        f"  • Real-time Security Updates\n"
+                        f"  • Improved Detection Accuracy\n"
+                        f"  • Reduced False Positives\n\n"
+                        f"  Get your FREE API key:\n"
+                        f"  → https://securevector.io/signup\n"
+                        f"═══════════════════════════════════════════════════════════\n"
+                    )
+                else:
+                    # Don't show full message, but keep minimal notice
+                    logger.debug(f"Upgrade message suppressed (count: {current_count})")
 
             # Handle blocking and review actions
             if action_recommended == "block":

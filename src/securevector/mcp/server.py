@@ -166,12 +166,46 @@ class SecureVectorMCPServer:
             "last_request_time": None,
         }
 
+        # Track local mode usage for smart upgrade message display
+        self.local_mode_prompts_analyzed = 0
+
         # Setup MCP components
         self._setup_tools()
         self._setup_resources()
         self._setup_prompts()
 
         self.logger.info(f"SecureVector MCP Server initialized: {name}")
+
+    def should_show_upgrade_message(self) -> bool:
+        """
+        Determine if upgrade message should be shown based on prompt count.
+
+        Shows at: 1, 5, 15, 20, 40, 60, 80, 100, and then every prompt after 100.
+
+        Returns:
+            bool: True if upgrade message should be displayed
+        """
+        count = self.local_mode_prompts_analyzed
+
+        # Show at specific milestones
+        if count in [1, 5, 15, 20, 40, 60, 80, 100]:
+            return True
+
+        # After 100, show every time
+        if count > 100:
+            return True
+
+        return False
+
+    def increment_local_mode_count(self) -> int:
+        """
+        Increment and return the local mode prompt counter.
+
+        Returns:
+            int: Current count after increment
+        """
+        self.local_mode_prompts_analyzed += 1
+        return self.local_mode_prompts_analyzed
 
     def _init_securevector_clients(self, api_key: Optional[str]):
         """Initialize SecureVector clients following SDK mode selection pattern."""
