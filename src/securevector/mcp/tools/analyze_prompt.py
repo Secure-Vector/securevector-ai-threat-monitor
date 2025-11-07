@@ -68,9 +68,10 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             - confidence_score: Confidence in the analysis (if include_confidence=True)
             - threat_descriptions: Detailed threat descriptions (if include_details=True)
             - system_notice: Important notices for the user (MUST be displayed prominently if present)
+            - block_message: Message explaining why prompt was blocked (only present for block action)
 
         Behavior:
-            - BLOCK action (risk >= 75): Raises SecurityException to prevent LLM continuation
+            - BLOCK action (risk >= 75): Returns response with block_message, LLM should not process the prompt
             - REVIEW action (60 <= risk < 75): Returns response with requires_user_approval=True,
               LLM should ask user for permission before proceeding
             - WARN action (risk < 60, is_threat=True): Returns response with warning
@@ -89,7 +90,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             }
 
         Raises:
-            SecurityException: If high-risk threat detected (risk_score >= 75) or request is invalid
+            SecurityException: If request is invalid or validation fails
             APIError: If the analysis fails due to service issues
         """
         start_time = time.time()
@@ -258,15 +259,14 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             if action_recommended == "block":
                 # Log the block action
                 server.audit_logger.log_response(
-                    client_id, "analyze_prompt", False, time.time() - start_time,
+                    client_id, "analyze_prompt", True, time.time() - start_time,
                     f"BLOCKED: Threat detected with risk score {result.risk_score}"
                 )
-                # Raise an error to prevent LLM continuation
+                # Add block message to response (don't raise exception for MCP tools)
                 threat_summary = ", ".join(result.threat_types) if result.threat_types else "unknown threat"
-                raise SecurityException(
+                final_response["block_message"] = (
                     f"⛔ THREAT BLOCKED: {threat_summary} (Risk: {result.risk_score}/100). "
-                    f"This prompt contains high-risk security threats and cannot be processed.",
-                    result=result
+                    f"This prompt contains high-risk security threats and should not be processed."
                 )
 
             elif action_recommended == "review":
