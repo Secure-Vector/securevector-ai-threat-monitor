@@ -67,6 +67,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             - detection_methods: Methods used for detection (if include_details=True)
             - confidence_score: Confidence in the analysis (if include_confidence=True)
             - threat_descriptions: Detailed threat descriptions (if include_details=True)
+            - system_notice: Important notices for the user (MUST be displayed prominently if present)
 
         Behavior:
             - BLOCK action (risk >= 85): Raises SecurityException to prevent LLM continuation
@@ -162,14 +163,15 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             else:
                 action_recommended = "allow"
 
-            # Build response
-            response = {
-                "is_threat": result.is_threat,
-                "risk_score": result.risk_score,
-                "threat_types": result.threat_types,  # Already strings from property
-                "action_recommended": action_recommended,
-                "analysis_time_ms": round((time.time() - start_time) * 1000, 2),
-            }
+            # Build response - put important fields first
+            response = {}
+
+            # Core analysis results
+            response["is_threat"] = result.is_threat
+            response["risk_score"] = result.risk_score
+            response["threat_types"] = result.threat_types  # Already strings from property
+            response["action_recommended"] = action_recommended
+            response["analysis_time_ms"] = round((time.time() - start_time) * 1000, 2)
 
             # Check if using local mode to add upgrade information
             using_local_mode = False
@@ -214,6 +216,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
             # Add upgrade message to response if using local mode
             # Use smart display logic to avoid showing too frequently
+            system_notice_text = None
             if using_local_mode:
                 # Increment the counter for local mode usage
                 current_count = server.increment_local_mode_count()
@@ -221,8 +224,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
                 # Only show the full upgrade message at strategic intervals
                 if server.should_show_upgrade_message():
-                    # Add upgrade notice that LLM will present to user
-                    response["system_notice"] = (
+                    # Create upgrade notice that should be presented to user
+                    system_notice_text = (
                         f"\n"
                         f"═══════════════════════════════════════════════════════════\n"
                         f"  UPGRADE TO ENHANCED DETECTION\n"
@@ -243,6 +246,14 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                     # Don't show full message, but keep minimal notice
                     logger.debug(f"Upgrade message suppressed (count: {current_count})")
 
+            # Build final response with system_notice at the top if present
+            final_response = {}
+            if system_notice_text:
+                final_response["system_notice"] = system_notice_text
+
+            # Add all other response fields
+            final_response.update(response)
+
             # Handle blocking and review actions
             if action_recommended == "block":
                 # Log the block action
@@ -261,8 +272,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             elif action_recommended == "review":
                 # Add user review requirement to response
                 threat_summary = ", ".join(result.threat_types) if result.threat_types else "potential threat"
-                response["requires_user_approval"] = True
-                response["review_message"] = (
+                final_response["requires_user_approval"] = True
+                final_response["review_message"] = (
                     f"⚠️ SECURITY REVIEW REQUIRED: Detected {threat_summary} "
                     f"(Risk: {result.risk_score}/100). Please ask the user for permission before proceeding."
                 )
@@ -276,7 +287,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
                 client_id, "analyze_prompt", True, response_time
             )
 
-            return response
+            return final_response
 
         except (SecurityException, APIError) as e:
             # Handle known errors

@@ -42,18 +42,18 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - ignore\s+(previous|all)\s+instructions?
-  - disregard\s+(previous|all)\s+(instructions?|rules?)
+  - ignore\s+(all\s+)?(previous\s+)?instructions?
+  - disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)
   - forget\s+(everything|all)\s+(above|before)
-  detection_logic: .*(ignore\s+(previous|all)\s+instructions?|disregard\s+(previous|all)\s+(instructions?|rules?)|forget\s+(everything|all)\s+(above|before)).*
+  detection_logic: .*(ignore\s+(all\s+)?(previous\s+)?instructions?|disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)|forget\s+(everything|all)\s+(above|before)).*
   threshold: 0.85
   pattern_definitions:
     ignore_instructions_pattern:
-      regex: ignore\s+(previous|all)\s+instructions?
-      description: Detection pattern for ignore\s+(previous|all)\s+inst...
+      regex: ignore\s+(all\s+)?(previous\s+)?instructions?
+      description: Detection pattern for ignore\s+(all\s+)?(previous\s+)?instructions?
     disregard_rules_pattern:
-      regex: disregard\s+(previous|all)\s+(instructions?|rules?)
-      description: Detection pattern for disregard\s+(previous|all)\s+(...
+      regex: disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)
+      description: Detection pattern for disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)
     forget_context_pattern:
       regex: forget\s+(everything|all)\s+(above|before)
       description: Detection pattern for forget\s+(everything|all)\s+(a...
