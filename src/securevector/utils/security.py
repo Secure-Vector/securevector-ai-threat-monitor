@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import signal
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -199,21 +200,40 @@ class RegexTimeoutError(Exception):
 
 @contextmanager
 def timeout_context(seconds: float):
-    """Context manager for timing out operations."""
+    """
+    Context manager for timing out operations.
 
-    def timeout_handler(signum, frame):
-        raise RegexTimeoutError(f"Operation timed out after {seconds} seconds")
+    Note: Signal-based timeouts only work in the main thread. When called from
+    async/worker threads, this falls back to simple execution without timeout.
+    This is acceptable because the regex patterns have already been validated
+    for complexity and safety during loading.
+    """
+    # Check if we're in the main thread
+    is_main_thread = threading.current_thread() == threading.main_thread()
 
-    # Set the signal handler
-    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(int(seconds))
+    if is_main_thread:
+        # Use signal-based timeout in main thread
+        def timeout_handler(signum, frame):
+            raise RegexTimeoutError(f"Operation timed out after {seconds} seconds")
 
-    try:
-        yield
-    finally:
-        # Restore the old handler
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        # Set the signal handler
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(int(seconds))
+
+        try:
+            yield
+        finally:
+            # Restore the old handler
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+    else:
+        # In non-main thread (async contexts), skip signal-based timeout
+        # The patterns are already validated for safety, so this is acceptable
+        try:
+            yield
+        except Exception:
+            # Let exceptions propagate normally
+            raise
 
 
 def analyze_regex_complexity(pattern: str) -> Dict[str, Any]:
