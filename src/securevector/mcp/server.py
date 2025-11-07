@@ -29,6 +29,7 @@ except ImportError:
 
 from securevector import SecureVectorClient, AsyncSecureVectorClient
 from securevector.models.config_models import OperationMode
+from securevector.models.policy_models import SecurityPolicy, PolicyAction
 from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError, ConfigurationError
 
@@ -197,6 +198,14 @@ class SecureVectorMCPServer:
         # IMPORTANT: MCP tools handle exceptions themselves, so disable client-side exceptions
         # This allows the tools to implement custom blocking/review logic
         client_config["raise_on_threat"] = False
+
+        # Create a WARN policy so tools can handle blocking logic
+        mcp_policy = SecurityPolicy(
+            name="mcp_tool_policy",
+            description="MCP server policy - allows tools to handle blocking logic",
+            default_action=PolicyAction.WARN  # Don't block, let tools decide
+        )
+        client_config["policy"] = mcp_policy
 
         try:
             # Initialize clients - they will automatically select appropriate mode
