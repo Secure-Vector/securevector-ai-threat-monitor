@@ -87,6 +87,16 @@ class AnalysisResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
+        # Safely handle detection_method which could be enum, string, or None
+        if hasattr(self.detection_method, 'value'):
+            detection_method_value = self.detection_method.value
+        elif isinstance(self.detection_method, str):
+            detection_method_value = self.detection_method
+        elif self.detection_method is None:
+            detection_method_value = "unknown"
+        else:
+            detection_method_value = str(self.detection_method)
+
         return {
             "is_threat": self.is_threat,
             "risk_score": self.risk_score,
@@ -104,7 +114,7 @@ class AnalysisResult:
                 for d in self.detections
             ],
             "analysis_time_ms": self.analysis_time_ms,
-            "detection_method": self.detection_method.value,
+            "detection_method": detection_method_value,
             "prompt_hash": self.prompt_hash,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "metadata": self.metadata or {},

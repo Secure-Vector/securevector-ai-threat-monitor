@@ -249,14 +249,42 @@ async def _analyze_single_prompt(
             # Fall back to sync client
             result = server.sync_client.analyze(prompt, mode=mode)
 
+        # Determine action based on risk score
+        if result.is_threat:
+            if result.risk_score >= 85:
+                action_recommended = "block"
+            elif result.risk_score >= 60:
+                action_recommended = "review"
+            else:
+                action_recommended = "warn"
+        else:
+            action_recommended = "allow"
+
         # Build response
         response = {
             "index": index,
             "is_threat": result.is_threat,
             "risk_score": result.risk_score,
             "threat_types": result.threat_types,  # Already strings
+            "action_recommended": action_recommended,
             "analysis_successful": True,
         }
+
+        # Add review/block messages
+        if action_recommended == "block":
+            threat_summary = ", ".join(result.threat_types) if result.threat_types else "unknown threat"
+            response["blocked"] = True
+            response["block_reason"] = (
+                f"⛔ THREAT BLOCKED: {threat_summary} (Risk: {result.risk_score}/100). "
+                f"High-risk security threat detected."
+            )
+        elif action_recommended == "review":
+            threat_summary = ", ".join(result.threat_types) if result.threat_types else "potential threat"
+            response["requires_user_approval"] = True
+            response["review_message"] = (
+                f"⚠️ SECURITY REVIEW REQUIRED: Detected {threat_summary} "
+                f"(Risk: {result.risk_score}/100)"
+            )
 
         if include_details:
             if hasattr(result, 'detection_method') and result.detection_method:
@@ -323,6 +351,11 @@ def _generate_batch_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     threat_count = sum(1 for r in successful_results if r.get("is_threat", False))
     safe_count = len(successful_results) - threat_count
 
+    # Count actions
+    blocked_count = sum(1 for r in successful_results if r.get("blocked", False))
+    review_count = sum(1 for r in successful_results if r.get("requires_user_approval", False))
+    warn_count = sum(1 for r in successful_results if r.get("action_recommended") == "warn")
+
     risk_scores = [r.get("risk_score", 0) for r in successful_results]
     average_risk_score = sum(risk_scores) / len(risk_scores) if risk_scores else 0
 
@@ -344,6 +377,9 @@ def _generate_batch_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "threat_count": threat_count,
         "safe_count": safe_count,
+        "blocked_count": blocked_count,
+        "review_count": review_count,
+        "warn_count": warn_count,
         "average_risk_score": round(average_risk_score, 2),
         "threat_type_distribution": threat_type_distribution,
         "highest_risk_prompt": highest_risk_prompt,

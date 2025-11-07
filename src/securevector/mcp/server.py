@@ -194,6 +194,10 @@ class SecureVectorMCPServer:
         if "mode" not in client_config:
             client_config["mode"] = self.config.securevector_mode if self.config.securevector_mode != "auto" else OperationMode.AUTO
 
+        # IMPORTANT: MCP tools handle exceptions themselves, so disable client-side exceptions
+        # This allows the tools to implement custom blocking/review logic
+        client_config["raise_on_threat"] = False
+
         try:
             # Initialize clients - they will automatically select appropriate mode
             self.sync_client = SecureVectorClient(**client_config)
