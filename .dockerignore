@@ -1,0 +1,103 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Secrets
+api_keys.txt
+securevector_api_key.txt
+secrets.json
+config/secrets/
+*.key
+*.pem
+*.crt
+
+# Documentation (not needed in container)
+docs/
+*.md
+!README.md
+
+# Examples (not needed in container)
+examples/
+
+# Development files
+.cursor/
+.github/
+tests/
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Data files
+data/
+*.db
+*.sqlite
+
+# Temporary files
+tmp/
+temp/
+.tmp
+
+# Docker files (don't need in context)
+docker-compose*.yml
+Dockerfile*
+!Dockerfile.mcp
+!Dockerfile.mcp.dev
