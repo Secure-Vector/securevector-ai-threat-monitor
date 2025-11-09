@@ -43,7 +43,7 @@ if result.is_threat:
 ## 📚 Documentation
 
 - **[SDK Usage Guide](SDK_USAGE.md)** - Complete Python SDK integration guide
-- **[MCP Server Setup Guide](MCP_SERVER_SETUP.md)** - MCP server configuration and deployment
+- **[MCP Server Setup Guide](MCP_GUIDE.md)** - MCP server configuration and deployment
 - **[Use Cases & Examples](USECASES.md)** - Real-world integration scenarios
 - **[Development Guide](CLAUDE.md)** - Development workflows and validation
 
@@ -209,13 +209,13 @@ python examples/mcp/claude_cli_integration.py --install
 - Interactive threat analysis
 - Educational security demonstrations
 
-📖 **[View Complete MCP Server Setup Guide →](docs/MCP_SERVER_SETUP.md)**
+📖 **[View Complete MCP Server Setup Guide →](MCP_GUIDE.md)**
 
 ---
 
 ## MCP Server Setup & Usage
 
-> 📖 **For detailed MCP server configuration, including sample mcp.json configurations and advanced setup, see the [MCP Server Setup Guide](docs/MCP_SERVER_SETUP.md)**
+> 📖 **For detailed MCP server configuration, including sample mcp.json configurations and advanced setup, see the [MCP Setup Guide](MCP_GUIDE.md)**
 
 ### Quick MCP Server Start
 ```bash
@@ -269,6 +269,49 @@ Add this to your Claude Desktop `mcp.json` file (located at `~/.config/claude/mc
 
 **Note**: Remove the `SECUREVECTOR_API_KEY` environment variable to use local mode (offline, no API key required).
 
+**For Claude Code (CLI):**
+
+Add the `--direct-mode` and `--mode` flags for proper event loop handling:
+
+```json
+{
+  "mcpServers": {
+    "securevector": {
+      "command": "python",
+      "args": ["-m", "securevector.mcp", "--direct-mode", "--mode", "production"],
+      "env": {
+        "SECUREVECTOR_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+Config location: `.cursor/mcp.json` in your project root or `~/.cursor/mcp.json` globally.
+
+**CRITICAL:** The `--mode` flag is **required** (use "development" or "production"). Without it, you'll get a `'str' object has no attribute 'value'` error.
+
+**For Docker Deployment:**
+
+See [MCP_GUIDE.md](MCP_GUIDE.md) for complete setup instructions. Quick config:
+
+```json
+{
+  "mcpServers": {
+    "securevector": {
+      "command": "docker",
+      "args": ["exec", "-i", "securevector-mcp", "python", "-m", "securevector.mcp", "--direct-mode", "--mode", "production"],
+      "env": {
+        "SECUREVECTOR_MCP_TRANSPORT": "stdio",
+        "SECUREVECTOR_MCP_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
+```
+
+**Note:** Use `securevector-mcp-dev` container name and `--mode development` for development.
+
 **Automated Setup:**
 
 ```bash
@@ -283,7 +326,7 @@ print('Installed! Restart Claude Desktop to use SecureVector tools.')
 python examples/mcp/claude_desktop_integration.py --install
 ```
 
-📖 **[View detailed MCP configuration options →](docs/MCP_SERVER_SETUP.md#configuration)**
+📖 **[View detailed MCP configuration options →](MCP_GUIDE.md#configuration)**
 
 ### Claude CLI Integration
 ```bash
@@ -892,7 +935,7 @@ python -m securevector.mcp --health-check
 
 ### Essential Documentation
 - **[SDK Usage Guide](docs/SDK_USAGE.md)** - Complete Python SDK integration guide
-- **[MCP Server Setup Guide](docs/MCP_SERVER_SETUP.md)** - MCP server configuration and deployment
+- **[MCP Server Setup Guide](MCP_GUIDE.md)** - MCP server configuration and deployment
 - **[Use Cases & Examples](USECASES.md)** - Real-world integration examples
 - **[Development Guide](CLAUDE.md)** - Development guidelines and validation commands
 

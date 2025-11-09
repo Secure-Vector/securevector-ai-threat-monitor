@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  securevector-mcp-dev:
+    image: securevectorrepo/securevector-mcp-server:latest-dev
+    container_name: securevector-mcp-dev
+    restart: unless-stopped
+
+    # Environment variables for development configuration
+    environment:
+      # Uncomment and set your API key for cloud/hybrid mode
+      # - SECUREVECTOR_API_KEY=${SECUREVECTOR_API_KEY}
+      - SECUREVECTOR_MCP_MODE=development
+      - SECUREVECTOR_MCP_LOG_LEVEL=DEBUG
+      - SECUREVECTOR_MCP_TRANSPORT=stdio
+
+    # Mount source code for development (uncomment to enable hot-reload)
+    # volumes:
+    #   - ./src:/app/src
+    #   - ./config:/app/config
+    #   - ./logs:/app/logs
+
+    # Uncomment to expose ports (for HTTP/SSE transports)
+    # ports:
+    #   - "8000:8000"
+
+    # Required for stdio mode (MCP communication via stdin/stdout)
+    stdin_open: true
+    tty: true
+
+    # Health check to ensure container is running properly
+    healthcheck:
+      test: ["CMD", "python", "-c", "import securevector; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (more generous for development)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
