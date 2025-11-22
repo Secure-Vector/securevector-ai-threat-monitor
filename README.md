@@ -582,6 +582,12 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 ```
 
+### Trademark Notice
+
+**SecureVector™** is a trademark of SecureVector. The SecureVector name and logo are protected trademarks and may not be used without permission except as required to comply with the Apache License 2.0 attribution requirements.
+
+While the code is open source under Apache 2.0, the SecureVector trademark and brand assets are not licensed for unrestricted use.
+
 ---
 
 ## ⭐ Star History
