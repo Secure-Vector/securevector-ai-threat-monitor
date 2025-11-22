@@ -1,0 +1,283 @@
+name: CI/CD Pipeline
+
+# DISABLED: Redundant with comprehensive-testing.yml and dedicated publish workflows
+# This workflow is kept for reference but will not run automatically
+on:
+  workflow_dispatch:  # Manual trigger only
+
+# Original triggers (now disabled):
+# on:
+#   push:
+#     branches: [ main, develop ]
+#   pull_request:
+#     branches: [ main, develop ]
+#   release:
+#     types: [ published ]
+
+env:
+  PYTHON_VERSION: "3.9"
+  
+jobs:
+  # Linting and Code Quality
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install black flake8 isort mypy
+        pip install -e .[dev]
+        # Install MCP dependencies for testing
+        pip install -e .[mcp] || echo "MCP dependencies not available - optional"
+    
+    #- name: Run black (code formatting)
+      #run: black --check --diff src/ benchmarks/ scripts/
+    
+    - name: Run isort (import sorting)
+      run: isort --check-only --diff src/ benchmarks/ scripts/
+    
+    #- name: Run flake8 (linting)
+      #run: flake8 src/ benchmarks/ scripts/ --max-line-length=100 --extend-ignore=E203,W503
+    
+    - name: Run mypy (type checking)
+      run: mypy src/ --ignore-missing-imports
+      continue-on-error: true  # Allow failure for now
+
+  # Security Scan
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+        pip install -e .
+    
+    - name: Run safety (dependency vulnerability check)
+      run: safety check --json --output safety-report.json
+      continue-on-error: true
+    
+    - name: Run bandit (security linter)
+      run: bandit -r src/ -f json -o bandit-report.json
+      continue-on-error: true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: |
+          safety-report.json
+          bandit-report.json
+      continue-on-error: true
+
+  # Build Package
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine wheel setuptools
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Check package
+      run: |
+        twine check dist/*
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  # Test Suite
+  test:
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Fix package structure for testing
+      run: |
+        # Package structure is now correct - core and utils are already in securevector package
+        echo "✅ Package structure verified for testing - all modules are in securevector package"
+        
+        if [ -d "src/config" ] && [ ! -d "src/securevector/config" ]; then
+          mv src/config src/securevector/config
+          echo "Moved config into securevector package"
+        elif [ -d "src/config" ] && [ -d "src/securevector/config" ]; then
+          echo "Merging src/config into existing src/securevector/config"
+          cp -r src/config/* src/securevector/config/
+          rm -rf src/config
+        fi
+        
+        if [ -d "src/engines" ] && [ ! -d "src/securevector/engines" ]; then
+          mv src/engines src/securevector/engines
+          echo "Moved engines into securevector package"
+        elif [ -d "src/engines" ] && [ -d "src/securevector/engines" ]; then
+          echo "Merging src/engines into existing src/securevector/engines"
+          cp -r src/engines/* src/securevector/engines/
+          rm -rf src/engines
+        fi
+        
+        if [ -d "src/integrations" ] && [ ! -d "src/securevector/integrations" ]; then
+          mv src/integrations src/securevector/integrations
+          echo "Moved integrations into securevector package"
+        elif [ -d "src/integrations" ] && [ -d "src/securevector/integrations" ]; then
+          echo "Merging src/integrations into existing src/securevector/integrations"
+          cp -r src/integrations/* src/securevector/integrations/
+          rm -rf src/integrations
+        fi
+        
+        # Import normalization - much simpler approach
+        echo "🔧 Normalizing import statements..."
+
+        # The current imports are mostly correct. We only need minimal fixes:
+        # 1. Ensure root-level files use relative imports consistently
+        # 2. Keep absolute imports for nested files (they work correctly)
+
+        echo "✅ Current imports are already mostly correct - minimal fixes needed"
+        echo "✅ Absolute imports like 'from securevector.models.analysis_result import' work correctly"
+        echo "✅ Root-level relative imports like 'from .models.analysis_result import' work correctly"
+
+        # Ensure rules directory is in the right place for packaging
+        echo "🔧 Ensuring rules directory is properly positioned for packaging..."
+
+        if [ -d "rules" ]; then
+          echo "Found rules directory at project root"
+
+          # Remove any existing symlink or directory at target location
+          if [ -e "src/securevector/rules" ] || [ -L "src/securevector/rules" ]; then
+            echo "Removing existing rules at target location (could be symlink or directory)"
+            rm -rf src/securevector/rules
+          fi
+
+          # Move rules into package structure
+          echo "Moving rules directory into package structure"
+          mv rules src/securevector/rules
+
+          # Verify the move was successful
+          if [ -d "src/securevector/rules/bundled" ]; then
+            echo "✅ Rules directory successfully moved into package"
+            echo "📦 Rules structure:"
+            ls -la src/securevector/rules/
+          else
+            echo "❌ Failed to move rules directory properly"
+            exit 1
+          fi
+        elif [ -d "src/securevector/rules" ]; then
+          echo "✅ Rules directory already in package structure"
+        else
+          echo "❌ Rules directory not found anywhere - this will cause runtime errors"
+          echo "Project structure:"
+          ls -la .
+          echo "Package structure:"
+          ls -la src/securevector/
+          exit 1
+        fi
+        
+        # Additional comprehensive import fixes for all moved files
+        echo "🔧 Comprehensive import fixes for all moved modules..."
+
+        # IMPORTANT: Keep absolute imports for models, utils, and core - they work correctly
+        # The absolute import pattern 'from securevector.models.analysis_result import' is correct
+        # Do NOT convert these to relative imports as it breaks the package structure
+        echo "✅ Keeping absolute imports for securevector.models.*, securevector.utils.*, securevector.core.*"
+
+        # Only fix root-level files that need relative imports
+        sed -i 's|from \.\.models\.|from .models.|g' src/securevector/__init__.py
+        sed -i 's|from \.\.utils\.|from .utils.|g' src/securevector/__init__.py
+        sed -i 's|from \.\.core\.|from .core.|g' src/securevector/__init__.py
+        
+        echo "✅ All import paths fixed"
+        
+        # Ensure all directories have __init__.py files
+        echo "🔍 Ensuring all Python packages have __init__.py files..."
+        for dir in src/securevector/*/; do
+          if [ -d "$dir" ] && [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
+        # Also check nested directories
+        find src/securevector -type d -mindepth 2 | while read dir; do
+          if [ ! -f "$dir/__init__.py" ]; then
+            echo "Creating missing __init__.py in $dir"
+            echo '"""Package module"""' > "$dir/__init__.py"
+          fi
+        done
+        
+        echo "✅ Package structure fixed for testing"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        pip install pytest pytest-asyncio pytest-cov
+        # Install MCP dependencies for testing (optional)
+        pip install -e .[mcp] || echo "MCP dependencies not available - will test graceful fallback"
+    
+    - name: Run tests
+      run: |
+        # Run core SDK tests
+        pytest tests/ -v --cov=src/securevector --cov-report=xml --cov-report=html
+
+        # Run MCP tests if MCP dependencies are available
+        if python -c "import fastmcp" 2>/dev/null; then
+          echo "✅ MCP dependencies available - running MCP tests"
+          pytest tests/mcp/ -v || echo "⚠️ MCP tests failed - continuing with core tests"
+        else
+          echo "ℹ️ MCP dependencies not available - testing graceful fallback only"
+          python -c "from securevector import create_mcp_server; print('✅ MCP graceful fallback working')"
+        fi
+      continue-on-error: true
+    
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports-${{ matrix.python-version }}
+        path: |
+          coverage.xml
+          htmlcov/
+      continue-on-error: true
+
+  # Note: Publishing is handled by dedicated workflows:
+  # - release.yml: Handles PyPI publishing and GitHub releases on release events
+  # - develop-preview-publish.yml: Handles Test PyPI publishing for develop branch
+

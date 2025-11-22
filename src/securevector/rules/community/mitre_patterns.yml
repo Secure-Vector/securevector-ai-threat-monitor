@@ -1,0 +1,521 @@
+rules:
+- category: prompt_injection
+  description: Detects process injection attempts through prompt manipulation
+  id: sv_attack_001_process_injection
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1055
+    references:
+    - description: Proprietary detection methodology for injection attacks
+      title: SecureVector Process Injection Analysis
+      url: internal://securevector/rules/core/threat-intel/process-injection
+    source: securevector_proprietary
+    tags:
+    - injection
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector Attack-001: Process Injection via Prompt'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - inject.*process
+  - dll.*injection
+  - process.*hollowing
+  - code.*cave
+  - thread.*hijacking
+  detection_logic: .*(inject.*process|dll.*injection|process.*hollowing|code.*cave|thread.*hijacking).*
+  pattern_definitions:
+    pattern_1:
+      regex: inject.*process
+      description: Detection pattern for inject.*process...
+    pattern_2:
+      regex: dll.*injection
+      description: Detection pattern for dll.*injection...
+    pattern_3:
+      regex: process.*hollowing
+      description: Detection pattern for process.*hollowing...
+    pattern_4:
+      regex: code.*cave
+      description: Detection pattern for code.*cave...
+    pattern_5:
+      regex: thread.*hijacking
+      description: Detection pattern for thread.*hijacking...
+- category: sensitive_data_exposure
+  description: Detects data exfiltration attempts through AI model
+  id: sv_attack_002_exfiltration
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1041
+    references:
+    - description: Advanced detection patterns for data theft attempts
+      title: SecureVector Data Exfiltration Analysis
+      url: internal://securevector/rules/core/threat-intel/data-exfiltration
+    source: securevector_proprietary
+    tags:
+    - exfiltration
+    - data_theft
+    version: 1.0.0
+  name: 'SecureVector Attack-002: Data Exfiltration Detection'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (send|transmit|upload).*data.*to.*server
+  - (exfiltrate|steal|leak).*information
+  - (copy|download).*sensitive.*files
+  - covert.*channel
+  - data.*extraction.*protocol
+  detection_logic: .*((send|transmit|upload).*data.*to.*server|(exfiltrate|steal|leak).*information|(copy|download).*sensitive.*files|covert.*channel|data.*extraction.*protocol).*
+  pattern_definitions:
+    pattern_1:
+      regex: (send|transmit|upload).*data.*to.*server
+      description: Detection pattern for (send|transmit|upload).*data.*to.*server...
+    pattern_2:
+      regex: (exfiltrate|steal|leak).*information
+      description: Detection pattern for (exfiltrate|steal|leak).*information...
+    pattern_3:
+      regex: (copy|download).*sensitive.*files
+      description: Detection pattern for (copy|download).*sensitive.*files...
+    pattern_4:
+      regex: covert.*channel
+      description: Detection pattern for covert.*channel...
+    pattern_5:
+      regex: data.*extraction.*protocol
+      description: Detection pattern for data.*extraction.*protocol...
+- category: sensitive_data_exposure
+  description: Detects attempts to access unsecured credentials
+  id: sv_attack_003_credentials
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1552
+    references:
+    - description: Proprietary patterns for detecting credential access attempts
+      title: SecureVector Credential Security Analysis
+      url: internal://securevector/rules/core/threat-intel/credential-discovery
+    source: securevector_proprietary
+    tags:
+    - credentials
+    - discovery
+    version: 1.0.0
+  name: 'SecureVector Attack-003: Credential Discovery'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (find|search|locate).*credentials
+  - (username|password).*file
+  - config.*file.*password
+  - environment.*variable.*secret
+  - registry.*password
+  - bash.*history.*password
+  detection_logic: .*((find|search|locate).*credentials|(username|password).*file|config.*file.*password|environment.*variable.*secret|registry.*password|bash.*history.*password).*
+  pattern_definitions:
+    pattern_1:
+      regex: (find|search|locate).*credentials
+      description: Detection pattern for (find|search|locate).*cred...
+    pattern_2:
+      regex: (username|password).*file
+      description: Detection pattern for (username|password).*file...
+    pattern_3:
+      regex: config.*file.*password
+      description: Detection pattern for config.*file.*password...
+    pattern_4:
+      regex: environment.*variable.*secret
+      description: Detection pattern for environment.*variable.*sec...
+    pattern_5:
+      regex: registry.*password
+      description: Detection pattern for registry.*password...
+    pattern_6:
+      regex: bash.*history.*password
+      description: Detection pattern for bash.*history.*password...
+- category: adversarial_attack
+  description: Detects communication over standard application protocols
+  id: sv_attack_004_application_protocol
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1071
+    references:
+    - description: Advanced detection of covert communication channels
+      title: SecureVector Protocol Security Analysis
+      url: internal://securevector/rules/core/threat-intel/protocol-analysis
+    source: securevector_proprietary
+    tags:
+    - communication
+    - covert_channel
+    version: 1.0.0
+  name: 'SecureVector Attack-004: Application Protocol Analysis'
+  severity: medium
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (http|https|ftp|smtp|dns).*communication
+  - steganography.*protocol
+  - covert.*http.*channel
+  - dns.*tunneling
+  - application.*layer.*hiding
+  detection_logic: .*((http|https|ftp|smtp|dns).*communication|steganography.*protocol|covert.*http.*channel|dns.*tunneling|application.*layer.*hiding).*
+  pattern_definitions:
+    pattern_1:
+      regex: (http|https|ftp|smtp|dns).*communication
+      description: Detection pattern for (http|https|ftp|smtp|dns)....
+    pattern_2:
+      regex: steganography.*protocol
+      description: Detection pattern for steganography.*protocol...
+    pattern_3:
+      regex: covert.*http.*channel
+      description: Detection pattern for covert.*http.*channel...
+    pattern_4:
+      regex: dns.*tunneling
+      description: Detection pattern for dns.*tunneling...
+    pattern_5:
+      regex: application.*layer.*hiding
+      description: Detection pattern for application.*layer.*hiding...
+- category: sensitive_data_exposure
+  description: Detects account enumeration attempts
+  id: sv_attack_005_account_discovery
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1087
+    references:
+    - description: Detection patterns for account discovery attempts
+      title: SecureVector Account Security Analysis
+      url: internal://securevector/rules/core/threat-intel/account-enumeration
+    source: securevector_proprietary
+    tags:
+    - discovery
+    - enumeration
+    version: 1.0.0
+  name: 'SecureVector Attack-005: Account Enumeration'
+  severity: medium
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (list|enumerate|discover).*accounts
+  - (find|search).*users
+  - account.*enumeration
+  - user.*discovery
+  - whoami.*command
+  detection_logic: .*((list|enumerate|discover).*accounts|(find|search).*users|account.*enumeration|user.*discovery|whoami.*command).*
+  pattern_definitions:
+    pattern_1:
+      regex: (list|enumerate|discover).*accounts
+      description: Detection pattern for (list|enumerate|discover)....
+    pattern_2:
+      regex: (find|search).*users
+      description: Detection pattern for (find|search).*users...
+    pattern_3:
+      regex: account.*enumeration
+      description: Detection pattern for account.*enumeration...
+    pattern_4:
+      regex: user.*discovery
+      description: Detection pattern for user.*discovery...
+    pattern_5:
+      regex: whoami.*command
+      description: Detection pattern for whoami.*command...
+- category: malicious_code_generation
+  description: Detects command execution attempts through AI model
+  id: sv_attack_006_command_execution
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1059
+    references:
+    - description: Advanced patterns for detecting command execution attempts
+      title: SecureVector Command Security Analysis
+      url: internal://securevector/rules/core/threat-intel/command-injection
+    source: securevector_proprietary
+    tags:
+    - execution
+    - command_injection
+    version: 1.0.0
+  name: 'SecureVector Attack-006: Command Injection Detection'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (cmd|powershell|bash|sh)\s*[;&|]
+  - (execute|run).*command
+  - (system|exec|eval)\s*\(
+  - shell.*access
+  - terminal.*command
+  detection_logic: .*((cmd|powershell|bash|sh)\s*[;&|]|(execute|run).*command|(system|exec|eval)\s*\(|shell.*access|terminal.*command).*
+  pattern_definitions:
+    pattern_1:
+      regex: (cmd|powershell|bash|sh)\s*[;&|]
+      description: Detection pattern for (cmd|powershell|bash|sh)\s...
+    pattern_2:
+      regex: (execute|run).*command
+      description: Detection pattern for (execute|run).*command...
+    pattern_3:
+      regex: (system|exec|eval)\s*\(
+      description: Detection pattern for (system|exec|eval)\s*\(...
+    pattern_4:
+      regex: shell.*access
+      description: Detection pattern for shell.*access...
+    pattern_5:
+      regex: terminal.*command
+      description: Detection pattern for terminal.*command...
+- category: social_engineering
+  description: Detects phishing content generation attempts
+  id: sv_attack_007_phishing
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1566
+    references:
+    - description: Advanced detection of phishing and social engineering attempts
+      title: SecureVector Social Engineering Analysis
+      url: internal://securevector/rules/core/threat-intel/social-engineering
+    source: securevector_proprietary
+    tags:
+    - phishing
+    - social_engineering
+    version: 1.0.0
+  name: 'SecureVector Attack-007: Social Engineering Detection'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (create|generate|write).*phishing.*email
+  - (fake|spoofed).*login.*page
+  - (urgent|immediate).*action.*required
+  - (verify|confirm).*account.*information
+  - (click|download).*attachment.*immediately
+  detection_logic: .*((create|generate|write).*phishing.*email|(fake|spoofed).*login.*page|(urgent|immediate).*action.*required|(verify|confirm).*account.*information|(click|download).*attachment.*immediately).*
+  pattern_definitions:
+    pattern_1:
+      regex: (create|generate|write).*phishing.*email
+      description: Detection pattern for (create|generate|write).*p...
+    pattern_2:
+      regex: (fake|spoofed).*login.*page
+      description: Detection pattern for (fake|spoofed).*login.*pag...
+    pattern_3:
+      regex: (urgent|immediate).*action.*required
+      description: Detection pattern for (urgent|immediate).*action...
+    pattern_4:
+      regex: (verify|confirm).*account.*information
+      description: Detection pattern for (verify|confirm).*account....
+    pattern_5:
+      regex: (click|download).*attachment.*immediately
+      description: Detection pattern for (click|download).*attachme...
+- category: evasion_attack
+  description: Detects attempts to masquerade malicious content
+  id: sv_attack_008_masquerading
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    mitre_attack_ids:
+    - T1036
+    references:
+    - description: Detection patterns for content disguise and impersonation
+      title: SecureVector Masquerading Analysis
+      url: internal://securevector/rules/core/threat-intel/masquerading
+    source: securevector_proprietary
+    tags:
+    - masquerading
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector Attack-008: Content Masquerading'
+  severity: medium
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (disguise|mask|hide).*malicious
+  - (legitimate|trusted).*appearance
+  - (spoof|fake).*identity
+  - (mimick|imitate).*system
+  - social.*engineering.*persona
+  detection_logic: .*((disguise|mask|hide).*malicious|(legitimate|trusted).*appearance|(spoof|fake).*identity|(mimick|imitate).*system|social.*engineering.*persona).*
+  pattern_definitions:
+    pattern_1:
+      regex: (disguise|mask|hide).*malicious
+      description: Detection pattern for (disguise|mask|hide).*mali...
+    pattern_2:
+      regex: (legitimate|trusted).*appearance
+      description: Detection pattern for (legitimate|trusted).*appe...
+    pattern_3:
+      regex: (spoof|fake).*identity
+      description: Detection pattern for (spoof|fake).*identity...
+    pattern_4:
+      regex: (mimick|imitate).*system
+      description: Detection pattern for (mimick|imitate).*system...
+    pattern_5:
+      regex: social.*engineering.*persona
+      description: Detection pattern for social.*engineering.*perso...
+- category: adversarial_attack
+  description: Detects adversarial example generation attempts
+  id: sv_ml_001_adversarial_examples
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    source: securevector_proprietary
+    tags:
+    - adversarial_ml
+    - evasion
+    version: 1.0.0
+  name: 'SecureVector ML-001: Adversarial Example Detection'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - adversarial.*example
+  - (fgsm|pgd|c&w).*attack
+  - gradient.*based.*attack
+  - perturbation.*input
+  - fooling.*classifier
+  detection_logic: .*(adversarial.*example|(fgsm|pgd|c&w).*attack|gradient.*based.*attack|perturbation.*input|fooling.*classifier).*
+  pattern_definitions:
+    pattern_1:
+      regex: adversarial.*example
+      description: Detection pattern for adversarial.*example...
+    pattern_2:
+      regex: (fgsm|pgd|c&w).*attack
+      description: Detection pattern for (fgsm|pgd|c&w).*attack...
+    pattern_3:
+      regex: gradient.*based.*attack
+      description: Detection pattern for gradient.*based.*attack...
+    pattern_4:
+      regex: perturbation.*input
+      description: Detection pattern for perturbation.*input...
+    pattern_5:
+      regex: fooling.*classifier
+      description: Detection pattern for fooling.*classifier...
+- category: model_inversion
+  description: Detects model inversion attack attempts
+  id: sv_ml_002_model_inversion
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    source: securevector_proprietary
+    tags:
+    - privacy_attack
+    - model_extraction
+    version: 1.0.0
+  name: 'SecureVector ML-002: Model Inversion Detection'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - model.*inversion
+  - reconstruct.*training.*data
+  - reverse.*engineer.*model
+  - extract.*features.*from.*model
+  - privacy.*attack.*ml
+  detection_logic: .*(model.*inversion|reconstruct.*training.*data|reverse.*engineer.*model|extract.*features.*from.*model|privacy.*attack.*ml).*
+  pattern_definitions:
+    pattern_1:
+      regex: model.*inversion
+      description: Detection pattern for model.*inversion...
+    pattern_2:
+      regex: reconstruct.*training.*data
+      description: Detection pattern for reconstruct.*training.*dat...
+    pattern_3:
+      regex: reverse.*engineer.*model
+      description: Detection pattern for reverse.*engineer.*model...
+    pattern_4:
+      regex: extract.*features.*from.*model
+      description: Detection pattern for extract.*features.*from.*m...
+    pattern_5:
+      regex: privacy.*attack.*ml
+      description: Detection pattern for privacy.*attack.*ml...
+- category: membership_inference
+  description: Detects membership inference attack attempts
+  id: sv_ml_003_membership_inference
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - reconnaissance
+    - exploitation
+    source: securevector_proprietary
+    tags:
+    - privacy_attack
+    - inference_attack
+    version: 1.0.0
+  name: 'SecureVector ML-003: Membership Inference Detection'
+  severity: medium
+  tier: community
+  pattern_type: behavioral_analysis
+  patterns:
+  - behavioral_indicators
+  - query_patterns
+  detection_logic:
+    behavioral_indicators:
+      confidence_probing: true
+      repeated_similar_queries: 10
+      statistical_analysis_requests: true
+    query_patterns:
+    - membership.*inference
+    - training.*data.*membership
+    - determine.*if.*data.*was.*used
+    - privacy.*leak.*detection
+  threshold: 0.75
+- category: data_poisoning
+  description: Detects data poisoning attack indicators
+  id: sv_ml_004_data_poisoning
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - weaponization
+    - delivery
+    source: securevector_proprietary
+    tags:
+    - poisoning
+    - backdoor
+    - training_compromise
+    threat_actor: Advanced Persistent Threat
+    version: 1.0.0
+  name: 'SecureVector ML-004: Data Poisoning Detection'
+  severity: critical
+  tier: community
+  pattern_type: statistical_anomaly
+  patterns:
+  - anomaly_types
+  - detection_methods
+  detection_logic: .*(anomaly_types|detection_methods).*
+- category: model_extraction
+  description: Detects model extraction through API abuse
+  id: sv_ml_005_model_extraction
+  metadata:
+    author: AI Security Community
+    created_at: '2024-01-15T00:00:00Z'
+    kill_chain_phase:
+    - reconnaissance
+    - actions_objectives
+    source: securevector_proprietary
+    tags:
+    - model_theft
+    - api_abuse
+    - intellectual_property
+    version: 1.0.0
+  name: 'SecureVector ML-005: API-based Model Extraction'
+  severity: high
+  tier: community
+  pattern_type: behavioral_analysis
+  patterns:
+  - api_abuse_indicators
+  - thresholds
+  detection_logic:
+    api_abuse_indicators:
+    - high_frequency_queries
+    - systematic_input_probing
+    - gradient_estimation_attempts
+    - model_distillation_patterns
+    thresholds:
+      parameter_probing_score: 0.8
+      queries_per_minute: 100
+      unique_input_ratio: 0.9

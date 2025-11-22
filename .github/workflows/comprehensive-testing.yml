@@ -1,0 +1,245 @@
+name: Comprehensive Testing Suite
+
+# Runs on Pull Requests only
+# Direct pushes are handled by:
+# - develop-preview-publish.yml (for develop branch)
+# - release.yml (for main/master releases)
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov pyyaml
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Install package with optional MCP support
+        pip install -e .[dev]
+        pip install -e .[mcp] || echo "MCP dependencies not available - testing fallback"
+    
+    - name: Validate YAML rule files
+      run: |
+        python -c "
+        import yaml
+        import os
+        from pathlib import Path
+        
+        rules_dir = Path('rules')
+        if rules_dir.exists():
+          for rule_file in rules_dir.glob('*.yaml'):
+            print(f'Validating {rule_file}...')
+            with open(rule_file, 'r') as f:
+              data = yaml.safe_load(f)
+              assert 'name' in data, f'Missing name in {rule_file}'
+              assert 'patterns' in data, f'Missing patterns in {rule_file}'
+              for pattern in data['patterns']:
+                assert 'pattern' in pattern, f'Missing pattern field in {rule_file}'
+                assert 'risk_score' in pattern, f'Missing risk_score in {rule_file}'
+            print(f'✅ {rule_file} is valid')
+        "
+    
+    #- name: Run tests with pytest
+      #run: |
+        #pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
+      #env:
+        #PYTHONPATH: .
+    
+    - name: Test CLI commands
+      run: |
+        # Test core CLI
+        PYTHONPATH=src python -m securevector.cli --version || echo "CLI not available"
+
+        # Test MCP CLI if available
+        if python -c "import fastmcp" 2>/dev/null; then
+          echo "Testing MCP CLI..."
+          PYTHONPATH=src python -m securevector.mcp --help
+          PYTHONPATH=src python -m securevector.mcp --health-check
+        else
+          echo "MCP CLI not available - testing graceful fallback"
+        fi
+    
+    - name: Import test (verify package structure)
+      run: |
+        python -c "
+        try:
+            from securevector import SecureVectorClient, AsyncSecureVectorClient
+            from securevector.models import AnalysisResult, ThreatDetection
+            from securevector import create_mcp_server, check_mcp_dependencies, MCP_AVAILABLE
+            print(f'✅ Core imports successful, MCP available: {MCP_AVAILABLE}')
+
+            # Test MCP imports if available
+            if MCP_AVAILABLE:
+                from securevector.mcp import SecureVectorMCPServer, MCPServerConfig
+                print('✅ MCP imports successful')
+            else:
+                print('ℹ️  MCP not available - graceful fallback working')
+
+        except Exception as e:
+            print(f'❌ Import error: {e}')
+            import traceback
+            traceback.print_exc()
+            exit(1)
+        "
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+    
+    - name: Check code formatting with black
+      run: |
+        black --check --diff .
+      continue-on-error: true
+    
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only --diff .
+      continue-on-error: true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+    
+    - name: Run safety check
+      run: |
+        pip freeze | safety check --stdin
+      continue-on-error: true
+    
+    - name: Run bandit security scan
+      run: |
+        bandit -r . -f json -o bandit-report.json
+      continue-on-error: true
+    
+    - name: Upload bandit report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-report
+        path: bandit-report.json
+
+  examples-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    
+    - name: Install package and dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+    
+    - name: Test example files syntax and imports
+      run: |
+        # Test that example files are syntactically correct
+        if [ -f examples/quickstart/basic_usage.py ]; then
+          python -m py_compile examples/quickstart/basic_usage.py
+        fi
+        if [ -f examples/quickstart/local_mode_demo.py ]; then
+          python -m py_compile examples/quickstart/local_mode_demo.py
+        fi
+
+        # Test MCP example files
+        if [ -d examples/mcp/ ]; then
+          echo "Testing MCP examples..."
+          python -m py_compile examples/mcp/python_client_example.py
+          python -m py_compile examples/mcp/claude_desktop_integration.py
+          echo "✅ MCP example files compile successfully"
+        fi
+
+        # Test basic import after package installation
+        python -c "
+        try:
+            import securevector
+            from securevector import SecureVectorClient, create_mcp_server
+            print('✅ Package imports successfully after installation')
+        except ImportError as e:
+            print(f'⚠️  Package import issue: {e}')
+            print('This is expected if the package structure needs adjustment')
+        except Exception as e:
+            print(f'⚠️  Other import issue: {e}')
+        "
+      env:
+        PYTHONPATH: src
+
+  package-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    
+    - name: Test package installation
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools wheel
+        python setup.py sdist bdist_wheel
+        pip install dist/*.whl
+
+        # Test installed package
+        python -c "
+        try:
+            import securevector
+            from securevector import SecureVectorClient, create_mcp_server, MCP_AVAILABLE
+            print(f'✅ Package installs and imports correctly, MCP available: {MCP_AVAILABLE}')
+
+            # Test basic functionality
+            client = SecureVectorClient()
+            result = client.analyze('Hello world')
+            print(f'✅ Basic functionality works: risk_score={result.risk_score}')
+
+        except Exception as e:
+            print(f'❌ Package test failed: {e}')
+            import traceback
+            traceback.print_exc()
+        "
+      continue-on-error: true

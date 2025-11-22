@@ -4,6 +4,9 @@ include NOTICE
 include CONTRIBUTOR_AGREEMENT.md
 recursive-include rules *.yaml
 recursive-include rules *.yml
+include rules/README.md
+include rules/RULES_ATTRIBUTION.md
+include rules/LICENSE_NOTICE.md
 global-exclude __pycache__
 global-exclude *.py[co]
 global-exclude *.pyo
