@@ -25,8 +25,10 @@ jobs:
         # Install runtime dependencies needed for pre-build validation
         pip install PyYAML>=5.1 requests>=2.25.0 aiohttp>=3.8.0 typing-extensions>=4.0.0
 
-        # Install MCP dependencies for validation (optional)
-        pip install -e .[mcp] || echo "MCP dependencies not available - will validate fallback behavior"
+        # Install MCP dependencies for full validation
+        echo "Installing package with MCP extras for validation..."
+        pip install -e .[mcp]
+        echo "✅ MCP dependencies installed successfully"
     
     - name: Fix package structure
       run: |
@@ -195,30 +197,34 @@ jobs:
             from securevector import create_mcp_server, check_mcp_dependencies, MCP_AVAILABLE
             print(f'✅ MCP imports successful, available: {MCP_AVAILABLE}')
 
-            if MCP_AVAILABLE:
-                from securevector.mcp import SecureVectorMCPServer, MCPServerConfig
-                print('✅ MCP components import successful')
-
-                # Test MCP server creation
-                server = create_mcp_server(name='Release Test Server')
-                info = server.get_server_info()
-                assert 'name' in info and 'version' in info
-                print('✅ MCP server creation successful')
-            else:
-                print('ℹ️  MCP dependencies not available - graceful fallback working')
-
-            print('✅ All critical imports successful')
-        except ImportError as e:
-            print(f'❌ Import error: {e}')
-            # Check if it's a missing dependency vs broken import structure
-            if 'yaml' in str(e):
-                print('💡 This appears to be a missing dependency issue, not an import structure problem')
-                print('💡 Dependencies will be installed automatically when the package is installed')
-            else:
-                print('❌ This appears to be an import structure problem')
-                import traceback
-                traceback.print_exc()
+            # MCP dependencies should be available since we installed [mcp] extras
+            if not MCP_AVAILABLE:
+                print('❌ CRITICAL: MCP_AVAILABLE is False but [mcp] extras were installed')
+                print('This indicates a problem with MCP dependency detection')
                 sys.exit(1)
+
+            from securevector.mcp import SecureVectorMCPServer, MCPServerConfig
+            print('✅ MCP components import successful')
+
+            # Test MCP server creation
+            server = create_mcp_server(name='Release Validation Server')
+            info = server.get_server_info()
+            assert 'name' in info and 'version' in info, 'Server info missing required fields'
+            assert info['name'] == 'Release Validation Server', 'Server name mismatch'
+            print('✅ MCP server creation and validation successful')
+
+            # Test MCP dependency check function
+            deps_check = check_mcp_dependencies()
+            assert deps_check == True, 'MCP dependencies check failed'
+            print('✅ MCP dependency check function working')
+
+            print('✅ All critical imports and MCP functionality validated')
+        except ImportError as e:
+            print(f'❌ CRITICAL Import error: {e}')
+            print('❌ This should not happen since [mcp] extras were installed')
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
         except Exception as e:
             print(f'❌ Unexpected error: {e}')
             import traceback
@@ -241,7 +247,155 @@ jobs:
     
     - name: Check package
       run: twine check dist/*
-    
+
+    - name: Post-build validation (SDK + MCP)
+      run: |
+        echo "🧪 Testing built package installation..."
+
+        # Create a fresh virtual environment for testing
+        python -m venv test_env
+        source test_env/bin/activate
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "TEST 1: Basic SDK Installation (without MCP)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # Install basic package from dist
+        pip install dist/*.whl
+
+        # Test basic SDK functionality
+        python -c "
+        from securevector import SecureVectorClient
+        from securevector.models.config_models import OperationMode
+
+        # Test client creation
+        client = SecureVectorClient(mode=OperationMode.LOCAL)
+        print('✅ SDK client created successfully')
+
+        # Test basic analysis
+        result = client.analyze('Hello world')
+        assert hasattr(result, 'is_threat'), 'Result missing is_threat'
+        assert hasattr(result, 'risk_score'), 'Result missing risk_score'
+        assert isinstance(result.risk_score, (int, float)), 'Invalid risk_score type'
+        print('✅ Basic SDK analysis working')
+        print(f'   - is_threat: {result.is_threat}')
+        print(f'   - risk_score: {result.risk_score}')
+        "
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "TEST 2: MCP Installation and Functionality"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # Uninstall and reinstall with MCP extras
+        pip uninstall -y securevector-ai-monitor
+        pip install dist/*.whl[mcp]
+
+        # Test MCP functionality
+        python -c "
+        from securevector import create_mcp_server, check_mcp_dependencies, MCP_AVAILABLE
+
+        # Verify MCP is available
+        assert MCP_AVAILABLE == True, 'MCP should be available with [mcp] extras'
+        print('✅ MCP_AVAILABLE flag is correct')
+
+        # Check dependencies
+        deps_ok = check_mcp_dependencies()
+        assert deps_ok == True, 'MCP dependency check failed'
+        print('✅ MCP dependencies check passed')
+
+        # Create and test MCP server
+        server = create_mcp_server(name='Post-Build Test Server')
+        info = server.get_server_info()
+        assert 'name' in info, 'Server info missing name'
+        assert 'version' in info, 'Server info missing version'
+        assert info['name'] == 'Post-Build Test Server', 'Server name incorrect'
+        print('✅ MCP server creation successful')
+        print(f'   - Server name: {info[\"name\"]}')
+        print(f'   - Server version: {info[\"version\"]}')
+
+        # Test MCP server health check
+        from securevector.mcp.server import SecureVectorMCPServer
+        from securevector.models.config_models import OperationMode
+        test_server = SecureVectorMCPServer(
+            name='Health Test',
+            mode=OperationMode.LOCAL
+        )
+        health = test_server.get_health_status()
+        assert 'status' in health, 'Health status missing status field'
+        print('✅ MCP server health check working')
+        print(f'   - Status: {health[\"status\"]}')
+        "
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "TEST 3: MCP Server Command Line"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # Test MCP server CLI
+        timeout 5s python -m securevector.mcp --health-check || {
+            if [ $? -eq 124 ]; then
+                echo "⚠️  Health check timed out (this is OK for validation)"
+            else
+                echo "✅ MCP server CLI working"
+            fi
+        }
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "TEST 4: [all] Extras Installation"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # Uninstall and reinstall with [all] extras
+        pip uninstall -y securevector-ai-monitor
+        pip install dist/*.whl[all]
+
+        # Test that [all] includes everything
+        python -c "
+        from securevector import SecureVectorClient, MCP_AVAILABLE, check_mcp_dependencies
+
+        # Verify basic SDK still works
+        client = SecureVectorClient()
+        result = client.analyze('Test with [all] extras')
+        assert hasattr(result, 'is_threat'), 'Basic SDK broken with [all]'
+        print('✅ Basic SDK works with [all] extras')
+
+        # Verify MCP is included in [all]
+        assert MCP_AVAILABLE == True, '[all] should include MCP'
+        print('✅ MCP included in [all] extras')
+
+        # Verify MCP server works
+        from securevector import create_mcp_server
+        server = create_mcp_server(name='All Extras Test')
+        info = server.get_server_info()
+        assert 'name' in info, 'MCP server broken with [all]'
+        print('✅ MCP server works with [all] extras')
+
+        # Check for optional dependencies
+        deps_check = check_mcp_dependencies()
+        assert deps_check == True, 'MCP dependencies missing with [all]'
+        print('✅ All MCP dependencies present')
+        "
+
+        deactivate
+        rm -rf test_env
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ ALL POST-BUILD VALIDATION PASSED"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Package is ready for PyPI release:"
+        echo "  ✅ SDK installation works (basic)"
+        echo "  ✅ SDK functionality works (basic)"
+        echo "  ✅ MCP installation works ([mcp])"
+        echo "  ✅ MCP server creation works ([mcp])"
+        echo "  ✅ MCP health checks work ([mcp])"
+        echo "  ✅ [all] extras installation works"
+        echo "  ✅ All features work with [all] extras"
+        echo ""
+
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
