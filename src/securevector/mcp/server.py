@@ -138,7 +138,14 @@ class SecureVectorMCPServer:
             )
 
         # Configuration
-        self.config = config or create_default_config(api_key=api_key, **kwargs)
+        if config is None:
+            # Create default config and set the provided name
+            self.config = create_default_config(api_key=api_key, **kwargs)
+            self.config.name = name
+        else:
+            # Use provided config as-is
+            self.config = config
+
         self.logger = get_logger(__name__)
 
         # Initialize FastMCP server
