@@ -271,7 +271,7 @@ class HTTPConnectionPool:
             try:
                 error_detail = response.json().get("error", error_msg)
                 error_msg = error_detail
-            except:
+            except (ValueError, KeyError, AttributeError):
                 pass
 
             raise APIError(error_msg, error_code=ErrorCode.API_REQUEST_FAILED)
@@ -306,7 +306,7 @@ class HTTPConnectionPool:
                 error_data = await response.json()
                 error_detail = error_data.get("error", error_msg)
                 error_msg = error_detail
-            except:
+            except (ValueError, KeyError, AttributeError):
                 pass
 
             raise APIError(error_msg, error_code=ErrorCode.API_REQUEST_FAILED)
@@ -378,7 +378,7 @@ class HTTPConnectionPool:
             # Parse hostname for per-host metrics
             try:
                 hostname = urlparse(url).hostname or "unknown"
-            except:
+            except (ValueError, AttributeError):
                 hostname = "unknown"
 
             if hostname not in self._pool_stats:

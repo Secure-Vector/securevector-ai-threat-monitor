@@ -9,7 +9,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -21,6 +21,9 @@ except ImportError:
 
 from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError
+
+if TYPE_CHECKING:
+    from securevector.mcp.server import SecureVectorMCPServer
 
 
 logger = get_logger(__name__)
@@ -112,7 +115,7 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             })
 
             # Set timeout
-            analysis_timeout = timeout or server.config.performance.analysis_timeout_seconds
+            _  = timeout or server.config.performance.analysis_timeout_seconds
 
             # Perform analysis using SecureVector client
             try:

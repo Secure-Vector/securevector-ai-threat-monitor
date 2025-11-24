@@ -118,7 +118,7 @@ class AutoConfigurator:
         has_api_key = bool(api_key or os.getenv("SECUREVECTOR_API_KEY"))
         has_network = self._environment_info.get("has_network", True)
         is_ci = self._environment_info.get("is_ci", False)
-        is_development = self._environment_info.get("is_development", False)
+        _  = self._environment_info.get("is_development", False)
         local_rules_available = self._detected_capabilities.get("local_rules_available", True)
 
         # Decision matrix for optimal mode
@@ -310,7 +310,7 @@ class AutoConfigurator:
                         for line in f:
                             if line.startswith("MemAvailable:"):
                                 return int(line.split()[1]) // 1024
-                except:
+                except (OSError, IOError, ValueError):
                     pass
             return 1024  # Default assumption
 

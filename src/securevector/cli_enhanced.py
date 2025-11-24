@@ -483,7 +483,6 @@ For detailed documentation: https://docs.securevector.dev/cli
             print(json.dumps(output, indent=2))
 
         elif format_type == "csv":
-            import csv
             import io
 
             output = io.StringIO()

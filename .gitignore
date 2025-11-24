@@ -224,6 +224,9 @@ $RECYCLE.BIN/
 *~
 
 # SecureVector AI Threat Monitor specific
+# Internal/developer-only documentation (not for public release)
+.github/DEV_INSTALL.md
+
 # Cache files
 *.cache
 .securevector_cache/

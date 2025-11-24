@@ -239,19 +239,19 @@ class APIAnalyzer:
                 verdict = data.get("verdict", "").upper()
                 # Map verdict to is_threat: REVIEW or BLOCK = threat, ALLOW = no threat
                 is_threat = verdict in ("REVIEW", "BLOCK")
-                
+
                 # Convert threat_score (0-1 float) to risk_score (0-100 int)
                 threat_score = data.get("threat_score", 0.0)
                 risk_score = int(min(max(threat_score * 100, 0), 100))
-                
+
                 # Map confidence_score to confidence
                 confidence = data.get("confidence_score", 0.0)
-                
+
                 # Parse matched_rules into detections
                 detections = []
                 matched_rules = data.get("matched_rules", [])
                 threat_level = data.get("threat_level", "unknown")
-                
+
                 # If there are matched rules, create detections from them
                 for rule_data in matched_rules:
                     if isinstance(rule_data, dict):
@@ -265,16 +265,16 @@ class APIAnalyzer:
                             severity=rule_data.get("severity", threat_level.lower()),
                         )
                         detections.append(detection)
-                
+
                 # Extract analysis data
                 analysis = data.get("analysis", {})
-                
+
                 # If no matched rules but there's a threat, create a detection from the analysis
                 if is_threat and not detections:
                     # Extract ML category from analysis if available
                     ml_category = analysis.get("ml_category", "unknown")
                     ml_reasoning = analysis.get("ml_reasoning", "")
-                    
+
                     detection = ThreatDetection(
                         threat_type=ml_category.lower().replace(" - ", "_").replace(" ", "_") if ml_category else "unknown",
                         risk_score=risk_score,
@@ -285,16 +285,16 @@ class APIAnalyzer:
                         severity=threat_level.lower(),
                     )
                     detections.append(detection)
-                
+
                 # Build metadata with essential security fields prioritized
-                # 
+                #
                 # FIELD SELECTION RATIONALE (Security & Product Expert Analysis):
-                # 
+                #
                 # ESSENTIAL (Always included):
                 # - verdict: Core security decision (BLOCK/REVIEW/ALLOW) - required for policy enforcement
                 # - threat_level: Severity classification - needed for risk prioritization
                 # - recommendation: User guidance - important for actionable responses
-                # 
+                #
                 # IMPORTANT (Conditionally included):
                 # - ml_invoked, ml_category, ml_reasoning: CRITICAL when ML detects threats
                 #   * Needed to understand ML-based detection reasoning
@@ -307,7 +307,7 @@ class APIAnalyzer:
                 #   * Critical for debugging and understanding failures
                 # - rules_matched: Only if rules were matched
                 #   * Useful for understanding detection coverage
-                # 
+                #
                 # NOT INCLUDED (Performance/Internal metrics - not needed for security decisions):
                 # - scan_duration_ms, stage*_duration_ms: Performance metrics, not security-relevant
                 # - stages_executed, early_exit: Internal implementation details
@@ -320,7 +320,7 @@ class APIAnalyzer:
                     "threat_level": threat_level,
                     "recommendation": data.get("recommendation"),
                 }
-                
+
                 # Important: Analysis fields needed for security context and debugging
                 analysis_fields = {}
                 if analysis:
@@ -331,7 +331,7 @@ class APIAnalyzer:
                         analysis_fields["ml_reasoning"] = analysis.get("ml_reasoning")
                         if analysis.get("ml_error"):
                             analysis_fields["ml_error"] = analysis.get("ml_error")
-                    
+
                     # Reviewer info - Important when reviewer is invoked
                     if analysis.get("reviewer_invoked"):
                         analysis_fields["reviewer_invoked"] = True
@@ -342,16 +342,16 @@ class APIAnalyzer:
                             analysis_fields["reviewer_adjusted_confidence"] = reviewer_confidence
                         if analysis.get("reviewer_error"):
                             analysis_fields["reviewer_error"] = analysis.get("reviewer_error")
-                    
+
                     # Rule statistics - Useful for understanding detection coverage
                     if analysis.get("rules_matched", 0) > 0:
                         analysis_fields["rules_matched"] = analysis.get("rules_matched")
-                
+
                 # Combine metadata (essential + important analysis fields)
                 metadata = {**essential_fields}
                 if analysis_fields:
                     metadata["analysis"] = analysis_fields
-                
+
                 # Debug fields: Only include full response if needed for advanced debugging
                 # (Can be enabled via config or removed entirely to reduce payload size)
                 # metadata["_debug"] = {"full_response": data}  # Commented out - enable if needed
@@ -360,7 +360,7 @@ class APIAnalyzer:
                 is_threat = data.get("is_threat", False)
                 risk_score = data.get("risk_score", 0)
                 confidence = data.get("confidence", 0.0)
-                
+
                 # Parse threat detections
                 detections = []
                 for detection_data in data.get("detections", []):
@@ -374,7 +374,7 @@ class APIAnalyzer:
                         severity=detection_data.get("severity"),
                     )
                     detections.append(detection)
-                
+
                 metadata = data.get("metadata", {})
 
             # Create analysis result
@@ -410,7 +410,7 @@ class APIAnalyzer:
                 class MockResponse:
                     def json(self):
                         return result_data
-                
+
                 # Parse using the same method as single responses
                 result = self._parse_success_response(
                     MockResponse(),  # type: ignore
