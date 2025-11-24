@@ -311,7 +311,7 @@ class SecureVectorMCPServer:
     def _setup_resources(self):
         """Setup MCP resources."""
         if not self.config.enable_resources:
-            
+
             return
 
         # Import and register resources

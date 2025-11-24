@@ -73,7 +73,7 @@ def _constant_time_string_compare(s1: str, s2: str) -> bool:
     """
     if len(s1) != len(s2):
         # Still perform constant-time comparison on dummy data
-        dummy_comparison = hmac.compare_digest(
+        _ = hmac.compare_digest(
             s1.ljust(max(len(s1), len(s2))), s2.ljust(max(len(s1), len(s2)))
         )
         return False
@@ -99,7 +99,6 @@ def _sanitize_error_for_response(error: Exception, include_details: bool = False
         return str(error)
 
     # Generic error messages to prevent information disclosure
-    error_type = type(error).__name__
     if isinstance(error, ValidationError):
         return "Invalid input provided"
     elif isinstance(error, SecurityException):
@@ -225,7 +224,7 @@ class SecureVectorClient:
         # Enhanced telemetry and debugging
         with trace_operation(
             "analyze_prompt", prompt_length=len(prompt) if prompt else 0
-        ) as operation_id:
+        ) as _:
             try:
                 # Enhanced input validation with structured error codes
                 if prompt is None:

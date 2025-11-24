@@ -65,7 +65,7 @@ class LocalMode:
         Returns:
             AnalysisResult: Analysis result with threat detection
         """
-        with ContextTimer(self.performance, "local_analysis") as timer:
+        with ContextTimer(self.performance, "local_analysis") as _:
             # Generate prompt hash for caching
             prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
 

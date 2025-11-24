@@ -9,7 +9,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 import yaml
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 try:
@@ -22,6 +22,9 @@ except ImportError:
 
 from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError
+
+if TYPE_CHECKING:
+    from securevector.mcp.server import SecureVectorMCPServer
 
 
 logger = get_logger(__name__)

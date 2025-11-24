@@ -253,7 +253,7 @@ class ContextTimer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.timer_key:
-            duration = self.tracker.end_timer(self.timer_key, self.metadata)
+            _  = self.tracker.end_timer(self.timer_key, self.metadata)
 
             # Add exception info to metadata if an error occurred
             if exc_type:

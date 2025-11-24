@@ -25,7 +25,7 @@ from .threat_types import RiskLevel, ThreatType
 __all__ = [
     # Analysis models
     "AnalysisResult",
-    "DetectionMethod", 
+    "DetectionMethod",
     "ThreatDetection",
     # Configuration models
     "APIModeConfig",
@@ -37,7 +37,7 @@ __all__ = [
     "SDKConfig",
     # Policy models
     "PolicyAction",
-    "PolicyRule", 
+    "PolicyRule",
     "SecurityPolicy",
     # Threat type models
     "RiskLevel",
