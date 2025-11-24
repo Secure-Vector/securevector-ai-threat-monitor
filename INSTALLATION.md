@@ -79,9 +79,14 @@ Expected output:
 
 ## System Requirements
 
-- **Python:** 3.9 or higher (tested on 3.9, 3.10, 3.11, 3.12)
+- **Python:**
+  - Basic SDK: 3.9 or higher
+  - **MCP Server: 3.10 or higher** (required for `[mcp]` and `[all]` extras)
+  - Tested on: 3.9, 3.10, 3.11, 3.12
 - **OS:** Linux, macOS, Windows
 - **Memory:** Minimum 512MB RAM (1GB+ recommended for MCP server)
+
+**⚠️ Important:** If you want to use the MCP server features, you must have Python 3.10 or higher. The base SDK works with Python 3.9+.
 
 ## Dependencies
 

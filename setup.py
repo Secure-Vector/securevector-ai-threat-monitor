@@ -42,7 +42,7 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.9",
+    python_requires=">=3.9",  # Base SDK supports 3.9+; MCP extras require 3.10+
     install_requires=[
         "PyYAML>=5.1",
         "requests>=2.25.0",
@@ -51,7 +51,9 @@ setup(
     ],
     extras_require={
         "mcp": [
-            "mcp>=0.1.0",
+            # NOTE: MCP dependencies require Python >=3.10
+            # The base package works with 3.9+, but [mcp] extras need 3.10+
+            "mcp>=0.1.0",  # Requires Python >=3.10
             "fastmcp>=0.1.0",
         ],
         "dev": [
