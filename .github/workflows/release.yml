@@ -290,7 +290,8 @@ jobs:
 
         # Uninstall and reinstall with MCP extras
         pip uninstall -y securevector-ai-monitor
-        pip install dist/*.whl[mcp]
+        WHEEL_FILE=$(ls dist/*.whl)
+        pip install "${WHEEL_FILE}[mcp]"
 
         # Test MCP functionality
         python -c "
@@ -349,7 +350,8 @@ jobs:
 
         # Uninstall and reinstall with [all] extras
         pip uninstall -y securevector-ai-monitor
-        pip install dist/*.whl[all]
+        WHEEL_FILE=$(ls dist/*.whl)
+        pip install "${WHEEL_FILE}[all]"
 
         # Test that [all] includes everything
         python -c "
