@@ -416,7 +416,7 @@ def validate_regex_pattern(pattern: str) -> Dict[str, Any]:
                 result["issues"].extend(analysis["issues"])
 
             # Try compilation with timeout
-            compiled = safe_regex_compile(pattern, timeout=1.0)
+            _  = safe_regex_compile(pattern, timeout=1.0)
             result["compilation_time"] = time.time() - start_time
             result["valid"] = True
             result["safe"] = analysis["safe"]
@@ -866,7 +866,7 @@ def validate_cache_access_pattern(access_times: List[float], threshold_ms: float
     # Calculate timing statistics
     import statistics
 
-    mean_time = statistics.mean(access_times)
+    _  = statistics.mean(access_times)
     std_dev = statistics.stdev(access_times) if len(access_times) > 1 else 0
 
     # Detect suspiciously consistent timing (possible automated probing)

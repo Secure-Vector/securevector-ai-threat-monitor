@@ -8,7 +8,7 @@ Copyright (c) 2025 SecureVector
 Licensed under the Apache License, Version 2.0
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 try:
@@ -20,6 +20,9 @@ except ImportError:
     MCP_AVAILABLE = False
 
 from securevector.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from securevector.mcp.server import SecureVectorMCPServer
 
 
 logger = get_logger(__name__)

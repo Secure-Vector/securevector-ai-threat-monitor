@@ -38,7 +38,7 @@ Examples:
   securevector status                  # Show system status
   securevector config --show          # Show current configuration
   securevector rules --list           # List available rules
-  
+
 For more information, visit: https://securevector.dev
             """,
             formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -189,7 +189,7 @@ For more information, visit: https://securevector.dev
         )
 
         # Info command
-        info_parser = subparsers.add_parser(
+        _  = subparsers.add_parser(
             "info",
             help="Show system information",
             description="Display system information, version details, and capabilities",

@@ -76,9 +76,8 @@ class APIModeConfig(ModeConfig):
     """
     Configuration specific to API mode.
 
-    The default API URL is set during package build:
-    - Production builds (from main/master): https://scan.securevector.io
-    - Development builds (from develop): https://scandev.securevector.io
+    The default API URL points to the production endpoint: https://scan.securevector.io
+    Development builds automatically configure a separate development endpoint during the build process.
 
     This can be overridden via SECUREVECTOR_API_URL environment variable.
     """

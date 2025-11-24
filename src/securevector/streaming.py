@@ -131,7 +131,7 @@ class StreamingAnalyzer:
         Returns:
             AnalysisResult: Final aggregated result
         """
-        with trace_operation("stream_analysis", text_length=len(text)) as operation_id:
+        with trace_operation("stream_analysis", text_length=len(text)) as _:
             chunks = list(self._create_chunks(text))
             self._processing_stats["total_chunks"] = len(chunks)
 
@@ -216,7 +216,7 @@ class StreamingAnalyzer:
         Returns:
             AnalysisResult: Final aggregated result
         """
-        with trace_operation("async_stream_analysis", text_length=len(text)) as operation_id:
+        with trace_operation("async_stream_analysis", text_length=len(text)) as _:
             chunks = list(self._create_chunks(text))
             self._processing_stats["total_chunks"] = len(chunks)
 

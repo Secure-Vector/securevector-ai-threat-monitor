@@ -9,7 +9,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -23,6 +23,9 @@ except ImportError:
 
 from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError
+
+if TYPE_CHECKING:
+    from securevector.mcp.server import SecureVectorMCPServer
 
 
 logger = get_logger(__name__)
