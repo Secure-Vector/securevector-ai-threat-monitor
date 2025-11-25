@@ -39,7 +39,7 @@ Examples:
   securevector config --show          # Show current configuration
   securevector rules --list           # List available rules
 
-For more information, visit: https://securevector.dev
+For more information, visit: https://securevector.io
             """,
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )

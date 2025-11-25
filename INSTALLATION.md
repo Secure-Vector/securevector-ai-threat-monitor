@@ -250,4 +250,4 @@ After installation:
 
 - **Installation Issues:** [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
 - **Questions:** [GitHub Discussions](https://github.com/secure-vector/ai-threat-monitor/discussions)
-- **Documentation:** [docs.securevector.dev](https://docs.securevector.dev)
+- **Documentation:** [docs.securevector.io](https://docs.securevector.io)

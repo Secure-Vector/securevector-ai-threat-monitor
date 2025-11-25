@@ -103,7 +103,7 @@ setup(
     project_urls={
         "Bug Reports": "https://github.com/secure-vector/ai-threat-monitor/issues",
         "Source": "https://github.com/secure-vector/ai-threat-monitor",
-        "Documentation": "https://docs.securevector.dev/ai-threat-monitor",
-        "Homepage": "https://securevector.dev",
+        "Documentation": "https://docs.securevector.io/ai-threat-monitor",
+        "Homepage": "https://securevector.io",
     },
 )

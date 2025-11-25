@@ -175,10 +175,10 @@ These rules are designed to assist with security and compliance but do not guara
 
 ## 📞 Contact Information
 
-- **General Questions**: support@securevector.dev
-- **Security Issues**: security@securevector.dev
-- **Legal Questions**: legal@securevector.dev
-- **Rule Contributions**: rules@securevector.dev
+- **General Questions**: support@securevector.io
+- **Security Issues**: security@securevector.io
+- **Legal Questions**: legal@securevector.io
+- **Rule Contributions**: rules@securevector.io
 
 ---
 
