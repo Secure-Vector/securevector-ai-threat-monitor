@@ -139,8 +139,18 @@ class SecureVectorMCPServer:
 
         # Configuration
         if config is None:
+            # Extract mode parameter if provided and convert to securevector_mode
+            config_kwargs = kwargs.copy()
+            if 'mode' in config_kwargs:
+                mode_value = config_kwargs.pop('mode')
+                # Convert OperationMode enum to string if needed
+                if hasattr(mode_value, 'value'):
+                    config_kwargs['securevector_mode'] = mode_value.value
+                else:
+                    config_kwargs['securevector_mode'] = str(mode_value).lower()
+
             # Create default config and set the provided name
-            self.config = create_default_config(api_key=api_key, **kwargs)
+            self.config = create_default_config(api_key=api_key, **config_kwargs)
             self.config.name = name
         else:
             # Use provided config as-is
