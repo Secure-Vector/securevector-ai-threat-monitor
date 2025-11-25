@@ -316,17 +316,19 @@ jobs:
         print(f'   - Server name: {info[\"name\"]}')
         print(f'   - Server version: {info[\"version\"]}')
 
-        # Test MCP server health check
+        # Test MCP server info retrieval
         from securevector.mcp.server import SecureVectorMCPServer
         from securevector.models.config_models import OperationMode
         test_server = SecureVectorMCPServer(
             name='Health Test',
             mode=OperationMode.LOCAL
         )
-        health = test_server.get_health_status()
-        assert 'status' in health, 'Health status missing status field'
-        print('✅ MCP server health check working')
-        print(f'   - Status: {health[\"status\"]}')
+        server_info = test_server.get_server_info()
+        assert 'status' in server_info, 'Server info missing status field'
+        assert 'name' in server_info, 'Server info missing name field'
+        print('✅ MCP server info retrieval working')
+        print(f'   - Status: {server_info[\"status\"]}')
+        print(f'   - Name: {server_info[\"name\"]}')
         "
 
         echo ""
