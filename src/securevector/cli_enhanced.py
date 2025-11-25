@@ -270,7 +270,7 @@ Debugging:
   sv-enhanced debug health --detailed                   # Health check
   sv-enhanced debug simulate api --count 5              # Simulate API errors
 
-For detailed documentation: https://docs.securevector.dev/cli
+For detailed documentation: https://docs.securevector.io/cli
         """
 
     async def run_command(self, args) -> int:

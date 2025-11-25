@@ -113,7 +113,7 @@ ERROR_SOLUTIONS = {
             "Switch to local mode: SecureVectorClient(mode='local')",
             "Use hybrid mode for automatic fallback",
         ],
-        "https://docs.securevector.dev/api-keys",
+        "https://docs.securevector.io/api-keys",
     ),
     ErrorCode.API_CONNECTION_FAILED: ErrorSolution(
         ErrorCode.API_CONNECTION_FAILED,
@@ -126,7 +126,7 @@ ERROR_SOLUTIONS = {
             "Enable hybrid mode for automatic fallback",
             "Check if firewall is blocking the connection",
         ],
-        "https://docs.securevector.dev/troubleshooting#connection-issues",
+        "https://docs.securevector.io/troubleshooting#connection-issues",
     ),
     ErrorCode.VALIDATION_EMPTY_PROMPT: ErrorSolution(
         ErrorCode.VALIDATION_EMPTY_PROMPT,
@@ -149,7 +149,7 @@ ERROR_SOLUTIONS = {
             "Upgrade to higher rate limit plan",
             "Use batch processing for multiple prompts",
         ],
-        "https://docs.securevector.dev/rate-limits",
+        "https://docs.securevector.io/rate-limits",
     ),
     ErrorCode.RULES_LOAD_FAILED: ErrorSolution(
         ErrorCode.RULES_LOAD_FAILED,
@@ -161,7 +161,7 @@ ERROR_SOLUTIONS = {
             "Reinstall the package to restore community rules",
             "Check file permissions on rules directory",
         ],
-        "https://docs.securevector.dev/custom-rules",
+        "https://docs.securevector.io/custom-rules",
     ),
 }
 

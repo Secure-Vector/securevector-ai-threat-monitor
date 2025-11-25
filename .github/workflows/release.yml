@@ -8,7 +8,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: release
-    
+
+    permissions:
+      contents: write  # Required for creating GitHub releases
+      id-token: write  # Required for PyPI trusted publishing (if used)
+
     steps:
     - uses: actions/checkout@v4
     

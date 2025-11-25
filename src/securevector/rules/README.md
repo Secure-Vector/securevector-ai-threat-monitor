@@ -203,15 +203,15 @@ Users can adjust rule behavior by:
 - **API Mode**: Get real-time updates via SecureVector API
 
 ### Getting Help
-- **Documentation**: [https://docs.securevector.dev/ai-threat-monitor](https://docs.securevector.dev/ai-threat-monitor)
+- **Documentation**: [https://docs.securevector.io/ai-threat-monitor](https://docs.securevector.io/ai-threat-monitor)
 - **Support**: [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
-- **Security Issues**: security@securevector.dev (for security vulnerabilities)
+- **Security Issues**: security@securevector.io (for security vulnerabilities)
 - **Community**: [GitHub Discussions](https://github.com/securevector/llm-rules-builder/discussions)
 
 ---
 
 **⚖️ Legal Notice**: This software is provided "AS IS" without warranty. Users are responsible for compliance with applicable laws and regulations. See LICENSE file for full terms.
 
-**🔐 Security Notice**: Report security vulnerabilities privately to security@securevector.dev. Do not disclose security issues publicly until patched.
+**🔐 Security Notice**: Report security vulnerabilities privately to security@securevector.io. Do not disclose security issues publicly until patched.
 
 **📅 Last Updated**: January 2025 | **Version**: 1.0.0
