@@ -48,13 +48,14 @@ setup(
         "requests>=2.25.0",
         "aiohttp>=3.8.0",
         "typing-extensions>=4.0.0",
+        "urllib3>=2.6.0",  # Security fix for CVE-2025-66418 and CVE-2025-66416
     ],
     extras_require={
         "mcp": [
             # NOTE: MCP dependencies require Python >=3.10
             # The base package works with 3.9+, but [mcp] extras need 3.10+
-            "mcp>=0.1.0",  # Requires Python >=3.10
-            "fastmcp>=0.1.0",
+            "mcp>=1.23.0",  # Security fix for GHSA-c2jp-c369-7pvx (was >=0.1.0)
+            "fastmcp>=2.13.0",  # Security fix (was >=0.1.0)
         ],
         "dev": [
             "pytest>=6.0",
@@ -74,8 +75,8 @@ setup(
             "memory-profiler>=0.60",
         ],
         "all": [
-            "mcp>=0.1.0",
-            "fastmcp>=0.1.0",
+            "mcp>=1.23.0",  # Security fix
+            "fastmcp>=2.13.0",  # Security fix
             "psutil>=5.8",
             "memory-profiler>=0.60",
         ],
