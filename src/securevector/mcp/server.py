@@ -34,6 +34,7 @@ from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError, ConfigurationError
 
 from .config.server_config import MCPServerConfig, create_default_config
+from .auth_validator import AuthValidator
 
 
 class RateLimiter:
@@ -87,11 +88,12 @@ class AuditLogger:
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
 
-    def log_request(self, client_id: str, tool_name: str, args: Dict[str, Any]):
+    def log_request(self, client_id: str, tool_name: str, args: Dict[str, Any], user_email: Optional[str] = None):
         """Log MCP tool request."""
         if self.enabled:
+            user_info = f"user={user_email}" if user_email else f"client={client_id}"
             self.logger.info(
-                f"MCP_REQUEST client={client_id} tool={tool_name} "
+                f"MCP_REQUEST {user_info} tool={tool_name} "
                 f"args_keys={list(args.keys())}"
             )
 
@@ -173,6 +175,14 @@ class SecureVectorMCPServer:
             enabled=self.config.security.enable_audit_logging,
             log_path=self.config.security.audit_log_path
         )
+
+        # Initialize auth validator for Phase 1 API key validation
+        identity_service_url = kwargs.get('identity_service_url') or \
+                              self.config.get('identity_service_url') if hasattr(self.config, 'get') else None
+        self.auth_validator = AuthValidator(identity_service_url=identity_service_url)
+
+        # Store validated user context (populated on first request)
+        self.user_context: Optional[Dict[str, Any]] = None
 
         # Performance tracking
         self.request_stats = {
@@ -355,7 +365,7 @@ class SecureVectorMCPServer:
 
         self.logger.info(f"MCP prompts enabled: {self.config.enabled_prompts}")
 
-    async def validate_request(self, client_id: str, tool_name: str, args: Dict[str, Any]) -> bool:
+    async def validate_request(self, client_id: str, tool_name: str, args: Dict[str, Any], api_key: Optional[str] = None) -> bool:
         """
         Validate incoming MCP request.
 
@@ -363,6 +373,7 @@ class SecureVectorMCPServer:
             client_id: Client identifier
             tool_name: Name of the tool being called
             args: Tool arguments
+            api_key: API key from request headers (if provided)
 
         Returns:
             True if request is valid, False otherwise
@@ -378,13 +389,51 @@ class SecureVectorMCPServer:
                 details={"client_id": client_id, "tool": tool_name}
             )
 
-        # Authentication (if required)
+        # ========================================================================
+        # PHASE 1 AUTHENTICATION: Validate API key via identity-service
+        # ========================================================================
+        # This happens ONCE per session (cached in self.user_context).
+        # Tools don't need to handle authentication - it's automatic!
+        # ========================================================================
         if self.config.security.require_authentication:
-            if not self.config.security.api_key:
+            # Get API key from multiple sources (header or config)
+            auth_key = api_key or self.config.security.api_key
+
+            if not auth_key:
                 raise SecurityException(
-                    "Authentication required but no API key configured",
-                    error_code="AUTH_NOT_CONFIGURED"
+                    "Authentication required - API key not provided",
+                    error_code="AUTH_REQUIRED",
+                    details={"message": "Please provide x-api-key header or configure API key"}
                 )
+
+            # Validate ONCE per session (subsequent calls use cached context)
+            if not self.user_context:
+                self.logger.debug("Validating API key via identity-service...")
+                validation_result = await self.auth_validator.validate_api_key(auth_key)
+
+                if not validation_result or not validation_result.get("valid"):
+                    raise SecurityException(
+                        "Invalid or expired API key",
+                        error_code="INVALID_API_KEY",
+                        details={"message": "Please check your API key or create a new one at https://securevector.io"}
+                    )
+
+                # Cache user context for this session (no more validation needed!)
+                self.user_context = validation_result
+                self.logger.info(
+                    f"✅ User authenticated: {validation_result['user']['email']} "
+                    f"(plan: {validation_result['subscription']['plan']})"
+                )
+            else:
+                # Already validated - using cached context
+                self.logger.debug(f"Using cached auth context for {self.user_context['user']['email']}")
+
+            # Check subscription status (optional - for future features)
+            subscription = self.user_context.get("subscription", {})
+            if subscription.get("status") != "active":
+                self.logger.warning(f"User has inactive subscription: {subscription.get('status')}")
+                # For Phase 1, we'll allow it but log a warning
+                # In Phase 2, you could enforce subscription requirements
 
         # Input validation
         if "prompt" in args:
