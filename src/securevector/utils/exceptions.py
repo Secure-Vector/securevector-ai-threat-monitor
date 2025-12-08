@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from securevector.models.analysis_result import AnalysisResult
 from securevector.models.policy_models import PolicyAction
@@ -172,17 +172,35 @@ class AIThreatMonitorException(Exception):
     def __init__(
         self,
         message: str,
-        error_code: Optional[ErrorCode] = None,
+        error_code: Optional[Union[ErrorCode, str]] = None,
         context: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(message)
-        self.error_code = error_code or ErrorCode.UNKNOWN_ERROR
+        # Handle both ErrorCode enum and string error codes
+        if error_code is None:
+            self.error_code = ErrorCode.UNKNOWN_ERROR
+        elif isinstance(error_code, str):
+            # Store string as-is, will be handled in __str__ and code property
+            self.error_code = error_code
+        else:
+            self.error_code = error_code
+
         self.context = context or {}
-        self.solution = ERROR_SOLUTIONS.get(self.error_code)
+        # Only get solution for ErrorCode enum values
+        if isinstance(self.error_code, ErrorCode):
+            self.solution = ERROR_SOLUTIONS.get(self.error_code)
+        else:
+            self.solution = None
 
     def __str__(self) -> str:
         base_message = super().__str__()
-        error_info = f"\n[{self.error_code.value}] {base_message}"
+        # Handle both ErrorCode enum and string
+        if isinstance(self.error_code, ErrorCode):
+            error_code_str = self.error_code.value
+        else:
+            error_code_str = str(self.error_code)
+
+        error_info = f"\n[{error_code_str}] {base_message}"
 
         if self.solution:
             error_info += str(self.solution)
@@ -198,7 +216,9 @@ class AIThreatMonitorException(Exception):
     @property
     def code(self) -> str:
         """Get the error code as string"""
-        return self.error_code.value
+        if isinstance(self.error_code, ErrorCode):
+            return self.error_code.value
+        return str(self.error_code)
 
 
 class SecurityException(AIThreatMonitorException):
@@ -209,7 +229,7 @@ class SecurityException(AIThreatMonitorException):
         message: str,
         result: Optional[AnalysisResult] = None,
         action: Optional[PolicyAction] = None,
-        error_code: ErrorCode = ErrorCode.SECURITY_THREAT_DETECTED,
+        error_code: Union[ErrorCode, str] = ErrorCode.SECURITY_THREAT_DETECTED,
         **kwargs,
     ):
         context = {
@@ -238,7 +258,7 @@ class SecurityException(AIThreatMonitorException):
 class ConfigurationError(AIThreatMonitorException):
     """Raised when there's a configuration error"""
 
-    def __init__(self, message: str, error_code: ErrorCode = ErrorCode.CONFIG_INVALID, **kwargs):
+    def __init__(self, message: str, error_code: Union[ErrorCode, str] = ErrorCode.CONFIG_INVALID, **kwargs):
         super().__init__(message, error_code, kwargs)
 
 
@@ -246,7 +266,7 @@ class ModeNotAvailableError(AIThreatMonitorException):
     """Raised when a requested mode is not available"""
 
     def __init__(
-        self, message: str, error_code: ErrorCode = ErrorCode.MODE_NOT_AVAILABLE, **kwargs
+        self, message: str, error_code: Union[ErrorCode, str] = ErrorCode.MODE_NOT_AVAILABLE, **kwargs
     ):
         super().__init__(message, error_code, kwargs)
 
@@ -259,7 +279,7 @@ class APIError(AIThreatMonitorException):
         message: str,
         status_code: Optional[int] = None,
         response_body: Optional[str] = None,
-        error_code: ErrorCode = ErrorCode.API_CONNECTION_FAILED,
+        error_code: Union[ErrorCode, str] = ErrorCode.API_CONNECTION_FAILED,
         **kwargs,
     ):
         context = {"status_code": status_code, "response_body": response_body, **kwargs}
@@ -289,7 +309,7 @@ class ValidationError(AIThreatMonitorException):
     def __init__(
         self,
         message: str,
-        error_code: ErrorCode = ErrorCode.VALIDATION_INVALID_INPUT_TYPE,
+        error_code: Union[ErrorCode, str] = ErrorCode.VALIDATION_INVALID_INPUT_TYPE,
         **kwargs,
     ):
         super().__init__(message, error_code, kwargs)
@@ -298,7 +318,7 @@ class ValidationError(AIThreatMonitorException):
 class RuleLoadError(AIThreatMonitorException):
     """Raised when security rules cannot be loaded"""
 
-    def __init__(self, message: str, error_code: ErrorCode = ErrorCode.RULES_LOAD_FAILED, **kwargs):
+    def __init__(self, message: str, error_code: Union[ErrorCode, str] = ErrorCode.RULES_LOAD_FAILED, **kwargs):
         super().__init__(message, error_code, kwargs)
 
 
@@ -306,7 +326,7 @@ class CacheError(AIThreatMonitorException):
     """Raised when there's a caching error"""
 
     def __init__(
-        self, message: str, error_code: ErrorCode = ErrorCode.CACHE_WRITE_FAILED, **kwargs
+        self, message: str, error_code: Union[ErrorCode, str] = ErrorCode.CACHE_WRITE_FAILED, **kwargs
     ):
         super().__init__(message, error_code, kwargs)
 
@@ -317,7 +337,7 @@ class PerformanceError(AIThreatMonitorException):
     def __init__(
         self,
         message: str,
-        error_code: ErrorCode = ErrorCode.PERFORMANCE_THRESHOLD_EXCEEDED,
+        error_code: Union[ErrorCode, str] = ErrorCode.PERFORMANCE_THRESHOLD_EXCEEDED,
         **kwargs,
     ):
         super().__init__(message, error_code, kwargs)
@@ -327,7 +347,7 @@ class CircuitBreakerError(AIThreatMonitorException):
     """Raised when circuit breaker is open"""
 
     def __init__(
-        self, message: str, error_code: ErrorCode = ErrorCode.CIRCUIT_BREAKER_OPEN, **kwargs
+        self, message: str, error_code: Union[ErrorCode, str] = ErrorCode.CIRCUIT_BREAKER_OPEN, **kwargs
     ):
         super().__init__(message, error_code, kwargs)
 
