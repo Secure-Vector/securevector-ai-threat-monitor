@@ -21,7 +21,7 @@ COPY setup.py README.md ./
 COPY src/ ./src/
 COPY requirements.txt ./
 
-# Install Python dependencies including dev dependencies
+# Install Python dependencies with security fixes (including dev dependencies)
 RUN pip install --no-cache-dir -e ".[mcp,dev]"
 
 # Install additional development tools

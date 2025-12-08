@@ -74,8 +74,8 @@ def get_logger(name: str, level: LogLevel = LogLevel.INFO) -> logging.Logger:
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
-    # Create console handler
-    handler = logging.StreamHandler(sys.stdout)
+    # Create console handler - use stderr to avoid breaking MCP stdio communication
+    handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(log_level_map.get(level, logging.INFO))
 
     # Create formatter
