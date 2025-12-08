@@ -176,10 +176,19 @@ class SecureVectorMCPServer:
             log_path=self.config.security.audit_log_path
         )
 
-        # Initialize auth validator for Phase 1 API key validation
+        # Initialize auth validator for Phase 1 API key validation (OPTIONAL)
+        # Only initialize if identity_service_url is explicitly provided
         identity_service_url = kwargs.get('identity_service_url') or \
-                              self.config.get('identity_service_url') if hasattr(self.config, 'get') else None
-        self.auth_validator = AuthValidator(identity_service_url=identity_service_url)
+                              (self.config.get('identity_service_url') if hasattr(self.config, 'get') else None)
+
+        # Check if identity service URL is provided and not the default localhost
+        # Skip auth validator for local development (no identity service required)
+        if identity_service_url and identity_service_url != "http://localhost:8000":
+            self.auth_validator = AuthValidator(identity_service_url=identity_service_url)
+            self.logger.info(f"AuthValidator enabled with identity service: {identity_service_url}")
+        else:
+            self.auth_validator = None
+            self.logger.info("AuthValidator disabled - running in local mode without identity service")
 
         # Store validated user context (populated on first request)
         self.user_context: Optional[Dict[str, Any]] = None
@@ -407,26 +416,47 @@ class SecureVectorMCPServer:
                 )
 
             # Validate ONCE per session (subsequent calls use cached context)
+            # Skip validation if AuthValidator is not initialized (local mode)
             if not self.user_context:
-                self.logger.debug("Validating API key via identity-service...")
-                validation_result = await self.auth_validator.validate_api_key(auth_key)
+                if self.auth_validator is not None:
+                    # Identity service available - validate API key
+                    self.logger.debug("Validating API key via identity-service...")
+                    validation_result = await self.auth_validator.validate_api_key(auth_key)
 
-                if not validation_result or not validation_result.get("valid"):
-                    raise SecurityException(
-                        "Invalid or expired API key",
-                        error_code="INVALID_API_KEY",
-                        details={"message": "Please check your API key or create a new one at https://securevector.io"}
+                    if not validation_result or not validation_result.get("valid"):
+                        raise SecurityException(
+                            "Invalid or expired API key",
+                            error_code="INVALID_API_KEY",
+                            details={"message": "Please check your API key or create a new one at https://securevector.io"}
+                        )
+
+                    # Cache user context for this session (no more validation needed!)
+                    self.user_context = validation_result
+                    self.logger.info(
+                        f"✅ User authenticated: {validation_result['user']['email']} "
+                        f"(plan: {validation_result['subscription']['plan']})"
                     )
-
-                # Cache user context for this session (no more validation needed!)
-                self.user_context = validation_result
-                self.logger.info(
-                    f"✅ User authenticated: {validation_result['user']['email']} "
-                    f"(plan: {validation_result['subscription']['plan']})"
-                )
+                else:
+                    # No identity service - skip validation (local/development mode)
+                    self.logger.debug("Skipping identity service validation (running in local mode)")
+                    # Create minimal user context for local mode
+                    self.user_context = {
+                        "valid": True,
+                        "user": {
+                            "user_id": "local-user",
+                            "email": "local@development"
+                        },
+                        "subscription": {
+                            "plan": "local-development",
+                            "status": "active"
+                        }
+                    }
             else:
                 # Already validated - using cached context
-                self.logger.debug(f"Using cached auth context for {self.user_context['user']['email']}")
+                if self.auth_validator is not None:
+                    self.logger.debug(f"Using cached auth context for {self.user_context['user']['email']}")
+                else:
+                    self.logger.debug("Using local development context (no identity service)")
 
             # Check subscription status (optional - for future features)
             subscription = self.user_context.get("subscription", {})
