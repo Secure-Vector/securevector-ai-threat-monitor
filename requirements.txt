@@ -1,0 +1,11 @@
+# SecureVector AI Threat Monitor - Core Dependencies
+# Updated 2025-12-06 with security fixes
+
+# Core dependencies
+PyYAML>=5.1
+requests>=2.25.0
+aiohttp>=3.8.0
+typing-extensions>=4.0.0
+
+# Security fixes (CVE-2025-66418, CVE-2025-66416)
+urllib3>=2.6.0

@@ -17,7 +17,7 @@ COPY setup.py README.md ./
 COPY src/ ./src/
 COPY requirements.txt ./
 
-# Install Python dependencies
+# Install Python dependencies with security fixes
 RUN pip install --no-cache-dir -e ".[mcp]"
 
 # Create non-root user for security
