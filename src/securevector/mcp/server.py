@@ -565,24 +565,21 @@ class SecureVectorMCPServer:
                 raise
 
     async def _run_http(self):
-        """Run server with HTTP transport."""
+        """Run server with HTTP transport (streamable-http) using FastMCP async support."""
         self.logger.info(f"MCP Server running with HTTP transport on {self.config.host}:{self.config.port}")
 
         try:
-            # FastMCP's run() method is synchronous and blocking
-            # We need to run it in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
+            # FastMCP uses environment variables for host/port configuration
+            # Set them before calling run_streamable_http_async()
+            import os
+            os.environ['FASTMCP_HOST'] = self.config.host
+            os.environ['FASTMCP_PORT'] = str(self.config.port)
 
-            # Use functools.partial to pass keyword arguments to run_in_executor
-            from functools import partial
-            run_func = partial(
-                self.mcp.run,
-                transport="http",
-                host=self.config.host,
-                port=self.config.port
-            )
+            self.logger.info(f"Starting HTTP server on {self.config.host}:{self.config.port}")
 
-            await loop.run_in_executor(None, run_func)
+            # Use FastMCP's built-in async HTTP support
+            await self.mcp.run_streamable_http_async()
+
         except Exception as e:
             self.logger.error(f"HTTP transport failed: {e}")
             import traceback
@@ -590,24 +587,21 @@ class SecureVectorMCPServer:
             raise
 
     async def _run_sse(self):
-        """Run server with SSE transport."""
-        self.logger.info(f"MCP Server running with SSE transport on {self.config.host}:{self.config.port}")
+        """Run server with SSE transport using FastMCP async support."""
+        import os
+
+        # FastMCP uses environment variables for host/port configuration
+        # Set them before calling run_sse_async()
+        os.environ['FASTMCP_HOST'] = self.config.host
+        os.environ['FASTMCP_PORT'] = str(self.config.port)
+
+        self.logger.info(f"Starting SSE server on {self.config.host}:{self.config.port}")
+        self.logger.info(f"SSE endpoint will be available at http://{self.config.host}:{self.config.port}/sse")
 
         try:
-            # FastMCP's run() method is synchronous and blocking
-            # We need to run it in an executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
+            # Use FastMCP's built-in async SSE support
+            await self.mcp.run_sse_async()
 
-            # Use functools.partial to pass keyword arguments to run_in_executor
-            from functools import partial
-            run_func = partial(
-                self.mcp.run,
-                transport="sse",
-                host=self.config.host,
-                port=self.config.port
-            )
-
-            await loop.run_in_executor(None, run_func)
         except Exception as e:
             self.logger.error(f"SSE transport failed: {e}")
             import traceback
