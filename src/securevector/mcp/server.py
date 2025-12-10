@@ -567,14 +567,52 @@ class SecureVectorMCPServer:
     async def _run_http(self):
         """Run server with HTTP transport."""
         self.logger.info(f"MCP Server running with HTTP transport on {self.config.host}:{self.config.port}")
-        # HTTP transport implementation would go here
-        pass
+
+        try:
+            # FastMCP's run() method is synchronous and blocking
+            # We need to run it in an executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+
+            # Use functools.partial to pass keyword arguments to run_in_executor
+            from functools import partial
+            run_func = partial(
+                self.mcp.run,
+                transport="http",
+                host=self.config.host,
+                port=self.config.port
+            )
+
+            await loop.run_in_executor(None, run_func)
+        except Exception as e:
+            self.logger.error(f"HTTP transport failed: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     async def _run_sse(self):
         """Run server with SSE transport."""
         self.logger.info(f"MCP Server running with SSE transport on {self.config.host}:{self.config.port}")
-        # SSE transport implementation would go here
-        pass
+
+        try:
+            # FastMCP's run() method is synchronous and blocking
+            # We need to run it in an executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+
+            # Use functools.partial to pass keyword arguments to run_in_executor
+            from functools import partial
+            run_func = partial(
+                self.mcp.run,
+                transport="sse",
+                host=self.config.host,
+                port=self.config.port
+            )
+
+            await loop.run_in_executor(None, run_func)
+        except Exception as e:
+            self.logger.error(f"SSE transport failed: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def _setup_mcp_handlers(self, session: "ServerSession"):
         """
