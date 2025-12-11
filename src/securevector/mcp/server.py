@@ -581,7 +581,8 @@ class SecureVectorMCPServer:
                 host=self.config.host,
                 port=self.config.port,
                 log_level="info",
-                access_log=True
+                access_log=True,
+                forwarded_allow_ips="*"  # Trust proxy headers from Render.com/CloudFlare
             )
 
             server = uvicorn.Server(config)
@@ -615,7 +616,8 @@ class SecureVectorMCPServer:
                 host=self.config.host,
                 port=self.config.port,
                 log_level="info",
-                access_log=True
+                access_log=True,
+                forwarded_allow_ips="*"  # Trust proxy headers from Render.com/CloudFlare
             )
 
             server = uvicorn.Server(config)
