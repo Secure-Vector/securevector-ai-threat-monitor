@@ -100,9 +100,33 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         """
         start_time = time.time()
 
-        # Extract client_id and retrieve API key
-        client_id = "mcp_client"
-        api_key = None
+        # Extract client identifier from context (for multi-tenant support)
+        # This allows us to retrieve the correct API key when multiple clients are connected
+        client_id = "mcp_client"  # Default for stdio mode
+        client_ip = None
+
+        if ctx is not None:
+            # Extract client IP from request context (SSE/HTTP mode)
+            # This enables proper multi-tenant API key lookup
+            try:
+                # Try to get client info from context's request scope
+                if hasattr(ctx, 'request_context') and ctx.request_context:
+                    request_ctx = ctx.request_context
+                    if hasattr(request_ctx, 'client') and request_ctx.client:
+                        # FastMCP/Starlette format: client is a tuple (host, port)
+                        client_ip = request_ctx.client[0] if isinstance(request_ctx.client, (tuple, list)) else str(request_ctx.client)
+                        client_id = client_ip
+                        logger.debug(f"Extracted client IP from context: {client_ip}")
+                    elif hasattr(request_ctx, 'scope'):
+                        # ASGI scope format
+                        scope = request_ctx.scope
+                        client_tuple = scope.get('client', ('unknown', 0))
+                        client_ip = client_tuple[0]
+                        client_id = client_ip
+                        logger.debug(f"Extracted client IP from ASGI scope: {client_ip}")
+            except Exception as e:
+                logger.warning(f"Failed to extract client info from context: {e}")
+                # Fall back to default client_id
 
         # For SSE/HTTP transports, retrieve API key from session store
         # The ASGI middleware captures it from x-api-key header during connection
@@ -111,8 +135,16 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
         if api_key:
             logger.info(f"🔑 Retrieved API key from session store for client: {client_id}")
+            logger.debug(f"API key starts with: {api_key[:10]}..." if len(api_key) > 10 else "API key retrieved")
         else:
-            logger.debug(f"No API key in session store - stdio mode or unauthenticated request")
+            # Check if there are any sessions at all
+            if server.session_api_keys:
+                logger.warning(
+                    f"⚠️ API key NOT found for client '{client_id}'. "
+                    f"Available sessions: {list(server.session_api_keys.keys())}"
+                )
+            else:
+                logger.debug("No API key in session store - stdio mode or local mode")
 
         try:
             # Validate request (API key is optional, will use server config if not provided)

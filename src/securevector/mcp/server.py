@@ -281,20 +281,68 @@ class SecureVectorMCPServer:
         Returns:
             API key if found, None otherwise
         """
+        # No sessions at all
+        if not self.session_api_keys:
+            self.logger.debug("No sessions in API key store")
+            return None
+
         # If we only have one session, return that API key
         if len(self.session_api_keys) == 1:
             api_key = list(self.session_api_keys.values())[0]
-            self.logger.debug(f"Retrieved API key from single session")
+            session_id = list(self.session_api_keys.keys())[0]
+            self.logger.debug(f"Retrieved API key from single session: {session_id}")
             return api_key
 
-        # If multiple sessions, try to find by client_id
+        # Multiple sessions - check if all have the same API key
+        # This handles cases where client connects to multiple endpoints (/sse, /messages)
+        unique_keys = set(self.session_api_keys.values())
+        if len(unique_keys) == 1:
+            api_key = list(unique_keys)[0]
+            self.logger.debug(
+                f"Retrieved API key from {len(self.session_api_keys)} sessions "
+                f"(all have same key)"
+            )
+            return api_key
+
+        # Multiple different API keys - try to find by exact client_id match
         if client_id and client_id in self.session_api_keys:
             api_key = self.session_api_keys[client_id]
             self.logger.debug(f"Retrieved API key for client: {client_id}")
             return api_key
 
-        # No API key found
-        self.logger.debug(f"No API key found in session store (sessions: {len(self.session_api_keys)})")
+        # Try to find by IP address (client_id prefix match)
+        # Session IDs are format: "IP:path", so we match by IP prefix
+        # This handles multi-tenant scenarios where each client has their own IP
+        if client_id:
+            matching_sessions = {}
+            for session_id, api_key in self.session_api_keys.items():
+                # Match if session_id starts with client IP (e.g., "99.120.219.15:/sse")
+                if session_id.startswith(client_id + ":"):
+                    matching_sessions[session_id] = api_key
+
+            # If we found sessions for this IP, check if they all have the same key
+            if matching_sessions:
+                unique_keys_for_ip = set(matching_sessions.values())
+                if len(unique_keys_for_ip) == 1:
+                    api_key = list(unique_keys_for_ip)[0]
+                    self.logger.debug(
+                        f"Retrieved API key for IP {client_id} "
+                        f"(matched {len(matching_sessions)} sessions)"
+                    )
+                    return api_key
+                else:
+                    self.logger.error(
+                        f"Multiple different API keys found for IP {client_id}! "
+                        f"This should not happen. Sessions: {matching_sessions}"
+                    )
+                    # Return the most recent one (arbitrary choice)
+                    return list(matching_sessions.values())[-1]
+
+        # No match found
+        self.logger.warning(
+            f"No API key found for client_id='{client_id}'. "
+            f"Available sessions: {list(self.session_api_keys.keys())}"
+        )
         return None
 
     def _init_securevector_clients(self, api_key: Optional[str]):
