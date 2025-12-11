@@ -165,9 +165,30 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             _  = timeout or server.config.performance.analysis_timeout_seconds
 
             # Perform analysis using SecureVector client
+            # If we retrieved an API key from session, use it to create a configured client
+            # This enables remote API calls instead of local-only mode
             try:
-                if hasattr(server.async_client, 'analyze'):
-                    # Use async client if available
+                # Determine which client to use
+                if api_key and api_key != server.config.security.api_key:
+                    # Use the retrieved API key to create a client for this request
+                    # This enables multi-tenant support where each customer uses their own API key
+                    logger.info(f"Creating SecureVector client with session API key for analysis")
+                    from securevector import AsyncSecureVectorClient
+                    from securevector.models.config_models import OperationMode
+
+                    # Create client config with the retrieved API key
+                    request_client_config = {
+                        "api_key": api_key,
+                        "mode": OperationMode.AUTO,  # AUTO will use HYBRID with API key
+                        "raise_on_threat": False
+                    }
+
+                    # Create a temporary client for this request
+                    request_client = AsyncSecureVectorClient(**request_client_config)
+                    result = await request_client.analyze(prompt, mode=mode)
+                    logger.debug("Analysis completed using session API key")
+                elif hasattr(server.async_client, 'analyze'):
+                    # Use server's default async client if available
                     result = await server.async_client.analyze(prompt, mode=mode)
                 else:
                     # Fall back to sync client
