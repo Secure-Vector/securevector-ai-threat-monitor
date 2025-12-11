@@ -12,12 +12,13 @@ import time
 from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import FastMCP, Context
     from mcp.server.session import ServerSession
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
+    Context = None  # type: ignore
 
 from securevector.utils.logger import get_logger
 from securevector.utils.exceptions import SecurityException, APIError
@@ -38,7 +39,8 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         mode: str = "auto",
         include_details: bool = False,
         include_confidence: bool = True,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        ctx: Optional[Context] = None  # Optional context for SSE/HTTP mode
     ) -> Dict[str, Any]:
         """
         Analyze a prompt for AI security threats and vulnerabilities.
@@ -97,15 +99,40 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             APIError: If the analysis fails due to service issues
         """
         start_time = time.time()
-        client_id = "mcp_client"  # In a real implementation, this would be extracted from context
+
+        # Extract client_id and API key from context if available (SSE/HTTP mode)
+        client_id = "mcp_client"
+        api_key = None
+
+        if ctx and hasattr(ctx, '_request_context') and ctx._request_context:
+            try:
+                # Try to get client_id from context
+                if hasattr(ctx, 'client_id'):
+                    client_id = ctx.client_id or client_id
+
+                # Try to extract API key from request meta/headers
+                request_ctx = ctx._request_context
+                if hasattr(request_ctx, 'meta') and request_ctx.meta:
+                    api_key = request_ctx.meta.get('x-api-key') or request_ctx.meta.get('api_key')
+                elif hasattr(request_ctx, 'request'):
+                    # For HTTP/SSE, try to get from request scope/headers
+                    req = request_ctx.request
+                    if hasattr(req, 'headers'):
+                        api_key = req.headers.get('x-api-key')
+                    elif isinstance(req, dict) and 'headers' in req:
+                        # ASGI scope format
+                        headers = dict(req.get('headers', []))
+                        api_key = headers.get(b'x-api-key', b'').decode('utf-8') or None
+            except Exception as e:
+                logger.debug(f"Could not extract API key from context: {e}")
 
         try:
-            # Validate request
+            # Validate request (API key is optional, will use server config if not provided)
             await server.validate_request(client_id, "analyze_prompt", {
                 "prompt": prompt,
                 "mode": mode,
                 "include_details": include_details
-            })
+            }, api_key=api_key)
 
             # Log the request
             server.audit_logger.log_request(client_id, "analyze_prompt", {

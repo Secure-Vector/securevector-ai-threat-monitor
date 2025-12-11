@@ -194,6 +194,9 @@ class SecureVectorMCPServer:
             log_path=self.config.security.audit_log_path
         )
 
+        # Store transport mode to determine auth requirements later
+        self._transport_mode = None  # Will be set when server starts
+
         # Initialize auth validator for Phase 1 API key validation (OPTIONAL)
         # Only initialize if identity_service_url is explicitly provided
         identity_service_url = kwargs.get('identity_service_url') or \
@@ -541,6 +544,20 @@ class SecureVectorMCPServer:
             transport: Transport protocol (stdio, sse, http)
         """
         transport = transport or self.config.transport
+        self._transport_mode = transport  # Store for auth checks
+
+        # Auto-disable authentication for stdio mode only (local usage)
+        # Remote transports (sse, http) MUST have API key authentication
+        if transport == "stdio":
+            if not self.config.security.api_key:
+                if self.config.security.require_authentication:
+                    self.logger.info("Stdio transport detected - disabling authentication requirement (local mode)")
+                    self.config.security.require_authentication = False
+        else:
+            # Remote transport (sse/http) - ensure authentication is enabled
+            if not self.config.security.require_authentication:
+                self.logger.warning(f"Remote transport ({transport}) detected - enabling authentication requirement")
+                self.config.security.require_authentication = True
 
         self.logger.info(f"Starting SecureVector MCP Server with {transport} transport")
 
