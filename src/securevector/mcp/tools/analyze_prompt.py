@@ -101,29 +101,41 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         start_time = time.time()
 
         # Extract client identifier from context (for multi-tenant support)
-        # This allows us to retrieve the correct API key when multiple clients are connected
+        # Priority: 1) session_id from query params, 2) client IP
         client_id = "mcp_client"  # Default for stdio mode
         client_ip = None
+        session_id = None
 
         if ctx is not None:
-            # Extract client IP from request context (SSE/HTTP mode)
-            # This enables proper multi-tenant API key lookup
+            # Extract client info from request context (SSE/HTTP mode)
             try:
-                # Try to get client info from context's request scope
                 if hasattr(ctx, 'request_context') and ctx.request_context:
                     request_ctx = ctx.request_context
-                    if hasattr(request_ctx, 'client') and request_ctx.client:
-                        # FastMCP/Starlette format: client is a tuple (host, port)
-                        client_ip = request_ctx.client[0] if isinstance(request_ctx.client, (tuple, list)) else str(request_ctx.client)
-                        client_id = client_ip
-                        logger.debug(f"Extracted client IP from context: {client_ip}")
-                    elif hasattr(request_ctx, 'scope'):
-                        # ASGI scope format
+
+                    # Try to extract session_id from query parameters first (most unique)
+                    if hasattr(request_ctx, 'scope'):
                         scope = request_ctx.scope
-                        client_tuple = scope.get('client', ('unknown', 0))
-                        client_ip = client_tuple[0]
-                        client_id = client_ip
-                        logger.debug(f"Extracted client IP from ASGI scope: {client_ip}")
+                        query_string = scope.get("query_string", b"").decode("utf-8")
+                        if query_string and "session_id=" in query_string:
+                            from urllib.parse import parse_qs
+                            params = parse_qs(query_string)
+                            if "session_id" in params and params["session_id"]:
+                                session_id = params["session_id"][0]
+                                client_id = session_id
+                                logger.debug(f"Extracted session_id from query: {session_id}")
+
+                    # Fallback to client IP if no session_id
+                    if not session_id:
+                        if hasattr(request_ctx, 'client') and request_ctx.client:
+                            client_ip = request_ctx.client[0] if isinstance(request_ctx.client, (tuple, list)) else str(request_ctx.client)
+                            client_id = client_ip
+                            logger.debug(f"Extracted client IP from context: {client_ip}")
+                        elif hasattr(request_ctx, 'scope'):
+                            scope = request_ctx.scope
+                            client_tuple = scope.get('client', ('unknown', 0))
+                            client_ip = client_tuple[0]
+                            client_id = client_ip
+                            logger.debug(f"Extracted client IP from ASGI scope: {client_ip}")
             except Exception as e:
                 logger.warning(f"Failed to extract client info from context: {e}")
                 # Fall back to default client_id
@@ -135,7 +147,6 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
 
         if api_key:
             logger.info(f"🔑 Retrieved API key from session store for client: {client_id}")
-            logger.debug(f"API key starts with: {api_key[:10]}..." if len(api_key) > 10 else "API key retrieved")
         else:
             # Check if there are any sessions at all
             if server.session_api_keys:

@@ -109,24 +109,41 @@ def setup_batch_analysis_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         batch_id = f"batch_{int(time.time())}"
 
         # Extract client identifier from context (for multi-tenant support)
+        # Priority: 1) session_id from query params, 2) client IP
         client_id = "mcp_client"  # Default for stdio mode
         client_ip = None
+        session_id = None
 
         if ctx is not None:
-            # Extract client IP from request context (SSE/HTTP mode)
+            # Extract client info from request context (SSE/HTTP mode)
             try:
                 if hasattr(ctx, 'request_context') and ctx.request_context:
                     request_ctx = ctx.request_context
-                    if hasattr(request_ctx, 'client') and request_ctx.client:
-                        client_ip = request_ctx.client[0] if isinstance(request_ctx.client, (tuple, list)) else str(request_ctx.client)
-                        client_id = client_ip
-                        logger.debug(f"Extracted client IP from context: {client_ip}")
-                    elif hasattr(request_ctx, 'scope'):
+
+                    # Try to extract session_id from query parameters first (most unique)
+                    if hasattr(request_ctx, 'scope'):
                         scope = request_ctx.scope
-                        client_tuple = scope.get('client', ('unknown', 0))
-                        client_ip = client_tuple[0]
-                        client_id = client_ip
-                        logger.debug(f"Extracted client IP from ASGI scope: {client_ip}")
+                        query_string = scope.get("query_string", b"").decode("utf-8")
+                        if query_string and "session_id=" in query_string:
+                            from urllib.parse import parse_qs
+                            params = parse_qs(query_string)
+                            if "session_id" in params and params["session_id"]:
+                                session_id = params["session_id"][0]
+                                client_id = session_id
+                                logger.debug(f"Extracted session_id from query: {session_id}")
+
+                    # Fallback to client IP if no session_id
+                    if not session_id:
+                        if hasattr(request_ctx, 'client') and request_ctx.client:
+                            client_ip = request_ctx.client[0] if isinstance(request_ctx.client, (tuple, list)) else str(request_ctx.client)
+                            client_id = client_ip
+                            logger.debug(f"Extracted client IP from context: {client_ip}")
+                        elif hasattr(request_ctx, 'scope'):
+                            scope = request_ctx.scope
+                            client_tuple = scope.get('client', ('unknown', 0))
+                            client_ip = client_tuple[0]
+                            client_id = client_ip
+                            logger.debug(f"Extracted client IP from ASGI scope: {client_ip}")
             except Exception as e:
                 logger.warning(f"Failed to extract client info from context: {e}")
 

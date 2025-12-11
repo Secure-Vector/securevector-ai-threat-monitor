@@ -742,15 +742,27 @@ class SecureVectorMCPServer:
                         api_key = headers.get(b"x-api-key", b"").decode("utf-8") or None
 
                         if api_key:
-                            # Generate a session ID from the connection
-                            # Use client info to create a stable session ID
-                            client_host = scope.get("client", ["unknown", 0])[0]
-                            path = scope.get("path", "")
+                            # Generate a session ID from the request
+                            # Priority: 1) session_id query param, 2) client_ip
+                            session_id = None
 
-                            # Create session ID (simplified - in production use UUID or better method)
-                            session_id = f"{client_host}:{path}"
+                            # Try to extract session_id from query string
+                            query_string = scope.get("query_string", b"").decode("utf-8")
+                            if query_string and "session_id=" in query_string:
+                                # Parse query string to get session_id
+                                from urllib.parse import parse_qs
+                                params = parse_qs(query_string)
+                                if "session_id" in params and params["session_id"]:
+                                    session_id = params["session_id"][0]
+                                    self.server.logger.debug(f"Extracted session_id from query: {session_id}")
 
-                            # Store API key for this session
+                            # Fallback to client IP if no session_id in query
+                            if not session_id:
+                                client_host = scope.get("client", ["unknown", 0])[0]
+                                path = scope.get("path", "")
+                                session_id = f"{client_host}:{path}"
+
+                            # Store API key for this session (will update if same session_id)
                             self.server.session_api_keys[session_id] = api_key
                             self.server.logger.info(f"🔑 Captured API key for session: {session_id}")
 
