@@ -18,6 +18,7 @@ from collections import defaultdict, deque
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.server.session import ServerSession
+    from mcp.server.transport_security import TransportSecuritySettings
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:
@@ -25,6 +26,7 @@ except ImportError:
     # Create dummy classes
     FastMCP = None
     ServerSession = None
+    TransportSecuritySettings = None
     types = None
 
 from securevector import SecureVectorClient, AsyncSecureVectorClient
@@ -160,8 +162,24 @@ class SecureVectorMCPServer:
 
         self.logger = get_logger(__name__)
 
-        # Initialize FastMCP server
-        self.mcp = FastMCP(name)
+        # Initialize FastMCP server with transport security settings
+        # Allow Render.com and other cloud hosting domains
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "*.onrender.com",                                    # Render.com wildcard
+                "*.render.com",                                      # Render.com alternative
+                "securevector-mcp-server-latest-dev.onrender.com",  # Render.com dev
+                "securevector-mcp-server-latest.onrender.com",      # Render.com prod
+                "*.securevector.io",                                 # SecureVector custom domains
+                "securevector.io",                                   # SecureVector root domain
+                "localhost",                                         # Local development
+                "127.0.0.1",                                        # Local development
+                "0.0.0.0",                                          # Docker/container binding
+            ],
+            allowed_origins=["*"]  # Allow all origins for now
+        )
+        self.mcp = FastMCP(name, transport_security=transport_security)
 
         # Initialize SecureVector clients
         self._init_securevector_clients(api_key)
