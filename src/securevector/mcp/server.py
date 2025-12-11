@@ -565,20 +565,31 @@ class SecureVectorMCPServer:
                 raise
 
     async def _run_http(self):
-        """Run server with HTTP transport (streamable-http) using FastMCP async support."""
-        self.logger.info(f"MCP Server running with HTTP transport on {self.config.host}:{self.config.port}")
+        """Run server with HTTP transport (streamable-http) using Uvicorn directly for proper host/port binding."""
+        self.logger.info(f"Starting HTTP server on {self.config.host}:{self.config.port}")
 
         try:
-            # FastMCP uses environment variables for host/port configuration
-            # Set them before calling run_streamable_http_async()
-            import os
-            os.environ['FASTMCP_HOST'] = self.config.host
-            os.environ['FASTMCP_PORT'] = str(self.config.port)
+            # Import uvicorn and get ASGI app from FastMCP
+            import uvicorn
 
-            self.logger.info(f"Starting HTTP server on {self.config.host}:{self.config.port}")
+            # Get the ASGI app from FastMCP for streamable HTTP
+            app = self.mcp.streamable_http_app
 
-            # Use FastMCP's built-in async HTTP support
-            await self.mcp.run_streamable_http_async()
+            # Configure Uvicorn with our host/port settings
+            config = uvicorn.Config(
+                app=app,
+                host=self.config.host,
+                port=self.config.port,
+                log_level="info",
+                access_log=True
+            )
+
+            server = uvicorn.Server(config)
+
+            self.logger.info(f"MCP Server running with HTTP transport on {self.config.host}:{self.config.port}")
+
+            # Run server - this keeps the event loop alive
+            await server.serve()
 
         except Exception as e:
             self.logger.error(f"HTTP transport failed: {e}")
@@ -587,20 +598,32 @@ class SecureVectorMCPServer:
             raise
 
     async def _run_sse(self):
-        """Run server with SSE transport using FastMCP async support."""
-        import os
-
-        # FastMCP uses environment variables for host/port configuration
-        # Set them before calling run_sse_async()
-        os.environ['FASTMCP_HOST'] = self.config.host
-        os.environ['FASTMCP_PORT'] = str(self.config.port)
-
+        """Run server with SSE transport using Uvicorn directly for proper host/port binding."""
         self.logger.info(f"Starting SSE server on {self.config.host}:{self.config.port}")
         self.logger.info(f"SSE endpoint will be available at http://{self.config.host}:{self.config.port}/sse")
 
         try:
-            # Use FastMCP's built-in async SSE support
-            await self.mcp.run_sse_async()
+            # Import uvicorn and get ASGI app from FastMCP
+            import uvicorn
+
+            # Get the ASGI app from FastMCP for SSE transport
+            app = self.mcp.sse_app
+
+            # Configure Uvicorn with our host/port settings
+            config = uvicorn.Config(
+                app=app,
+                host=self.config.host,
+                port=self.config.port,
+                log_level="info",
+                access_log=True
+            )
+
+            server = uvicorn.Server(config)
+
+            self.logger.info(f"MCP Server running with SSE transport on {self.config.host}:{self.config.port}")
+
+            # Run server - this keeps the event loop alive
+            await server.serve()
 
         except Exception as e:
             self.logger.error(f"SSE transport failed: {e}")

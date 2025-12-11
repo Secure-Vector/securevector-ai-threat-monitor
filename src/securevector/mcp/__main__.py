@@ -84,8 +84,8 @@ Environment Variables:
     parser.add_argument(
         "--host",
         type=str,
-        default="localhost",
-        help="Server host address (default: localhost)"
+        default="0.0.0.0",
+        help="Server host address (default: 0.0.0.0)"
     )
 
     parser.add_argument(
