@@ -107,13 +107,16 @@ def setup_batch_analysis_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         client_id = "mcp_client"
         batch_id = f"batch_{int(time.time())}"
 
+        # Retrieve API key from session store (SSE/HTTP) or None (stdio)
+        api_key = server.get_session_api_key(client_id)
+
         try:
             # Validate request
             await server.validate_request(client_id, "batch_analyze", {
                 "prompts": prompts,
                 "mode": mode,
                 "batch_size": batch_size
-            })
+            }, api_key=api_key)
 
             # Log the request
             server.audit_logger.log_request(client_id, "batch_analyze", {

@@ -102,12 +102,15 @@ def setup_threat_stats_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         start_time = time.time()
         client_id = "mcp_client"
 
+        # Retrieve API key from session store (SSE/HTTP) or None (stdio)
+        api_key = server.get_session_api_key(client_id)
+
         try:
             # Validate request
             await server.validate_request(client_id, "get_threat_statistics", {
                 "time_range": time_range,
                 "group_by": group_by
-            })
+            }, api_key=api_key)
 
             # Log the request
             server.audit_logger.log_request(client_id, "get_threat_statistics", {

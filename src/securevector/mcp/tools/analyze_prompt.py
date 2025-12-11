@@ -100,31 +100,19 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         """
         start_time = time.time()
 
-        # Extract client_id and API key from context if available (SSE/HTTP mode)
+        # Extract client_id and retrieve API key
         client_id = "mcp_client"
         api_key = None
 
-        if ctx and hasattr(ctx, '_request_context') and ctx._request_context:
-            try:
-                # Try to get client_id from context
-                if hasattr(ctx, 'client_id'):
-                    client_id = ctx.client_id or client_id
+        # For SSE/HTTP transports, retrieve API key from session store
+        # The ASGI middleware captures it from x-api-key header during connection
+        # For stdio transport, this will return None (which is expected for local mode)
+        api_key = server.get_session_api_key(client_id)
 
-                # Try to extract API key from request meta/headers
-                request_ctx = ctx._request_context
-                if hasattr(request_ctx, 'meta') and request_ctx.meta:
-                    api_key = request_ctx.meta.get('x-api-key') or request_ctx.meta.get('api_key')
-                elif hasattr(request_ctx, 'request'):
-                    # For HTTP/SSE, try to get from request scope/headers
-                    req = request_ctx.request
-                    if hasattr(req, 'headers'):
-                        api_key = req.headers.get('x-api-key')
-                    elif isinstance(req, dict) and 'headers' in req:
-                        # ASGI scope format
-                        headers = dict(req.get('headers', []))
-                        api_key = headers.get(b'x-api-key', b'').decode('utf-8') or None
-            except Exception as e:
-                logger.debug(f"Could not extract API key from context: {e}")
+        if api_key:
+            logger.info(f"🔑 Retrieved API key from session store for client: {client_id}")
+        else:
+            logger.debug(f"No API key in session store - stdio mode or unauthenticated request")
 
         try:
             # Validate request (API key is optional, will use server config if not provided)

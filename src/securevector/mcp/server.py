@@ -226,6 +226,10 @@ class SecureVectorMCPServer:
         # Track local mode usage for smart upgrade message display
         self.local_mode_prompts_analyzed = 0
 
+        # Session store for API keys (SSE/HTTP transport)
+        # Maps session_id -> api_key
+        self.session_api_keys: Dict[str, str] = {}
+
         # Setup MCP components
         self._setup_tools()
         self._setup_resources()
@@ -263,6 +267,35 @@ class SecureVectorMCPServer:
         """
         self.local_mode_prompts_analyzed += 1
         return self.local_mode_prompts_analyzed
+
+    def get_session_api_key(self, client_id: Optional[str] = None) -> Optional[str]:
+        """
+        Retrieve API key from session store.
+
+        For SSE/HTTP transports, API keys are captured from connection headers
+        and stored in session_api_keys dict. This method retrieves them.
+
+        Args:
+            client_id: Optional client identifier to look up session
+
+        Returns:
+            API key if found, None otherwise
+        """
+        # If we only have one session, return that API key
+        if len(self.session_api_keys) == 1:
+            api_key = list(self.session_api_keys.values())[0]
+            self.logger.debug(f"Retrieved API key from single session")
+            return api_key
+
+        # If multiple sessions, try to find by client_id
+        if client_id and client_id in self.session_api_keys:
+            api_key = self.session_api_keys[client_id]
+            self.logger.debug(f"Retrieved API key for client: {client_id}")
+            return api_key
+
+        # No API key found
+        self.logger.debug(f"No API key found in session store (sessions: {len(self.session_api_keys)})")
+        return None
 
     def _init_securevector_clients(self, api_key: Optional[str]):
         """Initialize SecureVector clients following SDK mode selection pattern."""
@@ -608,7 +641,7 @@ class SecureVectorMCPServer:
             import uvicorn
 
             # Get the ASGI app from FastMCP for streamable HTTP
-            app = self.mcp.streamable_http_app
+            app = self.mcp.streamable_http_app()
 
             # Configure Uvicorn with our host/port settings
             config = uvicorn.Config(
@@ -643,7 +676,41 @@ class SecureVectorMCPServer:
             import uvicorn
 
             # Get the ASGI app from FastMCP for SSE transport
-            app = self.mcp.sse_app
+            # sse_app() is a method that returns a Starlette ASGI app
+            base_asgi_app = self.mcp.sse_app()
+
+            # Wrap with middleware to capture API keys from headers
+            class APIKeyMiddleware:
+                """ASGI middleware to capture x-api-key from SSE connection headers."""
+
+                def __init__(self, app, server_instance):
+                    self.app = app
+                    self.server = server_instance
+
+                async def __call__(self, scope, receive, send):
+                    if scope["type"] == "http":
+                        # Extract headers
+                        headers = dict(scope.get("headers", []))
+                        api_key = headers.get(b"x-api-key", b"").decode("utf-8") or None
+
+                        if api_key:
+                            # Generate a session ID from the connection
+                            # Use client info to create a stable session ID
+                            client_host = scope.get("client", ["unknown", 0])[0]
+                            path = scope.get("path", "")
+
+                            # Create session ID (simplified - in production use UUID or better method)
+                            session_id = f"{client_host}:{path}"
+
+                            # Store API key for this session
+                            self.server.session_api_keys[session_id] = api_key
+                            self.server.logger.info(f"🔑 Captured API key for session: {session_id}")
+
+                    # Call the original app
+                    await self.app(scope, receive, send)
+
+            # Wrap the base app with middleware
+            app = APIKeyMiddleware(base_asgi_app, self)
 
             # Configure Uvicorn with our host/port settings
             config = uvicorn.Config(
