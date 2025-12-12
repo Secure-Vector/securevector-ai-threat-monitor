@@ -21,7 +21,6 @@ from securevector.models.analysis_result import (
 from securevector.models.config_models import APIModeConfig
 from securevector.utils.exceptions import APIError, AuthenticationError, RateLimitError
 from securevector.utils.logger import get_logger
-from securevector.utils.security import mask_sensitive_value
 
 
 class APIAnalyzer:
@@ -101,8 +100,7 @@ class APIAnalyzer:
         self._last_error = None
 
         self.logger.info(
-            f"API analyzer initialized for {config.api_url}{config.endpoint} "
-            f"with API key: {mask_sensitive_value(config.api_key)}"
+            f"API analyzer initialized for {config.api_url}{config.endpoint}"
         )
 
     def analyze_prompt(self, prompt: str, **kwargs) -> AnalysisResult:

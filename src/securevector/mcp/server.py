@@ -18,6 +18,7 @@ from collections import defaultdict, deque
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.server.session import ServerSession
+    from mcp.server.transport_security import TransportSecuritySettings
     from mcp import types
     MCP_AVAILABLE = True
 except ImportError:
@@ -25,6 +26,7 @@ except ImportError:
     # Create dummy classes
     FastMCP = None
     ServerSession = None
+    TransportSecuritySettings = None
     types = None
 
 from securevector import SecureVectorClient, AsyncSecureVectorClient
@@ -160,8 +162,24 @@ class SecureVectorMCPServer:
 
         self.logger = get_logger(__name__)
 
-        # Initialize FastMCP server
-        self.mcp = FastMCP(name)
+        # Initialize FastMCP server with transport security settings
+        # Allow Render.com and other cloud hosting domains
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "*.onrender.com",                                    # Render.com wildcard
+                "*.render.com",                                      # Render.com alternative
+                "securevector-mcp-server-latest-dev.onrender.com",  # Render.com dev
+                "securevector-mcp-server-latest.onrender.com",      # Render.com prod
+                "*.securevector.io",                                 # SecureVector custom domains
+                "securevector.io",                                   # SecureVector root domain
+                "localhost",                                         # Local development
+                "127.0.0.1",                                        # Local development
+                "0.0.0.0",                                          # Docker/container binding
+            ],
+            allowed_origins=["*"]  # Allow all origins for now
+        )
+        self.mcp = FastMCP(name, transport_security=transport_security)
 
         # Initialize SecureVector clients
         self._init_securevector_clients(api_key)
@@ -175,6 +193,9 @@ class SecureVectorMCPServer:
             enabled=self.config.security.enable_audit_logging,
             log_path=self.config.security.audit_log_path
         )
+
+        # Store transport mode to determine auth requirements later
+        self._transport_mode = None  # Will be set when server starts
 
         # Initialize auth validator for Phase 1 API key validation (OPTIONAL)
         # Only initialize if identity_service_url is explicitly provided
@@ -204,6 +225,10 @@ class SecureVectorMCPServer:
 
         # Track local mode usage for smart upgrade message display
         self.local_mode_prompts_analyzed = 0
+
+        # Session store for API keys (SSE/HTTP transport)
+        # Maps session_id -> api_key
+        self.session_api_keys: Dict[str, str] = {}
 
         # Setup MCP components
         self._setup_tools()
@@ -242,6 +267,83 @@ class SecureVectorMCPServer:
         """
         self.local_mode_prompts_analyzed += 1
         return self.local_mode_prompts_analyzed
+
+    def get_session_api_key(self, client_id: Optional[str] = None) -> Optional[str]:
+        """
+        Retrieve API key from session store.
+
+        For SSE/HTTP transports, API keys are captured from connection headers
+        and stored in session_api_keys dict. This method retrieves them.
+
+        Args:
+            client_id: Optional client identifier to look up session
+
+        Returns:
+            API key if found, None otherwise
+        """
+        # No sessions at all
+        if not self.session_api_keys:
+            self.logger.debug("No sessions in API key store")
+            return None
+
+        # If we only have one session, return that API key
+        if len(self.session_api_keys) == 1:
+            api_key = list(self.session_api_keys.values())[0]
+            session_id = list(self.session_api_keys.keys())[0]
+            self.logger.debug(f"Retrieved API key from single session: {session_id}")
+            return api_key
+
+        # Multiple sessions - check if all have the same API key
+        # This handles cases where client connects to multiple endpoints (/sse, /messages)
+        unique_keys = set(self.session_api_keys.values())
+        if len(unique_keys) == 1:
+            api_key = list(unique_keys)[0]
+            self.logger.debug(
+                f"Retrieved API key from {len(self.session_api_keys)} sessions "
+                f"(all have same key)"
+            )
+            return api_key
+
+        # Multiple different API keys - try to find by exact client_id match
+        if client_id and client_id in self.session_api_keys:
+            api_key = self.session_api_keys[client_id]
+            self.logger.debug(f"Retrieved API key for client: {client_id}")
+            return api_key
+
+        # Try to find by IP address (client_id prefix match)
+        # Session IDs are format: "IP:path", so we match by IP prefix
+        # This handles multi-tenant scenarios where each client has their own IP
+        if client_id:
+            matching_sessions = {}
+            for session_id, api_key in self.session_api_keys.items():
+                # Match if session_id starts with client IP (e.g., "99.120.219.15:/sse")
+                if session_id.startswith(client_id + ":"):
+                    matching_sessions[session_id] = api_key
+
+            # If we found sessions for this IP, check if they all have the same key
+            if matching_sessions:
+                unique_keys_for_ip = set(matching_sessions.values())
+                if len(unique_keys_for_ip) == 1:
+                    api_key = list(unique_keys_for_ip)[0]
+                    self.logger.debug(
+                        f"Retrieved API key for IP {client_id} "
+                        f"(matched {len(matching_sessions)} sessions)"
+                    )
+                    return api_key
+                else:
+                    self.logger.error(
+                        f"Multiple different API keys found for IP {client_id}! "
+                        f"This should not happen. Sessions: {matching_sessions}"
+                    )
+                    # Return the most recent one (arbitrary choice)
+                    return list(matching_sessions.values())[-1]
+
+        # No match found
+        self.logger.warning(
+            f"No API key found for client_id='{client_id}'. "
+            f"Available sessions: {list(self.session_api_keys.keys())}"
+        )
+        return None
 
     def _init_securevector_clients(self, api_key: Optional[str]):
         """Initialize SecureVector clients following SDK mode selection pattern."""
@@ -523,6 +625,20 @@ class SecureVectorMCPServer:
             transport: Transport protocol (stdio, sse, http)
         """
         transport = transport or self.config.transport
+        self._transport_mode = transport  # Store for auth checks
+
+        # Auto-disable authentication for stdio mode only (local usage)
+        # Remote transports (sse, http) MUST have API key authentication
+        if transport == "stdio":
+            if not self.config.security.api_key:
+                if self.config.security.require_authentication:
+                    self.logger.info("Stdio transport detected - disabling authentication requirement (local mode)")
+                    self.config.security.require_authentication = False
+        else:
+            # Remote transport (sse/http) - ensure authentication is enabled
+            if not self.config.security.require_authentication:
+                self.logger.warning(f"Remote transport ({transport}) detected - enabling authentication requirement")
+                self.config.security.require_authentication = True
 
         self.logger.info(f"Starting SecureVector MCP Server with {transport} transport")
 
@@ -573,7 +689,7 @@ class SecureVectorMCPServer:
             import uvicorn
 
             # Get the ASGI app from FastMCP for streamable HTTP
-            app = self.mcp.streamable_http_app
+            app = self.mcp.streamable_http_app()
 
             # Configure Uvicorn with our host/port settings
             config = uvicorn.Config(
@@ -581,7 +697,8 @@ class SecureVectorMCPServer:
                 host=self.config.host,
                 port=self.config.port,
                 log_level="info",
-                access_log=True
+                access_log=True,
+                forwarded_allow_ips="*"  # Trust proxy headers from Render.com/CloudFlare
             )
 
             server = uvicorn.Server(config)
@@ -607,7 +724,53 @@ class SecureVectorMCPServer:
             import uvicorn
 
             # Get the ASGI app from FastMCP for SSE transport
-            app = self.mcp.sse_app
+            # sse_app() is a method that returns a Starlette ASGI app
+            base_asgi_app = self.mcp.sse_app()
+
+            # Wrap with middleware to capture API keys from headers
+            class APIKeyMiddleware:
+                """ASGI middleware to capture x-api-key from SSE connection headers."""
+
+                def __init__(self, app, server_instance):
+                    self.app = app
+                    self.server = server_instance
+
+                async def __call__(self, scope, receive, send):
+                    if scope["type"] == "http":
+                        # Extract headers
+                        headers = dict(scope.get("headers", []))
+                        api_key = headers.get(b"x-api-key", b"").decode("utf-8") or None
+
+                        if api_key:
+                            # Generate a session ID from the request
+                            # Priority: 1) session_id query param, 2) client_ip
+                            session_id = None
+
+                            # Try to extract session_id from query string
+                            query_string = scope.get("query_string", b"").decode("utf-8")
+                            if query_string and "session_id=" in query_string:
+                                # Parse query string to get session_id
+                                from urllib.parse import parse_qs
+                                params = parse_qs(query_string)
+                                if "session_id" in params and params["session_id"]:
+                                    session_id = params["session_id"][0]
+                                    self.server.logger.debug(f"Extracted session_id from query: {session_id}")
+
+                            # Fallback to client IP if no session_id in query
+                            if not session_id:
+                                client_host = scope.get("client", ["unknown", 0])[0]
+                                path = scope.get("path", "")
+                                session_id = f"{client_host}:{path}"
+
+                            # Store API key for this session (will update if same session_id)
+                            self.server.session_api_keys[session_id] = api_key
+                            self.server.logger.info(f"🔑 Captured API key for session: {session_id}")
+
+                    # Call the original app
+                    await self.app(scope, receive, send)
+
+            # Wrap the base app with middleware
+            app = APIKeyMiddleware(base_asgi_app, self)
 
             # Configure Uvicorn with our host/port settings
             config = uvicorn.Config(
@@ -615,7 +778,8 @@ class SecureVectorMCPServer:
                 host=self.config.host,
                 port=self.config.port,
                 log_level="info",
-                access_log=True
+                access_log=True,
+                forwarded_allow_ips="*"  # Trust proxy headers from Render.com/CloudFlare
             )
 
             server = uvicorn.Server(config)
