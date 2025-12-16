@@ -44,7 +44,7 @@ except ImportError:
                 "pip install securevector-ai-monitor[mcp]"
             )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = [
     "SecureVectorMCPServer",
     "MCPServerConfig",
