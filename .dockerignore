@@ -100,4 +100,3 @@ temp/
 docker-compose*.yml
 Dockerfile*
 !Dockerfile.mcp
-!Dockerfile.mcp.dev
