@@ -10,6 +10,7 @@ Licensed under the Apache License, Version 2.0
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
@@ -163,18 +164,32 @@ class SecureVectorMCPServer:
         self.logger = get_logger(__name__)
 
         # Initialize FastMCP server with transport security settings
-        # Allow Render.com and other cloud hosting domains
+        # Get custom allowed hosts from environment variable (comma-separated)
+        # Use SECUREVECTOR_ALLOWED_HOSTS to specify exact hostnames for your deployment
+        # If not set (local development), custom_hosts will be empty list - this is safe and expected
+        custom_hosts_env = os.getenv("SECUREVECTOR_ALLOWED_HOSTS", "")
+        custom_hosts = [h.strip() for h in custom_hosts_env.split(",") if h.strip()]
+
+        # Base allowed hosts (infrastructure-agnostic for open source)
+        base_allowed_hosts = [
+            "*.onrender.com",        # Render.com wildcard (note: not fully supported by MCP)
+            "*.render.com",          # Render.com alternative
+            "*.securevector.io",     # SecureVector custom domains
+            "securevector.io",       # SecureVector root domain
+            "localhost",             # Local development
+            "127.0.0.1",            # Local development
+            "0.0.0.0",              # Docker/container binding
+        ]
+
+        # Combine base hosts with custom hosts from environment
+        all_allowed_hosts = base_allowed_hosts + custom_hosts
+
+        if custom_hosts:
+            self.logger.info(f"🔧 Added {len(custom_hosts)} custom allowed hosts from SECUREVECTOR_ALLOWED_HOSTS")
+
         transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
-            allowed_hosts=[
-                "*.onrender.com",                                    # Render.com wildcard
-                "*.render.com",                                      # Render.com alternative
-                "*.securevector.io",                                 # SecureVector custom domains
-                "securevector.io",                                   # SecureVector root domain
-                "localhost",                                         # Local development
-                "127.0.0.1",                                        # Local development
-                "0.0.0.0",                                          # Docker/container binding
-            ],
+            allowed_hosts=all_allowed_hosts,
             allowed_origins=["*"]  # Allow all origins for now
         )
         self.mcp = FastMCP(name, transport_security=transport_security)
