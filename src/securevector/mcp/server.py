@@ -169,8 +169,6 @@ class SecureVectorMCPServer:
             allowed_hosts=[
                 "*.onrender.com",                                    # Render.com wildcard
                 "*.render.com",                                      # Render.com alternative
-                "securevector-mcp-server-latest-dev.onrender.com",  # Render.com dev
-                "securevector-mcp-server-latest.onrender.com",      # Render.com prod
                 "*.securevector.io",                                 # SecureVector custom domains
                 "securevector.io",                                   # SecureVector root domain
                 "localhost",                                         # Local development
