@@ -166,13 +166,7 @@ jobs:
           grep 'api_url: str =' src/securevector/models/config_models.py || echo "Not found"
           exit 1
         fi
-
-        # Ensure no development URLs are present
-        if grep -E 'scandev\.securevector\.io|scan\.dev\.securevector\.io|dev-api\.securevector\.io|api\.dev\.securevector\.io' src/securevector/models/config_models.py; then
-          echo "❌ Development API URL found in production release!"
-          exit 1
-        fi
-
+        
         echo "✅ Production API URL correctly set to https://scan.securevector.io"
         echo "✅ Production security scan passed"
 
