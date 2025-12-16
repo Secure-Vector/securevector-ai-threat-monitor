@@ -4,22 +4,23 @@ This document describes the SecureVector API endpoint specification for API mode
 
 ## API Endpoint
 
-The SDK automatically selects the appropriate API endpoint based on the build environment:
-
-**Production (main/master branch):**
+**Production API:**
 - Base URL: `https://scan.securevector.io`
 - Analysis Endpoint: `/analyze`
 - Full URL: `https://scan.securevector.io/analyze`
 
-**Development (develop branch):**
-- Base URL: `https://scandev.securevector.io`
-- Analysis Endpoint: `/analyze`
-- Full URL: `https://scandev.securevector.io/analyze`
+**Custom API Endpoint:**
 
-This ensures that:
-- Packages published from the `main` or `master` branch automatically use the production API
-- Development builds from the `develop` branch use the development API for testing
-- You can override the URL using the `SECUREVECTOR_API_URL` environment variable
+You can override the default API URL using the `SECUREVECTOR_API_URL` environment variable:
+
+```bash
+export SECUREVECTOR_API_URL=https://your-custom-endpoint.com
+```
+
+This is useful for:
+- Testing against custom deployments
+- Using self-hosted instances
+- Development and testing workflows
 
 ## Authentication
 
