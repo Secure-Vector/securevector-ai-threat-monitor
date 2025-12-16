@@ -1,14 +1,16 @@
 name: Develop Branch Preview Publish
 
 on:
-  push:
-    branches: [ develop ]
   workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API URL to use (leave empty for production)'
+        required: false
+        type: string
 
 jobs:
   test-publish:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
     
     steps:
     - uses: actions/checkout@v4
@@ -73,16 +75,14 @@ jobs:
           rm -rf src/integrations
         fi
 
-        # Replace API URL with development endpoint for develop branch builds
-        echo "🔧 Replacing API URL with development endpoint..."
-        sed -i 's|api_url: str = "https://scan.securevector.io"|api_url: str = "https://scandev.securevector.io"|' src/securevector/models/config_models.py
-
-        # Verify the change
-        if grep -q 'api_url: str = "https://scandev.securevector.io"' src/securevector/models/config_models.py; then
-          echo "✅ API URL successfully set to scandev.securevector.io for development build"
+        # Use custom API URL if provided via workflow input
+        API_URL="${{ github.event.inputs.api_url }}"
+        if [ -n "$API_URL" ]; then
+          echo "🔧 Using custom API URL from workflow input: $API_URL"
+          sed -i "s|api_url: str = \"https://scan.securevector.io\"|api_url: str = \"$API_URL\"|" src/securevector/models/config_models.py
+          echo "✅ API URL set to: $API_URL"
         else
-          echo "❌ Failed to update API URL"
-          exit 1
+          echo "✅ Using default production API URL"
         fi
 
         echo "Using development version: $DEV_VERSION"
@@ -197,7 +197,11 @@ jobs:
         # Check nested directories too
         find src/securevector -type d -exec test -e '{}/__init__.py' \; -print || find src/securevector -type d ! -path "src/securevector/__pycache__*" -exec sh -c 'test -e "$1/__init__.py" || echo "Missing __init__.py in: $1"' _ {} \;
 
-        echo "⚠️  Development build with dev API endpoint (scandev.securevector.io)"
+        if [ -n "$API_URL" ]; then
+          echo "⚠️  Development build with custom API endpoint: $API_URL"
+        else
+          echo "⚠️  Development build with production API endpoint"
+        fi
     
     - name: Security scan before build
       run: |
@@ -210,9 +214,8 @@ jobs:
           exit 1
         fi
 
-        # Note: API URL is now automatically determined by git branch
-        # No need to check for hardcoded URLs as they're set dynamically
-        echo "✅ API URL is automatically set based on branch (develop = scandev.securevector.io)"
+        # Note: API URL is configurable via workflow input
+        echo "✅ API URL is set via workflow input (default: production)"
 
         echo "✅ Security scan passed"
 

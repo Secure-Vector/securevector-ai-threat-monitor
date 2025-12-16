@@ -24,8 +24,8 @@ class TestAPIModeConfig:
     def test_default_api_url(self):
         """Test that default API URL is set to production"""
         config = APIModeConfig()
-        # Default URL should be production (dev URL is set during build)
-        assert config.api_url in ["https://scan.securevector.io", "https://scandev.securevector.io"]
+        # Default URL should be production
+        assert config.api_url == "https://scan.securevector.io"
 
     def test_api_url_override(self):
         """Test that API URL can be manually overridden"""
@@ -250,15 +250,11 @@ class TestAPIAnalyzerEndpoint:
 
         analyzer.analyze_prompt("Test prompt")
 
-        # Verify the URL - should be either production or dev based on branch
+        # Verify the URL is production endpoint
         call_args = mock_post.call_args
         url = call_args.args[0]
 
-        # URL should match the build-time selection
-        assert url in [
-            "https://scan.securevector.io/analyze",
-            "https://scandev.securevector.io/analyze"
-        ]
+        assert url == "https://scan.securevector.io/analyze"
 
     @patch("requests.Session.post")
     def test_batch_endpoint_url(self, mock_post):
@@ -285,14 +281,11 @@ class TestAPIAnalyzerEndpoint:
 
         analyzer.analyze_batch(["Test prompt"])
 
-        # Verify the URL includes /batch and uses correct base URL
+        # Verify the URL includes /batch endpoint
         call_args = mock_post.call_args
         url = call_args.args[0]
 
-        assert url in [
-            "https://scan.securevector.io/analyze/batch",
-            "https://scandev.securevector.io/analyze/batch"
-        ]
+        assert url == "https://scan.securevector.io/analyze/batch"
 
 
 class TestAPIAnalyzerResponses:
