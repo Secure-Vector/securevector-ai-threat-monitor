@@ -39,7 +39,6 @@ docker logs -f securevector-mcp
 
 **Available Images:**
 - `securevectorrepo/securevector-mcp-server:latest` - Production
-- `securevectorrepo/securevector-mcp-server:latest-dev` - Development
 
 ---
 
@@ -97,7 +96,6 @@ Add to your config file:
 
 **Configuration Location:** `.cursor/mcp.json` in project root or `~/.cursor/mcp.json` globally
 
-**Production Container:**
 ```json
 {
   "mcpServers": {
@@ -113,32 +111,6 @@ Add to your config file:
         "--direct-mode",
         "--mode",
         "production"
-      ],
-      "env": {
-        "SECUREVECTOR_MCP_TRANSPORT": "stdio",
-        "SECUREVECTOR_MCP_LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-
-**Development Container:**
-```json
-{
-  "mcpServers": {
-    "securevector": {
-      "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "securevector-mcp-dev",
-        "python",
-        "-m",
-        "securevector.mcp",
-        "--direct-mode",
-        "--mode",
-        "development"
       ],
       "env": {
         "SECUREVECTOR_MCP_TRANSPORT": "stdio",
@@ -168,11 +140,6 @@ Use the same configuration as Claude Code above. The config file location may be
 docker build -f Dockerfile.mcp -t securevectorrepo/securevector-mcp-server:latest .
 ```
 
-**Development:**
-```bash
-docker build -f Dockerfile.mcp.dev -t securevectorrepo/securevector-mcp-server:latest-dev .
-```
-
 **Multi-platform (for publishing):**
 ```bash
 docker buildx build \
@@ -188,11 +155,6 @@ docker buildx build \
 **Start:**
 ```bash
 docker-compose up -d
-```
-
-**Development:**
-```bash
-docker-compose -f docker-compose.dev.yml up -d
 ```
 
 **View Logs:**
@@ -427,6 +389,6 @@ services:
 ✅ **Claude Desktop:** No special flags needed
 ✅ **Claude Code/Cursor:** Requires `--direct-mode --mode production`
 ✅ **Critical:** `--mode` flag prevents `'str' object` errors
-✅ **Images:** Available on Docker Hub (production and dev)
+✅ **Images:** Available on Docker Hub
 
 For more details, see the [main README](README.md) or [SDK documentation](docs/SDK_USAGE.md).
