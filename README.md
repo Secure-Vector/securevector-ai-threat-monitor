@@ -38,6 +38,48 @@ SecureVector AI Threat Monitor is a complete AI security platform that combines 
 
 **Website:** [securevector.io](https://securevector.io)
 
+---
+
+## What You Get
+
+### 🔓 Open Source SDK
+The core SDK is fully open source and free to use:
+
+![MCP Server Integration](docs/Cursor%20Chat%20with%20Remote%20or%20Local%20MCP%20server%20integration.png)
+*Native MCP server integration with Claude Desktop, Cursor, and other AI tools*
+
+**Included:**
+- ✅ Local threat detection with community rules
+- ✅ Python SDK for any application
+- ✅ MCP server for Claude Desktop/Cursor
+- ✅ Custom YAML rule creation
+- ✅ Batch analysis capabilities
+- ✅ FastAPI, Django, Flask integrations
+
+### 💎 Enterprise Platform (Optional)
+Upgrade to cloud-powered detection and advanced analytics:
+
+![Security Dashboard](docs/Dashboard.png)
+*Real-time security dashboard with threat intelligence and analytics*
+
+![Threat Intelligence](docs/Dashboard-2.png)
+*AI-powered detection methods with detailed threat categorization*
+
+![Detailed Analysis](docs/Threat%20Analysis%20Details.png)
+*In-depth threat analysis with confidence scores and forensic data*
+
+**Additional Features:**
+- 🤖 AI-enhanced detection
+- 📊 Real-time monitoring dashboard
+- 📈 Advanced analytics and reporting
+- 🎯 Custom rule builder (web-based)
+- 👥 Team collaboration tools
+- 🔐 Enterprise security features
+
+[🚀 **Try Free Platform**](https://app.securevector.io) | [📊 **See Live Demo**](https://securevector.io/demo) | [💼 **Enterprise Pricing**](https://securevector.io/pricing)
+
+---
+
 ## Installation
 
 ```bash
