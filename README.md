@@ -96,8 +96,8 @@ if result.is_threat:
 
 **Three Deployment Modes:**
 - **`local`** (default) - Pattern detection, zero data sharing, <50ms analysis
-- **`api`** - Cloud ML detection for advanced threats
-- **`hybrid`** - Local first, escalate high-risk inputs to cloud
+- **`api`** - Cloud ML detection for advanced threats (requires API key from [app.securevector.io](https://app.securevector.io))
+- **`hybrid`** - Local first, escalate high-risk inputs to cloud (requires API key from [app.securevector.io](https://app.securevector.io))
 
 **Also available as decorator:** Use `@secure_input` to automatically validate function parameters. See [Use Cases](USECASES.md) for examples.
 
