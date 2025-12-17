@@ -53,7 +53,7 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 </td>
 <td width="50%" valign="top">
 
-#### Enterprise
+#### Professional/Enterprise
 
 **Production-ready for businesses of all sizes**
 
