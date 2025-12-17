@@ -51,12 +51,13 @@ This Contributor License Agreement ("CLA") clarifies the intellectual property l
 You grant to SecureVector a perpetual, worldwide, non-exclusive, royalty-free, irrevocable copyright license to:
 
 - ✅ Use, reproduce, and modify your contributions
-- ✅ Publicly display and distribute your contributions  
+- ✅ Publicly display and distribute your contributions
 - ✅ Prepare derivative works based on your contributions
 - ✅ Sublicense the above rights to third parties
 - ✅ Include your contributions in commercial products
-- ✅ **Relicense your contributions under any license** including copyleft, permissive, commercial, or proprietary licenses
-- ✅ **Change the project license** using your contributions without additional consent
+- ✅ **Dual-license your contributions** for both open source (Apache 2.0) and commercial versions
+- ✅ **Sublicense to commercial customers** under proprietary terms without additional consent
+- ✅ **Base open source version** remains under Apache 2.0 license permanently
 
 ### 3. Patent License Grant
 
@@ -102,9 +103,9 @@ SecureVector agrees to:
 ### 7. License Change Rights and Limitations
 
 **SecureVector Rights:**
-- 🔄 **License changes permitted** for future versions using any license model
-- 🔄 **Dual licensing allowed** for commercial and open source versions
-- 🔄 **No contributor consent required** for license changes to new versions
+- 🔄 **Dual licensing permitted** for commercial and open source versions
+- 🔄 **Commercial sublicensing allowed** without additional contributor consent
+- 🔄 **Open source base remains Apache 2.0** - no license change for the core open source project
 
 **Open Source Commitment:**
 - ✅ **Current Apache 2.0 version** will remain available under Apache 2.0
@@ -146,7 +147,7 @@ SecureVector has no obligation to:
 
 **Liability Limitation:**
 - 🚫 **No liability** for any damages arising from contributions or their use
-- 🚫 **Maximum liability limited** to $100 USD in aggregate
+- 🚫 **Maximum liability** shall not exceed the greater of (i) $1,000 USD or (ii) amounts paid to you by SecureVector in the 12 months preceding the claim (which is $0 for volunteer contributions)
 - 🚫 **No liability** for indirect, consequential, or punitive damages
 - ⚠️ **Standard Apache 2.0 limitations** apply where applicable
 
