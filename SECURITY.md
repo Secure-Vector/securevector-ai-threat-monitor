@@ -5,7 +5,7 @@
 
 ---
 
-## 🔒 Our Security Commitment
+## Our Security Commitment
 
 Security is at the core of SecureVector. We take the security of our software and our users' data seriously. This document outlines our security practices and how to report vulnerabilities.
 
@@ -26,7 +26,7 @@ We provide security updates for the following versions:
 
 ---
 
-## 🚨 Reporting a Vulnerability
+## Reporting a Vulnerability
 
 ### How to Report
 
@@ -84,7 +84,7 @@ Please do **NOT**:
 
 ---
 
-## ⏱️ Our Response Process
+## Our Response Process
 
 ### Timeline
 
@@ -121,7 +121,7 @@ We use the CVSS 3.1 scoring system:
 
 ---
 
-## 🏆 Recognition
+## Recognition
 
 ### Hall of Fame
 
@@ -149,7 +149,7 @@ As a small open source project, we cannot offer monetary bug bounties at this ti
 
 ---
 
-## 🔐 Security Best Practices
+## Security Best Practices
 
 ### For Users
 
@@ -232,7 +232,7 @@ As a small open source project, we cannot offer monetary bug bounties at this ti
 
 ---
 
-## 🔍 Known Security Considerations
+## Known Security Considerations
 
 ### Design Decisions
 
@@ -297,7 +297,7 @@ For highly sensitive vulnerabilities, you may encrypt your email:
 
 ---
 
-## 🔒 Past Security Advisories
+## Past Security Advisories
 
 ### 2025
 
@@ -309,7 +309,7 @@ We will publish all security advisories at:
 
 ---
 
-## ✅ Security Compliance
+## Security Compliance
 
 ### Standards & Frameworks
 

@@ -171,4 +171,4 @@ This project may be used in commercial products. Please maintain professionalism
 
 **Remember**: We're building security tools to protect AI applications. Let's build a community that's as secure, welcoming, and reliable as the tools we create.
 
-Thank you for helping make SecureVector a welcoming and productive community! 🛡️
+Thank you for helping make SecureVector a welcoming and productive community!

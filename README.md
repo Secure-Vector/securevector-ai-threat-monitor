@@ -3,7 +3,7 @@
 <div align="center">
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![PyPI version](https://badge.fury.io/py/securevector-ai-monitor.svg)](https://badge.fury.io/py/securevector-ai-monitor)
+[![PyPI version](https://img.shields.io/pypi/v/securevector-ai-monitor.svg)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://pepy.tech/badge/securevector-ai-monitor)](https://pepy.tech/project/securevector-ai-monitor)
 
