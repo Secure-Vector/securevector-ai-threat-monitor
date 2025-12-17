@@ -11,7 +11,7 @@ Security is at the core of SecureVector. We take the security of our software an
 
 ---
 
-## 🛡️ Supported Versions
+## Supported Versions
 
 We provide security updates for the following versions:
 
