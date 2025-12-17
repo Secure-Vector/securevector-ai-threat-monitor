@@ -1,6 +1,9 @@
 name: Develop Branch Preview Publish
 
 on:
+  push:
+    branches:
+      - develop
   workflow_dispatch:
     inputs:
       api_url:
