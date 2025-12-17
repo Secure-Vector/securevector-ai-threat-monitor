@@ -57,11 +57,13 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 **Production-ready for businesses of all sizes**
 
-- ✓ Expert-maintained rule library
-- ✓ ML-powered threat analysis
-- ✓ Real-time dashboard & analytics
-- ✓ Priority support & SLAs
-- ✓ Team collaboration tools
+- ✓ Expert-curated rule library
+- ✓ Multi-stage ML threat analysis
+- ✓ Real-time security dashboard
+- ✓ Centralized rule management
+- ✓ Team collaboration features
+- ✓ Remote MCP server
+- ✓ Webhook notifications for threats
 
 **[View Pricing →](https://www.securevector.io/pricing)**
 
