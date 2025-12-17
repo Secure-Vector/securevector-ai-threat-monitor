@@ -11,19 +11,18 @@
 
 </div>
 
-**Secure AI agents and applications from prompt injection, jailbreaks, system prompt extraction, and data exfiltration.**
+**AI apps face constant security threats. Here's how to protect yours.**
 
-Built for **n8n**, **LangGraph**, **CrewAI**, and all AI frameworks. Choose **self-hosted** pattern detection or **cloud ML** for advanced threat analysis.
+Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)—attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
 
-> **Open Source:** Free forever under Apache 2.0
-> **Enterprise:** Expert-maintained rules + ML detection ([View Pricing](https://www.securevector.io/pricing))
+SecureVector uses **context-aware pattern detection** to block prompt injection, jailbreaks, tool manipulation, and data exfiltration—**before attacks reach your AI**.
 
----
+**Open Source:** Self-hosted pattern detection • OWASP LLM Top 10 coverage • Zero data sharing
+**Detection:** Community rules (free) or Expert ML models (enterprise)
+**Deployment:** Run anywhere—local, cloud, or hybrid
 
-## Threat Detection in Action
-
-![Threat Analysis](docs/Threat%20Analysis%20Details.png)
-*Real-time threat analysis with detailed risk assessment and forensic data*
+> **Free Forever:** Apache 2.0 license • Community detection rules • Self-hosted
+> **Enterprise:** Expert-maintained rules • ML threat analysis • Priority support ([View Pricing](https://www.securevector.io/pricing))
 
 ---
 
