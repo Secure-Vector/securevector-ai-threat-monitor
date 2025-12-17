@@ -250,7 +250,7 @@ As a small open source project, we cannot offer monetary bug bounties at this ti
 - TLS 1.3 encryption for all communications
 - API keys hashed before storage
 - 30-day data retention maximum
-- See [Privacy Policy](PRIVACY_POLICY.md) for details
+- See [Privacy Policy](../docs/legal/PRIVACY_POLICY.md) for details
 
 ### Dependencies
 
@@ -273,8 +273,8 @@ We carefully audit all dependencies:
 
 ### Related Documentation
 
-- [Privacy Policy](PRIVACY_POLICY.md) - Data handling and privacy
-- [Contributor Agreement](CONTRIBUTOR_AGREEMENT.md) - Security responsibilities
+- [Privacy Policy](../docs/legal/PRIVACY_POLICY.md) - Data handling and privacy
+- [Contributor Agreement](../docs/legal/CONTRIBUTOR_AGREEMENT.md) - Security responsibilities
 - [API Documentation](docs/API_SPECIFICATION.md) - Secure API usage
 
 ### Security Contacts
@@ -348,7 +348,7 @@ We deeply appreciate the security research community's efforts to keep open sour
 
 **Found a vulnerability?** Report it: security@securevector.io
 
-**Want to help?** Contribute: [CONTRIBUTOR_AGREEMENT.md](CONTRIBUTOR_AGREEMENT.md)
+**Want to help?** Contribute: [CONTRIBUTOR_AGREEMENT.md](../docs/legal/CONTRIBUTOR_AGREEMENT.md)
 
 ---
 
