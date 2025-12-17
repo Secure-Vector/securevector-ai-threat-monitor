@@ -11,7 +11,7 @@
 
 </div>
 
-**AI apps face constant security threats. Here's how to protect yours.**
+**Your AI is vulnerable to attack. Here's how to protect it**
 
 Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)—attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
 
