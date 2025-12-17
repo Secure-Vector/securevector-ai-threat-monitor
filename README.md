@@ -24,7 +24,7 @@ Whether you're building a **customer support bot**, **RAG application**, or **mu
 ### Three Ways SecureVector Protects Your AI
 
 **Open Source & Privacy-First**
-Self-hosted pattern detection with OWASP LLM Top 10 coverage and more. Zero data sharing. Full control.
+Community detection rules covering OWASP LLM Top 10 and more. Curate your own custom rules on top. Zero data sharing. Full control.
 
 **Flexible Detection Options**
 Start free with community rules. Upgrade to expert-maintained ML models for production.
@@ -42,12 +42,12 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 #### Free Forever
 
-**Perfect for developers and small teams**
+**Perfect for developers and small teams (recommended for non-production)**
 
 - ✓ Apache 2.0 license
-- ✓ Community detection rules
+- ✓ Community detection rules (OWASP LLM Top 10 and more)
+- ✓ Create custom rules on top of community rules
 - ✓ Self-hosted deployment
-- ✓ OWASP LLM Top 10 coverage
 - ✓ Zero data sharing
 
 </td>
@@ -55,7 +55,7 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 #### Enterprise
 
-**Production-ready for organizations**
+**Production-ready for businesses of all sizes**
 
 - ✓ Expert-maintained rule library
 - ✓ ML-powered threat analysis
