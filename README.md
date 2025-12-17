@@ -235,7 +235,7 @@ pip install securevector-ai-monitor
 - Custom threat detection patterns
 - Privacy-sensitive applications
 
-### Professiona/Enterprise Offering (Optional)
+### Professional/Enterprise Offering (Optional)
 
 Expert-maintained rules and advanced features for production teams.
 
@@ -258,15 +258,15 @@ Expert-maintained rules and advanced features for production teams.
 
 ## Screenshots & Demos 
 
-### Real-Time Security Dashboard (professional/enterprise feature)
+### Real-Time Security Dashboard (Professional/Enterprise feature)
 ![Security Dashboard](docs/Dashboard.png)
 *Monitor threats, detection rates, and security metrics in real-time*
 
-### Threat Intelligence Overview (professional/enterprise feature)
+### Threat Intelligence Overview (Professional/Enterprise feature)
 ![Threat Intelligence](docs/Dashboard-2.png)
 *AI-powered detection with detailed threat categorization*
 
-### Detailed Threat Analysis (professional/enterprise feature)
+### Detailed Threat Analysis (Professional/Enterprise feature)
 ![Threat Analysis](docs/Threat%20Analysis%20Details.png)
 *In-depth security assessments with confidence scores and forensic data*
 
