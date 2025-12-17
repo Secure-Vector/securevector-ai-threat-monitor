@@ -276,7 +276,8 @@ python -m securevector.benchmark
 - [MCP Server Guide](MCP_GUIDE.md)
 - [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)
 - [Use Cases & Examples](USECASES.md)
-- [Security Policy](SECURITY.md)
+- [Privacy Policy](PRIVACY_POLICY.md)
+- [Security Policy](SECURITY.md) - Vulnerability disclosure, security best practices
 - [API Reference](docs/API_SPECIFICATION.md)
 
 ---
@@ -312,6 +313,12 @@ mypy src/
 ---
 
 ## Legal Disclaimers
+
+**Privacy & Data:**
+- **Local Mode (Default):** No data leaves your infrastructure. Complete privacy.
+- **API/Cloud Mode:** Data transmitted to our servers for analysis. See [Privacy Policy](PRIVACY_POLICY.md) for details.
+
+**Export Control:** This software may be subject to U.S. export control regulations. By downloading or using this software, you represent that you are not located in a country subject to U.S. embargo and are not on any U.S. denied party list.
 
 **No Warranty:** This software is provided "AS IS" under the Apache License 2.0, without warranties or guarantees of any kind, express or implied, including but not limited to merchantability, fitness for a particular purpose, or non-infringement.
 
