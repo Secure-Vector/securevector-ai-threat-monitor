@@ -13,10 +13,10 @@ rules:
     mitre_attack_ids:
     - T1055
     references:
-    - description: Proprietary methodology inspired by OWASP research
+    - description: Community-developed methodology inspired by OWASP research
       title: SecureVector Prompt Injection Detection
-      url: internal://securevector/rules/core/threat-detection/prompt-injection
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - prompt_injection
     - manipulation
@@ -52,10 +52,10 @@ rules:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
     references:
-    - description: Proprietary methodology for output validation
+    - description: Community-developed methodology for output validation
       title: SecureVector Output Security Analysis
-      url: internal://securevector/rules/core/threat-detection/output-handling
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - output_validation
     - xss
@@ -106,7 +106,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - training
     - poisoning
@@ -129,7 +129,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - dos
     - resource_exhaustion
@@ -151,7 +151,7 @@ rules:
     created_at: '2024-01-15T00:00:00Z'
     mitre_attack_ids:
     - T1552
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - pii
     - credentials
@@ -190,7 +190,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - plugins
     - privilege_escalation
@@ -212,7 +212,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - autonomous
     - excessive_permissions
@@ -250,7 +250,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - overreliance
     - misinformation
@@ -274,7 +274,7 @@ rules:
     created_at: '2024-01-15T00:00:00Z'
     mitre_attack_ids:
     - T1041
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - model_theft
     - ip_protection

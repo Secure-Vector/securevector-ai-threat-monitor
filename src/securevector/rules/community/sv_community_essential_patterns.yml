@@ -16,8 +16,8 @@ rules:
     references:
     - description: Core security patterns for all local deployments
       title: SecureVector Essential Security Patterns
-      url: internal://securevector/rules/local/essential-patterns
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - instruction_override
     - direct_injection
@@ -84,8 +84,8 @@ rules:
     references:
     - description: Essential detection of harmful persona activation
       title: SecureVector Jailbreak Persona Detection
-      url: internal://securevector/rules/local/jailbreak-personas
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - persona_activation
     - jailbreak_attempt
@@ -149,8 +149,8 @@ rules:
     references:
     - description: Essential credential extraction prevention
       title: SecureVector Credential Protection
-      url: internal://securevector/rules/local/credential-protection
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - credential_extraction
     - api_key_theft
@@ -214,8 +214,8 @@ rules:
     references:
     - description: Essential safety mechanism protection
       title: SecureVector Safety Bypass Detection
-      url: internal://securevector/rules/local/safety-bypass
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - safety_bypass
     - security_override
@@ -279,8 +279,8 @@ rules:
     references:
     - description: Detection of system reconnaissance attempts
       title: SecureVector System Probing Detection
-      url: internal://securevector/rules/local/system-probing
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - system_probing
     - model_fingerprinting
