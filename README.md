@@ -1,12 +1,8 @@
 <div align="center">
 
-<br>
+<h1>SecureVector AI Threat Monitor</h1>
 
-<img src="docs/logo.png" alt="SecureVector AI Threat Monitor" width="450">
-
-<h1>AI Threat Monitor</h1>
-
-<p><strong>Protect your AI from prompt injection, jailbreaks, and data exfiltration</strong></p>
+<p><strong>Protect your AI from prompt injection, jailbreaks, data exfiltration and more..</strong></p>
 
 <br>
 
