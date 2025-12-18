@@ -1,3 +1,9 @@
+<div align="center">
+
+![SecureVector Logo](docs/logo.png)
+
+</div>
+
 # SecureVector AI Threat Monitor
 
 <div align="center">
@@ -15,7 +21,7 @@
 
 **Your AI is vulnerable to attack. Here's how to protect it.**
 
-Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)—attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
+Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
 
 **SecureVector blocks threats before they reach your AI** using context-aware pattern detection for prompt injection, jailbreaks, tool manipulation, and data exfiltration.
 
@@ -118,13 +124,7 @@ See [MCP Server Guide](MCP_GUIDE.md) for complete installation and configuration
 
 ## Common Use Cases
 
-> **Code Examples Disclaimer**
->
-> The code examples below are provided for **educational purposes only** to demonstrate SDK integration patterns. They are simplified for clarity and should not be used directly in production without proper error handling, security hardening, testing, and compliance verification.
->
-> **Third-Party Services:** Examples may reference third-party services (OpenAI, LangGraph, etc.) for illustration. Users must obtain their own API keys and comply with respective terms of service. SecureVector is not affiliated with or endorsed by these services.
->
-> **All examples provided "AS IS" without warranty under Apache 2.0 License.** See [LICENSE](LICENSE) for terms.
+> **⚠️ Important:** Code examples are for educational purposes only and simplified for clarity. Not production-ready without proper error handling, security hardening, and testing. See [Legal Disclaimers](#legal-disclaimers) for full terms.
 
 ---
 
@@ -199,7 +199,7 @@ n8n • LangGraph • LangChain • CrewAI • AutoGen • FastAPI • Django �
 
 ---
 
-## What It Detects
+## What It Detects (Local Mode)
 
 - **Prompt Injection** - Attempts to override system instructions or manipulate model behavior
 - **Jailbreak Attempts** - Efforts to bypass safety guardrails and content filters
@@ -380,6 +380,9 @@ mypy src/
 ---
 
 ## Legal Disclaimers
+
+**Code Examples:**
+The code examples in this documentation are provided for **educational purposes only** to demonstrate SDK integration patterns. They are simplified for clarity and should not be used directly in production without proper error handling, security hardening, testing, and compliance verification. Examples may reference third-party services (OpenAI, LangGraph, etc.) for illustration purposes only. Users must obtain their own API keys and comply with respective terms of service. SecureVector is not affiliated with or endorsed by these services. All examples provided "AS IS" without warranty under Apache 2.0 License.
 
 **Privacy & Data:**
 - **Local Mode (Default):** No data leaves your infrastructure. Complete privacy.
