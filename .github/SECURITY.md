@@ -137,15 +137,13 @@ We maintain a public list of security researchers who have helped improve Secure
 
 ### What We Offer
 
-As a small open source project, we cannot offer monetary bug bounties at this time. However, we provide:
+As a small open source project, we do not offer monetary bug bounties. However, we provide:
 
 - ✅ **Public credit** in release notes and security advisories
 - ✅ **Hall of Fame** recognition in this file
 - ✅ **Early disclosure** of the fix
 - ✅ **Direct communication** with our development team
 - ✅ **CVE credit** if a CVE is assigned
-
-**Future:** We plan to offer bug bounties once we have commercial revenue.
 
 ---
 

@@ -1,12 +1,12 @@
 <div align="center">
 
-![SecureVector Logo](docs/logo.png)
+<img src="docs/logo.png" alt="SecureVector AI Threat Monitor" width="400">
 
-</div>
+<br>
 
-# SecureVector AI Threat Monitor
+# AI Threat Monitor
 
-<div align="center">
+<br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI version](https://img.shields.io/pypi/v/securevector-ai-monitor.svg)](https://pypi.org/project/securevector-ai-monitor)

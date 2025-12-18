@@ -155,8 +155,8 @@ SecureVector has no obligation to:
 **Governing Law:** This agreement is governed by Delaware law, USA, without regard to conflict of law principles.
 
 **Dispute Resolution:**
-- ⚖️ **Binding arbitration** required for disputes over $10,000
-- ⚖️ **Delaware courts** have exclusive jurisdiction for smaller disputes  
+- ⚖️ **All disputes** shall be resolved through binding arbitration under Delaware law
+- ⚖️ **Delaware courts** have exclusive jurisdiction for enforcement of arbitration awards
 - ⚖️ **No class actions** - all disputes must be individual
 - ⚖️ **Fee shifting** - prevailing party recovers attorney fees for frivolous claims
 
