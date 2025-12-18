@@ -8,10 +8,10 @@ rules:
     mitre_attack_ids:
     - T1055
     references:
-    - description: Proprietary detection methodology for injection attacks
+    - description: Community-developed detection patterns for injection attacks
       title: SecureVector Process Injection Analysis
-      url: internal://securevector/rules/core/threat-intel/process-injection
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - injection
     - evasion
@@ -52,10 +52,10 @@ rules:
     mitre_attack_ids:
     - T1041
     references:
-    - description: Advanced detection patterns for data theft attempts
+    - description: Community-developed patterns for data theft attempts
       title: SecureVector Data Exfiltration Analysis
-      url: internal://securevector/rules/core/threat-intel/data-exfiltration
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - exfiltration
     - data_theft
@@ -96,10 +96,10 @@ rules:
     mitre_attack_ids:
     - T1552
     references:
-    - description: Proprietary patterns for detecting credential access attempts
+    - description: Community-developed patterns for detecting credential access attempts
       title: SecureVector Credential Security Analysis
-      url: internal://securevector/rules/core/threat-intel/credential-discovery
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - credentials
     - discovery
@@ -144,10 +144,10 @@ rules:
     mitre_attack_ids:
     - T1071
     references:
-    - description: Advanced detection of covert communication channels
+    - description: Community-based detection of covert communication channels
       title: SecureVector Protocol Security Analysis
-      url: internal://securevector/rules/core/threat-intel/protocol-analysis
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - communication
     - covert_channel
@@ -190,8 +190,8 @@ rules:
     references:
     - description: Detection patterns for account discovery attempts
       title: SecureVector Account Security Analysis
-      url: internal://securevector/rules/core/threat-intel/account-enumeration
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - discovery
     - enumeration
@@ -232,10 +232,10 @@ rules:
     mitre_attack_ids:
     - T1059
     references:
-    - description: Advanced patterns for detecting command execution attempts
+    - description: Community patterns for detecting command execution attempts
       title: SecureVector Command Security Analysis
-      url: internal://securevector/rules/core/threat-intel/command-injection
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - execution
     - command_injection
@@ -276,10 +276,10 @@ rules:
     mitre_attack_ids:
     - T1566
     references:
-    - description: Advanced detection of phishing and social engineering attempts
+    - description: Community-based detection of phishing and social engineering attempts
       title: SecureVector Social Engineering Analysis
-      url: internal://securevector/rules/core/threat-intel/social-engineering
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - phishing
     - social_engineering
@@ -322,8 +322,8 @@ rules:
     references:
     - description: Detection patterns for content disguise and impersonation
       title: SecureVector Masquerading Analysis
-      url: internal://securevector/rules/core/threat-intel/masquerading
-    source: securevector_proprietary
+      url: https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community
+    source: securevector_community
     tags:
     - masquerading
     - evasion
@@ -361,7 +361,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - adversarial_ml
     - evasion
@@ -399,7 +399,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - privacy_attack
     - model_extraction
@@ -440,7 +440,7 @@ rules:
     kill_chain_phase:
     - reconnaissance
     - exploitation
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - privacy_attack
     - inference_attack
@@ -472,7 +472,7 @@ rules:
     kill_chain_phase:
     - weaponization
     - delivery
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - poisoning
     - backdoor
@@ -496,7 +496,7 @@ rules:
     kill_chain_phase:
     - reconnaissance
     - actions_objectives
-    source: securevector_proprietary
+    source: securevector_community
     tags:
     - model_theft
     - api_abuse

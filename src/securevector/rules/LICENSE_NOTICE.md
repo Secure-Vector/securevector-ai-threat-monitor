@@ -198,6 +198,44 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
+## 🔗 Third-Party Framework Attributions
+
+### MITRE ATT&CK®
+
+Some security rules reference MITRE ATT&CK® technique IDs for categorization and mapping purposes.
+
+**Attribution:**
+- MITRE ATT&CK® is a registered trademark of The MITRE Corporation
+- Framework content available at: https://attack.mitre.org/
+- Our use of MITRE ATT&CK® IDs is for informational and educational purposes
+- This does not imply endorsement by or affiliation with The MITRE Corporation
+- MITRE ATT&CK® framework is used under fair use for security research and threat detection
+
+**License:** MITRE ATT&CK® content is available under [Terms of Use](https://attack.mitre.org/resources/terms-of-use/)
+
+### OWASP Top 10 for LLMs
+
+Some detection rules are informed by and reference the OWASP Top 10 for Large Language Model Applications project.
+
+**Attribution:**
+- OWASP® is a registered trademark of the OWASP Foundation
+- Project URL: https://owasp.org/www-project-top-10-for-llm/
+- OWASP materials are used under Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)
+- Our detection patterns are inspired by OWASP research but represent independent implementations
+- This does not imply endorsement by or affiliation with the OWASP Foundation
+
+**License:** [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+
+### Academic Research References
+
+Some rules reference academic research papers for methodology and validation. All academic references are properly cited within the rule metadata. We do not claim ownership of referenced research and use citations for educational and research purposes under fair use.
+
+### Third-Party AI Service Names
+
+Detection rules may reference third-party AI services and products (OpenAI®, Anthropic®, ChatGPT®, Claude®, GPT®, etc.) in threat detection patterns. These names are trademarks of their respective owners. Our use is purely for functional security detection purposes and does not imply endorsement, affiliation, partnership, or sponsorship by these services or their providers.
+
+---
+
 ## ⚠️ Important Legal Disclaimers
 
 ### No Warranty

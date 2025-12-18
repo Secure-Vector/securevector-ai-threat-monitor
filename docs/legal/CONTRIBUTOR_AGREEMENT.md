@@ -146,18 +146,17 @@ SecureVector has no obligation to:
 - ⚠️ **No guarantee** of contribution acceptance or inclusion
 
 **Liability Limitation:**
-- 🚫 **No liability** for any damages arising from contributions or their use
-- 🚫 **Maximum liability** shall not exceed the greater of (i) $1,000 USD or (ii) amounts paid to you by SecureVector in the 12 months preceding the claim (which is $0 for volunteer contributions)
-- 🚫 **No liability** for indirect, consequential, or punitive damages
-- ⚠️ **Standard Apache 2.0 limitations** apply where applicable
+- 🚫 **No liability whatsoever** for any damages (direct, indirect, incidental, special, consequential, or punitive) arising from contributions or their use
+- 🚫 **Both parties provide contributions "AS IS"** without any liability or warranty obligations
+- ⚠️ **Standard Apache 2.0 limitations** apply - see Section 7 and 8 of Apache License 2.0
 
 ### 12. Governing Law and Dispute Resolution
 
 **Governing Law:** This agreement is governed by Delaware law, USA, without regard to conflict of law principles.
 
 **Dispute Resolution:**
-- ⚖️ **Binding arbitration** required for disputes over $10,000
-- ⚖️ **Delaware courts** have exclusive jurisdiction for smaller disputes  
+- ⚖️ **All disputes** shall be resolved through binding arbitration under Delaware law
+- ⚖️ **Delaware courts** have exclusive jurisdiction for enforcement of arbitration awards
 - ⚖️ **No class actions** - all disputes must be individual
 - ⚖️ **Fee shifting** - prevailing party recovers attorney fees for frivolous claims
 

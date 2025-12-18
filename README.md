@@ -1,6 +1,10 @@
-# SecureVector AI Threat Monitor
-
 <div align="center">
+
+<h1>SecureVector AI Threat Monitor</h1>
+
+<p><strong>Protect your AI from prompt injection, jailbreaks, data exfiltration and more..</strong></p>
+
+<br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI version](https://img.shields.io/pypi/v/securevector-ai-monitor.svg)](https://pypi.org/project/securevector-ai-monitor)
@@ -15,7 +19,7 @@
 
 **Your AI is vulnerable to attack. Here's how to protect it.**
 
-Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)—attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
+Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
 
 **SecureVector blocks threats before they reach your AI** using context-aware pattern detection for prompt injection, jailbreaks, tool manipulation, and data exfiltration.
 
@@ -40,9 +44,9 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 <tr>
 <td width="50%" valign="top">
 
-#### Free Forever
+#### Open Source Edition
 
-**Perfect for developers and small teams (recommended for non-production)**
+**Perfect for developers and small teams**
 
 - ✓ Apache 2.0 license
 - ✓ Community detection rules (OWASP LLM Top 10 and more)
@@ -99,7 +103,7 @@ if result.is_threat:
 - **`api`** - Cloud ML detection for advanced threats (requires API key from [app.securevector.io](https://app.securevector.io))
 - **`hybrid`** - Local first, escalate high-risk inputs to cloud (requires API key from [app.securevector.io](https://app.securevector.io))
 
-**Also available as decorator:** Use `@secure_input` to automatically validate function parameters. See [Use Cases](USECASES.md) for examples.
+**Also available as decorator:** Use `@secure_input` to automatically validate function parameters. See [Use Cases](docs/USECASES.md) for examples.
 
 ---
 
@@ -110,21 +114,15 @@ if result.is_threat:
 pip install securevector-ai-monitor[mcp]
 ```
 
-See [MCP Server Guide](MCP_GUIDE.md) for complete installation and configuration instructions.
+See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configuration instructions.
 
-**Configuration:** Set mode (`local`/`api`/`hybrid`), API keys, and custom rules - see [MCP Configuration](MCP_GUIDE.md#configuration)
+**Configuration:** Set mode (`local`/`api`/`hybrid`), API keys, and custom rules - see [MCP Configuration](docs/MCP_GUIDE.md#configuration)
 
 ---
 
 ## Common Use Cases
 
-> **Code Examples Disclaimer**
->
-> The code examples below are provided for **educational purposes only** to demonstrate SDK integration patterns. They are simplified for clarity and should not be used directly in production without proper error handling, security hardening, testing, and compliance verification.
->
-> **Third-Party Services:** Examples may reference third-party services (OpenAI, LangGraph, etc.) for illustration. Users must obtain their own API keys and comply with respective terms of service. SecureVector is not affiliated with or endorsed by these services.
->
-> **All examples provided "AS IS" without warranty under Apache 2.0 License.** See [LICENSE](LICENSE) for terms.
+> **⚠️ Important:** Code examples are for educational purposes only and simplified for clarity. Not production-ready without proper error handling, security hardening, and testing. See [Legal Disclaimers](#legal-disclaimers) for full terms.
 
 ---
 
@@ -187,9 +185,9 @@ def secure_agent_wrapper(agent, user_input: str):
 | **Model Training** | Sanitize training data and prevent data poisoning |
 | **Development & Testing** | Test your AI's security during development |
 
-**[View All Use Cases with Full Code Examples →](USECASES.md)**
+**[View All Use Cases with Full Code Examples →](docs/USECASES.md)**
 
-**Deployment Modes:** Blocking (production) | Non-Blocking (testing/monitoring) | [Learn more →](USECASES.md#blocking-vs-non-blocking)
+**Deployment Modes:** Blocking (production) | Non-Blocking (testing/monitoring) | [Learn more →](docs/USECASES.md#blocking-vs-non-blocking)
 
 ---
 
@@ -199,7 +197,7 @@ n8n • LangGraph • LangChain • CrewAI • AutoGen • FastAPI • Django �
 
 ---
 
-## What It Detects
+## What It Detects (Local Mode)
 
 - **Prompt Injection** - Attempts to override system instructions or manipulate model behavior
 - **Jailbreak Attempts** - Efforts to bypass safety guardrails and content filters
@@ -338,11 +336,10 @@ python -m securevector.benchmark
 
 ## Documentation
 
-- [Installation Guide](INSTALLATION.md)
-- [MCP Server Guide](MCP_GUIDE.md) - MCP configuration, environment variables, SDK config
-- [MCP Configuration](MCP_GUIDE.md#configuration) - Environment variables, SDK config, custom rules
-- [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)
-- [Use Cases & Examples](USECASES.md)
+- [Installation Guide](docs/INSTALLATION.md)
+- [MCP Server Guide](docs/MCP_GUIDE.md) - MCP configuration, environment variables, SDK config
+- [MCP Configuration](docs/MCP_GUIDE.md#configuration) - Environment variables, SDK config, custom rules
+- [Use Cases & Examples](docs/USECASES.md)
 - [Privacy Policy](docs/legal/PRIVACY_POLICY.md)
 - [Security Policy](.github/SECURITY.md) - Vulnerability disclosure, security best practices
 - [API Reference](docs/API_SPECIFICATION.md)
@@ -380,6 +377,9 @@ mypy src/
 ---
 
 ## Legal Disclaimers
+
+**Code Examples:**
+The code examples in this documentation are provided for **educational purposes only** to demonstrate SDK integration patterns. They are simplified for clarity and should not be used directly in production without proper error handling, security hardening, testing, and compliance verification. Examples may reference third-party services (OpenAI, LangGraph, etc.) for illustration purposes only. Users must obtain their own API keys and comply with respective terms of service. SecureVector is not affiliated with or endorsed by these services. All examples provided "AS IS" without warranty under Apache 2.0 License.
 
 **Privacy & Data:**
 - **Local Mode (Default):** No data leaves your infrastructure. Complete privacy.
@@ -420,6 +420,6 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[Get Started](https://docs.securevector.io)** • **[Examples](USECASES.md)** • **[Community](https://github.com/Secure-Vector/securevector-ai-threat-monitor/discussions)**
+**[Get Started](https://docs.securevector.io)** • **[Examples](docs/USECASES.md)** • **[Community](https://github.com/Secure-Vector/securevector-ai-threat-monitor/discussions)**
 
 </div>

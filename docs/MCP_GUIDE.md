@@ -391,4 +391,4 @@ services:
 ✅ **Critical:** `--mode` flag prevents `'str' object` errors
 ✅ **Images:** Available on Docker Hub
 
-For more details, see the [main README](README.md) or [SDK documentation](docs/SDK_USAGE.md).
+For more details, see the [main README](../README.md) or [SDK documentation](SDK_USAGE.md).
