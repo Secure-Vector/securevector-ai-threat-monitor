@@ -44,9 +44,9 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 <tr>
 <td width="50%" valign="top">
 
-#### Free Forever
+#### Open Source Edition
 
-**Perfect for developers and small teams (recommended for non-production)**
+**Perfect for developers and small teams**
 
 - ✓ Apache 2.0 license
 - ✓ Community detection rules (OWASP LLM Top 10 and more)
