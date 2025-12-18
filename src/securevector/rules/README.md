@@ -6,7 +6,7 @@ This directory contains the security rules used by the AI Threat Monitor SDK for
 
 ```
 rules/
-├── community/         # Community rules from llm-rules-builder (used in LOCAL mode)
+├── community/         # Community security rules (used in LOCAL mode)
 │   ├── sv_community_essential_patterns.yml    # Core threat detection patterns
 │   ├── sv_community_prompt_injection.yml      # Prompt injection attempts
 │   ├── sv_community_jailbreak_attempts.yml    # AI jailbreak detection
@@ -25,7 +25,7 @@ rules/
 
 ### Community Rules (LOCAL Mode)
 
-The community rules in this SDK are sourced from the [llm-rules-builder](https://github.com/securevector/llm-rules-builder) project:
+The community rules in this SDK include:
 
 1. **SecureVector Community Rules**: Open-source threat detection patterns maintained by the SecureVector security community
 2. **OWASP LLM Top 10**: Patterns based on OWASP's LLM security framework
@@ -125,7 +125,7 @@ Detection rules aligned with MITRE ATT&CK:
 
 ## 🛠️ Rule Format
 
-Community rules are defined in YAML format following the llm-rules-builder schema:
+Community rules are defined in YAML format:
 
 ```yaml
 rules:
@@ -188,7 +188,6 @@ Users can adjust rule behavior by:
 - [OWASP Top 10 for LLMs](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 - [AI Red Team Playbook](https://aivillage.org/large%20language%20models/threat-modeling-llm/)
 - [Prompt Injection Research](https://arxiv.org/abs/2302.12173)
-- [llm-rules-builder Repository](https://github.com/securevector/llm-rules-builder)
 
 ### Frameworks
 - [MITRE ATT&CK for AI](https://atlas.mitre.org/)
@@ -199,14 +198,12 @@ Users can adjust rule behavior by:
 
 ### Rule Updates
 - **Automatic Updates**: Enable auto-updates for latest threat patterns
-- **Community Contributions**: Contribute to llm-rules-builder repository
 - **API Mode**: Get real-time updates via SecureVector API
 
 ### Getting Help
 - **Documentation**: [https://docs.securevector.io/ai-threat-monitor](https://docs.securevector.io/ai-threat-monitor)
 - **Support**: [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
 - **Security Issues**: security@securevector.io (for security vulnerabilities)
-- **Community**: [GitHub Discussions](https://github.com/securevector/llm-rules-builder/discussions)
 
 ---
 
