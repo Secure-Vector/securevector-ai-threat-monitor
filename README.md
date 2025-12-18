@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="docs/logo.png" alt="SecureVector AI Threat Monitor" width="400">
-
 <br>
 
-# AI Threat Monitor
+<img src="docs/logo.png" alt="SecureVector AI Threat Monitor" width="450">
+
+<h1>AI Threat Monitor</h1>
+
+<p><strong>Protect your AI from prompt injection, jailbreaks, and data exfiltration</strong></p>
 
 <br>
 
@@ -105,7 +107,7 @@ if result.is_threat:
 - **`api`** - Cloud ML detection for advanced threats (requires API key from [app.securevector.io](https://app.securevector.io))
 - **`hybrid`** - Local first, escalate high-risk inputs to cloud (requires API key from [app.securevector.io](https://app.securevector.io))
 
-**Also available as decorator:** Use `@secure_input` to automatically validate function parameters. See [Use Cases](USECASES.md) for examples.
+**Also available as decorator:** Use `@secure_input` to automatically validate function parameters. See [Use Cases](docs/USECASES.md) for examples.
 
 ---
 
@@ -116,9 +118,9 @@ if result.is_threat:
 pip install securevector-ai-monitor[mcp]
 ```
 
-See [MCP Server Guide](MCP_GUIDE.md) for complete installation and configuration instructions.
+See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configuration instructions.
 
-**Configuration:** Set mode (`local`/`api`/`hybrid`), API keys, and custom rules - see [MCP Configuration](MCP_GUIDE.md#configuration)
+**Configuration:** Set mode (`local`/`api`/`hybrid`), API keys, and custom rules - see [MCP Configuration](docs/MCP_GUIDE.md#configuration)
 
 ---
 
@@ -187,9 +189,9 @@ def secure_agent_wrapper(agent, user_input: str):
 | **Model Training** | Sanitize training data and prevent data poisoning |
 | **Development & Testing** | Test your AI's security during development |
 
-**[View All Use Cases with Full Code Examples →](USECASES.md)**
+**[View All Use Cases with Full Code Examples →](docs/USECASES.md)**
 
-**Deployment Modes:** Blocking (production) | Non-Blocking (testing/monitoring) | [Learn more →](USECASES.md#blocking-vs-non-blocking)
+**Deployment Modes:** Blocking (production) | Non-Blocking (testing/monitoring) | [Learn more →](docs/USECASES.md#blocking-vs-non-blocking)
 
 ---
 
@@ -338,11 +340,10 @@ python -m securevector.benchmark
 
 ## Documentation
 
-- [Installation Guide](INSTALLATION.md)
-- [MCP Server Guide](MCP_GUIDE.md) - MCP configuration, environment variables, SDK config
-- [MCP Configuration](MCP_GUIDE.md#configuration) - Environment variables, SDK config, custom rules
-- [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)
-- [Use Cases & Examples](USECASES.md)
+- [Installation Guide](docs/INSTALLATION.md)
+- [MCP Server Guide](docs/MCP_GUIDE.md) - MCP configuration, environment variables, SDK config
+- [MCP Configuration](docs/MCP_GUIDE.md#configuration) - Environment variables, SDK config, custom rules
+- [Use Cases & Examples](docs/USECASES.md)
 - [Privacy Policy](docs/legal/PRIVACY_POLICY.md)
 - [Security Policy](.github/SECURITY.md) - Vulnerability disclosure, security best practices
 - [API Reference](docs/API_SPECIFICATION.md)
@@ -423,6 +424,6 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[Get Started](https://docs.securevector.io)** • **[Examples](USECASES.md)** • **[Community](https://github.com/Secure-Vector/securevector-ai-threat-monitor/discussions)**
+**[Get Started](https://docs.securevector.io)** • **[Examples](docs/USECASES.md)** • **[Community](https://github.com/Secure-Vector/securevector-ai-threat-monitor/discussions)**
 
 </div>
