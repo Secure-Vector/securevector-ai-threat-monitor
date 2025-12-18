@@ -5,6 +5,17 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-12-18
+
+### Changed
+- Updated documentation to reflect self-contained community rules
+- Simplified rule source attribution in README and code comments
+
+### Documentation
+- Updated `src/securevector/rules/README.md` to remove external repository references
+- Cleaned up community rules documentation for clarity
+- Streamlined "Getting Help" and "References" sections
+
 ## [1.3.0] - 2025-12-17
 
 ### Added

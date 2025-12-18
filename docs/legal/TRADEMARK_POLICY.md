@@ -23,7 +23,7 @@ These marks are claimed under common law trademark rights in the United States.
    - "Supports SecureVector API"
 
 2. **Distribute unmodified official releases**
-   - "SecureVector AI Threat Monitor v1.3.0"
+   - "SecureVector AI Threat Monitor v1.3.0+"
    - Using our official package names on PyPI
 
 3. **Educational and informational purposes**
