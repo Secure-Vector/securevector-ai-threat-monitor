@@ -52,6 +52,7 @@ class AnalysisResult(BaseModel):
     analysis_id: str
     processing_time_ms: int
     request_id: Optional[str] = None
+    analysis_source: str = "local"  # "local", "cloud", or "local_fallback"
 
 
 @router.post("/analyze", response_model=AnalysisResult)
@@ -59,13 +60,74 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
     """
     Analyze text content for threats.
 
-    Runs the text through community and custom rules,
-    stores the result in threat intel, and returns the analysis.
+    When cloud mode is enabled, proxies to SecureVector cloud API.
+    Otherwise, runs the text through local community and custom rules.
+    Stores the result in threat intel and returns the analysis.
     """
     start_time = time.perf_counter()
+    analysis_source = "local"
 
     try:
-        # Use analysis service (combines SDK + custom rules)
+        # Check if cloud mode is enabled
+        db = get_database()
+        settings_repo = SettingsRepository(db)
+        settings = await settings_repo.get()
+
+        if settings.cloud_mode_enabled:
+            # Try cloud analysis
+            try:
+                from securevector.app.services.cloud_proxy import (
+                    get_cloud_proxy,
+                    CloudProxyError,
+                )
+
+                proxy = get_cloud_proxy()
+                cloud_result = await proxy.analyze(
+                    text=request.text,
+                    metadata=request.metadata,
+                )
+
+                # Cloud returned result - use it directly
+                processing_time_ms = int(
+                    (time.perf_counter() - start_time) * 1000
+                )
+
+                # Store in threat intel
+                threat_intel_repo = ThreatIntelRepository(db)
+
+                record = await threat_intel_repo.create(
+                    text=request.text,
+                    is_threat=cloud_result.get("is_threat", False),
+                    threat_type=cloud_result.get("threat_type"),
+                    risk_score=cloud_result.get("risk_score", 0),
+                    confidence=cloud_result.get("confidence", 0.0),
+                    matched_rules=cloud_result.get("matched_rules", []),
+                    processing_time_ms=processing_time_ms,
+                    store_text=settings.store_text_content,
+                    request_id=request.request_id,
+                    source=request.source,
+                    session_id=request.session_id,
+                    metadata=request.metadata,
+                )
+
+                return AnalysisResult(
+                    is_threat=cloud_result.get("is_threat", False),
+                    threat_type=cloud_result.get("threat_type"),
+                    risk_score=cloud_result.get("risk_score", 0),
+                    confidence=cloud_result.get("confidence", 0.0),
+                    matched_rules=[],  # Cloud doesn't return detailed rules
+                    analysis_id=record.id,
+                    processing_time_ms=processing_time_ms,
+                    request_id=request.request_id,
+                    analysis_source="cloud",
+                )
+
+            except Exception as e:
+                # Cloud failed, fallback to local
+                logger.warning(f"Cloud analysis failed, falling back to local: {e}")
+                analysis_source = "local_fallback"
+
+        # Use local analysis service (combines SDK + custom rules)
         from securevector.app.services.analysis_service import get_analysis_service
 
         service = get_analysis_service()
@@ -123,6 +185,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
             analysis_id=record.id,
             processing_time_ms=processing_time_ms,
             request_id=request.request_id,
+            analysis_source=analysis_source,
         )
 
     except Exception as e:

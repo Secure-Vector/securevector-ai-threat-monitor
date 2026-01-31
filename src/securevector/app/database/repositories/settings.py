@@ -35,6 +35,10 @@ class AppSettings:
     window_height: Optional[int] = None
     window_x: Optional[int] = None
     window_y: Optional[int] = None
+    # Cloud mode fields
+    cloud_mode_enabled: bool = False
+    cloud_user_email: Optional[str] = None
+    cloud_connected_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     def to_dict(self) -> dict:
@@ -52,6 +56,13 @@ class AppSettings:
             "window_height": self.window_height,
             "window_x": self.window_x,
             "window_y": self.window_y,
+            "cloud_mode_enabled": self.cloud_mode_enabled,
+            "cloud_user_email": self.cloud_user_email,
+            "cloud_connected_at": (
+                self.cloud_connected_at.isoformat()
+                if self.cloud_connected_at
+                else None
+            ),
         }
 
 
@@ -86,6 +97,19 @@ class SettingsRepository:
             # Return defaults if no settings exist
             return AppSettings()
 
+        # Parse cloud_connected_at if present
+        cloud_connected_at = None
+        if row.get("cloud_connected_at"):
+            try:
+                if isinstance(row["cloud_connected_at"], str):
+                    cloud_connected_at = datetime.fromisoformat(
+                        row["cloud_connected_at"]
+                    )
+                else:
+                    cloud_connected_at = row["cloud_connected_at"]
+            except (ValueError, TypeError):
+                pass
+
         return AppSettings(
             theme=row["theme"],
             server_port=row["server_port"],
@@ -99,6 +123,9 @@ class SettingsRepository:
             window_height=row["window_height"],
             window_x=row["window_x"],
             window_y=row["window_y"],
+            cloud_mode_enabled=bool(row.get("cloud_mode_enabled", False)),
+            cloud_user_email=row.get("cloud_user_email"),
+            cloud_connected_at=cloud_connected_at,
             updated_at=row["updated_at"],
         )
 
@@ -129,6 +156,9 @@ class SettingsRepository:
             "window_height",
             "window_x",
             "window_y",
+            "cloud_mode_enabled",
+            "cloud_user_email",
+            "cloud_connected_at",
         }
 
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
@@ -199,6 +229,9 @@ class SettingsRepository:
                 window_height = NULL,
                 window_x = NULL,
                 window_y = NULL,
+                cloud_mode_enabled = 0,
+                cloud_user_email = NULL,
+                cloud_connected_at = NULL,
                 updated_at = ?
             WHERE id = 1
             """,
@@ -216,3 +249,20 @@ class SettingsRepository:
         )
         logger.info("Reset settings to defaults")
         return defaults
+
+    async def clear_cloud_settings(self) -> None:
+        """
+        Clear cloud mode settings (used when credentials are removed).
+        """
+        await self.db.execute(
+            """
+            UPDATE app_settings SET
+                cloud_mode_enabled = 0,
+                cloud_user_email = NULL,
+                cloud_connected_at = NULL,
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (datetime.utcnow().isoformat(),),
+        )
+        logger.info("Cloud settings cleared")

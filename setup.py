@@ -67,6 +67,8 @@ setup(
             "sqlalchemy>=2.0.0",  # Database ORM
             "watchdog>=3.0.0",  # File watching for hot-reload
             "platformdirs>=3.0.0",  # Cross-platform paths
+            "keyring>=23.0.0",  # Secure credential storage (OS keychain)
+            "httpx>=0.24.0",  # Async HTTP client for cloud API
         ],
         "dev": [
             "pytest>=6.0",

@@ -253,9 +253,45 @@ class SecureVectorApp:
 
     def _build_dashboard(self) -> ft.Control:
         """Build the dashboard page."""
+        # Check cloud mode state
+        cloud_mode_enabled = False
+        try:
+            db = get_database()
+            settings_repo = SettingsRepository(db)
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            settings = loop.run_until_complete(settings_repo.get())
+            loop.close()
+            cloud_mode_enabled = settings.cloud_mode_enabled
+        except Exception:
+            pass
+
+        # Cloud mode indicator
+        cloud_indicator = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.CLOUD, color="#3b82f6", size=16),
+                    ft.Text("Cloud Mode Active", size=12, color="#3b82f6"),
+                ],
+                spacing=5,
+            ),
+            padding=ft.padding.symmetric(horizontal=10, vertical=5),
+            border=ft.border.all(1, "#3b82f6"),
+            border_radius=15,
+            visible=cloud_mode_enabled,
+        )
+
         return ft.Column(
             [
-                ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD),
+                ft.Row(
+                    [
+                        ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD),
+                        ft.Container(expand=True),
+                        cloud_indicator,
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
                 ft.Text("Welcome to SecureVector Local Threat Monitor", size=14),
                 ft.Divider(height=20),
                 ft.Row(
@@ -348,9 +384,31 @@ class SecureVectorApp:
         )
 
     def _build_settings(self) -> ft.Control:
-        """Build the settings page with autostart toggle."""
+        """Build the settings page with autostart toggle and cloud mode."""
         # Check current autostart state
         autostart_enabled = is_autostart_enabled()
+
+        # Check cloud mode state
+        from securevector.app.services.credentials import credentials_configured
+
+        cloud_credentials_configured = credentials_configured()
+
+        # Get cloud settings from database
+        cloud_mode_enabled = False
+        cloud_user_email = None
+        try:
+            db = get_database()
+            settings_repo = SettingsRepository(db)
+            # Run async in thread
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            settings = loop.run_until_complete(settings_repo.get())
+            loop.close()
+            cloud_mode_enabled = settings.cloud_mode_enabled
+            cloud_user_email = settings.cloud_user_email
+        except Exception:
+            pass
 
         def on_autostart_change(e):
             """Handle autostart toggle change."""
@@ -383,11 +441,114 @@ class SecureVectorApp:
             self.page.snack_bar.open = True
             self.page.update()
 
+        # Build cloud section based on state
+        if cloud_credentials_configured:
+            # Show connected state with cloud mode toggle
+            cloud_section = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CLOUD_DONE, color="#10b981", size=20),
+                                ft.Text(
+                                    f"Connected as {cloud_user_email or 'Unknown'}",
+                                    weight=ft.FontWeight.W_500,
+                                ),
+                                ft.Container(expand=True),
+                                ft.TextButton(
+                                    "Disconnect",
+                                    on_click=lambda _: self._disconnect_cloud(),
+                                ),
+                            ],
+                        ),
+                        ft.Divider(height=10),
+                        ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text("Cloud Mode", weight=ft.FontWeight.W_500),
+                                        ft.Text(
+                                            "Use cloud ML analysis instead of local pattern matching",
+                                            size=12,
+                                            color="#64748b",
+                                        ),
+                                    ],
+                                    spacing=2,
+                                    expand=True,
+                                ),
+                                ft.Switch(
+                                    value=cloud_mode_enabled,
+                                    on_change=lambda e: self._toggle_cloud_mode(e),
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                "When enabled, analyzed text is sent to SecureVector cloud for ML analysis.",
+                                size=11,
+                                color="#f59e0b",
+                                italic=True,
+                            ),
+                            visible=cloud_mode_enabled,
+                        ),
+                    ],
+                    spacing=5,
+                ),
+                padding=15,
+                border=ft.border.all(1, "#10b981" if cloud_mode_enabled else "#e2e8f0"),
+                border_radius=8,
+            )
+        else:
+            # Show connect to cloud option
+            cloud_section = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CLOUD_OFF, color="#64748b", size=20),
+                                ft.Text("Not connected", color="#64748b"),
+                            ],
+                            spacing=8,
+                        ),
+                        ft.Text(
+                            "Connect to SecureVector Cloud for ML-powered threat analysis",
+                            size=12,
+                            color="#64748b",
+                        ),
+                        ft.Container(height=10),
+                        ft.Row(
+                            [
+                                ft.ElevatedButton(
+                                    "Connect to Cloud",
+                                    icon=ft.Icons.CLOUD,
+                                    on_click=lambda _: self._show_cloud_connect_dialog(),
+                                ),
+                                ft.TextButton(
+                                    "Get credentials",
+                                    icon=ft.Icons.OPEN_IN_NEW,
+                                    url="https://app.securevector.io",
+                                ),
+                            ],
+                            spacing=10,
+                        ),
+                    ],
+                    spacing=5,
+                ),
+                padding=15,
+                border=ft.border.all(1, "#e2e8f0"),
+                border_radius=8,
+            )
+
         return ft.Column(
             [
                 ft.Text("Settings", size=24, weight=ft.FontWeight.BOLD),
                 ft.Text("Configure application preferences", size=14),
                 ft.Divider(height=20),
+                # Cloud section
+                ft.Text("Cloud Mode", size=18, weight=ft.FontWeight.W_500),
+                cloud_section,
+                ft.Container(height=10),
                 # Startup section
                 ft.Text("Startup", size=18, weight=ft.FontWeight.W_500),
                 ft.Container(
@@ -486,7 +647,175 @@ class SecureVectorApp:
                 ),
             ],
             spacing=10,
+            scroll=ft.ScrollMode.AUTO,
         )
+
+    def _show_cloud_connect_dialog(self) -> None:
+        """Show dialog to enter cloud credentials."""
+        api_key_field = ft.TextField(
+            label="API Key",
+            hint_text="Enter your API Key from app.securevector.io",
+            password=True,
+            can_reveal_password=True,
+        )
+        bearer_token_field = ft.TextField(
+            label="Bearer Token",
+            hint_text="Enter your Bearer Token from app.securevector.io",
+            password=True,
+            can_reveal_password=True,
+        )
+        status_text = ft.Text("", color="#ef4444", size=12)
+
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        def save_credentials(e):
+            api_key = api_key_field.value
+            bearer_token = bearer_token_field.value
+
+            if not api_key or not bearer_token:
+                status_text.value = "Please enter both API Key and Bearer Token"
+                self.page.update()
+                return
+
+            # Validate and save credentials via API
+            import asyncio
+            import httpx
+
+            async def validate_and_save():
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(
+                            f"http://{self.host}:{self.port}/api/v1/settings/cloud/credentials",
+                            json={
+                                "api_key": api_key,
+                                "bearer_token": bearer_token,
+                            },
+                            timeout=10.0,
+                        )
+                        return response.json()
+                except Exception as ex:
+                    return {"valid": False, "message": str(ex)}
+
+            loop = asyncio.new_event_loop()
+            result = loop.run_until_complete(validate_and_save())
+            loop.close()
+
+            if result.get("valid"):
+                dialog.open = False
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Connected as {result.get('user_email', 'Unknown')}"),
+                    bgcolor="#10b981",
+                )
+                self.page.snack_bar.open = True
+                # Refresh settings page
+                self.content_area.content = self._build_settings()
+                self.page.update()
+            else:
+                status_text.value = result.get("message", "Invalid credentials")
+                self.page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Connect to SecureVector Cloud"),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Enter your credentials from app.securevector.io",
+                            size=12,
+                            color="#64748b",
+                        ),
+                        ft.Container(height=10),
+                        api_key_field,
+                        bearer_token_field,
+                        status_text,
+                    ],
+                    spacing=10,
+                    tight=True,
+                ),
+                width=400,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.ElevatedButton("Connect", on_click=save_credentials),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _disconnect_cloud(self) -> None:
+        """Disconnect from cloud and remove credentials."""
+        import asyncio
+        import httpx
+
+        async def disconnect():
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.delete(
+                        f"http://{self.host}:{self.port}/api/v1/settings/cloud/credentials",
+                        timeout=10.0,
+                    )
+            except Exception:
+                pass
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(disconnect())
+        loop.close()
+
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text("Disconnected from cloud"),
+            bgcolor="#6b7280",
+        )
+        self.page.snack_bar.open = True
+        # Refresh settings page
+        self.content_area.content = self._build_settings()
+        self.page.update()
+
+    def _toggle_cloud_mode(self, e: ft.ControlEvent) -> None:
+        """Toggle cloud mode on/off."""
+        import asyncio
+        import httpx
+
+        enabled = e.control.value
+
+        async def toggle():
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.put(
+                        f"http://{self.host}:{self.port}/api/v1/settings/cloud/mode",
+                        json={"enabled": enabled},
+                        timeout=10.0,
+                    )
+                    return response.json()
+            except Exception as ex:
+                return {"error": str(ex)}
+
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(toggle())
+        loop.close()
+
+        if "error" in result:
+            e.control.value = not enabled
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Failed to toggle cloud mode: {result.get('error')}"),
+                bgcolor="#ef4444",
+            )
+        else:
+            msg = "Cloud mode enabled" if enabled else "Cloud mode disabled"
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(msg),
+                bgcolor="#10b981" if enabled else "#6b7280",
+            )
+            # Refresh settings page to update privacy warning visibility
+            self.content_area.content = self._build_settings()
+
+        self.page.snack_bar.open = True
+        self.page.update()
 
     def _toggle_theme(self, e: ft.ControlEvent) -> None:
         """Toggle between light and dark theme."""
