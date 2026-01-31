@@ -53,6 +53,9 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 - ✓ Create custom rules on top of community rules
 - ✓ Self-hosted deployment
 - ✓ Zero data sharing
+- ✓ **NEW:** Desktop app with visual dashboard (`pip install securevector-ai-monitor[app]`)
+- ✓ **NEW:** Local API server for AI agent monitoring
+- ✓ **NEW:** NLP-based rule creation
 
 </td>
 <td width="50%" valign="top">
@@ -79,12 +82,21 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 ## Quick Start
 
-**Installation:**
+### Installation
+
+**SDK Only (Default - Lightweight):**
 ```bash
 pip install securevector-ai-monitor
 ```
+This installs the core SDK (~6MB) for programmatic threat detection. No desktop app included.
 
-**Basic Example:**
+**SDK + Desktop Application (Optional):**
+```bash
+pip install securevector-ai-monitor[app]
+```
+This adds the cross-platform desktop application (~60MB) with GUI, local API server, and visual rule management.
+
+### Basic Example
 ```python
 from securevector import SecureVectorClient
 
@@ -120,6 +132,53 @@ See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configur
 
 ---
 
+### Desktop Application (Optional)
+
+**For monitoring autonomous AI agents with a visual interface - 100% Local, No Cloud Required**
+
+```bash
+pip install securevector-ai-monitor[app]
+securevector-app
+```
+
+The desktop application is **completely local** - no API key needed, no data transmitted externally, everything stored on your machine. Pin to taskbar and it runs. It provides:
+- **Visual Dashboard** - Real-time threat monitoring and statistics
+- **Local API Server** - REST API at `localhost:8741` for agent integration
+- **System Tray** - Minimize to tray to keep running in background
+- **Rule Management** - Create custom rules using natural language (NLP-to-regex)
+- **Threat Intel Browser** - Search and analyze detected threats
+- **Cross-Platform** - Windows, macOS, and Linux support
+
+**Launch Options:**
+```bash
+securevector-app                    # Default: localhost:8741
+securevector-app --port 9000        # Custom port
+securevector-app --debug            # Enable debug logging
+securevector-app --help             # Show all options
+```
+
+**Troubleshooting:** If you see `securevector-app: command not found`, install the app extras:
+```bash
+pip install securevector-ai-monitor[app]
+```
+
+### SDK vs Desktop App Comparison
+
+| Feature | SDK Only | SDK + Desktop App |
+|---------|----------|-------------------|
+| Installation | `pip install securevector-ai-monitor` | `pip install securevector-ai-monitor[app]` |
+| Size | ~6 MB | ~60-70 MB |
+| Programmatic API | ✅ | ✅ |
+| Local threat detection | ✅ | ✅ |
+| Visual dashboard | ❌ | ✅ |
+| Local REST API server | ❌ | ✅ (localhost:8741) |
+| NLP rule creation | ❌ | ✅ |
+| Threat history browser | ❌ | ✅ |
+| SQLite persistence | ❌ | ✅ |
+| System tray | ❌ | ✅ |
+
+---
+
 ## Common Use Cases
 
 > **⚠️ Important:** Code examples are for educational purposes only and simplified for clarity. Not production-ready without proper error handling, security hardening, and testing. See [Legal Disclaimers](#legal-disclaimers) for full terms.
@@ -128,15 +187,58 @@ See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configur
 
 ### Popular Use Cases
 
+**Monitoring Autonomous Agents with Desktop App**
+
+Monitor long-running AI agents with the visual dashboard - 100% local, no cloud required.
+
+```bash
+pip install securevector-ai-monitor[app]
+securevector-app
+```
+
+Pin to your taskbar and it runs. Minimize to tray to keep the API server active in background.
+
+```python
+# Your autonomous agent sends activity to the local API for monitoring
+import requests
+
+API_URL = "http://localhost:8741/api/v1/analyze"
+
+def monitor_agent_activity(agent_name: str, content: str):
+    """Send agent activity to SecureVector dashboard for monitoring."""
+    response = requests.post(API_URL, json={
+        "text": content,
+        "metadata": {"agent": agent_name, "source": "autonomous"}
+    })
+    result = response.json()
+
+    if result.get("is_threat"):
+        print(f"⚠️ Threat detected: {result['threat_type']}")
+        # Log to dashboard, alert, or halt agent
+        return False
+    return True
+
+# Example: Monitor a research agent's outputs
+while agent.is_running():
+    output = agent.get_latest_output()
+    if not monitor_agent_activity("research-agent", output):
+        agent.pause()  # Pause on threat detection
+```
+
+All threats appear in the desktop dashboard in real-time for review and analysis.
+
+---
+
 **Chat Applications & Chatbots**
 
 Protect customer-facing bots from jailbreaks and prompt injection attacks.
 
 ```python
 from securevector import SecureVectorClient
-import openai
+import anthropic
 
 client = SecureVectorClient()
+claude = anthropic.Anthropic()
 
 @app.post("/chat")
 def chat(user_message: str):
@@ -146,11 +248,12 @@ def chat(user_message: str):
         return {"error": "Request blocked", "reason": result.threat_type}
 
     # Safe to proceed with LLM
-    response = openai.chat.completions.create(
-        model="gpt-4",
+    response = claude.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
         messages=[{"role": "user", "content": user_message}]
     )
-    return {"response": response.choices[0].message.content}
+    return {"response": response.content[0].text}
 ```
 
 ---
@@ -216,8 +319,11 @@ n8n • LangGraph • LangChain • CrewAI • AutoGen • FastAPI • Django �
 Use community rules and deploy anywhere with full control.
 
 ```bash
-# Install and run locally
+# SDK only (lightweight)
 pip install securevector-ai-monitor
+
+# SDK + Desktop Application (with GUI and local API)
+pip install securevector-ai-monitor[app]
 ```
 
 **What you get:**
@@ -226,12 +332,14 @@ pip install securevector-ai-monitor
 - Deploy on any infrastructure
 - Zero external API calls (local mode)
 - Full control over data and rules
+- **Optional:** Desktop app with visual dashboard, local API server, and NLP rule creation
 
 **Perfect for:**
 - Development and testing
 - On-premise deployments
 - Custom threat detection patterns
 - Privacy-sensitive applications
+- Monitoring autonomous AI agents (with desktop app)
 
 ### Professional/Enterprise Offering (Optional)
 

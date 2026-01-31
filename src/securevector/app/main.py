@@ -37,7 +37,12 @@ from securevector.app.ui.theme import (
     create_flet_theme,
     get_flet_theme_mode,
 )
-from securevector.app.utils.platform import ensure_app_directories
+from securevector.app.utils.platform import (
+    ensure_app_directories,
+    enable_autostart,
+    disable_autostart,
+    is_autostart_enabled,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -343,13 +348,142 @@ class SecureVectorApp:
         )
 
     def _build_settings(self) -> ft.Control:
-        """Build the settings page (placeholder)."""
+        """Build the settings page with autostart toggle."""
+        # Check current autostart state
+        autostart_enabled = is_autostart_enabled()
+
+        def on_autostart_change(e):
+            """Handle autostart toggle change."""
+            if e.control.value:
+                success = enable_autostart()
+                if success:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("SecureVector will start on login"),
+                        bgcolor="#10b981",
+                    )
+                else:
+                    e.control.value = False
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Failed to enable autostart"),
+                        bgcolor="#ef4444",
+                    )
+            else:
+                success = disable_autostart()
+                if success:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Autostart disabled"),
+                        bgcolor="#6b7280",
+                    )
+                else:
+                    e.control.value = True
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Failed to disable autostart"),
+                        bgcolor="#ef4444",
+                    )
+            self.page.snack_bar.open = True
+            self.page.update()
+
         return ft.Column(
             [
                 ft.Text("Settings", size=24, weight=ft.FontWeight.BOLD),
                 ft.Text("Configure application preferences", size=14),
                 ft.Divider(height=20),
-                ft.Text("Coming soon...", italic=True),
+                # Startup section
+                ft.Text("Startup", size=18, weight=ft.FontWeight.W_500),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text("Start on login", weight=ft.FontWeight.W_500),
+                                    ft.Text(
+                                        "Automatically start SecureVector when you log in",
+                                        size=12,
+                                        color="#64748b",
+                                    ),
+                                ],
+                                spacing=2,
+                                expand=True,
+                            ),
+                            ft.Switch(
+                                value=autostart_enabled,
+                                on_change=on_autostart_change,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    padding=15,
+                    border=ft.border.all(1, "#e2e8f0"),
+                    border_radius=8,
+                ),
+                ft.Container(height=10),
+                # Server section
+                ft.Text("Server", size=18, weight=ft.FontWeight.W_500),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text("API Server", weight=ft.FontWeight.W_500),
+                                    ft.Container(expand=True),
+                                    ft.Container(
+                                        content=ft.Row(
+                                            [
+                                                ft.Icon(ft.Icons.CIRCLE, color="#10b981", size=10),
+                                                ft.Text(f"Running on {self.host}:{self.port}", size=12),
+                                            ],
+                                            spacing=5,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            ft.Text(
+                                "The local API server accepts connections from your AI agents",
+                                size=12,
+                                color="#64748b",
+                            ),
+                        ],
+                        spacing=5,
+                    ),
+                    padding=15,
+                    border=ft.border.all(1, "#e2e8f0"),
+                    border_radius=8,
+                ),
+                ft.Container(height=10),
+                # About section
+                ft.Text("About", size=18, weight=ft.FontWeight.W_500),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text("Version", weight=ft.FontWeight.W_500),
+                                    ft.Container(expand=True),
+                                    ft.Text(__version__, size=12),
+                                ],
+                            ),
+                            ft.Divider(height=10),
+                            ft.Row(
+                                [
+                                    ft.TextButton(
+                                        "GitHub",
+                                        icon=ft.Icons.CODE,
+                                        url="https://github.com/Secure-Vector/securevector-ai-threat-monitor",
+                                    ),
+                                    ft.TextButton(
+                                        "Documentation",
+                                        icon=ft.Icons.BOOK,
+                                        url="https://securevector.io/docs",
+                                    ),
+                                ],
+                            ),
+                        ],
+                        spacing=5,
+                    ),
+                    padding=15,
+                    border=ft.border.all(1, "#e2e8f0"),
+                    border_radius=8,
+                ),
             ],
             spacing=10,
         )
