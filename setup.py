@@ -46,9 +46,9 @@ setup(
     install_requires=[
         "PyYAML>=5.1",
         "requests>=2.25.0",
-        "aiohttp>=3.8.0",
+        "aiohttp>=3.12.14",  # Security fix for CVE-2025-53643 (request smuggling) and earlier CVEs
         "typing-extensions>=4.0.0",
-        "urllib3>=2.6.0",  # Security fix for CVE-2025-66418 and CVE-2025-66416
+        "urllib3>=2.6.3",  # Security fix for CVE-2025-66418, CVE-2025-66471, CVE-2026-21441 (decompression bombs)
     ],
     extras_require={
         "mcp": [
