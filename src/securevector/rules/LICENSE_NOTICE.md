@@ -236,6 +236,46 @@ Detection rules may reference third-party AI services and products (OpenAI®, An
 
 ---
 
+## 📦 Desktop Application Dependencies
+
+The optional desktop application (`pip install securevector-ai-monitor[app]`) includes the following third-party dependencies. **All dependencies use permissive open-source licenses that allow commercial use.**
+
+| Package | Version | License | Purpose |
+|---------|---------|---------|---------|
+| SQLite | (built-in) | Public Domain | Database engine |
+| aiosqlite | >=0.19.0 | MIT | Async SQLite wrapper |
+| SQLAlchemy | >=2.0.0 | MIT | Database ORM |
+| Flet | >=0.21.0 | Apache-2.0 | Cross-platform UI framework |
+| FastAPI | >=0.100.0 | MIT | Local API server |
+| Uvicorn | >=0.20.0 | BSD-3-Clause | ASGI server |
+| Starlette | (FastAPI dep) | BSD-3-Clause | Web framework |
+| Pydantic | (FastAPI dep) | MIT | Data validation |
+| platformdirs | >=3.0.0 | MIT | Cross-platform paths |
+| watchdog | >=3.0.0 | Apache-2.0 | File system events |
+| httpx | (Flet dep) | BSD-3-Clause | HTTP client |
+| Click | (Uvicorn dep) | BSD-3-Clause | CLI framework |
+
+### License Summary
+
+| License Type | Packages | Commercial Use |
+|--------------|----------|----------------|
+| **Public Domain** | SQLite | ✅ Allowed |
+| **MIT** | aiosqlite, SQLAlchemy, FastAPI, Pydantic, platformdirs | ✅ Allowed |
+| **Apache-2.0** | Flet, watchdog | ✅ Allowed |
+| **BSD-3-Clause** | Uvicorn, Starlette, httpx, Click | ✅ Allowed |
+
+### Commercial Use Statement
+
+**All desktop application dependencies allow commercial use** with minimal attribution requirements:
+- **MIT License**: Requires license and copyright notice in copies
+- **Apache-2.0**: Requires license notice and attribution; includes patent grant
+- **BSD-3-Clause**: Requires license and copyright notice; no endorsement clause
+- **Public Domain**: No restrictions
+
+Users may freely use, modify, and distribute the desktop application for commercial purposes while complying with each dependency's license terms.
+
+---
+
 ## ⚠️ Important Legal Disclaimers
 
 ### No Warranty
@@ -252,6 +292,6 @@ Users assume all risks associated with using these security rules. It is the use
 
 ---
 
-**Document Version**: 1.0.0
-**Effective Date**: January 2025
+**Document Version**: 2.0.0
+**Effective Date**: January 2026
 **Applicable Jurisdiction**: Rules distributed globally, governed by Apache License 2.0

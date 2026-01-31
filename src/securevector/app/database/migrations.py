@@ -139,6 +139,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
     """
     migrations = {
         2: migrate_to_v2,
+        3: migrate_to_v3,
     }
 
     if version in migrations:
@@ -154,6 +155,15 @@ async def migrate_to_v2(db: DatabaseConnection) -> None:
     conn = await db.connect()
     await conn.executescript(MIGRATION_V2_SQL)
     logger.info("Applied migration v2: community rules cache table")
+
+
+async def migrate_to_v3(db: DatabaseConnection) -> None:
+    """Migration v2 -> v3: Add cloud mode fields to app_settings."""
+    from securevector.app.database.models import MIGRATION_V3_SQL
+
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V3_SQL)
+    logger.info("Applied migration v3: cloud mode fields")
 
 
 # Future migration functions would be defined here:

@@ -160,6 +160,10 @@ app_settings = Table(
     Column("window_height", Integer, nullable=True),
     Column("window_x", Integer, nullable=True),
     Column("window_y", Integer, nullable=True),
+    # Cloud mode fields (added in schema v3)
+    Column("cloud_mode_enabled", Boolean, nullable=False, default=False),
+    Column("cloud_user_email", String(255), nullable=True),
+    Column("cloud_connected_at", DateTime, nullable=True),
     Column(
         "updated_at",
         DateTime,
@@ -258,6 +262,9 @@ CREATE TABLE IF NOT EXISTS app_settings (
     window_height INTEGER,
     window_x INTEGER,
     window_y INTEGER,
+    cloud_mode_enabled INTEGER NOT NULL DEFAULT 0,
+    cloud_user_email TEXT,
+    cloud_connected_at TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -266,8 +273,8 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 2
-SCHEMA_DESCRIPTION = "Add community rules cache table"
+CURRENT_SCHEMA_VERSION = 3
+SCHEMA_DESCRIPTION = "Add cloud mode fields to app_settings"
 
 # Migration SQL for v2
 MIGRATION_V2_SQL = """
@@ -292,4 +299,17 @@ CREATE INDEX IF NOT EXISTS idx_community_rules_enabled ON community_rules(enable
 -- Record migration
 INSERT INTO schema_version (version, applied_at, description)
 VALUES (2, CURRENT_TIMESTAMP, 'Add community rules cache table');
+"""
+
+# Migration SQL for v3
+MIGRATION_V3_SQL = """
+-- Schema Version 3: Add cloud mode fields to app_settings
+
+ALTER TABLE app_settings ADD COLUMN cloud_mode_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE app_settings ADD COLUMN cloud_user_email TEXT DEFAULT NULL;
+ALTER TABLE app_settings ADD COLUMN cloud_connected_at TIMESTAMP DEFAULT NULL;
+
+-- Record migration
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (3, CURRENT_TIMESTAMP, 'Add cloud mode fields to app_settings');
 """

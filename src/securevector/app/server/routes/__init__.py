@@ -3,11 +3,20 @@ API route handlers for the SecureVector local server.
 
 Routes:
 - /health - Server health check
-- /api/v1/analyze - Threat analysis
-- /api/v1/threat-intel - Historical analysis data
+- /api/threat-analytics/ - Threat analysis (primary endpoint, mirrors cloud API)
 - /api/v1/rules - Detection rules management
-- /api/v1/statistics - Aggregated metrics
-- /api/v1/settings - Application settings
+- /api/v1/settings/cloud - Cloud mode settings
+- /api/v1/analyze - Legacy analysis endpoint (backwards compatibility)
 """
 
-__all__ = []
+from . import analyze
+from . import rules
+from . import cloud_settings
+from . import threat_analytics
+
+__all__ = [
+    "analyze",
+    "rules",
+    "cloud_settings",
+    "threat_analytics",
+]
