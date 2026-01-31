@@ -6,6 +6,10 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:  # Allow manual triggering
 
+# Security: Restrict permissions to minimum required
+permissions:
+  contents: read
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest
