@@ -57,6 +57,17 @@ setup(
             "mcp>=1.23.0",  # Security fix for GHSA-c2jp-c369-7pvx (was >=0.1.0)
             "fastmcp>=2.13.0",  # Security fix (was >=0.1.0)
         ],
+        "app": [
+            # Desktop application dependencies
+            # NOTE: Flet requires Python >=3.10 for best support
+            "flet>=0.21.0",  # Cross-platform desktop UI
+            "fastapi>=0.100.0",  # Local API server
+            "uvicorn[standard]>=0.20.0",  # ASGI server
+            "aiosqlite>=0.19.0",  # Async SQLite
+            "sqlalchemy>=2.0.0",  # Database ORM
+            "watchdog>=3.0.0",  # File watching for hot-reload
+            "platformdirs>=3.0.0",  # Cross-platform paths
+        ],
         "dev": [
             "pytest>=6.0",
             "pytest-cov>=3.0",
@@ -77,6 +88,13 @@ setup(
         "all": [
             "mcp>=1.23.0",  # Security fix
             "fastmcp>=2.13.0",  # Security fix
+            "flet>=0.21.0",
+            "fastapi>=0.100.0",
+            "uvicorn[standard]>=0.20.0",
+            "aiosqlite>=0.19.0",
+            "sqlalchemy>=2.0.0",
+            "watchdog>=3.0.0",
+            "platformdirs>=3.0.0",
             "psutil>=5.8",
             "memory-profiler>=0.60",
         ],
@@ -98,6 +116,7 @@ setup(
             "sv-monitor=securevector.cli:main",
             "securevector-monitor=securevector.cli:main",
             "securevector-mcp=securevector.mcp.__main__:main",
+            "securevector-app=securevector.app.main:main",
         ],
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",
