@@ -184,11 +184,10 @@ class DatabaseConnection:
                 "path": str(self.db_path),
             }
         except Exception as e:
-            logger.error(f"Database health check failed: {e}")
+            logger.error("Database health check failed", exc_info=True)
             return {
                 "connected": False,
-                "error": str(e),
-                "path": str(self.db_path),
+                "error": "Database health check failed",
             }
 
 

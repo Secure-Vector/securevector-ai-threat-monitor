@@ -71,7 +71,11 @@ def create_app() -> FastAPI:
             db = get_database()
             db_health = await db.health_check()
         except Exception as e:
-            db_health = {"connected": False, "error": str(e)}
+            logger.exception("Database health check failed")
+            db_health = {
+                "connected": False,
+                "error": "Database health check failed",
+            }
 
         status = "healthy" if db_health.get("connected") else "degraded"
 
