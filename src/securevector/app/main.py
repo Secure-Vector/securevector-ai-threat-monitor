@@ -410,6 +410,7 @@ class SecureVectorApp:
         except Exception:
             pass
 
+
         def on_autostart_change(e):
             """Handle autostart toggle change."""
             if e.control.value:
