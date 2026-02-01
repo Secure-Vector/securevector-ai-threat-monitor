@@ -95,6 +95,7 @@ def create_app() -> FastAPI:
         rules,
         cloud_settings,
         threat_analytics,
+        threat_intel,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -102,8 +103,9 @@ def create_app() -> FastAPI:
 
     # Primary API - mirrors cloud API structure
     app.include_router(threat_analytics.router, prefix="/api", tags=["Threat Analytics"])
-    app.include_router(rules.router, prefix="/api/v1", tags=["Rules"])
-    app.include_router(cloud_settings.router, prefix="/api/v1", tags=["Cloud Settings"])
+    app.include_router(threat_intel.router, prefix="/api", tags=["Threat Intel"])
+    app.include_router(rules.router, prefix="/api", tags=["Rules"])
+    app.include_router(cloud_settings.router, prefix="/api", tags=["Cloud Settings"])
 
     logger.info("FastAPI application created")
     return app

@@ -155,6 +155,10 @@ class SecureVectorApp:
         page.window.min_width = 900
         page.window.min_height = 600
 
+        # Remove default Flet splash/loading colors
+        page.bgcolor = "#ffffff"
+        page.padding = 0
+
         # Set theme
         page.theme_mode = get_flet_theme_mode(self._current_theme)
         page.theme = create_flet_theme(LIGHT_THEME)
@@ -202,7 +206,7 @@ class SecureVectorApp:
         header = ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.SHIELD, color=DARK_THEME.accent_primary, size=24),
+                    ft.Image(src="favicon.png", width=24, height=24),
                     ft.Text(
                         __app_name__,
                         size=18,
@@ -357,27 +361,195 @@ class SecureVectorApp:
         self.page.update()
 
     def _build_threat_intel(self) -> ft.Control:
-        """Build the threat intel page (placeholder)."""
+        """Build the threat intel page with data from local API."""
+        import requests
+
+        records_list = ft.ListView(expand=True, spacing=5, padding=10)
+        status_text = ft.Text("Loading threat intel...", size=14, italic=True)
+
+        def load_records(e=None):
+            try:
+                resp = requests.get(
+                    f"http://{self.host}:{self.port}/api/threat-intel?page_size=50",
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    records_list.controls.clear()
+                    if not data.get("items"):
+                        status_text.value = f"No threat intel records yet. Send a POST to http://{self.host}:{self.port}/analyze to create one."
+                        status_text.italic = True
+                    else:
+                        status_text.value = f"Showing {len(data['items'])} of {data['total']} records"
+                        status_text.italic = False
+                        for item in data["items"]:
+                            is_threat = item.get("is_threat", False)
+                            records_list.controls.append(
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Row([
+                                            ft.Icon(
+                                                ft.Icons.WARNING_AMBER if is_threat else ft.Icons.CHECK_CIRCLE,
+                                                color="#ef4444" if is_threat else "#10b981",
+                                                size=18,
+                                            ),
+                                            ft.Text(
+                                                item.get("threat_type", "clean") or "clean",
+                                                weight=ft.FontWeight.BOLD,
+                                                size=14,
+                                            ),
+                                            ft.Container(expand=True),
+                                            ft.Text(
+                                                f"Risk: {item.get('risk_score', 0)}",
+                                                color="#ef4444" if item.get("risk_score", 0) > 50 else "#6b7280",
+                                                size=12,
+                                            ),
+                                            ft.Text(
+                                                item.get("created_at", "")[:19],
+                                                size=11,
+                                                color="#6b7280",
+                                            ),
+                                        ]),
+                                        ft.Text(
+                                            item.get("text_preview", "")[:120],
+                                            size=12,
+                                            color="#6b7280",
+                                        ),
+                                    ], spacing=3),
+                                    padding=10,
+                                    border=ft.border.all(1, "#e2e8f0"),
+                                    border_radius=8,
+                                )
+                            )
+                else:
+                    status_text.value = f"API error: {resp.status_code}"
+            except Exception as ex:
+                status_text.value = f"Failed to connect to API: {ex}"
+            self.page.update()
+
+        load_records()
+
         return ft.Column(
             [
-                ft.Text("Threat Intel", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Historical analysis data and threat feed", size=14),
-                ft.Divider(height=20),
-                ft.Text("Coming soon...", italic=True),
+                ft.Row([
+                    ft.Text("Threat Intel", size=24, weight=ft.FontWeight.BOLD),
+                    ft.Container(expand=True),
+                    ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Refresh", on_click=load_records),
+                ]),
+                ft.Text("Historical analysis results from the local API", size=14),
+                ft.Divider(height=10),
+                status_text,
+                records_list,
             ],
             spacing=10,
+            expand=True,
         )
 
     def _build_rules(self) -> ft.Control:
-        """Build the rules page (placeholder)."""
+        """Build the rules page with data from local API."""
+        import requests
+
+        rules_list = ft.ListView(expand=True, spacing=5, padding=10)
+        status_text = ft.Text("Loading rules...", size=14, italic=True)
+
+        def load_rules(e=None):
+            try:
+                resp = requests.get(
+                    f"http://{self.host}:{self.port}/api/rules",
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    rules_list.controls.clear()
+                    items = data.get("items", [])
+                    if not items:
+                        status_text.value = "No rules loaded."
+                        status_text.italic = True
+                    else:
+                        status_text.value = f"{len(items)} rules ({data.get('total', len(items))} total)"
+                        status_text.italic = False
+                        for rule in items:
+                            severity = rule.get("severity", "low")
+                            severity_colors = {
+                                "critical": "#ef4444",
+                                "high": "#f97316",
+                                "medium": "#eab308",
+                                "low": "#6b7280",
+                            }
+                            rules_list.controls.append(
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Row([
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    severity.upper(),
+                                                    size=10,
+                                                    color="#ffffff",
+                                                    weight=ft.FontWeight.BOLD,
+                                                ),
+                                                bgcolor=severity_colors.get(severity, "#6b7280"),
+                                                padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                                                border_radius=4,
+                                            ),
+                                            ft.Text(
+                                                rule.get("name", "Unknown"),
+                                                weight=ft.FontWeight.BOLD,
+                                                size=14,
+                                            ),
+                                            ft.Container(expand=True),
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    rule.get("source", "community"),
+                                                    size=10,
+                                                    color="#6b7280",
+                                                ),
+                                                border=ft.border.all(1, "#e2e8f0"),
+                                                padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                                                border_radius=4,
+                                            ),
+                                            ft.Switch(
+                                                value=rule.get("enabled", True),
+                                                scale=0.7,
+                                            ),
+                                        ]),
+                                        ft.Text(
+                                            rule.get("description", "")[:150],
+                                            size=12,
+                                            color="#6b7280",
+                                        ),
+                                        ft.Text(
+                                            f"Category: {rule.get('category', 'N/A')} | Patterns: {len(rule.get('patterns', []))}",
+                                            size=11,
+                                            color="#9ca3af",
+                                        ),
+                                    ], spacing=3),
+                                    padding=10,
+                                    border=ft.border.all(1, "#e2e8f0"),
+                                    border_radius=8,
+                                )
+                            )
+                else:
+                    status_text.value = f"API error: {resp.status_code}"
+            except Exception as ex:
+                status_text.value = f"Failed to connect to API: {ex}"
+            self.page.update()
+
+        load_rules()
+
         return ft.Column(
             [
-                ft.Text("Detection Rules", size=24, weight=ft.FontWeight.BOLD),
-                ft.Text("Browse and manage detection rules", size=14),
-                ft.Divider(height=20),
-                ft.Text("Coming soon...", italic=True),
+                ft.Row([
+                    ft.Text("Detection Rules", size=24, weight=ft.FontWeight.BOLD),
+                    ft.Container(expand=True),
+                    ft.IconButton(icon=ft.Icons.REFRESH, tooltip="Refresh", on_click=load_rules),
+                ]),
+                ft.Text("Community and custom detection rules", size=14),
+                ft.Divider(height=10),
+                status_text,
+                rules_list,
             ],
             spacing=10,
+            expand=True,
         )
 
     def _build_settings(self) -> ft.Control:
