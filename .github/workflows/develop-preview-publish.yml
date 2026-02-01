@@ -11,6 +11,11 @@ on:
         required: false
         type: string
 
+# Security: Restrict permissions to minimum required
+permissions:
+  contents: read
+  id-token: write  # Required for PyPI trusted publishing
+
 jobs:
   test-publish:
     runs-on: ubuntu-latest

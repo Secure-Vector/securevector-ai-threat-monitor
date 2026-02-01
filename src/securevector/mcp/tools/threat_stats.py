@@ -146,12 +146,11 @@ def setup_threat_stats_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
         api_key = server.get_session_api_key(client_id)
 
         if api_key:
-            logger.info(f"🔑 Retrieved API key from session store for client: {client_id}")
+            logger.info("🔑 Retrieved API key from session store for client")
         else:
             if server.session_api_keys:
                 logger.warning(
-                    f"⚠️ API key NOT found for client '{client_id}'. "
-                    f"Available sessions: {list(server.session_api_keys.keys())}"
+                    f"⚠️ API key NOT found. Active sessions: {len(server.session_api_keys)}"
                 )
             else:
                 logger.debug("No API key in session store - stdio mode or local mode")

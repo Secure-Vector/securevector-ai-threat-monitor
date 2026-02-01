@@ -7,6 +7,7 @@ Licensed under the Apache License, Version 2.0
 
 import os
 import re
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -34,8 +35,9 @@ class LocalAnalyzer:
     """
     Local threat analyzer using pattern matching and rule-based detection.
 
-    Loads security rules from YAML files and performs fast pattern matching
-    against input prompts to detect threats.
+    Loads security rules from the app database (if installed) or YAML files.
+    When the SecureVector desktop app is installed, rules are loaded from SQLite
+    which includes both community rules and user-created custom rules.
     """
 
     def __init__(self, config: LocalModeConfig):
@@ -46,6 +48,9 @@ class LocalAnalyzer:
         self.rules: Dict[str, Dict] = {}
         self.compiled_patterns: Dict[str, List] = {}
 
+        # Track rule source
+        self.rules_source: str = "yaml"  # "database" or "yaml"
+
         # Performance tracking
         self.rule_load_time = 0.0
         self.last_reload_time = 0.0
@@ -53,9 +58,200 @@ class LocalAnalyzer:
         # Load rules
         self._load_rules()
 
+    def _get_app_database_path(self) -> Optional[Path]:
+        """
+        Get the path to the SecureVector app database if it exists.
+
+        Returns:
+            Path to database file if it exists, None otherwise.
+        """
+        import sys
+
+        # Determine platform-specific data directory
+        if sys.platform == "win32":
+            # Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            if local_app_data:
+                db_path = Path(local_app_data) / "SecureVector" / "ThreatMonitor" / "securevector.db"
+            else:
+                return None
+        elif sys.platform == "darwin":
+            # macOS: ~/Library/Application Support/SecureVector/ThreatMonitor
+            db_path = Path.home() / "Library" / "Application Support" / "SecureVector" / "ThreatMonitor" / "securevector.db"
+        else:
+            # Linux: ~/.local/share/securevector/threat-monitor
+            xdg_data = os.environ.get("XDG_DATA_HOME", "")
+            if xdg_data:
+                db_path = Path(xdg_data) / "securevector" / "threat-monitor" / "securevector.db"
+            else:
+                db_path = Path.home() / ".local" / "share" / "securevector" / "threat-monitor" / "securevector.db"
+
+        if db_path.exists():
+            return db_path
+        return None
+
+    def _load_rules_from_database(self, db_path: Path) -> bool:
+        """
+        Load rules from the SecureVector app database.
+
+        Args:
+            db_path: Path to the SQLite database.
+
+        Returns:
+            True if rules were loaded successfully, False otherwise.
+        """
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Check if required tables exist
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='community_rules'")
+            if not cursor.fetchone():
+                conn.close()
+                return False
+
+            # Load community rules
+            cursor.execute("""
+                SELECT id, name, category, description, severity, patterns, enabled
+                FROM community_rules WHERE enabled = 1
+            """)
+            community_rules = cursor.fetchall()
+
+            # Load custom rules
+            cursor.execute("""
+                SELECT id, name, category, description, severity, patterns, enabled
+                FROM custom_rules WHERE enabled = 1
+            """)
+            custom_rules = cursor.fetchall()
+
+            # Load rule overrides
+            cursor.execute("SELECT rule_id, enabled FROM rule_overrides")
+            overrides = {row["rule_id"]: row["enabled"] for row in cursor.fetchall()}
+
+            conn.close()
+
+            # Process rules
+            import json
+            all_rules = []
+
+            for row in community_rules:
+                rule_id = row["id"]
+                # Check if override disables this rule
+                if rule_id in overrides and not overrides[rule_id]:
+                    continue
+
+                patterns = json.loads(row["patterns"]) if row["patterns"] else []
+                all_rules.append({
+                    "id": rule_id,
+                    "name": row["name"],
+                    "category": row["category"],
+                    "description": row["description"],
+                    "severity": row["severity"],
+                    "patterns": patterns,
+                    "source": "community",
+                })
+
+            for row in custom_rules:
+                patterns = json.loads(row["patterns"]) if row["patterns"] else []
+                all_rules.append({
+                    "id": row["id"],
+                    "name": row["name"],
+                    "category": row["category"],
+                    "description": row["description"],
+                    "severity": row["severity"],
+                    "patterns": patterns,
+                    "source": "custom",
+                })
+
+            if not all_rules:
+                return False
+
+            # Compile patterns
+            self._compile_database_rules(all_rules)
+
+            self.logger.info(
+                f"Loaded {len(all_rules)} rules from app database "
+                f"({len(community_rules)} community, {len(custom_rules)} custom)"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.warning(f"Failed to load rules from database: {e}")
+            return False
+
+    def _compile_database_rules(self, rules: List[Dict]) -> None:
+        """
+        Compile rules loaded from database.
+
+        Args:
+            rules: List of rule dictionaries from database.
+        """
+        self.rules.clear()
+        self.compiled_patterns.clear()
+
+        for rule in rules:
+            rule_id = rule["id"]
+            rule_name = rule["name"]
+            category = rule["category"]
+            severity = rule["severity"]
+
+            # Calculate risk score from severity
+            severity_scores = {"critical": 90, "high": 75, "medium": 50, "low": 25}
+            base_score = severity_scores.get(severity, 50)
+
+            compiled_list = []
+            for pattern_str in rule["patterns"]:
+                if not pattern_str:
+                    continue
+                try:
+                    compiled_pattern = safe_regex_compile(pattern_str, re.IGNORECASE, timeout=2.0)
+                    compiled_list.append({
+                        "compiled": compiled_pattern,
+                        "original": pattern_str,
+                        "risk_score": base_score,
+                        "description": rule_name,
+                        "threat_type": category,
+                        "rule_id": rule_id,
+                        "confidence": 0.8,
+                        "weight": 1.0,
+                        "response": {"action": "alert", "message": "Potential threat detected"},
+                    })
+                except (RegexSecurityError, RegexTimeoutError, re.error) as e:
+                    self.logger.warning(f"Invalid regex in {rule_id}: {pattern_str} - {e}")
+                    continue
+
+            if compiled_list:
+                self.compiled_patterns[rule_id] = compiled_list
+                # Store rule data for get_rule_info
+                self.rules[rule_id] = {
+                    "name": rule_name,
+                    "category": category,
+                    "severity": severity,
+                    "patterns": rule["patterns"],
+                    "source": rule["source"],
+                }
+
     def _load_rules(self) -> None:
-        """Load security rules from configured path"""
+        """Load security rules from database (if app installed) or YAML files."""
         start_time = time.time()
+
+        # Try loading from app database first
+        db_path = self._get_app_database_path()
+        if db_path:
+            self.logger.info(f"Found SecureVector app database: {db_path}")
+            if self._load_rules_from_database(db_path):
+                self.rules_source = "database"
+                self.rule_load_time = (time.time() - start_time) * 1000
+                self.last_reload_time = time.time()
+                self.logger.info(
+                    f"Loaded {len(self.rules)} rules from database in {self.rule_load_time:.1f}ms"
+                )
+                return
+
+        # Fall back to YAML files
+        self.rules_source = "yaml"
+        self.logger.debug("Loading rules from YAML files")
 
         try:
             # Validate and secure the rules path
@@ -572,6 +768,7 @@ class LocalAnalyzer:
         info = {
             "total_rules": len(self.rules),
             "total_patterns": self.get_pattern_count(),
+            "rules_source": self.rules_source,  # "database" or "yaml"
             "categories": {},
             "load_time_ms": self.rule_load_time,
             "last_reload": self.last_reload_time,
@@ -579,8 +776,17 @@ class LocalAnalyzer:
         }
 
         for rule_name, rule_data in self.rules.items():
-            if "rules" in rule_data:
-                # New format: extract info from first rule or use file-level info
+            if self.rules_source == "database":
+                # Database format
+                info["categories"][rule_name] = {
+                    "name": rule_data.get("name", rule_name),
+                    "category": rule_data.get("category", ""),
+                    "severity": rule_data.get("severity", "medium"),
+                    "source": rule_data.get("source", "community"),
+                    "pattern_count": len(rule_data.get("patterns", [])),
+                }
+            elif "rules" in rule_data:
+                # New YAML format: extract info from first rule or use file-level info
                 pattern_count = sum(
                     len(rule_entry.get("rule", {}).get("detection", []))
                     for rule_entry in rule_data["rules"]
@@ -593,7 +799,7 @@ class LocalAnalyzer:
                     "rule_count": len(rule_data["rules"]),
                 }
             else:
-                # Old format
+                # Old YAML format
                 info["categories"][rule_name] = {
                     "name": rule_data.get("name", rule_name),
                     "description": rule_data.get("description", ""),
@@ -607,6 +813,7 @@ class LocalAnalyzer:
         """Get health status of the analyzer"""
         return {
             "status": "healthy" if self.rules else "error",
+            "rules_source": self.rules_source,  # "database" or "yaml"
             "rules_loaded": len(self.rules),
             "patterns_loaded": self.get_pattern_count(),
             "last_reload": self.last_reload_time,
