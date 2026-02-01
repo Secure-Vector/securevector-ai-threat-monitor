@@ -10,7 +10,7 @@ Tables:
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -21,7 +21,6 @@ from sqlalchemy import (
     String,
     Text,
     CheckConstraint,
-    Index,
     MetaData,
     Table,
 )

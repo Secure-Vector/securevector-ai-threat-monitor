@@ -22,10 +22,7 @@ from securevector.app.database.repositories.rules import (
     RulesRepository,
     RuleValidationError,
 )
-from securevector.app.services.nlp_rule_generator import (
-    NLPRuleGenerator,
-    GeneratedPattern,
-)
+from securevector.app.services.nlp_rule_generator import NLPRuleGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -242,10 +239,6 @@ async def list_rules(
             category=category if source in ("custom", "all") else "__none__",
             enabled=enabled,
         )
-
-        # Get overrides
-        overrides = await repo.list_overrides()
-        override_map = {o.original_rule_id: o for o in overrides}
 
         # Build response
         items = []

@@ -33,7 +33,6 @@ from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.app.ui.theme import (
     DARK_THEME,
     LIGHT_THEME,
-    get_theme,
     create_flet_theme,
     get_flet_theme_mode,
 )
@@ -683,7 +682,10 @@ class SecureVectorApp:
             },
             "OpenClaw": {
                 "where": "~/.openclaw/hooks/securevector/",
-                "value": f"POST {endpoint_url}\n{'Header: X-API-Key: <your-api-key>\n' if cloud_mode_enabled else ''}Body: {{\"text\": \"<user_message>\"}}\nIf is_threat is true, block message",
+                "value": "POST {}\n{}Body: {{\"text\": \"<user_message>\"}}\nIf is_threat is true, block message".format(
+                    endpoint_url,
+                    "Header: X-API-Key: <your-api-key>\n" if cloud_mode_enabled else "",
+                ),
                 "can_install": True,
                 "install_type": "openclaw_hook",
                 "check_path": "~/.openclaw/hooks",

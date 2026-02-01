@@ -6,7 +6,7 @@ POST /api/v1/analyze - Analyze text for threats
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field

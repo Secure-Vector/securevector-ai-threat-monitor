@@ -16,7 +16,6 @@ Uses platformdirs for OS-appropriate paths:
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 try:
     from platformdirs import user_data_dir

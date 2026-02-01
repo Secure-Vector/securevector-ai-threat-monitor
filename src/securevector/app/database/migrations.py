@@ -9,7 +9,6 @@ Provides:
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.models import (
