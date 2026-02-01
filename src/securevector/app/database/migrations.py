@@ -158,10 +158,29 @@ async def migrate_to_v2(db: DatabaseConnection) -> None:
 
 async def migrate_to_v3(db: DatabaseConnection) -> None:
     """Migration v2 -> v3: Add cloud mode fields to app_settings."""
-    from securevector.app.database.models import MIGRATION_V3_SQL
-
     conn = await db.connect()
-    await conn.executescript(MIGRATION_V3_SQL)
+
+    # Check which columns already exist (initial schema may include them)
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    columns_to_add = [
+        ("cloud_mode_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("cloud_user_email", "TEXT DEFAULT NULL"),
+        ("cloud_connected_at", "TIMESTAMP DEFAULT NULL"),
+    ]
+
+    for col_name, col_def in columns_to_add:
+        if col_name not in existing_columns:
+            await conn.execute(
+                f"ALTER TABLE app_settings ADD COLUMN {col_name} {col_def}"
+            )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (3, CURRENT_TIMESTAMP, 'Add cloud mode fields to app_settings')"
+    )
+
     logger.info("Applied migration v3: cloud mode fields")
 
 

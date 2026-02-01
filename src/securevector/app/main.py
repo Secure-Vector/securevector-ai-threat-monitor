@@ -18,6 +18,7 @@ import asyncio
 import logging
 import sys
 import threading
+from pathlib import Path
 from typing import Optional
 
 import flet as ft
@@ -87,6 +88,7 @@ class SecureVectorApp:
         self.page: Optional[ft.Page] = None
         self.server_thread: Optional[threading.Thread] = None
         self._current_theme = "system"
+        self._settings = None
 
     async def initialize(self) -> None:
         """Initialize database and load settings."""
@@ -102,8 +104,8 @@ class SecureVectorApp:
 
         # Load settings
         settings_repo = SettingsRepository(db)
-        settings = await settings_repo.get()
-        self._current_theme = settings.theme
+        self._settings = await settings_repo.get()
+        self._current_theme = self._settings.theme
 
         logger.info("Application initialized")
 
@@ -250,6 +252,7 @@ class SecureVectorApp:
                 spacing=0,
             )
         )
+        page.update()
 
     def _build_dashboard(self) -> ft.Control:
         """Build the dashboard page."""
@@ -257,13 +260,7 @@ class SecureVectorApp:
         cloud_mode_enabled = False
         try:
             db = get_database()
-            settings_repo = SettingsRepository(db)
-            import asyncio
-
-            loop = asyncio.new_event_loop()
-            settings = loop.run_until_complete(settings_repo.get())
-            loop.close()
-            cloud_mode_enabled = settings.cloud_mode_enabled
+            cloud_mode_enabled = self._settings.cloud_mode_enabled if self._settings else False
         except Exception:
             pass
 
@@ -1687,11 +1684,14 @@ def main() -> None:
 
     logger.info(f"Starting {__app_name__} v{__version__}")
 
+    # Resolve assets path
+    assets_path = str(Path(__file__).parent / "assets")
+
     # Run Flet app
     if args.web:
-        ft.app(target=flet_main, view=ft.AppView.WEB_BROWSER)
+        ft.app(target=flet_main, view=ft.AppView.WEB_BROWSER, assets_dir=assets_path)
     else:
-        ft.app(target=flet_main)
+        ft.app(target=flet_main, assets_dir=assets_path)
 
 
 if __name__ == "__main__":
