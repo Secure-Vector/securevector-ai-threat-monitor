@@ -156,6 +156,7 @@ The desktop application is **completely local** - no API key needed, no data tra
 ```bash
 securevector-app                    # Default: localhost:8741
 securevector-app --port 9000        # Custom port
+securevector-app --web              # Run in browser (WSL/headless)
 securevector-app --debug            # Enable debug logging
 securevector-app --help             # Show all options
 ```
