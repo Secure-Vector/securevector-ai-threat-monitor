@@ -179,8 +179,8 @@ def main() -> None:
     ensure_app_directories()
 
     # Initialize database
-    asyncio.run(init_database())
-    asyncio.run(init_database_schema())
+    db = asyncio.run(init_database())
+    asyncio.run(init_database_schema(db))
 
     logger.info(f"Starting SecureVector on {args.host}:{args.port}")
 
