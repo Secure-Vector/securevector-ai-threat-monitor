@@ -100,13 +100,13 @@ There are **3 installation options** -- choose the one that fits your use case:
 
 > **When to use this:** You want a visual dashboard to monitor AI agents in real-time, a local REST API server for agent integration, and system tray support -- without writing any code. Install, pin to taskbar, and it runs. If you install the desktop app, you do **not** need the SDK or MCP installations below.
 
-**3 ways to install the Desktop Application:**
+**3 ways to install the Desktop Application (pick one):**
 
 | # | Method | Best for |
 |---|--------|----------|
 | a | **Binary Installers** | Easiest -- download and run, no dependencies needed |
 | b | **Script Installer** | Auto-configures as a background service on your OS |
-| c | **pip install** | Developers who want manual control or are already using pip |
+| c | **pip install** | Manual control or already using pip |
 
 #### a) Download Binary Installers
 
