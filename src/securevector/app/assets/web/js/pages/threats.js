@@ -5,6 +5,7 @@
 
 const ThreatsPage = {
     data: null,
+    categories: [],
     filters: {
         page: 1,
         page_size: 20,
@@ -15,8 +16,10 @@ const ThreatsPage = {
     async render(container) {
         container.textContent = '';
 
-        // Filters bar
-        const filtersBar = this.createFiltersBar();
+        // Filters bar (will be populated after loading categories)
+        const filtersBar = document.createElement('div');
+        filtersBar.className = 'filters-bar';
+        filtersBar.id = 'threats-filters';
         container.appendChild(filtersBar);
 
         // Content area
@@ -24,14 +27,18 @@ const ThreatsPage = {
         content.id = 'threats-content';
         container.appendChild(content);
 
+        // Load data first, then build filters from available categories
         await this.loadData();
+        this.buildFiltersBar();
     },
 
-    createFiltersBar() {
-        const bar = document.createElement('div');
-        bar.className = 'filters-bar';
+    buildFiltersBar() {
+        const bar = document.getElementById('threats-filters');
+        if (!bar) return;
 
-        // Threat type filter
+        bar.textContent = '';
+
+        // Threat type filter - populated from database categories
         const typeGroup = document.createElement('div');
         typeGroup.className = 'filter-group';
 
@@ -41,12 +48,23 @@ const ThreatsPage = {
 
         const typeSelect = document.createElement('select');
         typeSelect.className = 'filter-select';
+        typeSelect.id = 'threat-type-filter';
 
-        const types = ['All Types', 'malware', 'phishing', 'botnet', 'ransomware', 'apt'];
-        types.forEach((type, i) => {
+        // Default option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'All Types';
+        typeSelect.appendChild(defaultOption);
+
+        // Add categories from data
+        const uniqueTypes = this.getUniqueCategories();
+        uniqueTypes.forEach(type => {
             const option = document.createElement('option');
-            option.value = i === 0 ? '' : type;
-            option.textContent = i === 0 ? type : type.charAt(0).toUpperCase() + type.slice(1);
+            option.value = type;
+            option.textContent = this.formatCategoryLabel(type);
+            if (type === this.filters.threat_type) {
+                option.selected = true;
+            }
             typeSelect.appendChild(option);
         });
 
@@ -81,6 +99,9 @@ const ThreatsPage = {
             const option = document.createElement('option');
             option.value = risk.value;
             option.textContent = risk.label;
+            if (risk.value === this.filters.min_risk) {
+                option.selected = true;
+            }
             riskSelect.appendChild(option);
         });
 
@@ -92,8 +113,29 @@ const ThreatsPage = {
 
         riskGroup.appendChild(riskSelect);
         bar.appendChild(riskGroup);
+    },
 
-        return bar;
+    getUniqueCategories() {
+        // Get unique threat types from loaded data
+        const items = this.data?.items || [];
+        const types = new Set();
+
+        items.forEach(item => {
+            if (item.threat_type) {
+                types.add(item.threat_type);
+            }
+        });
+
+        return Array.from(types).sort();
+    },
+
+    formatCategoryLabel(category) {
+        // Convert snake_case to Title Case
+        if (!category) return 'Unknown';
+        return category
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
     },
 
     async loadData() {
@@ -124,10 +166,7 @@ const ThreatsPage = {
         const threats = this.data.items || this.data.threats || [];
 
         if (threats.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'No threats found matching your criteria';
-            container.appendChild(empty);
+            this.renderEmptyState(container);
             return;
         }
 
@@ -312,6 +351,45 @@ const ThreatsPage = {
         } catch (e) {
             return dateStr;
         }
+    },
+
+    renderEmptyState(container) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+
+        // Icon
+        const iconWrapper = document.createElement('div');
+        iconWrapper.className = 'empty-state-icon';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.5');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z');
+        svg.appendChild(path);
+        iconWrapper.appendChild(svg);
+        empty.appendChild(iconWrapper);
+
+        const title = document.createElement('div');
+        title.className = 'empty-state-title';
+        title.textContent = 'No Threat Analytics';
+        empty.appendChild(title);
+
+        const text = document.createElement('p');
+        text.className = 'empty-state-text';
+        text.textContent = 'No threats have been detected yet. Use the Test Analyze feature in Settings to analyze content.';
+        empty.appendChild(text);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary';
+        btn.textContent = 'Go to Settings';
+        btn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.navigate('settings');
+        });
+        empty.appendChild(btn);
+
+        container.appendChild(empty);
     },
 
     renderError(container, error) {

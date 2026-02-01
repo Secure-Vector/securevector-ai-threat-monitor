@@ -7,6 +7,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - develop
   workflow_dispatch:
     inputs:
       version:
@@ -20,6 +22,8 @@ jobs:
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      IS_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
+      BUILD_SUFFIX: ${{ github.ref == 'refs/heads/develop' && '-dev' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,18 +42,34 @@ jobs:
         run: |
           choco install innosetup -y
 
+      - name: Set version with suffix
+        id: version
+        shell: bash
+        run: |
+          VERSION="${{ env.APP_VERSION }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+            echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
+            echo "suffix=-dev" >> $GITHUB_OUTPUT
+          else
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "suffix=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Windows executable
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "SecureVector" --add-data "src/securevector/rules;securevector/rules" --add-data "src/securevector/app/assets;securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onefile --windowed --name "SecureVector${{ steps.version.outputs.suffix }}" --add-data "src/securevector/rules;securevector/rules" --add-data "src/securevector/app/assets;securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Create Inno Setup installer
+        env:
+          APP_SUFFIX: ${{ steps.version.outputs.suffix }}
         run: |
-          iscc installers/windows/securevector-setup.iss
+          iscc /DAppSuffix="${{ steps.version.outputs.suffix }}" installers/windows/securevector-setup.iss
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: SecureVector-Windows-Installer
+          name: SecureVector${{ steps.version.outputs.suffix }}-Windows-Installer
           path: installers/windows/Output/*.exe
 
   # Build macOS Installer (.pkg and .dmg)
@@ -57,6 +77,7 @@ jobs:
     runs-on: macos-latest
     env:
       APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      IS_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,28 +93,44 @@ jobs:
           pip install -e ".[app]"
           brew install create-dmg
 
+      - name: Set version with suffix
+        id: version
+        run: |
+          VERSION="${{ env.APP_VERSION }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+            echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
+            echo "suffix=-dev" >> $GITHUB_OUTPUT
+            echo "app_name=SecureVector-dev" >> $GITHUB_OUTPUT
+          else
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "suffix=" >> $GITHUB_OUTPUT
+            echo "app_name=SecureVector" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create macOS app bundle
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "SecureVector" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onedir --windowed --name "${{ steps.version.outputs.app_name }}" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Create .app bundle structure
         env:
-          VERSION: ${{ env.APP_VERSION }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
-          mkdir -p dist/SecureVector.app/Contents/MacOS
-          mkdir -p dist/SecureVector.app/Contents/Resources
-          cp -r dist/SecureVector/* dist/SecureVector.app/Contents/MacOS/
-          cat > dist/SecureVector.app/Contents/Info.plist << EOF
+          mkdir -p "dist/${APP_NAME}.app/Contents/MacOS"
+          mkdir -p "dist/${APP_NAME}.app/Contents/Resources"
+          cp -r "dist/${APP_NAME}/"* "dist/${APP_NAME}.app/Contents/MacOS/"
+          cat > "dist/${APP_NAME}.app/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>CFBundleExecutable</key>
-              <string>SecureVector</string>
+              <string>${APP_NAME}</string>
               <key>CFBundleIdentifier</key>
               <string>io.securevector.threatmonitor</string>
               <key>CFBundleName</key>
-              <string>SecureVector</string>
+              <string>${APP_NAME}</string>
               <key>CFBundleVersion</key>
               <string>${VERSION}</string>
               <key>CFBundleShortVersionString</key>
@@ -108,14 +145,15 @@ jobs:
 
       - name: Create DMG
         env:
-          VERSION: ${{ env.APP_VERSION }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
-          create-dmg --volname "SecureVector Installer" --window-pos 200 120 --window-size 600 400 --icon-size 100 --icon "SecureVector.app" 175 190 --app-drop-link 425 190 "SecureVector-${VERSION}-macOS.dmg" "dist/SecureVector.app" || true
+          create-dmg --volname "${APP_NAME} Installer" --window-pos 200 120 --window-size 600 400 --icon-size 100 --icon "${APP_NAME}.app" 175 190 --app-drop-link 425 190 "${APP_NAME}-${VERSION}-macOS.dmg" "dist/${APP_NAME}.app" || true
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
         with:
-          name: SecureVector-macOS-Installer
+          name: SecureVector${{ steps.version.outputs.suffix }}-macOS-Installer
           path: |
             *.dmg
 
@@ -124,6 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      IS_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -141,34 +180,51 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
+      - name: Set version with suffix
+        id: version
+        run: |
+          VERSION="${{ env.APP_VERSION }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+            echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
+            echo "suffix=-dev" >> $GITHUB_OUTPUT
+            echo "pkg_name=securevector-dev" >> $GITHUB_OUTPUT
+          else
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "suffix=" >> $GITHUB_OUTPUT
+            echo "pkg_name=securevector" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Linux executable
         run: |
-          pyinstaller --noconfirm --onefile --name "securevector" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onefile --name "${{ steps.version.outputs.pkg_name }}" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Prepare package structure
+        env:
+          PKG_NAME: ${{ steps.version.outputs.pkg_name }}
         run: |
           mkdir -p package/usr/bin
           mkdir -p package/usr/share/applications
           mkdir -p package/lib/systemd/user
-          cp dist/securevector package/usr/bin/
-          chmod +x package/usr/bin/securevector
-          cat > package/usr/share/applications/securevector.desktop << 'DESKTOP_EOF'
+          cp "dist/${PKG_NAME}" package/usr/bin/
+          chmod +x "package/usr/bin/${PKG_NAME}"
+          cat > "package/usr/share/applications/${PKG_NAME}.desktop" << DESKTOP_EOF
           [Desktop Entry]
-          Name=SecureVector
+          Name=SecureVector${{ steps.version.outputs.suffix }}
           Comment=AI Threat Monitor
-          Exec=/usr/bin/securevector
+          Exec=/usr/bin/${PKG_NAME}
           Icon=securevector
           Terminal=false
           Type=Application
           Categories=Security;Development;
           DESKTOP_EOF
-          cat > package/lib/systemd/user/securevector.service << 'SERVICE_EOF'
+          cat > "package/lib/systemd/user/${PKG_NAME}.service" << SERVICE_EOF
           [Unit]
           Description=SecureVector AI Threat Monitor
           After=network.target
           [Service]
           Type=simple
-          ExecStart=/usr/bin/securevector --port 8741
+          ExecStart=/usr/bin/${PKG_NAME} --port 8741
           Restart=on-failure
           RestartSec=10
           [Install]
@@ -177,44 +233,47 @@ jobs:
 
       - name: Build .deb package
         env:
-          VERSION: ${{ env.APP_VERSION }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PKG_NAME: ${{ steps.version.outputs.pkg_name }}
         run: |
-          fpm -s dir -t deb -n securevector -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
+          fpm -s dir -t deb -n "${PKG_NAME}" -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
 
       - name: Build .rpm package
         env:
-          VERSION: ${{ env.APP_VERSION }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PKG_NAME: ${{ steps.version.outputs.pkg_name }}
         run: |
-          fpm -s dir -t rpm -n securevector -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
+          fpm -s dir -t rpm -n "${PKG_NAME}" -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
 
       - name: Build AppImage
         env:
-          VERSION: ${{ env.APP_VERSION }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PKG_NAME: ${{ steps.version.outputs.pkg_name }}
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           mkdir -p SecureVector.AppDir/usr/bin
-          cp dist/securevector SecureVector.AppDir/usr/bin/
-          cp package/usr/share/applications/securevector.desktop SecureVector.AppDir/
-          cat > SecureVector.AppDir/AppRun << 'APPRUN_EOF'
+          cp "dist/${PKG_NAME}" SecureVector.AppDir/usr/bin/
+          cp "package/usr/share/applications/${PKG_NAME}.desktop" SecureVector.AppDir/
+          cat > SecureVector.AppDir/AppRun << APPRUN_EOF
           #!/bin/bash
-          SELF=$(readlink -f "$0")
-          HERE=${SELF%/*}
-          exec "${HERE}/usr/bin/securevector" "$@"
+          SELF=\$(readlink -f "\$0")
+          HERE=\${SELF%/*}
+          exec "\${HERE}/usr/bin/${PKG_NAME}" "\$@"
           APPRUN_EOF
           chmod +x SecureVector.AppDir/AppRun
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage SecureVector.AppDir "SecureVector-${VERSION}-x86_64.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage SecureVector.AppDir "SecureVector${PKG_NAME#securevector}-${VERSION}-x86_64.AppImage"
 
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
         with:
-          name: SecureVector-Linux-Installers
+          name: SecureVector${{ steps.version.outputs.suffix }}-Linux-Installers
           path: |
             *.deb
             *.rpm
             *.AppImage
 
-  # Create GitHub Release with all installers
+  # Create GitHub Release with all installers (only for tags, not develop)
   release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
@@ -227,6 +286,13 @@ jobs:
         with:
           path: installers
 
+      - name: Generate checksums
+        run: |
+          cd installers
+          find . -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec sha256sum {} \; > ../SHA256SUMS.txt
+          cd ..
+          cat SHA256SUMS.txt
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -236,6 +302,32 @@ jobs:
             installers/**/*.deb
             installers/**/*.rpm
             installers/**/*.AppImage
+            SHA256SUMS.txt
           draft: false
           prerelease: false
           generate_release_notes: true
+
+  # Upload develop artifacts (no release, just artifacts)
+  develop-artifacts:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+
+      - name: Generate checksums
+        run: |
+          cd installers
+          find . -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec sha256sum {} \; > ../SHA256SUMS-dev.txt
+          cd ..
+          echo "=== Development Build Checksums ==="
+          cat SHA256SUMS-dev.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureVector-dev-Checksums
+          path: SHA256SUMS-dev.txt

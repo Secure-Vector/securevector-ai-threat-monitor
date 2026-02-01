@@ -40,10 +40,52 @@ const API = {
         return this.request('/health');
     },
 
+    // ==================== Analyze ====================
+
+    async analyze(content) {
+        return this.request('/analyze', {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        });
+    },
+
     // ==================== Threat Analytics ====================
 
     async getThreatAnalytics() {
-        return this.request('/api/threat-analytics');
+        // Get dashboard summary from threat intel
+        try {
+            const threats = await this.getThreats({ page_size: 100 });
+            const items = threats.items || [];
+
+            // Calculate stats
+            const criticalCount = items.filter(t => t.risk_score >= 80).length;
+            const recentThreats = items.slice(0, 5);
+
+            // Group by type
+            const threatTypes = {};
+            items.forEach(t => {
+                const type = t.threat_type || 'unknown';
+                threatTypes[type] = (threatTypes[type] || 0) + 1;
+            });
+
+            return {
+                total_threats: items.length,
+                critical_count: criticalCount,
+                blocked_count: items.filter(t => t.blocked).length,
+                active_rules: 0,
+                recent_threats: recentThreats,
+                threat_types: threatTypes,
+            };
+        } catch (e) {
+            return {
+                total_threats: 0,
+                critical_count: 0,
+                blocked_count: 0,
+                active_rules: 0,
+                recent_threats: [],
+                threat_types: {},
+            };
+        }
     },
 
     // ==================== Threat Intel ====================
@@ -57,7 +99,11 @@ const API = {
         if (params.max_risk) queryParams.set('max_risk', params.max_risk);
 
         const query = queryParams.toString();
-        return this.request(`/api/threat-intel${query ? '?' + query : ''}`);
+        return this.request(`/api/threat-intel${query ? '?' + query : ''}`).catch(() => ({
+            items: [],
+            total: 0,
+            total_pages: 0,
+        }));
     },
 
     async getThreat(id) {
@@ -67,40 +113,34 @@ const API = {
     // ==================== Rules ====================
 
     async getRules() {
-        return this.request('/api/rules');
+        return this.request('/api/rules').catch(() => ({
+            items: [],
+            total: 0,
+            categories: [],
+        }));
     },
 
     async toggleRule(ruleId, enabled) {
         return this.request(`/api/rules/${ruleId}/toggle`, {
-            method: 'PUT',
+            method: 'POST',
             body: JSON.stringify({ enabled }),
         });
     },
 
     // ==================== Cloud Settings ====================
 
-    async getCloudMode() {
-        return this.request('/api/v1/settings/cloud/mode');
+    async getCloudSettings() {
+        return this.request('/api/settings/cloud').catch(() => ({
+            credentials_configured: false,
+            cloud_mode_enabled: false,
+        }));
     },
 
     async setCloudMode(enabled) {
-        return this.request('/api/v1/settings/cloud/mode', {
+        return this.request('/api/settings/cloud/mode', {
             method: 'PUT',
             body: JSON.stringify({ enabled }),
         });
-    },
-
-    // ==================== Theme Settings ====================
-
-    async getTheme() {
-        return this.request('/api/settings/theme').catch(() => ({ theme: 'dark' }));
-    },
-
-    async setTheme(theme) {
-        return this.request('/api/settings/theme', {
-            method: 'PUT',
-            body: JSON.stringify({ theme }),
-        }).catch(() => ({ success: true, theme }));
     },
 };
 
