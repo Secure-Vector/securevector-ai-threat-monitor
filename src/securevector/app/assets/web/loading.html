@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureVector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #020617;
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .logo-text {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00bcd4, #f44336);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #00bcd4, #f44336, #00bcd4);
+            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo-container">
+        <div class="logo-text">SecureVector</div>
+        <div class="spinner"></div>
+        <div class="loading-text">Starting server...</div>
+    </div>
+</body>
+</html>

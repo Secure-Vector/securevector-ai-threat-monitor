@@ -20,7 +20,7 @@ __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app
 APP_DEPENDENCIES = [
-    "flet",
+    "webview",  # pywebview
     "fastapi",
     "uvicorn",
     "aiosqlite",

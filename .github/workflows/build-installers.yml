@@ -40,7 +40,7 @@ jobs:
 
       - name: Create Windows executable
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "SecureVector" --add-data "src/securevector/rules;securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onefile --windowed --name "SecureVector" --add-data "src/securevector/rules;securevector/rules" --add-data "src/securevector/app/assets;securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Create Inno Setup installer
         run: |
@@ -74,7 +74,7 @@ jobs:
 
       - name: Create macOS app bundle
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "SecureVector" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onedir --windowed --name "SecureVector" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Create .app bundle structure
         env:
@@ -143,7 +143,7 @@ jobs:
 
       - name: Create Linux executable
         run: |
-          pyinstaller --noconfirm --onefile --name "securevector" --add-data "src/securevector/rules:securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onefile --name "securevector" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
 
       - name: Prepare package structure
         run: |

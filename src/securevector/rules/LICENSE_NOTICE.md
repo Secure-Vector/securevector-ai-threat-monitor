@@ -245,14 +245,14 @@ The optional desktop application (`pip install securevector-ai-monitor[app]`) in
 | SQLite | (built-in) | Public Domain | Database engine |
 | aiosqlite | >=0.19.0 | MIT | Async SQLite wrapper |
 | SQLAlchemy | >=2.0.0 | MIT | Database ORM |
-| Flet | >=0.21.0 | Apache-2.0 | Cross-platform UI framework |
+| pywebview | >=5.0 | BSD-3-Clause | Lightweight cross-platform webview |
 | FastAPI | >=0.100.0 | MIT | Local API server |
 | Uvicorn | >=0.20.0 | BSD-3-Clause | ASGI server |
 | Starlette | (FastAPI dep) | BSD-3-Clause | Web framework |
 | Pydantic | (FastAPI dep) | MIT | Data validation |
 | platformdirs | >=3.0.0 | MIT | Cross-platform paths |
 | watchdog | >=3.0.0 | Apache-2.0 | File system events |
-| httpx | (Flet dep) | BSD-3-Clause | HTTP client |
+| httpx | >=0.24.0 | BSD-3-Clause | Async HTTP client |
 | Click | (Uvicorn dep) | BSD-3-Clause | CLI framework |
 
 ### License Summary
@@ -261,8 +261,8 @@ The optional desktop application (`pip install securevector-ai-monitor[app]`) in
 |--------------|----------|----------------|
 | **Public Domain** | SQLite | ✅ Allowed |
 | **MIT** | aiosqlite, SQLAlchemy, FastAPI, Pydantic, platformdirs | ✅ Allowed |
-| **Apache-2.0** | Flet, watchdog | ✅ Allowed |
-| **BSD-3-Clause** | Uvicorn, Starlette, httpx, Click | ✅ Allowed |
+| **Apache-2.0** | watchdog | ✅ Allowed |
+| **BSD-3-Clause** | pywebview, Uvicorn, Starlette, httpx, Click | ✅ Allowed |
 
 ### Commercial Use Statement
 

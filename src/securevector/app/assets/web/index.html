@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self';">
+    <title>SecureVector</title>
+    <link rel="icon" type="image/x-icon" href="/icons/favicon.ico">
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar"></aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header" id="header"></header>
+
+            <!-- Page Content -->
+            <div class="page-content" id="page-content">
+                <div class="loading-container">
+                    <div class="spinner"></div>
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/api.js"></script>
+    <script src="/js/components/sidebar.js"></script>
+    <script src="/js/components/header.js"></script>
+    <script src="/js/components/card.js"></script>
+    <script src="/js/components/modal.js"></script>
+    <script src="/js/components/toast.js"></script>
+    <script src="/js/pages/dashboard.js"></script>
+    <script src="/js/pages/threats.js"></script>
+    <script src="/js/pages/rules.js"></script>
+    <script src="/js/pages/settings.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
