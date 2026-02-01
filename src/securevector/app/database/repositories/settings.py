@@ -97,36 +97,39 @@ class SettingsRepository:
             # Return defaults if no settings exist
             return AppSettings()
 
+        # Convert row to dict for safe .get() access (sqlite3.Row doesn't support .get())
+        row_dict = dict(row)
+
         # Parse cloud_connected_at if present
         cloud_connected_at = None
-        if row.get("cloud_connected_at"):
+        if row_dict.get("cloud_connected_at"):
             try:
-                if isinstance(row["cloud_connected_at"], str):
+                if isinstance(row_dict["cloud_connected_at"], str):
                     cloud_connected_at = datetime.fromisoformat(
-                        row["cloud_connected_at"]
+                        row_dict["cloud_connected_at"]
                     )
                 else:
-                    cloud_connected_at = row["cloud_connected_at"]
+                    cloud_connected_at = row_dict["cloud_connected_at"]
             except (ValueError, TypeError):
                 pass
 
         return AppSettings(
-            theme=row["theme"],
-            server_port=row["server_port"],
-            server_host=row["server_host"],
-            retention_days=row["retention_days"],
-            store_text_content=bool(row["store_text_content"]),
-            notifications_enabled=bool(row["notifications_enabled"]),
-            launch_on_startup=bool(row["launch_on_startup"]),
-            minimize_to_tray=bool(row["minimize_to_tray"]),
-            window_width=row["window_width"],
-            window_height=row["window_height"],
-            window_x=row["window_x"],
-            window_y=row["window_y"],
-            cloud_mode_enabled=bool(row.get("cloud_mode_enabled", False)),
-            cloud_user_email=row.get("cloud_user_email"),
+            theme=row_dict["theme"],
+            server_port=row_dict["server_port"],
+            server_host=row_dict["server_host"],
+            retention_days=row_dict["retention_days"],
+            store_text_content=bool(row_dict["store_text_content"]),
+            notifications_enabled=bool(row_dict["notifications_enabled"]),
+            launch_on_startup=bool(row_dict["launch_on_startup"]),
+            minimize_to_tray=bool(row_dict["minimize_to_tray"]),
+            window_width=row_dict["window_width"],
+            window_height=row_dict["window_height"],
+            window_x=row_dict["window_x"],
+            window_y=row_dict["window_y"],
+            cloud_mode_enabled=bool(row_dict.get("cloud_mode_enabled", False)),
+            cloud_user_email=row_dict.get("cloud_user_email"),
             cloud_connected_at=cloud_connected_at,
-            updated_at=row["updated_at"],
+            updated_at=row_dict["updated_at"],
         )
 
     async def update(self, **kwargs) -> AppSettings:

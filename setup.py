@@ -109,7 +109,8 @@ setup(
             "rules/*.md",
             "rules/README.md",
             "rules/RULES_ATTRIBUTION.md",
-            "rules/LICENSE_NOTICE.md"
+            "rules/LICENSE_NOTICE.md",
+            "app/assets/*",
         ],
         "": ["NOTICE"],
     },
