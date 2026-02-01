@@ -2,7 +2,7 @@
 
 **SecureVector AI Threat Monitor**
 **Effective Date:** January 1, 2025
-**Last Updated:** December 16, 2025
+**Last Updated:** January 31, 2026
 
 ---
 
@@ -31,6 +31,43 @@ Your Application → SecureVector Library (Local) → Result
 ```
 
 **Privacy level:** ✅ **MAXIMUM** - We have zero access to your data
+
+---
+
+### Desktop App Mode (Local Storage - No Data Collection)
+
+**What happens:**
+- All threat analysis is performed locally on your machine
+- Data is stored locally in SQLite database on your device
+- No data is transmitted to SecureVector servers
+- No API key required
+- 100% offline capable
+
+**Data stored locally on YOUR device:**
+| Data Type | Description | Location |
+|-----------|-------------|----------|
+| Threat Intel Records | Analysis results, timestamps, matched rules | SQLite database |
+| Custom Rules | User-created detection rules | SQLite database |
+| App Settings | Preferences, UI configuration | SQLite database |
+| Community Rules Cache | Cached copy of community rules | SQLite database |
+
+**Database file locations (by platform):**
+- **Linux:** `~/.local/share/securevector/threat-monitor/securevector.db`
+- **Windows:** `%LOCALAPPDATA%\SecureVector\ThreatMonitor\securevector.db`
+- **macOS:** `~/Library/Application Support/SecureVector/ThreatMonitor/securevector.db`
+
+**Data flow:**
+```
+Your AI Agents → Desktop App (localhost:8741) → SQLite (local) → Dashboard
+(No external communication - everything stays on your machine)
+```
+
+**Privacy level:** ✅ **MAXIMUM** - We have zero access to your data. All data remains on your device.
+
+**How to delete your data:**
+1. Close the desktop application
+2. Delete the database file at the location above for your platform
+3. Alternatively, delete the entire folder to remove all app data
 
 ---
 
@@ -326,6 +363,7 @@ SecureVector AI Threat Monitor is not directed at children under 13 (or 16 in EU
 **Version History:**
 - v1.0 (2025-01-01): Initial policy
 - v1.1 (2025-12-16): Updated prior to public release
+- v2.0 (2026-01-31): Added Desktop App Mode section with local SQLite storage details
 
 ---
 
@@ -359,7 +397,8 @@ Not yet appointed (company under GDPR threshold)
 ## Summary
 
 **🔒 Privacy-First Design:**
-- **Local mode:** Zero data collection (default recommendation)
+- **Local mode (SDK):** Zero data collection (default recommendation)
+- **Desktop App mode:** Local SQLite storage only, zero external data transmission
 - **API mode:** Minimal collection, 30-day retention, strong security
 - **Transparency:** Clear disclosure of all data practices
 - **User control:** You choose your privacy level
@@ -375,7 +414,7 @@ Contact contact@securevector.io or create a GitHub issue.
 
 <div align="center">
 
-**Last Updated:** December 16, 2025
+**Last Updated:** January 31, 2026
 **Effective Date:** January 1, 2025
 
 </div>
