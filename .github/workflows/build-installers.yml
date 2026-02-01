@@ -1,0 +1,238 @@
+name: Build Installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.3.0)'
+        required: true
+        default: '0.3.0'
+
+jobs:
+  # Build Windows Installer (.exe)
+  build-windows:
+    runs-on: windows-latest
+    env:
+      APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e ".[app]"
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+
+      - name: Create Windows executable
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name "SecureVector" --add-data "src/securevector/rules;securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+
+      - name: Create Inno Setup installer
+        run: |
+          iscc installers/windows/securevector-setup.iss
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureVector-Windows-Installer
+          path: installers/windows/Output/*.exe
+
+  # Build macOS Installer (.pkg and .dmg)
+  build-macos:
+    runs-on: macos-latest
+    env:
+      APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e ".[app]"
+          brew install create-dmg
+
+      - name: Create macOS app bundle
+        run: |
+          pyinstaller --noconfirm --onedir --windowed --name "SecureVector" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+
+      - name: Create .app bundle structure
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+        run: |
+          mkdir -p dist/SecureVector.app/Contents/MacOS
+          mkdir -p dist/SecureVector.app/Contents/Resources
+          cp -r dist/SecureVector/* dist/SecureVector.app/Contents/MacOS/
+          cat > dist/SecureVector.app/Contents/Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>SecureVector</string>
+              <key>CFBundleIdentifier</key>
+              <string>io.securevector.threatmonitor</string>
+              <key>CFBundleName</key>
+              <string>SecureVector</string>
+              <key>CFBundleVersion</key>
+              <string>${VERSION}</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${VERSION}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create DMG
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+        run: |
+          create-dmg --volname "SecureVector Installer" --window-pos 200 120 --window-size 600 400 --icon-size 100 --icon "SecureVector.app" 175 190 --app-drop-link 425 190 "SecureVector-${VERSION}-macOS.dmg" "dist/SecureVector.app" || true
+
+      - name: Upload macOS installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureVector-macOS-Installer
+          path: |
+            *.dmg
+
+  # Build Linux Installers (.deb, .rpm, AppImage)
+  build-linux:
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rubygems build-essential rpm
+          sudo gem install fpm
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e ".[app]"
+
+      - name: Create Linux executable
+        run: |
+          pyinstaller --noconfirm --onefile --name "securevector" --add-data "src/securevector/rules:securevector/rules" --hidden-import flet --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+
+      - name: Prepare package structure
+        run: |
+          mkdir -p package/usr/bin
+          mkdir -p package/usr/share/applications
+          mkdir -p package/lib/systemd/user
+          cp dist/securevector package/usr/bin/
+          chmod +x package/usr/bin/securevector
+          cat > package/usr/share/applications/securevector.desktop << 'DESKTOP_EOF'
+          [Desktop Entry]
+          Name=SecureVector
+          Comment=AI Threat Monitor
+          Exec=/usr/bin/securevector
+          Icon=securevector
+          Terminal=false
+          Type=Application
+          Categories=Security;Development;
+          DESKTOP_EOF
+          cat > package/lib/systemd/user/securevector.service << 'SERVICE_EOF'
+          [Unit]
+          Description=SecureVector AI Threat Monitor
+          After=network.target
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/securevector --port 8741
+          Restart=on-failure
+          RestartSec=10
+          [Install]
+          WantedBy=default.target
+          SERVICE_EOF
+
+      - name: Build .deb package
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+        run: |
+          fpm -s dir -t deb -n securevector -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
+
+      - name: Build .rpm package
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+        run: |
+          fpm -s dir -t rpm -n securevector -v "${VERSION}" --description "SecureVector AI Threat Monitor" --url "https://securevector.io" --maintainer "SecureVector" --license "Apache-2.0" -C package .
+
+      - name: Build AppImage
+        env:
+          VERSION: ${{ env.APP_VERSION }}
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          mkdir -p SecureVector.AppDir/usr/bin
+          cp dist/securevector SecureVector.AppDir/usr/bin/
+          cp package/usr/share/applications/securevector.desktop SecureVector.AppDir/
+          cat > SecureVector.AppDir/AppRun << 'APPRUN_EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          exec "${HERE}/usr/bin/securevector" "$@"
+          APPRUN_EOF
+          chmod +x SecureVector.AppDir/AppRun
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage SecureVector.AppDir "SecureVector-${VERSION}-x86_64.AppImage"
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureVector-Linux-Installers
+          path: |
+            *.deb
+            *.rpm
+            *.AppImage
+
+  # Create GitHub Release with all installers
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            installers/**/*.exe
+            installers/**/*.dmg
+            installers/**/*.deb
+            installers/**/*.rpm
+            installers/**/*.AppImage
+          draft: false
+          prerelease: false
+          generate_release_notes: true

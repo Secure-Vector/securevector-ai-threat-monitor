@@ -88,6 +88,39 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 **For monitoring autonomous AI agents with a visual interface - 100% Local, No Cloud Required**
 
+> **When to use this:** You want a visual dashboard to monitor AI agents in real-time, a local REST API server for agent integration, and system tray support -- without writing any code. Install, pin to taskbar, and it runs. If you install the desktop app, you do **not** need the SDK or MCP installations below.
+
+#### Download Binary Installers
+
+| OS | Download | Format |
+|----|----------|--------|
+| **Windows** | [SecureVector-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) | Installer (.exe) |
+| **macOS** | [SecureVector-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) | Disk Image (.dmg) |
+| **Linux (Debian/Ubuntu)** | [securevector.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.deb) | Debian Package (.deb) |
+| **Linux (Fedora/RHEL)** | [securevector.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.rpm) | RPM Package (.rpm) |
+| **Linux (Universal)** | [SecureVector.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage) | AppImage |
+
+**[View All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases)**
+
+#### One-Line Script Installer (Alternative)
+
+| OS | Command |
+|----|---------|
+| **macOS** | `curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-macos.sh \| bash` |
+| **Linux** | `curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-linux.sh \| bash` |
+| **Windows** | Download [install-windows.ps1](installers/install-windows.ps1), run in PowerShell |
+
+The script installer will:
+1. Install SecureVector via pip
+2. Set up the app as a background service (LaunchAgent on macOS, systemd on Linux, Scheduled Task on Windows)
+3. Start the API server automatically on port 8741
+
+To uninstall: `./install-macos.sh --uninstall` or `./install-linux.sh --uninstall` or `.\install-windows.ps1 -Uninstall`
+
+#### pip Installation (Optional - For Developers)
+
+> **Note:** If you already installed the app using one of the installers above, you can skip this step. pip installation is only needed for development or manual setup.
+
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app
@@ -215,7 +248,8 @@ pip install securevector-ai-monitor[app]
 ```bash
 pip install securevector-ai-monitor
 ```
-This installs the core SDK (~6MB) for programmatic threat detection. No desktop app included.
+
+> **When to use this:** You want to embed threat detection directly into your own Python application (FastAPI, Django, Flask, LangChain, LangGraph, etc.). Import `SecureVectorClient` and call it programmatically. No GUI or API server included -- just a lightweight library (~6MB).
 
 ### Basic Example
 ```python
@@ -241,11 +275,12 @@ if result.is_threat:
 ---
 
 ### MCP Server Integration
-**For Claude Desktop, Cursor IDE, and MCP-compatible tools**
 
 ``` bash
 pip install securevector-ai-monitor[mcp]
 ```
+
+> **When to use this:** You use **Claude Desktop, Cursor IDE, or other MCP-compatible AI tools** and want SecureVector available as a tool directly inside your AI assistant. Just install and configure -- this is separate from the Desktop App and SDK.
 
 See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configuration instructions.
 

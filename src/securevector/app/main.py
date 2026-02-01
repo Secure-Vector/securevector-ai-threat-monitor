@@ -950,22 +950,133 @@ def securevector_security_node(state: dict) -> dict:
         else:
             self._show_manual_install_dialog(agent_name, config)
 
+    def _get_os_type(self) -> str:
+        """Detect the current operating system."""
+        import platform
+        system = platform.system().lower()
+        if system == "darwin":
+            return "macos"
+        elif system == "windows":
+            return "windows"
+        else:
+            return "linux"
+
+    def _get_os_specific_paths(self, os_type: str) -> dict:
+        """Get OS-specific paths and instructions."""
+        from pathlib import Path
+
+        if os_type == "macos":
+            return {
+                "openclaw_hooks": Path.home() / ".openclaw" / "hooks",
+                "install_cmd": "openclaw hooks enable securevector",
+                "shell": "zsh",
+                "script_ext": ".sh",
+                "notes": "OpenClaw runs natively on macOS via the menu bar app.",
+            }
+        elif os_type == "windows":
+            # Windows uses WSL2 for OpenClaw
+            wsl_home = Path("/home") / "user"  # Placeholder, actual path inside WSL
+            return {
+                "openclaw_hooks": Path.home() / ".openclaw" / "hooks",  # Native path
+                "wsl_hooks": "~/.openclaw/hooks",  # WSL path
+                "install_cmd": "wsl -e openclaw hooks enable securevector",
+                "shell": "powershell",
+                "script_ext": ".ps1",
+                "notes": "OpenClaw on Windows runs via WSL2. Files will be created in WSL.",
+                "use_wsl": True,
+            }
+        else:  # Linux
+            return {
+                "openclaw_hooks": Path.home() / ".openclaw" / "hooks",
+                "install_cmd": "openclaw hooks enable securevector",
+                "shell": "bash",
+                "script_ext": ".sh",
+                "notes": "OpenClaw runs natively on Linux.",
+            }
+
+    def _generate_install_script(self, os_type: str, files: dict, endpoint_url: str) -> str:
+        """Generate OS-specific installation script."""
+        hook_md = files.get("HOOK.md", "").replace("'", "'\\''")
+        handler_ts = files.get("handler.ts", "").replace("'", "'\\''")
+
+        if os_type == "windows":
+            # PowerShell script for Windows (creates files in WSL)
+            return f'''# SecureVector OpenClaw Hook Installer for Windows (WSL2)
+# Run this in PowerShell
+
+Write-Host "Installing SecureVector hook for OpenClaw (WSL2)..." -ForegroundColor Cyan
+
+# Create hook directory in WSL
+wsl -e bash -c "mkdir -p ~/.openclaw/hooks/securevector"
+
+# Create HOOK.md
+$hookMd = @'
+{files.get("HOOK.md", "")}
+'@
+$hookMd | wsl -e bash -c "cat > ~/.openclaw/hooks/securevector/HOOK.md"
+
+# Create handler.ts
+$handlerTs = @'
+{files.get("handler.ts", "")}
+'@
+$handlerTs | wsl -e bash -c "cat > ~/.openclaw/hooks/securevector/handler.ts"
+
+Write-Host "Hook files created!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Next step: Enable the hook by running:" -ForegroundColor Yellow
+Write-Host "  wsl -e openclaw hooks enable securevector" -ForegroundColor White
+'''
+        else:
+            # Bash script for macOS and Linux
+            return f'''#!/bin/bash
+# SecureVector OpenClaw Hook Installer for {"macOS" if os_type == "macos" else "Linux"}
+
+echo "Installing SecureVector hook for OpenClaw..."
+
+# Create hook directory
+mkdir -p ~/.openclaw/hooks/securevector
+
+# Create HOOK.md
+cat > ~/.openclaw/hooks/securevector/HOOK.md << 'HOOK_EOF'
+{files.get("HOOK.md", "")}
+HOOK_EOF
+
+# Create handler.ts
+cat > ~/.openclaw/hooks/securevector/handler.ts << 'HANDLER_EOF'
+{files.get("handler.ts", "")}
+HANDLER_EOF
+
+echo "✅ Hook files created at ~/.openclaw/hooks/securevector/"
+echo ""
+echo "Next step: Enable the hook by running:"
+echo "  openclaw hooks enable securevector"
+'''
+
     def _show_openclaw_install_dialog(self, agent_name: str, config: dict) -> None:
-        """Show dialog for OpenClaw hook installation."""
+        """Show dialog for OpenClaw hook installation with OS-specific options."""
         import os
         from pathlib import Path
 
-        hooks_dir = Path.home() / ".openclaw" / "hooks"
+        os_type = self._get_os_type()
+        os_paths = self._get_os_specific_paths(os_type)
+        hooks_dir = os_paths["openclaw_hooks"]
         hook_dir = hooks_dir / "securevector"
         hooks_exist = hooks_dir.exists()
 
         files = config.get("files", {})
-        files_preview = "\n\n".join([f"📄 {name}:\n{content[:200]}..." for name, content in files.items()])
+        install_script = self._generate_install_script(os_type, files, config.get("value", ""))
 
         status_text = ft.Text("", size=12)
 
-        if not hooks_exist:
-            status_text.value = f"⚠️ OpenClaw hooks directory not found: {hooks_dir}\nPlease install OpenClaw first or create the directory manually."
+        # OS indicator
+        os_icons = {"macos": "🍎", "windows": "🪟", "linux": "🐧"}
+        os_names = {"macos": "macOS", "windows": "Windows", "linux": "Linux"}
+
+        if os_type == "windows":
+            status_text.value = "ℹ️ OpenClaw on Windows uses WSL2. Script will create files inside WSL."
+            status_text.color = "#3b82f6"
+        elif not hooks_exist:
+            status_text.value = f"⚠️ OpenClaw hooks directory not found.\nThe installer will create it automatically."
             status_text.color = "#f59e0b"
 
         def close_dialog(e):
@@ -973,11 +1084,9 @@ def securevector_security_node(state: dict) -> dict:
             self.page.update()
 
         def install_hook(e):
+            """Direct installation (macOS/Linux only)."""
             try:
-                # Create directory
                 hook_dir.mkdir(parents=True, exist_ok=True)
-
-                # Write files
                 for filename, content in files.items():
                     file_path = hook_dir / filename
                     file_path.write_text(content)
@@ -990,46 +1099,102 @@ def securevector_security_node(state: dict) -> dict:
                 self.page.snack_bar.open = True
                 self.page.update()
 
-                # Show next steps
                 self._show_next_steps_dialog(
                     "OpenClaw Hook Installed",
-                    f"Files created at: {hook_dir}\n\nNext step: Enable the hook by running:\n\nopenclaw hooks enable securevector"
+                    f"Files created at: {hook_dir}\n\nNext step: Enable the hook by running:\n\n{os_paths['install_cmd']}"
                 )
             except Exception as ex:
                 status_text.value = f"❌ Error: {str(ex)}"
                 status_text.color = "#ef4444"
                 self.page.update()
 
+        def copy_script(e):
+            """Copy installation script to clipboard."""
+            self.page.set_clipboard(install_script)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("Install script copied to clipboard!"),
+                bgcolor="#10b981",
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        def save_script(e):
+            """Save installation script to file."""
+            script_name = f"install_securevector_hook{os_paths['script_ext']}"
+            try:
+                script_path = Path.home() / "Downloads" / script_name
+                script_path.write_text(install_script)
+                dialog.open = False
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"✅ Script saved to {script_path}"),
+                    bgcolor="#10b981",
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+                run_cmd = f"./{script_name}" if os_type != "windows" else f".\\{script_name}"
+                self._show_next_steps_dialog(
+                    "Install Script Saved",
+                    f"Script saved to: {script_path}\n\nRun it with:\n\ncd ~/Downloads && {'chmod +x ' + script_name + ' && ' if os_type != 'windows' else ''}{run_cmd}"
+                )
+            except Exception as ex:
+                status_text.value = f"❌ Error saving script: {str(ex)}"
+                status_text.color = "#ef4444"
+                self.page.update()
+
+        # Build actions based on OS
+        actions = [ft.TextButton("Cancel", on_click=close_dialog)]
+
+        if os_type == "windows":
+            # Windows: Can't directly install, offer script options
+            actions.extend([
+                ft.ElevatedButton("Copy Script", icon=ft.Icons.COPY, on_click=copy_script),
+                ft.ElevatedButton("Save Script", icon=ft.Icons.SAVE, on_click=save_script),
+            ])
+        else:
+            # macOS/Linux: Can install directly or use script
+            actions.extend([
+                ft.OutlinedButton("Copy Script", icon=ft.Icons.COPY, on_click=copy_script),
+                ft.ElevatedButton("Install Now", icon=ft.Icons.DOWNLOAD, on_click=install_hook),
+            ])
+
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"Install {agent_name} Integration"),
+            title=ft.Row([
+                ft.Text(f"{os_icons.get(os_type, '💻')} Install {agent_name} Integration"),
+            ]),
             content=ft.Container(
                 content=ft.Column(
                     [
-                        ft.Text(
-                            "SecureVector will create the following files:",
-                            weight=ft.FontWeight.W_500,
-                        ),
                         ft.Container(
-                            content=ft.Text(f"📁 {hook_dir}/", size=12, color="#3b82f6"),
-                            padding=5,
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.COMPUTER, size=16),
+                                ft.Text(f"Detected OS: {os_names.get(os_type, 'Unknown')}", size=12),
+                            ]),
+                            bgcolor="#f1f5f9",
+                            padding=8,
+                            border_radius=4,
                         ),
+                        ft.Text(os_paths.get("notes", ""), size=11, color="#64748b", italic=True),
+                        ft.Divider(height=10),
+                        ft.Text("Files to create:", weight=ft.FontWeight.W_500, size=12),
                         ft.Container(
                             content=ft.Column([
+                                ft.Text(f"📁 ~/.openclaw/hooks/securevector/", size=12, color="#3b82f6"),
                                 ft.Text(f"  📄 HOOK.md", size=11),
                                 ft.Text(f"  📄 handler.ts", size=11),
                             ]),
                             padding=ft.padding.only(left=10),
                         ),
                         ft.Divider(height=10),
-                        ft.Text("Preview:", weight=ft.FontWeight.W_500, size=12),
+                        ft.Text("Install script preview:", weight=ft.FontWeight.W_500, size=12),
                         ft.Container(
                             content=ft.Text(
-                                files.get("HOOK.md", "")[:300] + "...",
-                                size=10,
+                                install_script[:350] + "..." if len(install_script) > 350 else install_script,
+                                size=9,
                                 font_family="monospace",
                             ),
-                            bgcolor="#f1f5f9",
+                            bgcolor="#1e293b",
                             padding=10,
                             border_radius=4,
                         ),
@@ -1038,18 +1203,10 @@ def securevector_security_node(state: dict) -> dict:
                     spacing=8,
                     scroll=ft.ScrollMode.AUTO,
                 ),
-                width=500,
-                height=350,
+                width=550,
+                height=420,
             ),
-            actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
-                ft.ElevatedButton(
-                    "Install",
-                    icon=ft.Icons.DOWNLOAD,
-                    on_click=install_hook,
-                    disabled=not hooks_exist and not True,  # Allow creating parent dirs
-                ),
-            ],
+            actions=actions,
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
