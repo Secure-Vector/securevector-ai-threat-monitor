@@ -40,13 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aiohttp` minimum version: >=3.12.14 (security)
 - `urllib3` minimum version: >=2.6.3 (security)
 - New optional dependencies for `[app]` extra:
-  - Flet >=0.21.0 (Apache-2.0) - Cross-platform UI
+  - pywebview >=5.0 (BSD-3-Clause) - Lightweight cross-platform webview
   - FastAPI >=0.100.0 (MIT) - Local API server
   - Uvicorn >=0.20.0 (BSD-3-Clause) - ASGI server
   - SQLAlchemy >=2.0.0 (MIT) - Database ORM
   - aiosqlite >=0.19.0 (MIT) - Async SQLite
   - platformdirs >=3.0.0 (MIT) - Cross-platform paths
   - watchdog >=3.0.0 (Apache-2.0) - File system events
+  - httpx >=0.24.0 (BSD-3-Clause) - Async HTTP client
 
 ### Documentation
 - Updated README.md with desktop app installation and usage

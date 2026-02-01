@@ -59,8 +59,7 @@ setup(
         ],
         "app": [
             # Desktop application dependencies
-            # NOTE: Flet requires Python >=3.10 for best support
-            "flet>=0.21.0",  # Cross-platform desktop UI
+            "pywebview>=5.0",  # Lightweight cross-platform webview
             "fastapi>=0.100.0",  # Local API server
             "uvicorn[standard]>=0.20.0",  # ASGI server
             "aiosqlite>=0.19.0",  # Async SQLite
@@ -90,7 +89,7 @@ setup(
         "all": [
             "mcp>=1.23.0",  # Security fix
             "fastmcp>=2.13.0",  # Security fix
-            "flet>=0.21.0",
+            "pywebview>=5.0",  # Lightweight cross-platform webview
             "fastapi>=0.100.0",
             "uvicorn[standard]>=0.20.0",
             "aiosqlite>=0.19.0",
@@ -110,7 +109,11 @@ setup(
             "rules/README.md",
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
-            "app/assets/*",
+            "app/assets/**/*",
+            "app/assets/web/**/*",
+            "app/assets/web/css/*",
+            "app/assets/web/js/**/*",
+            "app/assets/web/icons/*",
         ],
         "": ["NOTICE"],
     },

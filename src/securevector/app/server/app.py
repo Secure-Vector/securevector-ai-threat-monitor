@@ -7,18 +7,25 @@ Provides REST API endpoints for:
 - Rules management
 - Statistics
 - Settings
+- Static web UI files
 """
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from securevector.app import __version__, __app_name__
 
 logger = logging.getLogger(__name__)
+
+# Path to web assets
+WEB_ASSETS_PATH = Path(__file__).parent.parent / "assets" / "web"
 
 
 @asynccontextmanager
@@ -33,9 +40,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("API server shutting down...")
 
 
-def create_app() -> FastAPI:
+def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     """
     Create and configure the FastAPI application.
+
+    Args:
+        host: Server host address (used for CORS configuration).
+        port: Server port (used for CORS configuration).
 
     Returns:
         Configured FastAPI application.
@@ -52,13 +63,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS middleware for local development
+    # Build allowed origins based on configured host/port
+    # Restrict to localhost only for security (prevents malicious websites from accessing API)
+    allowed_origins = [
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+    ]
+    # If host is 0.0.0.0, still only allow localhost origins for CORS
+    # (the API will be network-accessible but CORS blocks cross-origin browser requests)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Local only, so permissive
+        allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "X-Api-Key"],
     )
 
     # Health check endpoint
@@ -106,6 +125,30 @@ def create_app() -> FastAPI:
     app.include_router(threat_intel.router, prefix="/api", tags=["Threat Intel"])
     app.include_router(rules.router, prefix="/api", tags=["Rules"])
     app.include_router(cloud_settings.router, prefix="/api", tags=["Cloud Settings"])
+
+    # Serve web UI static files
+    if WEB_ASSETS_PATH.exists():
+        # Mount static directories
+        css_path = WEB_ASSETS_PATH / "css"
+        js_path = WEB_ASSETS_PATH / "js"
+        icons_path = WEB_ASSETS_PATH / "icons"
+
+        if css_path.exists():
+            app.mount("/css", StaticFiles(directory=str(css_path)), name="css")
+        if js_path.exists():
+            app.mount("/js", StaticFiles(directory=str(js_path)), name="js")
+        if icons_path.exists():
+            app.mount("/icons", StaticFiles(directory=str(icons_path)), name="icons")
+
+        # Serve index.html at root
+        @app.get("/", include_in_schema=False)
+        async def serve_index():
+            index_path = WEB_ASSETS_PATH / "index.html"
+            if index_path.exists():
+                return FileResponse(str(index_path))
+            return {"error": "Web UI not found"}
+
+        logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")
 
     logger.info("FastAPI application created")
     return app
