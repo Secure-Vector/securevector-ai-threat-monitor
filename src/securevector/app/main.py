@@ -1598,7 +1598,7 @@ echo "  openclaw hooks enable securevector"
         self.page.update()
 
 
-def flet_main(page: ft.Page) -> None:
+async def flet_main(page: ft.Page) -> None:
     """
     Flet app main function.
 
@@ -1609,12 +1609,8 @@ def flet_main(page: ft.Page) -> None:
     app = _app_instance
 
     # Initialize async components
-    async def init():
-        await app.initialize()
-        app.start_server()
-
-    # Run initialization
-    asyncio.run(init())
+    await app.initialize()
+    app.start_server()
 
     # Build UI
     app.build_ui(page)
