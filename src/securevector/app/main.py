@@ -8,6 +8,7 @@ Options:
     --port PORT       API server port (default: 8741)
     --host HOST       API server host (default: 127.0.0.1)
     --no-tray         Don't minimize to system tray on close
+    --web             Run in web browser mode (for WSL or headless)
     --debug           Enable debug logging
     --version         Show version and exit
 """
@@ -1659,6 +1660,11 @@ def main() -> None:
         help="Enable debug logging",
     )
     parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Run in web browser mode (useful for WSL or headless environments)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"{__app_name__} v{__version__}",
@@ -1682,7 +1688,10 @@ def main() -> None:
     logger.info(f"Starting {__app_name__} v{__version__}")
 
     # Run Flet app
-    ft.app(target=flet_main)
+    if args.web:
+        ft.app(target=flet_main, view=ft.AppView.WEB_BROWSER)
+    else:
+        ft.app(target=flet_main)
 
 
 if __name__ == "__main__":
