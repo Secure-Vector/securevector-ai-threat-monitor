@@ -84,13 +84,31 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 ### Installation
 
-### Desktop Application (Recommended)
+There are **3 installation options** -- choose the one that fits your use case:
+
+| # | Option | When to use |
+|---|--------|-------------|
+| 1 | **Desktop Application** | Monitor AI agents with a visual dashboard and local API server -- no coding needed |
+| 2 | **SDK Only** | Embed threat detection directly into your own Python application |
+| 3 | **MCP Server** | Use SecureVector as a tool inside Claude Desktop, Cursor, or other MCP-compatible AI tools |
+
+---
+
+### Option 1: 🆕 Desktop Application (Recommended)
 
 **For monitoring autonomous AI agents with a visual interface - 100% Local, No Cloud Required**
 
 > **When to use this:** You want a visual dashboard to monitor AI agents in real-time, a local REST API server for agent integration, and system tray support -- without writing any code. Install, pin to taskbar, and it runs. If you install the desktop app, you do **not** need the SDK or MCP installations below.
 
-#### Download Binary Installers
+**3 ways to install the Desktop Application:**
+
+| # | Method | Best for |
+|---|--------|----------|
+| a | **Binary Installers** | Easiest -- download and run, no dependencies needed |
+| b | **Script Installer** | Auto-configures as a background service on your OS |
+| c | **pip install** | Developers who want manual control or are already using pip |
+
+#### a) Download Binary Installers
 
 | OS | Download | Format |
 |----|----------|--------|
@@ -102,7 +120,7 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 
 **[View All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases)**
 
-#### One-Line Script Installer (Alternative)
+#### b) One-Line Script Installer
 
 | OS | Command |
 |----|---------|
@@ -117,7 +135,7 @@ The script installer will:
 
 To uninstall: `./install-macos.sh --uninstall` or `./install-linux.sh --uninstall` or `.\install-windows.ps1 -Uninstall`
 
-#### pip Installation (Optional - For Developers)
+#### c) pip Installation (Optional)
 
 > **Note:** If you already installed the app using one of the installers above, you can skip this step. pip installation is only needed for development or manual setup.
 
@@ -244,7 +262,7 @@ pip install securevector-ai-monitor[app]
 
 ---
 
-**SDK Only (Lightweight):**
+### Option 2: SDK Only (Lightweight)
 ```bash
 pip install securevector-ai-monitor
 ```
@@ -274,7 +292,7 @@ if result.is_threat:
 
 ---
 
-### MCP Server Integration
+### Option 3: MCP Server Integration
 
 ``` bash
 pip install securevector-ai-monitor[mcp]
