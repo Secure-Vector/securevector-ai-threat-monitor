@@ -42,13 +42,20 @@ jobs:
         run: |
           choco install innosetup -y
 
-      - name: Set version with suffix
+      - name: Validate and set version with suffix
         id: version
         shell: bash
+        env:
+          RAW_VERSION: ${{ env.APP_VERSION }}
+          IS_DEV: ${{ env.IS_DEVELOP }}
         run: |
-          VERSION="${{ env.APP_VERSION }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
-          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+          # Validate version format (only allow alphanumeric, dots, hyphens, underscores)
+          if [[ ! "$RAW_VERSION" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            echo "Error: Invalid version format. Only alphanumeric, dots, hyphens, and underscores allowed."
+            exit 1
+          fi
+          VERSION="${RAW_VERSION#v}"  # Remove 'v' prefix if present
+          if [ "$IS_DEV" == "true" ]; then
             echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
             echo "suffix=-dev" >> $GITHUB_OUTPUT
           else
@@ -57,8 +64,39 @@ jobs:
           fi
 
       - name: Create Windows executable
+        shell: bash
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "SecureVector${{ steps.version.outputs.suffix }}" --add-data "src/securevector/rules;securevector/rules" --add-data "src/securevector/app/assets;securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          # Use --windowed only for release builds, show console for dev builds to debug errors
+          WINDOWED_FLAG=""
+          if [ "${{ env.IS_DEVELOP }}" != "true" ]; then
+            WINDOWED_FLAG="--windowed"
+          fi
+          pyinstaller --noconfirm --onefile $WINDOWED_FLAG \
+            --name "SecureVector${{ steps.version.outputs.suffix }}" \
+            --add-data "src/securevector/rules;securevector/rules" \
+            --add-data "src/securevector/app/assets;securevector/app/assets" \
+            --hidden-import webview \
+            --hidden-import webview.platforms.winforms \
+            --hidden-import clr \
+            --hidden-import pythonnet \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import fastapi \
+            --hidden-import starlette \
+            --hidden-import starlette.routing \
+            --hidden-import starlette.middleware \
+            --hidden-import sqlalchemy \
+            --hidden-import aiosqlite \
+            src/securevector/app/main.py
 
       - name: Create Inno Setup installer
         env:
@@ -93,12 +131,19 @@ jobs:
           pip install -e ".[app]"
           brew install create-dmg
 
-      - name: Set version with suffix
+      - name: Validate and set version with suffix
         id: version
+        env:
+          RAW_VERSION: ${{ env.APP_VERSION }}
+          IS_DEV: ${{ env.IS_DEVELOP }}
         run: |
-          VERSION="${{ env.APP_VERSION }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
-          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+          # Validate version format (only allow alphanumeric, dots, hyphens, underscores)
+          if [[ ! "$RAW_VERSION" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            echo "Error: Invalid version format. Only alphanumeric, dots, hyphens, and underscores allowed."
+            exit 1
+          fi
+          VERSION="${RAW_VERSION#v}"  # Remove 'v' prefix if present
+          if [ "$IS_DEV" == "true" ]; then
             echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
             echo "suffix=-dev" >> $GITHUB_OUTPUT
             echo "app_name=SecureVector-dev" >> $GITHUB_OUTPUT
@@ -110,7 +155,30 @@ jobs:
 
       - name: Create macOS app bundle
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "${{ steps.version.outputs.app_name }}" --osx-bundle-identifier "io.securevector.threatmonitor" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onedir --windowed \
+            --name "${{ steps.version.outputs.app_name }}" \
+            --osx-bundle-identifier "io.securevector.threatmonitor" \
+            --add-data "src/securevector/rules:securevector/rules" \
+            --add-data "src/securevector/app/assets:securevector/app/assets" \
+            --hidden-import webview \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import fastapi \
+            --hidden-import starlette \
+            --hidden-import starlette.routing \
+            --hidden-import starlette.middleware \
+            --hidden-import sqlalchemy \
+            --hidden-import aiosqlite \
+            src/securevector/app/main.py
 
       - name: Create .app bundle structure
         env:
@@ -158,8 +226,9 @@ jobs:
             *.dmg
 
   # Build Linux Installers (.deb, .rpm, AppImage)
+  # Use ubuntu-20.04 for GLIBC 2.31 compatibility with older Linux distros
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     env:
       APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
       IS_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
@@ -180,12 +249,19 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
-      - name: Set version with suffix
+      - name: Validate and set version with suffix
         id: version
+        env:
+          RAW_VERSION: ${{ env.APP_VERSION }}
+          IS_DEV: ${{ env.IS_DEVELOP }}
         run: |
-          VERSION="${{ env.APP_VERSION }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
-          if [ "${{ env.IS_DEVELOP }}" == "true" ]; then
+          # Validate version format (only allow alphanumeric, dots, hyphens, underscores)
+          if [[ ! "$RAW_VERSION" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            echo "Error: Invalid version format. Only alphanumeric, dots, hyphens, and underscores allowed."
+            exit 1
+          fi
+          VERSION="${RAW_VERSION#v}"  # Remove 'v' prefix if present
+          if [ "$IS_DEV" == "true" ]; then
             echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
             echo "suffix=-dev" >> $GITHUB_OUTPUT
             echo "pkg_name=securevector-dev" >> $GITHUB_OUTPUT
@@ -197,7 +273,29 @@ jobs:
 
       - name: Create Linux executable
         run: |
-          pyinstaller --noconfirm --onefile --name "${{ steps.version.outputs.pkg_name }}" --add-data "src/securevector/rules:securevector/rules" --add-data "src/securevector/app/assets:securevector/app/assets" --hidden-import webview --hidden-import uvicorn --hidden-import fastapi src/securevector/app/main.py
+          pyinstaller --noconfirm --onefile \
+            --name "${{ steps.version.outputs.pkg_name }}" \
+            --add-data "src/securevector/rules:securevector/rules" \
+            --add-data "src/securevector/app/assets:securevector/app/assets" \
+            --hidden-import webview \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import fastapi \
+            --hidden-import starlette \
+            --hidden-import starlette.routing \
+            --hidden-import starlette.middleware \
+            --hidden-import sqlalchemy \
+            --hidden-import aiosqlite \
+            src/securevector/app/main.py
 
       - name: Prepare package structure
         env:
