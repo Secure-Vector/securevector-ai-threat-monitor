@@ -41,6 +41,18 @@ class MatchedRule(BaseModel):
     matched_patterns: list[str] = []
 
 
+class LLMReviewInfo(BaseModel):
+    """LLM review details."""
+
+    reviewed: bool = False
+    agrees: bool = True
+    confidence: float = 0.0
+    reasoning: str = ""
+    risk_adjustment: int = 0
+    model_used: Optional[str] = None
+    processing_time_ms: int = 0
+
+
 class AnalysisResult(BaseModel):
     """Response body for threat analysis."""
 
@@ -53,6 +65,8 @@ class AnalysisResult(BaseModel):
     processing_time_ms: int
     request_id: Optional[str] = None
     analysis_source: str = "local"  # "local", "cloud", or "local_fallback"
+    # LLM Review fields
+    llm_review: Optional[LLMReviewInfo] = None
 
 
 @router.post("/analyze", response_model=AnalysisResult)
@@ -149,18 +163,99 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
 
         processing_time_ms = result.processing_time_ms
 
-        # Store in threat intel
+        # Get settings for LLM review and storage
         db = get_database()
-        threat_intel_repo = ThreatIntelRepository(db)
         settings_repo = SettingsRepository(db)
         settings = await settings_repo.get()
 
+        # LLM Review (if enabled)
+        llm_review_info = None
+        final_is_threat = result.is_threat
+        final_risk_score = result.risk_score
+        final_confidence = result.confidence
+        final_threat_type = result.threat_type
+
+        llm_settings = settings.llm_settings or {}
+        if llm_settings.get("enabled"):
+            try:
+                from securevector.app.services.llm_review import LLMConfig, LLMReviewService
+
+                config = LLMConfig(
+                    enabled=True,
+                    provider=llm_settings.get("provider", "ollama"),
+                    model=llm_settings.get("model", "llama3"),
+                    endpoint=llm_settings.get("endpoint", "http://localhost:11434"),
+                    api_key=llm_settings.get("api_key"),
+                    timeout=llm_settings.get("timeout", 30),
+                    max_tokens=llm_settings.get("max_tokens", 1024),
+                    temperature=llm_settings.get("temperature", 0.1),
+                )
+
+                llm_service = LLMReviewService(config)
+                try:
+                    # Build analysis dict for LLM review
+                    analysis_dict = {
+                        "is_threat": result.is_threat,
+                        "threat_type": result.threat_type,
+                        "risk_score": result.risk_score,
+                        "confidence": result.confidence,
+                        "matched_rules": [r.rule_name for r in matched_rules],
+                    }
+
+                    llm_result = await llm_service.review(request.text, analysis_dict)
+
+                    if llm_result.reviewed:
+                        llm_review_info = LLMReviewInfo(
+                            reviewed=True,
+                            agrees=llm_result.llm_agrees,
+                            confidence=llm_result.llm_confidence,
+                            reasoning=llm_result.llm_explanation,
+                            risk_adjustment=llm_result.llm_risk_adjustment,
+                            model_used=llm_result.model_used,
+                            processing_time_ms=llm_result.processing_time_ms,
+                        )
+
+                        # Combine results: adjust risk score and confidence
+                        # If LLM found threat but regex didn't (or vice versa)
+                        if llm_result.llm_threat_assessment == "threat" and not result.is_threat:
+                            # LLM detected threat that regex missed
+                            final_is_threat = True
+                            final_risk_score = min(100, result.risk_score + max(30, llm_result.llm_risk_adjustment))
+                            final_threat_type = llm_result.llm_suggested_category or "llm_detected"
+                        elif llm_result.llm_threat_assessment == "safe" and result.is_threat:
+                            # LLM thinks it's safe, reduce risk but keep as threat if high regex confidence
+                            if result.confidence < 0.7:
+                                final_is_threat = False
+                                final_risk_score = max(0, result.risk_score + llm_result.llm_risk_adjustment)
+                        else:
+                            # Both agree, adjust risk score by LLM recommendation
+                            final_risk_score = max(0, min(100, result.risk_score + llm_result.llm_risk_adjustment))
+
+                        # Combine confidence scores (weighted average)
+                        if llm_result.llm_confidence > 0:
+                            final_confidence = (result.confidence * 0.4 + llm_result.llm_confidence * 0.6)
+
+                        processing_time_ms += llm_result.processing_time_ms
+
+                finally:
+                    await llm_service.close()
+
+            except Exception as e:
+                logger.warning(f"LLM review failed, using regex-only result: {e}")
+                llm_review_info = LLMReviewInfo(
+                    reviewed=False,
+                    reasoning=f"LLM review failed: {str(e)}",
+                )
+
+        # Store in threat intel
+        threat_intel_repo = ThreatIntelRepository(db)
+
         record = await threat_intel_repo.create(
             text=request.text,
-            is_threat=result.is_threat,
-            threat_type=result.threat_type,
-            risk_score=result.risk_score,
-            confidence=result.confidence,
+            is_threat=final_is_threat,
+            threat_type=final_threat_type,
+            risk_score=final_risk_score,
+            confidence=final_confidence,
             matched_rules=[r.model_dump() for r in matched_rules],
             processing_time_ms=processing_time_ms,
             store_text=settings.store_text_content,
@@ -171,21 +266,23 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
         )
 
         logger.debug(
-            f"Analysis complete: is_threat={result.is_threat}, "
-            f"risk_score={result.risk_score}, "
+            f"Analysis complete: is_threat={final_is_threat}, "
+            f"risk_score={final_risk_score}, "
+            f"llm_reviewed={llm_review_info.reviewed if llm_review_info else False}, "
             f"processing_time={processing_time_ms}ms"
         )
 
         return AnalysisResult(
-            is_threat=result.is_threat,
-            threat_type=result.threat_type,
-            risk_score=result.risk_score,
-            confidence=result.confidence,
+            is_threat=final_is_threat,
+            threat_type=final_threat_type,
+            risk_score=final_risk_score,
+            confidence=final_confidence,
             matched_rules=matched_rules,
             analysis_id=record.id,
             processing_time_ms=processing_time_ms,
             request_id=request.request_id,
             analysis_source=analysis_source,
+            llm_review=llm_review_info,
         )
 
     except Exception as e:

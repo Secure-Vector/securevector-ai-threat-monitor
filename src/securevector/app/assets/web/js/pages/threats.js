@@ -197,11 +197,14 @@ const ThreatsPage = {
         threats.forEach(threat => {
             const row = document.createElement('tr');
 
-            // Indicator
+            // Indicator (use text content if available)
             const indicatorCell = document.createElement('td');
+            indicatorCell.className = 'indicator-cell';
             const indicator = document.createElement('code');
             indicator.className = 'indicator';
-            indicator.textContent = threat.indicator || threat.name || 'Unknown';
+            const indicatorText = threat.indicator || threat.name || threat.text_preview || threat.text || 'Unknown';
+            indicator.textContent = indicatorText.length > 60 ? indicatorText.substring(0, 60) + '...' : indicatorText;
+            indicator.title = indicatorText;
             indicatorCell.appendChild(indicator);
             row.appendChild(indicatorCell);
 
@@ -285,15 +288,57 @@ const ThreatsPage = {
         const content = document.createElement('div');
         content.className = 'threat-details';
 
+        // Risk badge at top
+        const riskHeader = document.createElement('div');
+        riskHeader.className = 'threat-detail-risk';
+        const riskBadge = document.createElement('span');
+        riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
+        riskBadge.textContent = (threat.risk_score || 0) + '% Risk';
+        riskHeader.appendChild(riskBadge);
+        const typeBadge = document.createElement('span');
+        typeBadge.className = 'type-badge';
+        typeBadge.textContent = threat.threat_type || 'Unknown';
+        typeBadge.style.marginLeft = '8px';
+        riskHeader.appendChild(typeBadge);
+        content.appendChild(riskHeader);
+
+        // Content preview
+        const textContent = threat.text_content || threat.text_preview || threat.indicator || threat.name || '';
+        if (textContent) {
+            const textSection = document.createElement('div');
+            textSection.className = 'threat-detail-section';
+
+            const textLabel = document.createElement('div');
+            textLabel.className = 'detail-section-label';
+            textLabel.textContent = 'Analyzed Content';
+            textSection.appendChild(textLabel);
+
+            const textBox = document.createElement('div');
+            textBox.className = 'threat-detail-text';
+            textBox.textContent = textContent;
+            textSection.appendChild(textBox);
+
+            content.appendChild(textSection);
+        }
+
+        // Details grid
+        const detailsSection = document.createElement('div');
+        detailsSection.className = 'threat-detail-section';
+
+        const detailsLabel = document.createElement('div');
+        detailsLabel.className = 'detail-section-label';
+        detailsLabel.textContent = 'Details';
+        detailsSection.appendChild(detailsLabel);
+
         const fields = [
-            { label: 'Indicator', value: threat.indicator || threat.name },
-            { label: 'Type', value: threat.threat_type },
-            { label: 'Risk Score', value: (threat.risk_score || 0) + '%' },
             { label: 'Confidence', value: (threat.confidence || 0) + '%' },
             { label: 'First Seen', value: this.formatDate(threat.first_seen || threat.created_at) },
-            { label: 'Last Seen', value: this.formatDate(threat.last_seen || threat.updated_at) },
-            { label: 'Source', value: threat.source || 'Local' },
+            { label: 'Processing Time', value: (threat.processing_time_ms || 0) + 'ms' },
+            { label: 'Source', value: threat.source_identifier || 'Local' },
         ];
+
+        const grid = document.createElement('div');
+        grid.className = 'detail-grid';
 
         fields.forEach(field => {
             if (!field.value) return;
@@ -311,28 +356,158 @@ const ThreatsPage = {
             value.textContent = field.value;
             row.appendChild(value);
 
-            content.appendChild(row);
+            grid.appendChild(row);
         });
 
-        if (threat.description) {
-            const descDiv = document.createElement('div');
-            descDiv.className = 'detail-description';
+        detailsSection.appendChild(grid);
+        content.appendChild(detailsSection);
 
-            const descLabel = document.createElement('strong');
-            descLabel.textContent = 'Description';
-            descDiv.appendChild(descLabel);
+        // Matched rules
+        if (threat.matched_rules && threat.matched_rules.length > 0) {
+            const rulesSection = document.createElement('div');
+            rulesSection.className = 'threat-detail-section';
 
-            const descText = document.createElement('p');
-            descText.textContent = threat.description;
-            descDiv.appendChild(descText);
+            const rulesLabel = document.createElement('div');
+            rulesLabel.className = 'detail-section-label';
+            rulesLabel.textContent = 'Matched Rules (' + threat.matched_rules.length + ')';
+            rulesSection.appendChild(rulesLabel);
 
-            content.appendChild(descDiv);
+            const rulesList = document.createElement('div');
+            rulesList.className = 'matched-rules-list';
+
+            threat.matched_rules.forEach(rule => {
+                const ruleItem = document.createElement('div');
+                ruleItem.className = 'matched-rule-item';
+
+                const ruleName = document.createElement('div');
+                ruleName.className = 'matched-rule-name';
+                ruleName.textContent = rule.rule_name || rule.name || rule.rule_id || 'Unknown Rule';
+                ruleItem.appendChild(ruleName);
+
+                if (rule.category) {
+                    const ruleCat = document.createElement('span');
+                    ruleCat.className = 'matched-rule-cat';
+                    ruleCat.textContent = rule.category;
+                    ruleItem.appendChild(ruleCat);
+                }
+
+                rulesList.appendChild(ruleItem);
+            });
+
+            rulesSection.appendChild(rulesList);
+            content.appendChild(rulesSection);
         }
 
-        Modal.show({
+        // LLM Review Analytics (if LLM review was performed)
+        if (threat.llm_reviewed) {
+            const llmSection = document.createElement('div');
+            llmSection.className = 'threat-detail-section llm-review-section';
+
+            const llmHeader = document.createElement('div');
+            llmHeader.className = 'detail-section-label llm-section-header';
+
+            const llmIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            llmIcon.setAttribute('viewBox', '0 0 24 24');
+            llmIcon.setAttribute('fill', 'none');
+            llmIcon.setAttribute('stroke', 'currentColor');
+            llmIcon.setAttribute('stroke-width', '2');
+            llmIcon.setAttribute('class', 'llm-icon');
+            const llmPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            llmPath.setAttribute('d', 'M12 2a10 10 0 1 0 10 10H12V2zM12 12l6-6');
+            llmIcon.appendChild(llmPath);
+            llmHeader.appendChild(llmIcon);
+
+            const llmTitle = document.createElement('span');
+            llmTitle.textContent = 'LLM Review';
+            llmHeader.appendChild(llmTitle);
+
+            // Model badge
+            if (threat.llm_model_used) {
+                const modelBadge = document.createElement('span');
+                modelBadge.className = 'llm-model-badge';
+                modelBadge.textContent = threat.llm_model_used;
+                llmHeader.appendChild(modelBadge);
+            }
+
+            llmSection.appendChild(llmHeader);
+
+            // LLM Verdict
+            const verdictRow = document.createElement('div');
+            verdictRow.className = 'llm-verdict-row';
+
+            const verdictLabel = document.createElement('span');
+            verdictLabel.className = 'llm-verdict-label';
+            verdictLabel.textContent = 'LLM Verdict:';
+            verdictRow.appendChild(verdictLabel);
+
+            const verdictBadge = document.createElement('span');
+            verdictBadge.className = 'llm-verdict-badge ' + (threat.llm_agrees ? 'agrees' : 'disagrees');
+            verdictBadge.textContent = threat.llm_agrees ? 'Agrees with Detection' : 'Disagrees';
+            verdictRow.appendChild(verdictBadge);
+
+            llmSection.appendChild(verdictRow);
+
+            // LLM Confidence
+            if (threat.llm_confidence !== undefined) {
+                const confRow = document.createElement('div');
+                confRow.className = 'llm-stat-row';
+
+                const confLabel = document.createElement('span');
+                confLabel.className = 'llm-stat-label';
+                confLabel.textContent = 'LLM Confidence';
+                confRow.appendChild(confLabel);
+
+                const confValue = document.createElement('span');
+                confValue.className = 'llm-stat-value';
+                confValue.textContent = Math.round(threat.llm_confidence * 100) + '%';
+                confRow.appendChild(confValue);
+
+                llmSection.appendChild(confRow);
+            }
+
+            // Risk Adjustment
+            if (threat.llm_risk_adjustment && threat.llm_risk_adjustment !== 0) {
+                const adjRow = document.createElement('div');
+                adjRow.className = 'llm-stat-row';
+
+                const adjLabel = document.createElement('span');
+                adjLabel.className = 'llm-stat-label';
+                adjLabel.textContent = 'Risk Adjustment';
+                adjRow.appendChild(adjLabel);
+
+                const adjValue = document.createElement('span');
+                adjValue.className = 'llm-stat-value ' + (threat.llm_risk_adjustment > 0 ? 'risk-up' : 'risk-down');
+                adjValue.textContent = (threat.llm_risk_adjustment > 0 ? '+' : '') + threat.llm_risk_adjustment + '%';
+                adjRow.appendChild(adjValue);
+
+                llmSection.appendChild(adjRow);
+            }
+
+            // LLM Reasoning
+            if (threat.llm_reasoning || threat.llm_explanation) {
+                const reasoningBox = document.createElement('div');
+                reasoningBox.className = 'llm-reasoning-box';
+
+                const reasoningLabel = document.createElement('div');
+                reasoningLabel.className = 'llm-reasoning-label';
+                reasoningLabel.textContent = 'LLM Reasoning';
+                reasoningBox.appendChild(reasoningLabel);
+
+                const reasoningText = document.createElement('div');
+                reasoningText.className = 'llm-reasoning-text';
+                reasoningText.textContent = threat.llm_reasoning || threat.llm_explanation;
+                reasoningBox.appendChild(reasoningText);
+
+                llmSection.appendChild(reasoningBox);
+            }
+
+            content.appendChild(llmSection);
+        }
+
+        // Use side drawer instead of modal
+        SideDrawer.show({
             title: 'Threat Details',
             content: content,
-            size: 'medium',
         });
     },
 

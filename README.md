@@ -110,30 +110,36 @@ There are **3 installation options** -- choose the one that fits your use case:
 
 #### a) Download Binary Installers
 
-| OS | Download | Format |
-|----|----------|--------|
-| **Windows** | [SecureVector-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) | Installer (.exe) |
-| **macOS** | [SecureVector-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) | Disk Image (.dmg) |
-| **Linux (Debian/Ubuntu)** | [securevector.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.deb) | Debian Package (.deb) |
-| **Linux (Fedora/RHEL)** | [securevector.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.rpm) | RPM Package (.rpm) |
-| **Linux (Universal)** | [SecureVector.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage) | AppImage |
+| OS | Binary | Script | Pattern |
+|----|--------|--------|---------|
+| **Windows** | [SecureVector-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) | [install.ps1](src/securevector/app/installers/windows/install.ps1) | `.exe` installer |
+| **macOS** | [SecureVector-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) | `curl -fsSL .../install-macos.sh \| bash` | `.dmg` disk image |
+| **Linux (Debian/Ubuntu)** | [securevector.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.deb) | `curl -fsSL .../install-linux.sh \| bash` | `.deb` package |
+| **Linux (Fedora/RHEL)** | [securevector.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/securevector.rpm) | `curl -fsSL .../install-linux.sh \| bash` | `.rpm` package |
+| **Linux (Universal)** | [SecureVector.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage) | `curl -fsSL .../install-linux.sh \| bash` | `.AppImage` portable |
 
 **[View All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases)**
 
-#### b) One-Line Script Installer
+#### b) Script Installer Details
 
-| OS | Command |
-|----|---------|
-| **macOS** | `curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-macos.sh \| bash` |
-| **Linux** | `curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-linux.sh \| bash` |
-| **Windows** | Download [install-windows.ps1](installers/install-windows.ps1), run in PowerShell |
+**Full URLs:**
+```bash
+# macOS
+curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-macos.sh | bash
+
+# Linux
+curl -fsSL https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/master/installers/install-linux.sh | bash
+
+# Windows (PowerShell) - Download and run:
+# https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/src/securevector/app/installers/windows/install.ps1
+```
 
 The script installer will:
 1. Install SecureVector via pip
 2. Set up the app as a background service (LaunchAgent on macOS, systemd on Linux, Scheduled Task on Windows)
 3. Start the API server automatically on port 8741
 
-To uninstall: `./install-macos.sh --uninstall` or `./install-linux.sh --uninstall` or `.\install-windows.ps1 -Uninstall`
+To uninstall: `./install-macos.sh --uninstall` or `./install-linux.sh --uninstall` or `.\install.ps1 -Uninstall`
 
 #### c) pip Installation (Optional)
 

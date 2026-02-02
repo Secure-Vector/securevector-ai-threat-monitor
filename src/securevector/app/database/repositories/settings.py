@@ -40,6 +40,8 @@ class AppSettings:
     cloud_user_email: Optional[str] = None
     cloud_connected_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # LLM Review settings (stored as JSON)
+    llm_settings: Optional[dict] = field(default_factory=lambda: None)
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -113,6 +115,14 @@ class SettingsRepository:
             except (ValueError, TypeError):
                 pass
 
+        # Parse llm_settings JSON if present
+        llm_settings = None
+        if row_dict.get("llm_settings"):
+            try:
+                llm_settings = json.loads(row_dict["llm_settings"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         return AppSettings(
             theme=row_dict["theme"],
             server_port=row_dict["server_port"],
@@ -130,6 +140,7 @@ class SettingsRepository:
             cloud_user_email=row_dict.get("cloud_user_email"),
             cloud_connected_at=cloud_connected_at,
             updated_at=row_dict["updated_at"],
+            llm_settings=llm_settings,
         )
 
     async def update(self, **kwargs) -> AppSettings:
@@ -162,9 +173,18 @@ class SettingsRepository:
             "cloud_mode_enabled",
             "cloud_user_email",
             "cloud_connected_at",
+            "llm_settings",
         }
 
-        updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+        updates = {}
+        for k, v in kwargs.items():
+            if k not in valid_fields:
+                continue
+            # Convert llm_settings dict to JSON string
+            if k == "llm_settings" and isinstance(v, dict):
+                updates[k] = json.dumps(v)
+            else:
+                updates[k] = v
         if not updates:
             return await self.get()
 

@@ -115,6 +115,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         cloud_settings,
         threat_analytics,
         threat_intel,
+        llm,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -125,6 +126,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(threat_intel.router, prefix="/api", tags=["Threat Intel"])
     app.include_router(rules.router, prefix="/api", tags=["Rules"])
     app.include_router(cloud_settings.router, prefix="/api", tags=["Cloud Settings"])
+    app.include_router(llm.router, prefix="/api", tags=["LLM Review"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():
@@ -139,6 +141,11 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
             app.mount("/js", StaticFiles(directory=str(js_path)), name="js")
         if icons_path.exists():
             app.mount("/icons", StaticFiles(directory=str(icons_path)), name="icons")
+
+        # Mount images directory
+        images_path = WEB_ASSETS_PATH / "images"
+        if images_path.exists():
+            app.mount("/images", StaticFiles(directory=str(images_path)), name="images")
 
         # Serve index.html at root
         @app.get("/", include_in_schema=False)

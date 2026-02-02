@@ -234,38 +234,72 @@ async def list_rules(
 
         repo = RulesRepository(db)
 
-        # Get custom rules
-        custom_rules = await repo.list_custom_rules(
-            category=category if source in ("custom", "all") else "__none__",
-            enabled=enabled,
-        )
-
         # Build response
         items = []
 
         # Add custom rules
-        for rule in custom_rules:
-            if search and search.lower() not in rule.name.lower() and search.lower() not in rule.description.lower():
-                continue
-            items.append(
-                RuleResponse(
-                    id=rule.id,
-                    name=rule.name,
-                    category=rule.category,
-                    description=rule.description,
-                    severity=rule.severity,
-                    patterns=rule.patterns,
-                    enabled=rule.enabled,
-                    source="custom",
-                    has_override=False,
-                    metadata=rule.metadata,
-                    created_at=rule.created_at.isoformat() if rule.created_at else None,
-                    updated_at=rule.updated_at.isoformat() if rule.updated_at else None,
+        if source in ("custom", "all"):
+            custom_rules = await repo.list_custom_rules(
+                category=category,
+                enabled=enabled,
+            )
+            for rule in custom_rules:
+                if search and search.lower() not in rule.name.lower() and search.lower() not in rule.description.lower():
+                    continue
+                items.append(
+                    RuleResponse(
+                        id=rule.id,
+                        name=rule.name,
+                        category=rule.category,
+                        description=rule.description,
+                        severity=rule.severity,
+                        patterns=rule.patterns,
+                        enabled=rule.enabled,
+                        source="custom",
+                        has_override=False,
+                        metadata=rule.metadata,
+                        created_at=rule.created_at.isoformat() if rule.created_at else None,
+                        updated_at=rule.updated_at.isoformat() if rule.updated_at else None,
+                    )
                 )
+
+        # Add community rules from database cache
+        if source in ("community", "all"):
+            community_rules = await repo.list_community_rules(
+                category=category,
+                enabled=enabled,
             )
 
-        # TODO: Add community rules from SDK
-        # For now, return just custom rules
+            # Get overrides to check which rules have been modified
+            overrides = await repo.list_overrides()
+            override_map = {o.original_rule_id: o for o in overrides}
+
+            for rule in community_rules:
+                if search and search.lower() not in rule.name.lower() and search.lower() not in rule.description.lower():
+                    continue
+
+                has_override = rule.id in override_map
+                override = override_map.get(rule.id)
+
+                # Apply override if exists
+                effective_enabled = override.enabled if (override and override.enabled is not None) else rule.enabled
+                effective_severity = override.severity if (override and override.severity) else rule.severity
+                effective_patterns = override.patterns if (override and override.patterns) else rule.patterns
+
+                items.append(
+                    RuleResponse(
+                        id=rule.id,
+                        name=rule.name,
+                        category=rule.category,
+                        description=rule.description,
+                        severity=effective_severity,
+                        patterns=effective_patterns,
+                        enabled=effective_enabled,
+                        source="community",
+                        has_override=has_override,
+                        metadata=rule.metadata,
+                    )
+                )
 
         # Calculate category counts
         category_counts = {}

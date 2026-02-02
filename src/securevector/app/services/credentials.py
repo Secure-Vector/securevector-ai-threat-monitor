@@ -83,7 +83,12 @@ def get_api_key() -> Optional[str]:
     try:
         return keyring.get_password(SERVICE_NAME, API_KEY_ACCOUNT)
     except KeyringError as e:
-        logger.error(f"Failed to retrieve API key: {e}")
+        # Only log at debug level - this is expected when no credentials configured
+        logger.debug(f"No API key configured: {e}")
+        return None
+    except Exception as e:
+        # Log other unexpected errors but don't spam logs
+        logger.debug(f"Could not retrieve API key: {e}")
         return None
 
 
@@ -100,7 +105,12 @@ def get_bearer_token() -> Optional[str]:
     try:
         return keyring.get_password(SERVICE_NAME, BEARER_TOKEN_ACCOUNT)
     except KeyringError as e:
-        logger.error(f"Failed to retrieve bearer token: {e}")
+        # Only log at debug level - this is expected when no credentials configured
+        logger.debug(f"No bearer token configured: {e}")
+        return None
+    except Exception as e:
+        # Log other unexpected errors but don't spam logs
+        logger.debug(f"Could not retrieve bearer token: {e}")
         return None
 
 

@@ -272,7 +272,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 SCHEMA_DESCRIPTION = "Add cloud mode fields to app_settings"
 
 # Migration SQL for v2

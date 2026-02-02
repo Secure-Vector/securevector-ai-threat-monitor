@@ -5,6 +5,8 @@
 
 const SettingsPage = {
     cloudSettings: null,
+    llmSettings: null,
+    llmProviders: null,
 
     async render(container) {
         container.textContent = '';
@@ -18,10 +20,19 @@ const SettingsPage = {
         container.appendChild(loading);
 
         try {
-            this.cloudSettings = await API.getCloudSettings();
+            const [cloudSettings, llmSettings, llmProviders] = await Promise.all([
+                API.getCloudSettings(),
+                API.getLLMSettings(),
+                API.getLLMProviders(),
+            ]);
+            this.cloudSettings = cloudSettings;
+            this.llmSettings = llmSettings;
+            this.llmProviders = llmProviders.providers || [];
             this.renderContent(container);
         } catch (error) {
             this.cloudSettings = { credentials_configured: false, cloud_mode_enabled: false };
+            this.llmSettings = { enabled: false, provider: 'ollama', model: 'llama3' };
+            this.llmProviders = [];
             this.renderContent(container);
         }
     },
@@ -134,7 +145,7 @@ const SettingsPage = {
 
         const title = document.createElement('div');
         title.className = 'test-result-title';
-        title.textContent = result.is_threat ? 'Threat Detected' : 'No Threat Detected';
+        title.textContent = result.is_threat ? 'Threat Detected' : 'No Risk Detected';
         header.appendChild(title);
 
         const badge = document.createElement('span');
@@ -148,8 +159,13 @@ const SettingsPage = {
         const details = document.createElement('div');
         details.className = 'test-result-details';
 
+        // Show different details based on threat status
+        const threatTypeValue = result.is_threat
+            ? (result.threat_type || 'Unknown')
+            : 'No Risk Detected';
+
         const items = [
-            { label: 'Threat Type', value: result.threat_type || 'None' },
+            { label: 'Classification', value: threatTypeValue },
             { label: 'Confidence', value: (result.confidence * 100).toFixed(0) + '%' },
             { label: 'Source', value: result.analysis_source || 'local' },
             { label: 'Processing Time', value: (result.processing_time_ms || 0) + 'ms' },
@@ -198,6 +214,34 @@ const SettingsPage = {
             resultDiv.appendChild(rulesDiv);
         }
 
+        // If safe, show suggestion to create rule
+        if (!result.is_threat) {
+            const suggestion = document.createElement('div');
+            suggestion.className = 'create-rule-suggestion';
+
+            const text = document.createElement('span');
+            text.textContent = 'Think this should be flagged? ';
+            suggestion.appendChild(text);
+
+            const createLink = document.createElement('button');
+            createLink.className = 'btn-link';
+            createLink.textContent = 'Create a custom rule';
+            createLink.addEventListener('click', () => {
+                if (window.Sidebar) {
+                    Sidebar.navigate('rules');
+                    // Small delay to allow navigation, then trigger create rule
+                    setTimeout(() => {
+                        if (window.RulesPage && window.RulesPage.showCreateRuleModal) {
+                            window.RulesPage.showCreateRuleModal();
+                        }
+                    }, 300);
+                }
+            });
+            suggestion.appendChild(createLink);
+
+            resultDiv.appendChild(suggestion);
+        }
+
         container.appendChild(resultDiv);
 
         if (result.is_threat) {
@@ -232,6 +276,333 @@ const SettingsPage = {
         if (score >= 60) return 'high';
         if (score >= 40) return 'medium';
         return 'low';
+    },
+
+    renderLLMSettings(container) {
+        // Enable toggle row
+        const enableRow = document.createElement('div');
+        enableRow.className = 'setting-row';
+
+        const enableInfo = document.createElement('div');
+        enableInfo.className = 'setting-info';
+
+        const enableLabel = document.createElement('span');
+        enableLabel.className = 'setting-label';
+        enableLabel.textContent = 'Enable LLM Review';
+        enableInfo.appendChild(enableLabel);
+
+        const enableDesc = document.createElement('span');
+        enableDesc.className = 'setting-description';
+        enableDesc.textContent = 'Every analysis will be reviewed by your configured LLM for enhanced detection';
+        enableInfo.appendChild(enableDesc);
+
+        enableRow.appendChild(enableInfo);
+
+        const enableToggle = document.createElement('label');
+        enableToggle.className = 'toggle';
+
+        const enableCheckbox = document.createElement('input');
+        enableCheckbox.type = 'checkbox';
+        enableCheckbox.checked = this.llmSettings.enabled;
+        enableCheckbox.addEventListener('change', (e) => this.updateLLMSetting('enabled', e.target.checked));
+        enableToggle.appendChild(enableCheckbox);
+
+        const enableSlider = document.createElement('span');
+        enableSlider.className = 'toggle-slider';
+        enableToggle.appendChild(enableSlider);
+
+        enableRow.appendChild(enableToggle);
+        container.appendChild(enableRow);
+
+        // Provider select row
+        const providerRow = document.createElement('div');
+        providerRow.className = 'setting-row';
+
+        const providerInfo = document.createElement('div');
+        providerInfo.className = 'setting-info';
+
+        const providerLabel = document.createElement('span');
+        providerLabel.className = 'setting-label';
+        providerLabel.textContent = 'LLM Provider';
+        providerInfo.appendChild(providerLabel);
+
+        providerRow.appendChild(providerInfo);
+
+        const providerSelect = document.createElement('select');
+        providerSelect.className = 'form-select llm-select';
+        providerSelect.id = 'llm-provider';
+
+        const providers = [
+            { id: 'ollama', name: 'Ollama (Local)' },
+            { id: 'openai', name: 'OpenAI' },
+            { id: 'anthropic', name: 'Anthropic' },
+            { id: 'azure', name: 'Azure OpenAI' },
+            { id: 'bedrock', name: 'AWS Bedrock' },
+            { id: 'custom', name: 'Custom (OpenAI-compatible)' },
+        ];
+
+        providers.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.id;
+            option.textContent = p.name;
+            if (p.id === this.llmSettings.provider) option.selected = true;
+            providerSelect.appendChild(option);
+        });
+
+        providerSelect.addEventListener('change', (e) => {
+            this.updateLLMSetting('provider', e.target.value);
+            this.updateProviderFields(e.target.value);
+        });
+
+        providerRow.appendChild(providerSelect);
+        container.appendChild(providerRow);
+
+        // Model input row
+        const modelRow = document.createElement('div');
+        modelRow.className = 'setting-row';
+
+        const modelInfo = document.createElement('div');
+        modelInfo.className = 'setting-info';
+
+        const modelLabel = document.createElement('span');
+        modelLabel.className = 'setting-label';
+        modelLabel.textContent = 'Model';
+        modelInfo.appendChild(modelLabel);
+
+        modelRow.appendChild(modelInfo);
+
+        const modelInput = document.createElement('input');
+        modelInput.type = 'text';
+        modelInput.className = 'form-input llm-input';
+        modelInput.id = 'llm-model';
+        modelInput.value = this.llmSettings.model || '';
+        modelInput.placeholder = 'e.g., llama3, gpt-4o, claude-3-5-sonnet-20241022';
+        modelInput.addEventListener('blur', (e) => this.updateLLMSetting('model', e.target.value));
+
+        modelRow.appendChild(modelInput);
+        container.appendChild(modelRow);
+
+        // Endpoint row
+        const endpointRow = document.createElement('div');
+        endpointRow.className = 'setting-row';
+        endpointRow.id = 'llm-endpoint-row';
+
+        const endpointInfo = document.createElement('div');
+        endpointInfo.className = 'setting-info';
+
+        const endpointLabel = document.createElement('span');
+        endpointLabel.className = 'setting-label';
+        endpointLabel.textContent = 'Endpoint URL';
+        endpointInfo.appendChild(endpointLabel);
+
+        endpointRow.appendChild(endpointInfo);
+
+        const endpointInput = document.createElement('input');
+        endpointInput.type = 'text';
+        endpointInput.className = 'form-input llm-input';
+        endpointInput.id = 'llm-endpoint';
+        endpointInput.value = this.llmSettings.endpoint || '';
+        endpointInput.placeholder = 'http://localhost:11434';
+        endpointInput.addEventListener('blur', (e) => this.updateLLMSetting('endpoint', e.target.value));
+
+        endpointRow.appendChild(endpointInput);
+        container.appendChild(endpointRow);
+
+        // API Key row
+        const keyRow = document.createElement('div');
+        keyRow.className = 'setting-row';
+        keyRow.id = 'llm-apikey-row';
+
+        const keyInfo = document.createElement('div');
+        keyInfo.className = 'setting-info';
+
+        const keyLabel = document.createElement('span');
+        keyLabel.className = 'setting-label';
+        keyLabel.textContent = 'API Key';
+        keyInfo.appendChild(keyLabel);
+
+        const keyStatus = document.createElement('span');
+        keyStatus.className = 'setting-description';
+        keyStatus.textContent = this.llmSettings.api_key_configured ? 'Configured' : 'Not configured';
+        keyInfo.appendChild(keyStatus);
+
+        keyRow.appendChild(keyInfo);
+
+        const keyInput = document.createElement('input');
+        keyInput.type = 'password';
+        keyInput.className = 'form-input llm-input';
+        keyInput.id = 'llm-apikey';
+        keyInput.placeholder = 'sk-... or your API key';
+        keyInput.addEventListener('blur', (e) => {
+            if (e.target.value) {
+                this.updateLLMSetting('api_key', e.target.value);
+            }
+        });
+
+        keyRow.appendChild(keyInput);
+        container.appendChild(keyRow);
+
+        // AWS Region row (for Bedrock)
+        const regionRow = document.createElement('div');
+        regionRow.className = 'setting-row';
+        regionRow.id = 'llm-region-row';
+        regionRow.style.display = 'none';
+
+        const regionInfo = document.createElement('div');
+        regionInfo.className = 'setting-info';
+
+        const regionLabel = document.createElement('span');
+        regionLabel.className = 'setting-label';
+        regionLabel.textContent = 'AWS Region';
+        regionInfo.appendChild(regionLabel);
+
+        regionRow.appendChild(regionInfo);
+
+        const regionSelect = document.createElement('select');
+        regionSelect.className = 'form-select llm-select';
+        regionSelect.id = 'llm-region';
+
+        const regions = [
+            'us-east-1', 'us-west-2', 'eu-west-1', 'eu-central-1',
+            'ap-northeast-1', 'ap-southeast-1', 'ap-southeast-2',
+        ];
+
+        regions.forEach(r => {
+            const option = document.createElement('option');
+            option.value = r;
+            option.textContent = r;
+            if (r === (this.llmSettings.aws_region || 'us-east-1')) option.selected = true;
+            regionSelect.appendChild(option);
+        });
+
+        regionSelect.addEventListener('change', (e) => this.updateLLMSetting('aws_region', e.target.value));
+
+        regionRow.appendChild(regionSelect);
+        container.appendChild(regionRow);
+
+        // Test Connection button
+        const testRow = document.createElement('div');
+        testRow.className = 'setting-row';
+        testRow.style.justifyContent = 'flex-end';
+        testRow.style.gap = '12px';
+
+        const testBtn = document.createElement('button');
+        testBtn.className = 'btn btn-secondary';
+        testBtn.textContent = 'Test Connection';
+        testBtn.addEventListener('click', () => this.testLLMConnection());
+        testRow.appendChild(testBtn);
+
+        const testResult = document.createElement('span');
+        testResult.id = 'llm-test-result';
+        testResult.className = 'llm-test-result';
+        testRow.appendChild(testResult);
+
+        container.appendChild(testRow);
+
+        // Show/hide fields based on provider (don't update model on initial load)
+        this.updateProviderFields(this.llmSettings.provider, false);
+    },
+
+    updateProviderFields(provider, updateModel = true) {
+        const endpointRow = document.getElementById('llm-endpoint-row');
+        const apikeyRow = document.getElementById('llm-apikey-row');
+        const regionRow = document.getElementById('llm-region-row');
+        const modelInput = document.getElementById('llm-model');
+        const endpointInput = document.getElementById('llm-endpoint');
+
+        // Default models and endpoints for each provider
+        const providerDefaults = {
+            ollama: { model: 'llama3', endpoint: 'http://localhost:11434' },
+            openai: { model: 'gpt-4o', endpoint: '' },
+            anthropic: { model: 'claude-3-5-sonnet-20241022', endpoint: '' },
+            azure: { model: 'gpt-4o', endpoint: 'https://YOUR-RESOURCE.openai.azure.com' },
+            bedrock: { model: 'anthropic.claude-3-5-sonnet-20241022-v2:0', endpoint: '' },
+            custom: { model: 'gpt-4o', endpoint: 'http://localhost:8080/v1' },
+        };
+
+        // Update model and endpoint with defaults when provider changes
+        if (updateModel && providerDefaults[provider]) {
+            if (modelInput) {
+                modelInput.value = providerDefaults[provider].model;
+                this.updateLLMSetting('model', providerDefaults[provider].model);
+            }
+            if (endpointInput && providerDefaults[provider].endpoint) {
+                endpointInput.value = providerDefaults[provider].endpoint;
+                this.updateLLMSetting('endpoint', providerDefaults[provider].endpoint);
+            }
+        }
+
+        // Ollama doesn't need API key, cloud providers don't need endpoint
+        if (provider === 'ollama') {
+            if (endpointRow) endpointRow.style.display = 'flex';
+            if (apikeyRow) apikeyRow.style.display = 'none';
+            if (regionRow) regionRow.style.display = 'none';
+        } else if (provider === 'openai' || provider === 'anthropic') {
+            if (endpointRow) endpointRow.style.display = 'none';
+            if (apikeyRow) apikeyRow.style.display = 'flex';
+            if (regionRow) regionRow.style.display = 'none';
+        } else if (provider === 'bedrock') {
+            // Bedrock needs AWS credentials and region
+            if (endpointRow) endpointRow.style.display = 'none';
+            if (apikeyRow) apikeyRow.style.display = 'flex';
+            if (regionRow) regionRow.style.display = 'flex';
+            // Update label for AWS
+            const keyLabel = document.querySelector('#llm-apikey-row .setting-label');
+            if (keyLabel) keyLabel.textContent = 'AWS Access Key (optional)';
+            const keyInput = document.getElementById('llm-apikey');
+            if (keyInput) keyInput.placeholder = 'AWS access key (or use env/config)';
+        } else {
+            // Azure and custom need both
+            if (endpointRow) endpointRow.style.display = 'flex';
+            if (apikeyRow) apikeyRow.style.display = 'flex';
+            if (regionRow) regionRow.style.display = 'none';
+        }
+
+        // Reset API key label for non-Bedrock
+        if (provider !== 'bedrock') {
+            const keyLabel = document.querySelector('#llm-apikey-row .setting-label');
+            if (keyLabel) keyLabel.textContent = 'API Key';
+            const keyInput = document.getElementById('llm-apikey');
+            if (keyInput) keyInput.placeholder = 'sk-... or your API key';
+        }
+    },
+
+    async updateLLMSetting(key, value) {
+        try {
+            const update = {};
+            update[key] = value;
+            this.llmSettings = await API.updateLLMSettings(update);
+            Toast.success('LLM settings updated');
+        } catch (error) {
+            Toast.error('Failed to update setting: ' + error.message);
+        }
+    },
+
+    async testLLMConnection() {
+        const resultSpan = document.getElementById('llm-test-result');
+        if (resultSpan) {
+            resultSpan.textContent = 'Testing...';
+            resultSpan.className = 'llm-test-result testing';
+        }
+
+        try {
+            const result = await API.testLLMConnection();
+            if (resultSpan) {
+                resultSpan.textContent = result.success ? 'Connected' : result.message;
+                resultSpan.className = 'llm-test-result ' + (result.success ? 'success' : 'error');
+            }
+            if (result.success) {
+                Toast.success(result.message);
+            } else {
+                Toast.error(result.message);
+            }
+        } catch (error) {
+            if (resultSpan) {
+                resultSpan.textContent = 'Connection failed';
+                resultSpan.className = 'llm-test-result error';
+            }
+            Toast.error('Connection test failed: ' + error.message);
+        }
     },
 
     renderCloudSettings(container) {

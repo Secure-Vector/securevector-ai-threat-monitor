@@ -1,11 +1,19 @@
 ; SecureVector AI Threat Monitor - Inno Setup Script
 ; Creates Windows installer (.exe)
+; Usage: iscc /DAppSuffix=-dev securevector-setup.iss (for dev builds)
 
-#define MyAppName "SecureVector"
-#define MyAppVersion "0.3.0"
+#ifndef AppSuffix
+  #define AppSuffix ""
+#endif
+
+#define MyAppName "SecureVector" + AppSuffix
+#define MyAppVersion GetEnv("APP_VERSION")
+#if MyAppVersion == ""
+  #define MyAppVersion "0.3.0"
+#endif
 #define MyAppPublisher "SecureVector"
 #define MyAppURL "https://securevector.io"
-#define MyAppExeName "SecureVector.exe"
+#define MyAppExeName "SecureVector" + AppSuffix + ".exe"
 
 [Setup]
 AppId={{B8E7D5C4-9F2A-4B3E-8C1D-6A5F0E9B7D2C}
@@ -21,8 +29,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir=Output
-OutputBaseFilename=SecureVector-{#MyAppVersion}-Windows-Setup
-SetupIconFile=..\..\build\icons\securevector.ico
+OutputBaseFilename=SecureVector{#AppSuffix}-{#MyAppVersion}-Windows-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -38,8 +45,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startupicon"; Description: "Start SecureVector when Windows starts"; GroupDescription: "Startup:"
 
 [Files]
-Source: "..\..\dist\SecureVector.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\src\securevector\rules\*"; DestDir: "{app}\rules"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\src\securevector\app\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -52,7 +60,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [Registry]
 ; Add to Windows Firewall exception
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SecureVector"; ValueData: """{app}\{#MyAppExeName}"" --minimized"; Flags: uninsdeletevalue; Tasks: startupicon
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"" --minimized"; Flags: uninsdeletevalue; Tasks: startupicon
 
 [Code]
 // Custom code to handle service registration
@@ -63,7 +71,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     // Create firewall rule for the API server
-    Exec('netsh', 'advfirewall firewall add rule name="SecureVector" dir=in action=allow program="' + ExpandConstant('{app}\{#MyAppExeName}') + '" enable=yes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('netsh', 'advfirewall firewall add rule name="{#MyAppName}" dir=in action=allow program="' + ExpandConstant('{app}\{#MyAppExeName}') + '" enable=yes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
 
@@ -74,6 +82,6 @@ begin
   if CurUninstallStep = usPostUninstall then
   begin
     // Remove firewall rule
-    Exec('netsh', 'advfirewall firewall delete rule name="SecureVector"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('netsh', 'advfirewall firewall delete rule name="{#MyAppName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

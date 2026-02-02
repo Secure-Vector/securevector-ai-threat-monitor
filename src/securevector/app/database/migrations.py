@@ -139,6 +139,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
     migrations = {
         2: migrate_to_v2,
         3: migrate_to_v3,
+        4: migrate_to_v4,
     }
 
     if version in migrations:
@@ -182,6 +183,46 @@ async def migrate_to_v3(db: DatabaseConnection) -> None:
     )
 
     logger.info("Applied migration v3: cloud mode fields")
+
+
+async def migrate_to_v4(db: DatabaseConnection) -> None:
+    """Migration v3 -> v4: Add LLM review settings and fields."""
+    conn = await db.connect()
+
+    # Add llm_settings column to app_settings
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "llm_settings" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN llm_settings TEXT DEFAULT NULL"
+        )
+
+    # Add LLM review fields to threat_intel_records
+    cursor = await conn.execute("PRAGMA table_info(threat_intel_records)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    llm_columns = [
+        ("llm_reviewed", "INTEGER DEFAULT 0"),
+        ("llm_agrees", "INTEGER DEFAULT 1"),
+        ("llm_confidence", "REAL DEFAULT 0"),
+        ("llm_explanation", "TEXT DEFAULT NULL"),
+        ("llm_risk_adjustment", "INTEGER DEFAULT 0"),
+        ("llm_model_used", "TEXT DEFAULT NULL"),
+    ]
+
+    for col_name, col_def in llm_columns:
+        if col_name not in existing_columns:
+            await conn.execute(
+                f"ALTER TABLE threat_intel_records ADD COLUMN {col_name} {col_def}"
+            )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (4, CURRENT_TIMESTAMP, 'Add LLM review settings and fields')"
+    )
+
+    logger.info("Applied migration v4: LLM review settings")
 
 
 # Future migration functions would be defined here:
@@ -243,4 +284,119 @@ async def init_database_schema(db: DatabaseConnection) -> int:
         Final schema version.
     """
     logger.info("Initializing database schema...")
-    return await run_migrations(db)
+    version = await run_migrations(db)
+
+    # Load community rules after schema is ready
+    await load_community_rules(db)
+
+    return version
+
+
+async def load_community_rules(db: DatabaseConnection) -> int:
+    """
+    Load community rules from YAML files into the database.
+
+    This function reads all community rule YAML files and inserts them
+    into the community_rules table. Existing rules are updated if changed.
+
+    Args:
+        db: Database connection.
+
+    Returns:
+        Number of rules loaded.
+    """
+    import json
+    from pathlib import Path
+    import yaml
+
+    # Find community rules directory - check multiple possible locations
+    rules_paths = [
+        # When installed as package: securevector/rules/community
+        Path(__file__).parent.parent.parent / "rules" / "community",
+        # Development: src/securevector/rules/community
+        Path(__file__).parent.parent.parent.parent / "rules" / "community",
+        # Alternative package structure
+        Path(__file__).parent.parent / "rules" / "community",
+    ]
+
+    rules_path = None
+    for p in rules_paths:
+        logger.debug(f"Checking rules path: {p}")
+        if p.exists():
+            rules_path = p
+            logger.info(f"Found community rules at: {rules_path}")
+            break
+
+    if not rules_path:
+        logger.warning(f"Community rules directory not found. Checked: {rules_paths}")
+        return 0
+
+    # Check if community_rules table exists
+    try:
+        row = await db.fetch_one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='community_rules'"
+        )
+        if not row:
+            logger.debug("community_rules table not found, skipping rule load")
+            return 0
+    except Exception as e:
+        logger.warning(f"Error checking for community_rules table: {e}")
+        return 0
+
+    # Load all YAML files
+    rule_files = list(rules_path.glob("*.yml")) + list(rules_path.glob("*.yaml"))
+    logger.info(f"Found {len(rule_files)} rule files to load")
+    loaded_count = 0
+
+    for rule_file in rule_files:
+        try:
+            logger.debug(f"Loading rules from: {rule_file.name}")
+            with open(rule_file, "r", encoding="utf-8") as f:
+                rule_data = yaml.safe_load(f)
+
+            if not rule_data or "rules" not in rule_data:
+                logger.debug(f"Skipping {rule_file.name}: no 'rules' key found")
+                continue
+
+            source_file = rule_file.name
+
+            for rule_entry in rule_data.get("rules", []):
+                rule_id = rule_entry.get("id")
+                if not rule_id:
+                    continue
+
+                name = rule_entry.get("name", rule_id)
+                category = rule_entry.get("category", "general")
+                description = rule_entry.get("description", "")
+                severity = rule_entry.get("severity", "medium").lower()
+                patterns = rule_entry.get("patterns", [])
+                enabled = 1 if rule_entry.get("enabled", True) else 0
+                metadata = rule_entry.get("metadata", {})
+
+                # Validate severity
+                if severity not in ("low", "medium", "high", "critical"):
+                    severity = "medium"
+
+                # Convert patterns to JSON
+                patterns_json = json.dumps(patterns)
+                metadata_json = json.dumps(metadata) if metadata else None
+
+                # Upsert rule (INSERT OR REPLACE)
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO community_rules
+                    (id, name, category, description, severity, patterns, enabled, source_file, metadata, loaded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (rule_id, name, category, description, severity, patterns_json, enabled, source_file, metadata_json)
+                )
+                loaded_count += 1
+
+        except Exception as e:
+            logger.warning(f"Failed to load rules from {rule_file}: {e}")
+            continue
+
+    if loaded_count > 0:
+        logger.info(f"Loaded {loaded_count} community rules from {len(rule_files)} files")
+
+    return loaded_count

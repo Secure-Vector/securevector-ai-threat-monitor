@@ -45,21 +45,27 @@ const API = {
     async analyze(content) {
         return this.request('/analyze', {
             method: 'POST',
-            body: JSON.stringify({ content }),
+            body: JSON.stringify({ text: content }),
         });
     },
 
     // ==================== Threat Analytics ====================
 
     async getThreatAnalytics() {
-        // Get dashboard summary from threat intel
+        // Get dashboard summary from threat intel and rules
         try {
-            const threats = await this.getThreats({ page_size: 100 });
+            const [threats, rules] = await Promise.all([
+                this.getThreats({ page_size: 100 }),
+                this.getRules(),
+            ]);
+
             const items = threats.items || [];
+            const ruleItems = rules.items || [];
 
             // Calculate stats
             const criticalCount = items.filter(t => t.risk_score >= 80).length;
             const recentThreats = items.slice(0, 5);
+            const activeRulesCount = ruleItems.filter(r => r.enabled).length;
 
             // Group by type
             const threatTypes = {};
@@ -72,7 +78,7 @@ const API = {
                 total_threats: items.length,
                 critical_count: criticalCount,
                 blocked_count: items.filter(t => t.blocked).length,
-                active_rules: 0,
+                active_rules: activeRulesCount,
                 recent_threats: recentThreats,
                 threat_types: threatTypes,
             };
@@ -127,6 +133,30 @@ const API = {
         });
     },
 
+    async generatePatterns(description) {
+        return this.request('/api/rules/generate', {
+            method: 'POST',
+            body: JSON.stringify({ description }),
+        });
+    },
+
+    async createRule(ruleData) {
+        return this.request('/api/rules/custom', {
+            method: 'POST',
+            body: JSON.stringify(ruleData),
+        });
+    },
+
+    async getCustomRulesCount() {
+        try {
+            const response = await this.getRules();
+            const items = response.items || [];
+            return items.filter(r => r.source === 'custom').length;
+        } catch (e) {
+            return 0;
+        }
+    },
+
     // ==================== Cloud Settings ====================
 
     async getCloudSettings() {
@@ -141,6 +171,41 @@ const API = {
             method: 'PUT',
             body: JSON.stringify({ enabled }),
         });
+    },
+
+    // ==================== LLM Settings ====================
+
+    async getLLMSettings() {
+        return this.request('/api/settings/llm').catch(() => ({
+            enabled: false,
+            provider: 'ollama',
+            model: 'llama3',
+            endpoint: 'http://localhost:11434',
+            api_key_configured: false,
+        }));
+    },
+
+    async updateLLMSettings(settings) {
+        return this.request('/api/settings/llm', {
+            method: 'PUT',
+            body: JSON.stringify(settings),
+        });
+    },
+
+    async testLLMConnection() {
+        return this.request('/api/settings/llm/test', {
+            method: 'POST',
+        });
+    },
+
+    async getLLMProviders() {
+        return this.request('/api/llm/providers').catch(() => ({
+            providers: [
+                { id: 'ollama', name: 'Ollama', endpoint: 'http://localhost:11434', models: ['llama3', 'mistral'], requires_api_key: false },
+                { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com', models: ['gpt-4o', 'gpt-4o-mini'], requires_api_key: true },
+                { id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com', models: ['claude-3-5-sonnet-20241022'], requires_api_key: true },
+            ],
+        }));
     },
 };
 
