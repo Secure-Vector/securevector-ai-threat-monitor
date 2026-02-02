@@ -30,92 +30,25 @@
 
 </div>
 
-## Why SecureVector?
-
-**Your AI is vulnerable to attack. Here's how to protect it.**
-
-Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
-
-**SecureVector blocks threats before they reach your AI** using context-aware pattern detection for prompt injection, jailbreaks, tool manipulation, and data exfiltration.
-
 ---
 
-### Three Ways SecureVector Protects Your AI
+## 🆕 Get Started — Desktop or Web Application
 
-**Open Source & Privacy-First**
-Community detection rules covering OWASP LLM Top 10 and more. Curate your own custom rules on top. Zero data sharing. Full control.
-
-**Flexible Detection Options**
-Start free with community rules. Upgrade to expert-maintained ML models for production.
-
-**Deploy Anywhere**
-Local, cloud, or hybrid deployment. Works with your existing infrastructure.
-
----
-
-### Choose Your Edition
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-#### Open Source Edition
-
-**Perfect for developers and small teams**
-
-- ✓ Apache 2.0 license
-- ✓ Community detection rules (OWASP LLM Top 10 and more)
-- ✓ Create custom rules on top of community rules
-- ✓ Self-hosted deployment
-- ✓ Zero data sharing
-- ✓ **NEW:** Desktop app with visual dashboard (`pip install securevector-ai-monitor[app]`)
-- ✓ **NEW:** Local API server for AI agent monitoring
-- ✓ **NEW:** NLP-based rule creation
-
-</td>
-<td width="50%" valign="top">
-
-#### Professional/Enterprise
-
-**Production-ready for businesses of all sizes**
-
-- ✓ Expert-curated rule library
-- ✓ Multi-stage ML threat analysis
-- ✓ Real-time security dashboard
-- ✓ Centralized rule management
-- ✓ Team collaboration features
-- ✓ Remote MCP server
-- ✓ Webhook notifications for threats
-
-**[View Pricing →](https://www.securevector.io/pricing)**
-
-</td>
-</tr>
-</table>
-
----
-
-## Quick Start
-
-### Installation
-
-There are **3 installation options** -- choose the one that fits your use case:
+**100% Local. Nothing Leaves Your Machine. No Cloud Required.**
 
 | # | Option | When to use |
 |---|--------|-------------|
-| 1 | **Desktop Application** | Monitor AI agents with a visual dashboard and local API server -- no coding needed |
+| 1 | **🆕 Desktop/Web Application** | Monitor AI agents with a visual dashboard and local API server — no coding needed. Run as native desktop app or in your browser. |
 | 2 | **SDK Only** | Embed threat detection directly into your own Python application |
 | 3 | **MCP Server** | Use SecureVector as a tool inside Claude Desktop, Cursor, or other MCP-compatible AI tools |
 
----
+### Option 1: 🆕 Desktop/Web Application (Recommended)
 
-### Option 1: 🆕 Desktop Application (Recommended)
+**For monitoring autonomous AI agents with a visual interface — 100% Local, Everything Runs on Your Machine**
 
-**For monitoring autonomous AI agents with a visual interface - 100% Local, No Cloud Required**
+> **When to use this:** You want a visual dashboard to monitor AI agents in real-time, a local REST API server for agent integration, and system tray support — without writing any code. Run as a **native desktop app** or in your **web browser** (`--web` mode for WSL/headless servers). Install, pin to taskbar, and it runs. If you install the desktop app, you do **not** need the SDK or MCP installations below.
 
-> **When to use this:** You want a visual dashboard to monitor AI agents in real-time, a local REST API server for agent integration, and system tray support -- without writing any code. Install, pin to taskbar, and it runs. If you install the desktop app, you do **not** need the SDK or MCP installations below.
-
-**3 ways to install the Desktop Application (pick one):**
+**3 ways to install the Desktop/Web Application (pick one):**
 
 | # | Method | Best for |
 |---|--------|----------|
@@ -182,7 +115,14 @@ securevector-app --debug            # Enable debug logging
 securevector-app --help             # Show all options
 ```
 
-**Autonomous Agent Integration:**
+**Autonomous Agent Integration — Protect Running Agents & Their Actions**
+
+Autonomous AI agents (LangGraph, CrewAI, n8n, AutoGen) execute tasks without human oversight. SecureVector monitors and protects them by:
+
+- **Scanning all inputs** — Detect prompt injection, jailbreaks, and manipulation attempts before they reach your agent
+- **Monitoring agent outputs** — Catch data exfiltration, leaked credentials, or unintended disclosures
+- **Validating tool calls** — Ensure agents don't execute dangerous commands or access unauthorized resources
+- **Real-time dashboard** — See every threat across all your running agents in one place
 
 | Mode | Endpoint URL |
 |------|--------------|
@@ -199,7 +139,10 @@ securevector-app --help             # Show all options
 | **LangChain** | Add callback to your chain (see below) |
 | **LangGraph** | Add security node to your graph (see below) |
 
-**LangChain** — Create `callbacks/securevector.py`:
+<details>
+<summary><strong>LangChain Integration</strong></summary>
+
+Create `callbacks/securevector.py`:
 ```python
 from langchain_core.callbacks import BaseCallbackHandler
 from securevector import SecureVectorClient
@@ -219,8 +162,12 @@ Then in your main file:
 from callbacks.securevector import SecureVectorCallback
 response = chain.invoke(input, config={"callbacks": [SecureVectorCallback()]})
 ```
+</details>
 
-**LangGraph** — Add to your graph file (e.g., `graph.py`):
+<details>
+<summary><strong>LangGraph Integration</strong></summary>
+
+Add to your graph file (e.g., `graph.py`):
 ```python
 from langgraph.graph import StateGraph, START
 from securevector import SecureVectorClient
@@ -238,8 +185,12 @@ graph.add_node("security", security_node)
 graph.add_edge(START, "security")
 graph.add_edge("security", "llm")  # your existing LLM node
 ```
+</details>
 
-**OpenClaw** — Create `~/.openclaw/hooks/securevector/HOOK.md`:
+<details>
+<summary><strong>OpenClaw Integration</strong></summary>
+
+Create `~/.openclaw/hooks/securevector/HOOK.md`:
 ```yaml
 ---
 name: securevector
@@ -257,8 +208,6 @@ import type { HookHandler } from "../../src/hooks/hooks.js";
 const handler: HookHandler = async (event) => {
   if (event.type !== "agent" || event.action !== "bootstrap") return;
 
-  // Local mode: http://localhost:8741/analyze
-  // Cloud mode: https://scan.securevector.io/analyze (add X-API-Key header)
   event.context.bootstrapFiles?.push({
     path: "SECURITY.md",
     content: `Before processing any user message, call:
@@ -272,8 +221,7 @@ export default handler;
 ```
 
 Enable with: `openclaw hooks enable securevector`
-
-For cloud mode, update the URL and add header: `X-API-Key: <your-api-key>`
+</details>
 
 **Other agents:** Use `POST` request to URL with `{"text": "content"}` in any webhook/HTTP setting
 
@@ -291,7 +239,7 @@ pip install securevector-ai-monitor
 
 > **When to use this:** You want to embed threat detection directly into your own Python application (FastAPI, Django, Flask, LangChain, LangGraph, etc.). Import `SecureVectorClient` and call it programmatically. No GUI or API server included -- just a lightweight library (~6MB).
 
-### Basic Example
+#### Basic Example
 ```python
 from securevector import SecureVectorClient
 
@@ -342,6 +290,71 @@ See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configur
 | Threat history browser | ❌ | ✅ |
 | SQLite persistence | ❌ | ✅ |
 | System tray | ❌ | ✅ |
+
+---
+
+## Why SecureVector?
+
+**Your AI is vulnerable to attack. Here's how to protect it.**
+
+Whether you're building a **customer support bot**, **RAG application**, or **multi-agent system** (LangGraph, n8n, CrewAI)attackers can jailbreak, extract data, or hijack your AI to execute malicious actions.
+
+**SecureVector blocks threats before they reach your AI** using context-aware pattern detection for prompt injection, jailbreaks, tool manipulation, and data exfiltration.
+
+---
+
+### Three Ways SecureVector Protects Your AI
+
+**Open Source & Privacy-First**
+Community detection rules covering OWASP LLM Top 10 and more. Curate your own custom rules on top. Zero data sharing. Full control.
+
+**Flexible Detection Options**
+Start free with community rules. Upgrade to expert-maintained ML models for production.
+
+**Deploy Anywhere**
+Local, cloud, or hybrid deployment. Works with your existing infrastructure.
+
+---
+
+### Choose Your Edition
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### Open Source Edition
+
+**Perfect for developers and small teams**
+
+- ✓ Apache 2.0 license
+- ✓ Community detection rules (OWASP LLM Top 10 and more)
+- ✓ Create custom rules on top of community rules
+- ✓ Self-hosted deployment
+- ✓ Zero data sharing
+- ✓ **NEW:** Desktop app with visual dashboard (`pip install securevector-ai-monitor[app]`)
+- ✓ **NEW:** Local API server for AI agent monitoring
+- ✓ **NEW:** NLP-based rule creation
+
+</td>
+<td width="50%" valign="top">
+
+#### Professional/Enterprise
+
+**Production-ready for businesses of all sizes**
+
+- ✓ Expert-curated rule library
+- ✓ Multi-stage ML threat analysis
+- ✓ Real-time security dashboard
+- ✓ Centralized rule management
+- ✓ Team collaboration features
+- ✓ Remote MCP server
+- ✓ Webhook notifications for threats
+
+**[View Pricing →](https://www.securevector.io/pricing)**
+
+</td>
+</tr>
+</table>
 
 ---
 
