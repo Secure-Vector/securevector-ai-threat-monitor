@@ -210,6 +210,7 @@ async def migrate_to_v4(db: DatabaseConnection) -> None:
         ("llm_recommendation", "TEXT DEFAULT NULL"),
         ("llm_risk_adjustment", "INTEGER DEFAULT 0"),
         ("llm_model_used", "TEXT DEFAULT NULL"),
+        ("llm_tokens_used", "INTEGER DEFAULT 0"),
     ]
 
     for col_name, col_def in llm_columns:

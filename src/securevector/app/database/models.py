@@ -212,7 +212,16 @@ CREATE TABLE IF NOT EXISTS threat_intel_records (
     session_id TEXT,
     processing_time_ms INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    metadata TEXT
+    metadata TEXT,
+    -- LLM Review fields
+    llm_reviewed INTEGER DEFAULT 0,
+    llm_agrees INTEGER DEFAULT 1,
+    llm_confidence REAL DEFAULT 0,
+    llm_explanation TEXT DEFAULT NULL,
+    llm_recommendation TEXT DEFAULT NULL,
+    llm_risk_adjustment INTEGER DEFAULT 0,
+    llm_model_used TEXT DEFAULT NULL,
+    llm_tokens_used INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_threat_intel_created_at ON threat_intel_records(created_at DESC);

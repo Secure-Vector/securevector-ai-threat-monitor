@@ -52,6 +52,7 @@ class LLMReviewInfo(BaseModel):
     risk_adjustment: int = 0
     model_used: Optional[str] = None
     processing_time_ms: int = 0
+    tokens_used: int = 0
 
 
 class AnalysisResult(BaseModel):
@@ -215,6 +216,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
                             risk_adjustment=llm_result.llm_risk_adjustment,
                             model_used=llm_result.model_used,
                             processing_time_ms=llm_result.processing_time_ms,
+                            tokens_used=llm_result.tokens_used,
                         )
 
                         # Combine results: adjust risk score and confidence
@@ -273,6 +275,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
             llm_recommendation=llm_review_info.recommendation if llm_review_info else None,
             llm_risk_adjustment=llm_review_info.risk_adjustment if llm_review_info else 0,
             llm_model_used=llm_review_info.model_used if llm_review_info else None,
+            llm_tokens_used=llm_review_info.tokens_used if llm_review_info else 0,
         )
 
         logger.debug(

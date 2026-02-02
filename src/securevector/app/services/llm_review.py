@@ -59,6 +59,7 @@ class LLMReviewResult:
     error: Optional[str] = None
     model_used: Optional[str] = None
     processing_time_ms: int = 0
+    tokens_used: int = 0  # Total tokens (prompt + completion)
 
 
 # System prompt for threat review
@@ -205,19 +206,20 @@ class LLMReviewService:
 
             # Call the appropriate provider
             provider = LLMProvider(self.config.provider.lower())
+            tokens_used = 0
 
             if provider == LLMProvider.OLLAMA:
-                response = await self._call_ollama(user_prompt)
+                response, tokens_used = await self._call_ollama(user_prompt)
             elif provider == LLMProvider.OPENAI:
-                response = await self._call_openai(user_prompt)
+                response, tokens_used = await self._call_openai(user_prompt)
             elif provider == LLMProvider.ANTHROPIC:
-                response = await self._call_anthropic(user_prompt)
+                response, tokens_used = await self._call_anthropic(user_prompt)
             elif provider == LLMProvider.AZURE:
-                response = await self._call_azure(user_prompt)
+                response, tokens_used = await self._call_azure(user_prompt)
             elif provider == LLMProvider.BEDROCK:
-                response = await self._call_bedrock(user_prompt)
+                response, tokens_used = await self._call_bedrock(user_prompt)
             elif provider == LLMProvider.CUSTOM:
-                response = await self._call_custom(user_prompt)
+                response, tokens_used = await self._call_custom(user_prompt)
             else:
                 return LLMReviewResult(
                     reviewed=False,
@@ -228,6 +230,7 @@ class LLMReviewService:
             result = self._parse_response(response)
             result.model_used = self.config.model
             result.processing_time_ms = int((time.time() - start_time) * 1000)
+            result.tokens_used = tokens_used
             return result
 
         except Exception as e:
@@ -304,8 +307,8 @@ Please provide your assessment in JSON format."""
             llm_confidence=0.5,
         )
 
-    async def _call_ollama(self, prompt: str) -> str:
-        """Call Ollama API."""
+    async def _call_ollama(self, prompt: str) -> tuple[str, int]:
+        """Call Ollama API. Returns (response_text, tokens_used)."""
         client = await self._get_client()
 
         url = f"{self.config.endpoint.rstrip('/')}/api/generate"
@@ -323,10 +326,12 @@ Please provide your assessment in JSON format."""
         response = await client.post(url, json=payload)
         response.raise_for_status()
         data = response.json()
-        return data.get("response", "")
+        # Ollama returns prompt_eval_count + eval_count for tokens
+        tokens = data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
+        return (data.get("response", ""), tokens)
 
-    async def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI API."""
+    async def _call_openai(self, prompt: str) -> tuple[str, int]:
+        """Call OpenAI API. Returns (response_text, tokens_used)."""
         client = await self._get_client()
 
         url = "https://api.openai.com/v1/chat/completions"
@@ -347,10 +352,12 @@ Please provide your assessment in JSON format."""
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return (content, tokens)
 
-    async def _call_anthropic(self, prompt: str) -> str:
-        """Call Anthropic API."""
+    async def _call_anthropic(self, prompt: str) -> tuple[str, int]:
+        """Call Anthropic API. Returns (response_text, tokens_used)."""
         client = await self._get_client()
 
         url = "https://api.anthropic.com/v1/messages"
@@ -371,10 +378,13 @@ Please provide your assessment in JSON format."""
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data["content"][0]["text"]
+        content = data["content"][0]["text"]
+        usage = data.get("usage", {})
+        tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+        return (content, tokens)
 
-    async def _call_azure(self, prompt: str) -> str:
-        """Call Azure OpenAI API."""
+    async def _call_azure(self, prompt: str) -> tuple[str, int]:
+        """Call Azure OpenAI API. Returns (response_text, tokens_used)."""
         client = await self._get_client()
 
         # Azure endpoint format: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2024-02-15-preview
@@ -395,10 +405,12 @@ Please provide your assessment in JSON format."""
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return (content, tokens)
 
-    async def _call_bedrock(self, prompt: str) -> str:
-        """Call AWS Bedrock API."""
+    async def _call_bedrock(self, prompt: str) -> tuple[str, int]:
+        """Call AWS Bedrock API. Returns (response_text, tokens_used)."""
         try:
             import boto3
         except ImportError:
@@ -470,18 +482,24 @@ Please provide your assessment in JSON format."""
 
         response_body = json.loads(response["body"].read())
 
+        # Extract tokens (Bedrock includes usage in response)
+        usage = response_body.get("usage", {})
+        tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+
         # Extract text based on model type
         if "claude" in model_id.lower() or "anthropic" in model_id.lower():
-            return response_body.get("content", [{}])[0].get("text", "")
+            content = response_body.get("content", [{}])[0].get("text", "")
         elif "llama" in model_id.lower() or "meta" in model_id.lower():
-            return response_body.get("generation", "")
+            content = response_body.get("generation", "")
         elif "titan" in model_id.lower() or "amazon" in model_id.lower():
-            return response_body.get("results", [{}])[0].get("outputText", "")
+            content = response_body.get("results", [{}])[0].get("outputText", "")
         else:
-            return response_body.get("content", [{}])[0].get("text", "")
+            content = response_body.get("content", [{}])[0].get("text", "")
 
-    async def _call_custom(self, prompt: str) -> str:
-        """Call custom OpenAI-compatible API (LM Studio, vLLM, etc.)."""
+        return (content, tokens)
+
+    async def _call_custom(self, prompt: str) -> tuple[str, int]:
+        """Call custom OpenAI-compatible API (LM Studio, vLLM, etc.). Returns (response_text, tokens_used)."""
         client = await self._get_client()
 
         url = f"{self.config.endpoint.rstrip('/')}/v1/chat/completions"
@@ -502,7 +520,9 @@ Please provide your assessment in JSON format."""
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        tokens = data.get("usage", {}).get("total_tokens", 0)
+        return (content, tokens)
 
     async def test_connection(self) -> tuple[bool, str]:
         """

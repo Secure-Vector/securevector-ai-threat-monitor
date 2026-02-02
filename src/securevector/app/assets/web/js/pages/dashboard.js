@@ -69,17 +69,19 @@ const DashboardPage = {
                 color: 'danger',
             },
             {
-                value: this.data.active_rules || 0,
-                label: 'Active Rules',
-                icon: 'activity',
-                color: 'success',
-            },
-            {
                 value: this.getAverageRiskScore(),
                 label: 'Avg Risk Score',
                 icon: 'gauge',
                 color: this.getRiskColor(this.getAverageRiskScore()),
                 suffix: '%',
+            },
+            {
+                value: this.getAverageLatency(),
+                label: 'Avg Latency',
+                icon: 'clock',
+                color: 'latency',
+                suffix: 'ms',
+                highlight: true,
             },
         ];
 
@@ -159,6 +161,7 @@ const DashboardPage = {
             activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
             gauge: 'M12 2a10 10 0 1 0 10 10H12V2zM12 12l6-6',
             check: 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3',
+            clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2',
         };
 
         const pathData = paths[name] || paths.shield;
@@ -172,6 +175,12 @@ const DashboardPage = {
     getAverageRiskScore() {
         if (!this.threats || this.threats.length === 0) return 0;
         const total = this.threats.reduce((sum, t) => sum + (t.risk_score || 0), 0);
+        return Math.round(total / this.threats.length);
+    },
+
+    getAverageLatency() {
+        if (!this.threats || this.threats.length === 0) return 0;
+        const total = this.threats.reduce((sum, t) => sum + (t.processing_time_ms || 0), 0);
         return Math.round(total / this.threats.length);
     },
 

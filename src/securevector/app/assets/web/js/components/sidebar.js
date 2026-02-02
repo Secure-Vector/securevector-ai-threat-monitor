@@ -68,11 +68,23 @@ const Sidebar = {
             label.textContent = item.label;
             navItem.appendChild(label);
 
+            // Add badge for rules count
+            if (item.id === 'rules') {
+                const badge = document.createElement('span');
+                badge.className = 'nav-badge';
+                badge.id = 'rules-count-badge';
+                badge.textContent = '...';
+                navItem.appendChild(badge);
+            }
+
             // Click handler
             navItem.addEventListener('click', () => this.navigate(item.id));
 
             nav.appendChild(navItem);
         });
+
+        // Fetch rules count
+        this.loadRulesCount();
 
         container.appendChild(nav);
 
@@ -211,6 +223,22 @@ const Sidebar = {
         localStorage.setItem('theme', newTheme);
         this.render();
         if (window.Header) Header.render();
+    },
+
+    async loadRulesCount() {
+        try {
+            const rules = await API.getRules();
+            const count = rules.total || (rules.items ? rules.items.length : 0);
+            const badge = document.getElementById('rules-count-badge');
+            if (badge) {
+                badge.textContent = count;
+            }
+        } catch (e) {
+            const badge = document.getElementById('rules-count-badge');
+            if (badge) {
+                badge.textContent = '0';
+            }
+        }
     },
 
     async checkServerStatus() {

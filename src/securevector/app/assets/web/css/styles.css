@@ -699,6 +699,22 @@ html, body {
     font-weight: 500;
 }
 
+.nav-badge {
+    margin-left: auto;
+    background: var(--primary);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.sidebar.collapsed .nav-badge {
+    display: none;
+}
+
 /* Sidebar Logo Image */
 .sidebar-logo-img {
     width: 36px;
@@ -2116,6 +2132,26 @@ html, body {
 .stat-warning .stat-icon { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
 .stat-info .stat-icon { background: rgba(59, 130, 246, 0.15); color: var(--info); }
 
+/* Highlighted Latency Card - Flashing Cyan Border */
+.stat-latency {
+    animation: cyan-glow 1.5s ease-in-out infinite;
+}
+.stat-latency .stat-icon {
+    background: rgba(0, 188, 212, 0.15);
+    color: #00bcd4;
+}
+
+@keyframes cyan-glow {
+    0%, 100% {
+        border-color: rgba(0, 188, 212, 0.3);
+        box-shadow: 0 0 5px rgba(0, 188, 212, 0.2);
+    }
+    50% {
+        border-color: rgba(0, 188, 212, 0.9);
+        box-shadow: 0 0 15px rgba(0, 188, 212, 0.5), 0 0 25px rgba(0, 188, 212, 0.3);
+    }
+}
+
 /* Donut Chart */
 .risk-donut-chart {
     display: flex;
@@ -2855,6 +2891,75 @@ html, body {
 
 .llm-stat-value.risk-down {
     color: var(--success);
+}
+
+/* LLM Badge in table */
+.llm-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: white;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+}
+
+.tokens-badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 2px 5px;
+    font-size: 9px;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-radius: 3px;
+    vertical-align: middle;
+}
+
+/* LLM Expandable Section */
+.llm-toggle {
+    display: flex;
+    align-items: center;
+    user-select: none;
+}
+
+.llm-toggle:hover {
+    opacity: 0.8;
+}
+
+.llm-expand-arrow {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.llm-content {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+.llm-content.expanded {
+    max-height: 1000px;
+    opacity: 1;
+}
+
+.llm-save-row {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-default);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.llm-save-btn {
+    padding: 8px 20px;
 }
 
 .llm-reasoning-box {

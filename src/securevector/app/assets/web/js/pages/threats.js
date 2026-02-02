@@ -222,6 +222,21 @@ const ThreatsPage = {
             riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
             riskBadge.textContent = (threat.risk_score || 0) + '%';
             riskCell.appendChild(riskBadge);
+            // LLM badge if reviewed
+            if (threat.llm_reviewed) {
+                const llmBadge = document.createElement('span');
+                llmBadge.className = 'llm-badge';
+                llmBadge.textContent = 'LLM';
+                llmBadge.title = 'Reviewed by ' + (threat.llm_model_used || 'LLM');
+                riskCell.appendChild(llmBadge);
+                // Tokens badge
+                if (threat.llm_tokens_used && threat.llm_tokens_used > 0) {
+                    const tokensBadge = document.createElement('span');
+                    tokensBadge.className = 'tokens-badge';
+                    tokensBadge.textContent = threat.llm_tokens_used.toLocaleString() + ' tokens';
+                    riskCell.appendChild(tokensBadge);
+                }
+            }
             row.appendChild(riskCell);
 
             // First Seen
@@ -301,6 +316,192 @@ const ThreatsPage = {
         typeBadge.style.marginLeft = '8px';
         riskHeader.appendChild(typeBadge);
         content.appendChild(riskHeader);
+
+        // LLM Review Analytics (if LLM review was performed) - at top for visibility
+        if (threat.llm_reviewed) {
+            const llmSection = document.createElement('div');
+            llmSection.className = 'threat-detail-section llm-review-section llm-expandable';
+
+            // Clickable header for expand/collapse
+            const llmHeader = document.createElement('div');
+            llmHeader.className = 'detail-section-label llm-section-header llm-toggle';
+            llmHeader.style.cursor = 'pointer';
+
+            const llmIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            llmIcon.setAttribute('viewBox', '0 0 24 24');
+            llmIcon.setAttribute('fill', 'none');
+            llmIcon.setAttribute('stroke', 'currentColor');
+            llmIcon.setAttribute('stroke-width', '2');
+            llmIcon.setAttribute('class', 'llm-icon');
+            const llmPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            llmPath.setAttribute('d', 'M12 2a10 10 0 1 0 10 10H12V2zM12 12l6-6');
+            llmIcon.appendChild(llmPath);
+            llmHeader.appendChild(llmIcon);
+
+            const llmTitle = document.createElement('span');
+            llmTitle.textContent = 'LLM Review';
+            llmHeader.appendChild(llmTitle);
+
+            // Model badge
+            if (threat.llm_model_used) {
+                const modelBadge = document.createElement('span');
+                modelBadge.className = 'llm-model-badge';
+                modelBadge.textContent = threat.llm_model_used;
+                llmHeader.appendChild(modelBadge);
+            }
+
+            // Expand/collapse arrow
+            const expandArrow = document.createElement('span');
+            expandArrow.className = 'llm-expand-arrow';
+            expandArrow.textContent = '▼';
+            llmHeader.appendChild(expandArrow);
+
+            llmSection.appendChild(llmHeader);
+
+            // Collapsible content wrapper
+            const llmContent = document.createElement('div');
+            llmContent.className = 'llm-content expanded';
+
+            // LLM Verdict
+            const verdictRow = document.createElement('div');
+            verdictRow.className = 'llm-verdict-row';
+
+            const verdictLabel = document.createElement('span');
+            verdictLabel.className = 'llm-verdict-label';
+            verdictLabel.textContent = 'LLM Verdict:';
+            verdictRow.appendChild(verdictLabel);
+
+            const verdictBadge = document.createElement('span');
+            verdictBadge.className = 'llm-verdict-badge ' + (threat.llm_agrees ? 'agrees' : 'disagrees');
+            verdictBadge.textContent = threat.llm_agrees ? 'Agrees with Detection' : 'Disagrees';
+            verdictRow.appendChild(verdictBadge);
+
+            llmContent.appendChild(verdictRow);
+
+            // LLM Confidence
+            if (threat.llm_confidence !== undefined && threat.llm_confidence > 0) {
+                const confRow = document.createElement('div');
+                confRow.className = 'llm-stat-row';
+
+                const confLabel = document.createElement('span');
+                confLabel.className = 'llm-stat-label';
+                confLabel.textContent = 'LLM Confidence';
+                confRow.appendChild(confLabel);
+
+                const confValue = document.createElement('span');
+                confValue.className = 'llm-stat-value';
+                confValue.textContent = Math.round(threat.llm_confidence * 100) + '%';
+                confRow.appendChild(confValue);
+
+                llmContent.appendChild(confRow);
+            }
+
+            // Risk Adjustment
+            if (threat.llm_risk_adjustment && threat.llm_risk_adjustment !== 0) {
+                const adjRow = document.createElement('div');
+                adjRow.className = 'llm-stat-row';
+
+                const adjLabel = document.createElement('span');
+                adjLabel.className = 'llm-stat-label';
+                adjLabel.textContent = 'Risk Adjustment';
+                adjRow.appendChild(adjLabel);
+
+                const adjValue = document.createElement('span');
+                adjValue.className = 'llm-stat-value ' + (threat.llm_risk_adjustment > 0 ? 'risk-up' : 'risk-down');
+                adjValue.textContent = (threat.llm_risk_adjustment > 0 ? '+' : '') + threat.llm_risk_adjustment + '%';
+                adjRow.appendChild(adjValue);
+
+                llmContent.appendChild(adjRow);
+            }
+
+            // Tokens Used
+            if (threat.llm_tokens_used && threat.llm_tokens_used > 0) {
+                const tokensRow = document.createElement('div');
+                tokensRow.className = 'llm-stat-row';
+
+                const tokensLabel = document.createElement('span');
+                tokensLabel.className = 'llm-stat-label';
+                tokensLabel.textContent = 'Tokens Used';
+                tokensRow.appendChild(tokensLabel);
+
+                const tokensValue = document.createElement('span');
+                tokensValue.className = 'llm-stat-value';
+                tokensValue.textContent = threat.llm_tokens_used.toLocaleString();
+                tokensRow.appendChild(tokensValue);
+
+                llmContent.appendChild(tokensRow);
+            }
+
+            // LLM Recommendation
+            if (threat.llm_recommendation) {
+                const recBox = document.createElement('div');
+                recBox.className = 'llm-recommendation-box';
+
+                const recLabel = document.createElement('div');
+                recLabel.className = 'llm-recommendation-label';
+                recLabel.textContent = 'Recommended Action';
+                recBox.appendChild(recLabel);
+
+                const recText = document.createElement('div');
+                recText.className = 'llm-recommendation-text';
+                recText.textContent = threat.llm_recommendation;
+                recBox.appendChild(recText);
+
+                llmContent.appendChild(recBox);
+            }
+
+            // LLM Reasoning
+            if (threat.llm_reasoning || threat.llm_explanation) {
+                const reasoningBox = document.createElement('div');
+                reasoningBox.className = 'llm-reasoning-box';
+
+                const reasoningLabel = document.createElement('div');
+                reasoningLabel.className = 'llm-reasoning-label';
+                reasoningLabel.textContent = 'LLM Analysis';
+                reasoningBox.appendChild(reasoningLabel);
+
+                const reasoningText = document.createElement('div');
+                reasoningText.className = 'llm-reasoning-text';
+                reasoningText.textContent = threat.llm_reasoning || threat.llm_explanation;
+                reasoningBox.appendChild(reasoningText);
+
+                llmContent.appendChild(reasoningBox);
+            }
+
+            // Save button
+            const saveRow = document.createElement('div');
+            saveRow.className = 'llm-save-row';
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'btn btn-primary llm-save-btn';
+            saveBtn.textContent = 'Save Analysis';
+            saveBtn.addEventListener('click', () => {
+                // Copy analysis to clipboard
+                const analysisText = [
+                    'LLM Review: ' + (threat.llm_model_used || 'Unknown'),
+                    'Verdict: ' + (threat.llm_agrees ? 'Agrees' : 'Disagrees'),
+                    'Confidence: ' + Math.round((threat.llm_confidence || 0) * 100) + '%',
+                    'Recommendation: ' + (threat.llm_recommendation || 'N/A'),
+                    'Analysis: ' + (threat.llm_reasoning || threat.llm_explanation || 'N/A'),
+                ].join('\n');
+                navigator.clipboard.writeText(analysisText).then(() => {
+                    saveBtn.textContent = 'Copied!';
+                    setTimeout(() => { saveBtn.textContent = 'Save Analysis'; }, 2000);
+                });
+            });
+            saveRow.appendChild(saveBtn);
+            llmContent.appendChild(saveRow);
+
+            llmSection.appendChild(llmContent);
+
+            // Toggle expand/collapse
+            llmHeader.addEventListener('click', () => {
+                const isExpanded = llmContent.classList.contains('expanded');
+                llmContent.classList.toggle('expanded');
+                expandArrow.textContent = isExpanded ? '▶' : '▼';
+            });
+
+            content.appendChild(llmSection);
+        }
 
         // Content preview
         const textContent = threat.text_content || threat.text_preview || threat.indicator || threat.name || '';
@@ -396,130 +597,6 @@ const ThreatsPage = {
 
             rulesSection.appendChild(rulesList);
             content.appendChild(rulesSection);
-        }
-
-        // LLM Review Analytics (if LLM review was performed)
-        if (threat.llm_reviewed) {
-            const llmSection = document.createElement('div');
-            llmSection.className = 'threat-detail-section llm-review-section';
-
-            const llmHeader = document.createElement('div');
-            llmHeader.className = 'detail-section-label llm-section-header';
-
-            const llmIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            llmIcon.setAttribute('viewBox', '0 0 24 24');
-            llmIcon.setAttribute('fill', 'none');
-            llmIcon.setAttribute('stroke', 'currentColor');
-            llmIcon.setAttribute('stroke-width', '2');
-            llmIcon.setAttribute('class', 'llm-icon');
-            const llmPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            llmPath.setAttribute('d', 'M12 2a10 10 0 1 0 10 10H12V2zM12 12l6-6');
-            llmIcon.appendChild(llmPath);
-            llmHeader.appendChild(llmIcon);
-
-            const llmTitle = document.createElement('span');
-            llmTitle.textContent = 'LLM Review';
-            llmHeader.appendChild(llmTitle);
-
-            // Model badge
-            if (threat.llm_model_used) {
-                const modelBadge = document.createElement('span');
-                modelBadge.className = 'llm-model-badge';
-                modelBadge.textContent = threat.llm_model_used;
-                llmHeader.appendChild(modelBadge);
-            }
-
-            llmSection.appendChild(llmHeader);
-
-            // LLM Verdict
-            const verdictRow = document.createElement('div');
-            verdictRow.className = 'llm-verdict-row';
-
-            const verdictLabel = document.createElement('span');
-            verdictLabel.className = 'llm-verdict-label';
-            verdictLabel.textContent = 'LLM Verdict:';
-            verdictRow.appendChild(verdictLabel);
-
-            const verdictBadge = document.createElement('span');
-            verdictBadge.className = 'llm-verdict-badge ' + (threat.llm_agrees ? 'agrees' : 'disagrees');
-            verdictBadge.textContent = threat.llm_agrees ? 'Agrees with Detection' : 'Disagrees';
-            verdictRow.appendChild(verdictBadge);
-
-            llmSection.appendChild(verdictRow);
-
-            // LLM Confidence
-            if (threat.llm_confidence !== undefined) {
-                const confRow = document.createElement('div');
-                confRow.className = 'llm-stat-row';
-
-                const confLabel = document.createElement('span');
-                confLabel.className = 'llm-stat-label';
-                confLabel.textContent = 'LLM Confidence';
-                confRow.appendChild(confLabel);
-
-                const confValue = document.createElement('span');
-                confValue.className = 'llm-stat-value';
-                confValue.textContent = Math.round(threat.llm_confidence * 100) + '%';
-                confRow.appendChild(confValue);
-
-                llmSection.appendChild(confRow);
-            }
-
-            // Risk Adjustment
-            if (threat.llm_risk_adjustment && threat.llm_risk_adjustment !== 0) {
-                const adjRow = document.createElement('div');
-                adjRow.className = 'llm-stat-row';
-
-                const adjLabel = document.createElement('span');
-                adjLabel.className = 'llm-stat-label';
-                adjLabel.textContent = 'Risk Adjustment';
-                adjRow.appendChild(adjLabel);
-
-                const adjValue = document.createElement('span');
-                adjValue.className = 'llm-stat-value ' + (threat.llm_risk_adjustment > 0 ? 'risk-up' : 'risk-down');
-                adjValue.textContent = (threat.llm_risk_adjustment > 0 ? '+' : '') + threat.llm_risk_adjustment + '%';
-                adjRow.appendChild(adjValue);
-
-                llmSection.appendChild(adjRow);
-            }
-
-            // LLM Recommendation
-            if (threat.llm_recommendation) {
-                const recBox = document.createElement('div');
-                recBox.className = 'llm-recommendation-box';
-
-                const recLabel = document.createElement('div');
-                recLabel.className = 'llm-recommendation-label';
-                recLabel.textContent = 'Recommended Action';
-                recBox.appendChild(recLabel);
-
-                const recText = document.createElement('div');
-                recText.className = 'llm-recommendation-text';
-                recText.textContent = threat.llm_recommendation;
-                recBox.appendChild(recText);
-
-                llmSection.appendChild(recBox);
-            }
-
-            // LLM Reasoning
-            if (threat.llm_reasoning || threat.llm_explanation) {
-                const reasoningBox = document.createElement('div');
-                reasoningBox.className = 'llm-reasoning-box';
-
-                const reasoningLabel = document.createElement('div');
-                reasoningLabel.className = 'llm-reasoning-label';
-                reasoningLabel.textContent = 'LLM Analysis';
-                reasoningBox.appendChild(reasoningLabel);
-
-                const reasoningText = document.createElement('div');
-                reasoningText.className = 'llm-reasoning-text';
-                reasoningText.textContent = threat.llm_reasoning || threat.llm_explanation;
-                reasoningBox.appendChild(reasoningText);
-
-                llmSection.appendChild(reasoningBox);
-            }
-
-            content.appendChild(llmSection);
         }
 
         // Use side drawer instead of modal

@@ -38,6 +38,16 @@ class ThreatIntelResponse(BaseModel):
     processing_time_ms: int
     created_at: str
     metadata: Optional[dict]
+    # LLM Review fields
+    llm_reviewed: bool = False
+    llm_agrees: bool = True
+    llm_confidence: float = 0.0
+    llm_reasoning: Optional[str] = None
+    llm_explanation: Optional[str] = None
+    llm_recommendation: Optional[str] = None
+    llm_risk_adjustment: int = 0
+    llm_model_used: Optional[str] = None
+    llm_tokens_used: int = 0
 
 
 class ThreatIntelListResponse(BaseModel):
@@ -101,6 +111,16 @@ async def list_threat_intel(
                     processing_time_ms=item.processing_time_ms,
                     created_at=item.created_at.isoformat() if item.created_at else "",
                     metadata=item.metadata,
+                    # LLM Review fields
+                    llm_reviewed=item.llm_reviewed,
+                    llm_agrees=item.llm_agrees,
+                    llm_confidence=item.llm_confidence,
+                    llm_reasoning=item.llm_explanation,
+                    llm_explanation=item.llm_explanation,
+                    llm_recommendation=item.llm_recommendation,
+                    llm_risk_adjustment=item.llm_risk_adjustment,
+                    llm_model_used=item.llm_model_used,
+                    llm_tokens_used=item.llm_tokens_used,
                 )
                 for item in result.items
             ],
@@ -145,6 +165,16 @@ async def get_threat_intel(record_id: str) -> ThreatIntelResponse:
             processing_time_ms=record.processing_time_ms,
             created_at=record.created_at.isoformat() if record.created_at else "",
             metadata=record.metadata,
+            # LLM Review fields
+            llm_reviewed=record.llm_reviewed,
+            llm_agrees=record.llm_agrees,
+            llm_confidence=record.llm_confidence,
+            llm_reasoning=record.llm_explanation,
+            llm_explanation=record.llm_explanation,
+            llm_recommendation=record.llm_recommendation,
+            llm_risk_adjustment=record.llm_risk_adjustment,
+            llm_model_used=record.llm_model_used,
+            llm_tokens_used=record.llm_tokens_used,
         )
 
     except HTTPException:

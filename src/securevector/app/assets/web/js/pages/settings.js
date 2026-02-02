@@ -492,6 +492,12 @@ const SettingsPage = {
         testBtn.addEventListener('click', () => this.testLLMConnection());
         testRow.appendChild(testBtn);
 
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-danger';
+        deleteBtn.textContent = 'Delete Config';
+        deleteBtn.addEventListener('click', () => this.deleteLLMConfig());
+        testRow.appendChild(deleteBtn);
+
         const testResult = document.createElement('span');
         testResult.id = 'llm-test-result';
         testResult.className = 'llm-test-result';
@@ -602,6 +608,29 @@ const SettingsPage = {
                 resultSpan.className = 'llm-test-result error';
             }
             Toast.error('Connection test failed: ' + error.message);
+        }
+    },
+
+    async deleteLLMConfig() {
+        if (!confirm('Are you sure you want to delete the LLM configuration? This will disable LLM review.')) {
+            return;
+        }
+
+        try {
+            // Reset to defaults
+            this.llmSettings = await API.updateLLMSettings({
+                enabled: false,
+                provider: 'ollama',
+                model: 'llama3',
+                endpoint: 'http://localhost:11434',
+                api_key: '',
+            });
+            Toast.success('LLM configuration deleted');
+            // Re-render settings
+            const container = document.getElementById('main-content');
+            if (container) this.render(container);
+        } catch (error) {
+            Toast.error('Failed to delete LLM config: ' + error.message);
         }
     },
 

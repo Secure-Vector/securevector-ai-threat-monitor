@@ -47,6 +47,7 @@ class ThreatIntelRecord:
     llm_recommendation: Optional[str] = None
     llm_risk_adjustment: int = 0
     llm_model_used: Optional[str] = None
+    llm_tokens_used: int = 0
 
     @property
     def text_preview(self) -> str:
@@ -82,6 +83,7 @@ class ThreatIntelRecord:
             "llm_recommendation": self.llm_recommendation,
             "llm_risk_adjustment": self.llm_risk_adjustment,
             "llm_model_used": self.llm_model_used,
+            "llm_tokens_used": self.llm_tokens_used,
         }
         return result
 
@@ -149,6 +151,7 @@ class ThreatIntelRepository:
         llm_recommendation: Optional[str] = None,
         llm_risk_adjustment: int = 0,
         llm_model_used: Optional[str] = None,
+        llm_tokens_used: int = 0,
     ) -> ThreatIntelRecord:
         """
         Create a new threat intel record.
@@ -183,8 +186,8 @@ class ThreatIntelRepository:
                 matched_rules, source_identifier, session_id,
                 processing_time_ms, created_at, metadata,
                 llm_reviewed, llm_agrees, llm_confidence, llm_explanation,
-                llm_recommendation, llm_risk_adjustment, llm_model_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                llm_recommendation, llm_risk_adjustment, llm_model_used, llm_tokens_used
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -209,6 +212,7 @@ class ThreatIntelRepository:
                 llm_recommendation,
                 llm_risk_adjustment,
                 llm_model_used,
+                llm_tokens_used,
             ),
         )
 
@@ -237,6 +241,7 @@ class ThreatIntelRepository:
             llm_recommendation=llm_recommendation,
             llm_risk_adjustment=llm_risk_adjustment,
             llm_model_used=llm_model_used,
+            llm_tokens_used=llm_tokens_used,
         )
 
     async def get_by_id(self, record_id: str) -> Optional[ThreatIntelRecord]:
@@ -384,6 +389,16 @@ class ThreatIntelRepository:
         metadata = json.loads(row["metadata"]) if row["metadata"] else None
         created_at = datetime.fromisoformat(row["created_at"]) if isinstance(row["created_at"], str) else row["created_at"]
 
+        # Convert row to dict for safe access to optional LLM fields
+        row_keys = row.keys() if hasattr(row, 'keys') else []
+
+        def safe_get(key, default=None):
+            """Safely get value from row, handling sqlite3.Row objects."""
+            if key in row_keys:
+                val = row[key]
+                return val if val is not None else default
+            return default
+
         return ThreatIntelRecord(
             id=row["id"],
             request_id=row["request_id"],
@@ -401,11 +416,12 @@ class ThreatIntelRepository:
             created_at=created_at,
             metadata=metadata,
             # LLM Review fields (with defaults for older records)
-            llm_reviewed=bool(row.get("llm_reviewed", 0)),
-            llm_agrees=bool(row.get("llm_agrees", 1)),
-            llm_confidence=float(row.get("llm_confidence", 0) or 0),
-            llm_explanation=row.get("llm_explanation"),
-            llm_recommendation=row.get("llm_recommendation"),
-            llm_risk_adjustment=int(row.get("llm_risk_adjustment", 0) or 0),
-            llm_model_used=row.get("llm_model_used"),
+            llm_reviewed=bool(safe_get("llm_reviewed", 0)),
+            llm_agrees=bool(safe_get("llm_agrees", 1)),
+            llm_confidence=float(safe_get("llm_confidence", 0) or 0),
+            llm_explanation=safe_get("llm_explanation"),
+            llm_recommendation=safe_get("llm_recommendation"),
+            llm_risk_adjustment=int(safe_get("llm_risk_adjustment", 0) or 0),
+            llm_model_used=safe_get("llm_model_used"),
+            llm_tokens_used=int(safe_get("llm_tokens_used", 0) or 0),
         )
