@@ -1224,6 +1224,23 @@ html, body {
     background: var(--bg-hover);
 }
 
+.auto-refresh-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.auto-refresh-btn.active:hover {
+    background: var(--primary-dark);
+}
+
+.dashboard-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
 .btn-icon {
     width: 36px;
     height: 36px;
@@ -3068,6 +3085,15 @@ html, body {
     gap: 16px;
     margin-bottom: 20px;
     flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.filter-spacer {
+    flex: 1;
+}
+
+.filters-bar .btn {
+    height: 38px;
 }
 
 .filter-group {

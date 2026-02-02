@@ -6,8 +6,12 @@
 const DashboardPage = {
     data: null,
     threats: null,
+    autoRefreshInterval: null,
+    autoRefreshEnabled: false,
+    currentContainer: null,
 
     async render(container) {
+        this.currentContainer = container;
         container.textContent = '';
 
         // Loading state
@@ -48,6 +52,18 @@ const DashboardPage = {
         subtitle.className = 'dashboard-subtitle';
         subtitle.textContent = 'Real-time AI threat detection and analysis';
         header.appendChild(subtitle);
+
+        // Auto-refresh button
+        const refreshBtn = document.createElement('button');
+        refreshBtn.className = 'btn btn-secondary auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
+        refreshBtn.textContent = '↻ Auto Refresh';
+        refreshBtn.title = 'Auto refresh every 30 seconds';
+        refreshBtn.style.marginLeft = 'auto';
+        refreshBtn.addEventListener('click', () => {
+            this.toggleAutoRefresh();
+            refreshBtn.classList.toggle('active', this.autoRefreshEnabled);
+        });
+        header.appendChild(refreshBtn);
 
         container.appendChild(header);
 
@@ -468,6 +484,24 @@ const DashboardPage = {
         if (score >= 60) return 'high';
         if (score >= 40) return 'medium';
         return 'low';
+    },
+
+    toggleAutoRefresh() {
+        this.autoRefreshEnabled = !this.autoRefreshEnabled;
+        if (this.autoRefreshEnabled) {
+            this.autoRefreshInterval = setInterval(() => {
+                if (this.currentContainer) {
+                    this.render(this.currentContainer);
+                }
+            }, 30000);
+            if (window.Toast) Toast.info('Auto refresh enabled (30s)');
+        } else {
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+            }
+            if (window.Toast) Toast.info('Auto refresh disabled');
+        }
     },
 
     renderError(container, error) {

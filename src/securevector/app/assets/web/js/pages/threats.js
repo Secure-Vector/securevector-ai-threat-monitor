@@ -6,6 +6,8 @@
 const ThreatsPage = {
     data: null,
     categories: [],
+    autoRefreshInterval: null,
+    autoRefreshEnabled: false,
     filters: {
         page: 1,
         page_size: 20,
@@ -113,6 +115,92 @@ const ThreatsPage = {
 
         riskGroup.appendChild(riskSelect);
         bar.appendChild(riskGroup);
+
+        // Spacer to push buttons to right
+        const spacer = document.createElement('div');
+        spacer.className = 'filter-spacer';
+        bar.appendChild(spacer);
+
+        // Auto-refresh toggle
+        const refreshBtn = document.createElement('button');
+        refreshBtn.className = 'btn btn-secondary auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
+        refreshBtn.textContent = '↻ Auto Refresh';
+        refreshBtn.title = 'Auto refresh every 30 seconds';
+        refreshBtn.addEventListener('click', () => {
+            this.toggleAutoRefresh();
+            refreshBtn.classList.toggle('active', this.autoRefreshEnabled);
+        });
+        bar.appendChild(refreshBtn);
+
+        // Export PDF button
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'btn btn-primary';
+        exportBtn.textContent = 'Export PDF';
+        exportBtn.title = 'Download threat report as PDF';
+        exportBtn.addEventListener('click', () => this.exportToPDF());
+        bar.appendChild(exportBtn);
+    },
+
+    toggleAutoRefresh() {
+        this.autoRefreshEnabled = !this.autoRefreshEnabled;
+        if (this.autoRefreshEnabled) {
+            this.autoRefreshInterval = setInterval(() => {
+                this.loadData();
+            }, 30000);
+            if (window.Toast) Toast.info('Auto refresh enabled (30s)');
+        } else {
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+            }
+            if (window.Toast) Toast.info('Auto refresh disabled');
+        }
+    },
+
+    exportToPDF() {
+        const threats = this.data?.items || [];
+        if (threats.length === 0) {
+            if (window.Toast) Toast.warning('No threats to export');
+            return;
+        }
+        const pdfContent = this.generatePDFContent(threats);
+        const blob = new Blob([pdfContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const printWindow = window.open(url, '_blank');
+        if (printWindow) {
+            printWindow.onload = function() {
+                setTimeout(() => {
+                    printWindow.print();
+                    URL.revokeObjectURL(url);
+                }, 500);
+            };
+        }
+    },
+
+    generatePDFContent(threats) {
+        const escapeHtml = (text) => {
+            if (!text) return '';
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        };
+        let rows = '';
+        threats.forEach(threat => {
+            const riskClass = threat.risk_score >= 80 ? 'risk-high' : threat.risk_score >= 40 ? 'risk-medium' : 'risk-low';
+            const content = escapeHtml((threat.text_preview || threat.text_content || '').substring(0, 100));
+            const llmStatus = threat.llm_reviewed ? (threat.llm_agrees ? 'Confirmed' : 'Disputed') : 'Not Reviewed';
+            const date = threat.created_at ? new Date(threat.created_at).toLocaleDateString() : '-';
+            rows += '<tr><td>' + content + '</td><td>' + escapeHtml(threat.threat_type || 'Unknown') + '</td><td class="' + riskClass + '">' + threat.risk_score + '%</td><td>' + llmStatus + '</td><td>' + date + '</td></tr>';
+        });
+        let details = '';
+        threats.filter(t => t.risk_score >= 60).forEach(threat => {
+            const riskClass = threat.risk_score >= 80 ? 'risk-high' : 'risk-medium';
+            details += '<div class="threat"><div class="threat-header"><strong>' + escapeHtml(threat.threat_type || 'Threat') + '</strong><span class="' + riskClass + '">' + threat.risk_score + '% Risk</span></div>';
+            details += '<p><span class="label">Content:</span> ' + escapeHtml(threat.text_content || threat.text_preview || '') + '</p>';
+            if (threat.llm_reviewed) {
+                details += '<div class="llm-section"><strong>LLM Analysis (' + escapeHtml(threat.llm_model_used || 'AI') + '):</strong><br>' + escapeHtml(threat.llm_explanation || threat.llm_reasoning || 'No explanation') + '<br><em>Recommendation: ' + escapeHtml(threat.llm_recommendation || 'N/A') + '</em></div>';
+            }
+            details += '</div>';
+        });
+        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #00bcd4;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
     },
 
     getUniqueCategories() {
