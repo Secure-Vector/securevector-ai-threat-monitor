@@ -19,19 +19,14 @@
 
 <table>
 <tr>
-<td><img src="docs/app-dark.png" alt="Dashboard" width="100%"><br><em>Dashboard</em></td>
+<td><img src="docs/app-agent-integrations.png" alt="Dashboard & Agent Integrations" width="100%"><br><em>Dashboard & Agent Integrations</em></td>
 <td><img src="docs/app-threats.png" alt="Threat Analytics" width="100%"><br><em>Threat Analytics</em></td>
 <td><img src="docs/app-llm-review-details.png" alt="LLM Review" width="100%"><br><em>LLM Review Details</em></td>
 </tr>
 <tr>
 <td><img src="docs/app-rules.png" alt="Rules Management" width="100%"><br><em>Rules Management</em></td>
-<td><img src="docs/app-agent-integrations.png" alt="Agent Integrations" width="100%"><br><em>Agent Integrations</em></td>
 <td><img src="docs/app-settings.png" alt="Settings" width="100%"><br><em>Settings</em></td>
-</tr>
-<tr>
-<td><img src="docs/app-llm-config.png" alt="LLM Config" width="100%"><br><em>LLM Configuration</em></td>
 <td><img src="docs/app-light.png" alt="Light Mode" width="100%"><br><em>Light Mode</em></td>
-<td><img src="docs/app-threat-details.png" alt="Threat Details" width="100%"><br><em>Threat Details</em></td>
 </tr>
 </table>
 
@@ -552,13 +547,12 @@ Expert-maintained rules and advanced features for production teams.
 
 ### Local Desktop App (100% Local — Nothing Leaves Your Machine)
 
-See the 3x3 screenshot grid above for all app views including:
-- **Dashboard** — Real-time stats with latency monitoring
-- **Threat Analytics** — LLM review badges and token tracking
+See the 2x3 screenshot grid above for all app views including:
+- **Dashboard & Agent Integrations** — Real-time stats with OpenClaw, LangChain, CrewAI, n8n integrations
+- **Threat Analytics** — LLM review badges, token tracking, PDF export, auto-refresh
 - **LLM Review Details** — AI-powered threat analysis with risk adjustment
 - **Rules Management** — NLP-to-Regex rule creation
-- **Agent Integrations** — OpenClaw, LangChain, CrewAI, n8n, and more
-- **Settings & LLM Config** — Configure LLM providers (OpenAI, Anthropic, Ollama)
+- **Settings** — Configure LLM providers (OpenAI, Anthropic, Ollama)
 - **Light Mode** — Alternative theme
 
 ---
