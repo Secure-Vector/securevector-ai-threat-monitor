@@ -13,6 +13,21 @@
 
 **[View on GitHub](https://github.com/Secure-Vector/securevector-ai-threat-monitor)** • **[Simulated Demo](https://securevector.io/demo)**
 
+<br>
+
+**Local Desktop App — 100% Local, Nothing Leaves Your Machine**
+
+<table>
+<tr>
+<td><img src="docs/app-dark.png" alt="Dashboard with Integrations" width="100%"><br><em>Dashboard & Agent Integrations</em></td>
+<td><img src="docs/app-threats.png" alt="Threat Analytics" width="100%"><br><em>Threat Analytics</em></td>
+</tr>
+<tr>
+<td><img src="docs/app-rules.png" alt="Rules Management" width="100%"><br><em>Rules Management</em></td>
+<td><img src="docs/app-light.png" alt="Light Mode" width="100%"><br><em>Light Mode</em></td>
+</tr>
+</table>
+
 </div>
 
 ## Why SecureVector?
@@ -513,7 +528,27 @@ Expert-maintained rules and advanced features for production teams.
 
 ---
 
-## Screenshots & Demos 
+## Screenshots & Demos
+
+### Local Desktop App (100% Local — Nothing Leaves Your Machine)
+
+![Local App - Dashboard](docs/app-dark.png)
+*Dashboard with Agent Integrations*
+
+![Local App - Threat Analytics](docs/app-threats.png)
+*Threat Analytics — All analysis runs locally*
+
+![Local App - Rules](docs/app-rules.png)
+*Rules Management with NLP-to-Regex*
+
+<details>
+<summary>View Light Mode</summary>
+
+![Local App - Light Mode](docs/app-light.png)
+
+</details>
+
+---
 
 ### Real-Time Security Dashboard (Professional/Enterprise feature)
 ![Security Dashboard](docs/Dashboard.png)
