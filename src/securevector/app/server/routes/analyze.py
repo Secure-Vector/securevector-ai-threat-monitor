@@ -48,6 +48,7 @@ class LLMReviewInfo(BaseModel):
     agrees: bool = True
     confidence: float = 0.0
     reasoning: str = ""
+    recommendation: str = ""  # Recommended action from LLM
     risk_adjustment: int = 0
     model_used: Optional[str] = None
     processing_time_ms: int = 0
@@ -210,6 +211,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
                             agrees=llm_result.llm_agrees,
                             confidence=llm_result.llm_confidence,
                             reasoning=llm_result.llm_explanation,
+                            recommendation=llm_result.llm_recommendation,
                             risk_adjustment=llm_result.llm_risk_adjustment,
                             model_used=llm_result.model_used,
                             processing_time_ms=llm_result.processing_time_ms,
@@ -263,6 +265,14 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
             source=request.source,
             session_id=request.session_id,
             metadata=request.metadata,
+            # LLM Review data
+            llm_reviewed=llm_review_info.reviewed if llm_review_info else False,
+            llm_agrees=llm_review_info.agrees if llm_review_info else True,
+            llm_confidence=llm_review_info.confidence if llm_review_info else 0.0,
+            llm_explanation=llm_review_info.reasoning if llm_review_info else None,
+            llm_recommendation=llm_review_info.recommendation if llm_review_info else None,
+            llm_risk_adjustment=llm_review_info.risk_adjustment if llm_review_info else 0,
+            llm_model_used=llm_review_info.model_used if llm_review_info else None,
         )
 
         logger.debug(

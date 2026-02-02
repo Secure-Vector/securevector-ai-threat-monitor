@@ -2880,6 +2880,48 @@ html, body {
     color: var(--text-secondary);
 }
 
+/* LLM Recommendation Box */
+.llm-recommendation-box {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.08));
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--primary);
+}
+
+.llm-recommendation-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.llm-recommendation-label::before {
+    content: "\2713";
+    font-size: 10px;
+    background: var(--primary);
+    color: white;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.llm-recommendation-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
 /* Error State */
 .error-state {
     display: flex;

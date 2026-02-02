@@ -96,6 +96,13 @@ jobs:
             --hidden-import starlette.middleware \
             --hidden-import sqlalchemy \
             --hidden-import aiosqlite \
+            --hidden-import watchdog \
+            --hidden-import watchdog.observers \
+            --hidden-import watchdog.events \
+            --hidden-import httpx \
+            --hidden-import keyring \
+            --hidden-import keyring.backends \
+            --hidden-import platformdirs \
             src/securevector/app/main.py
 
       - name: Create Inno Setup installer
@@ -178,6 +185,13 @@ jobs:
             --hidden-import starlette.middleware \
             --hidden-import sqlalchemy \
             --hidden-import aiosqlite \
+            --hidden-import watchdog \
+            --hidden-import watchdog.observers \
+            --hidden-import watchdog.events \
+            --hidden-import httpx \
+            --hidden-import keyring \
+            --hidden-import keyring.backends \
+            --hidden-import platformdirs \
             src/securevector/app/main.py
 
       - name: Create .app bundle structure
@@ -295,6 +309,13 @@ jobs:
             --hidden-import starlette.middleware \
             --hidden-import sqlalchemy \
             --hidden-import aiosqlite \
+            --hidden-import watchdog \
+            --hidden-import watchdog.observers \
+            --hidden-import watchdog.events \
+            --hidden-import httpx \
+            --hidden-import keyring \
+            --hidden-import keyring.backends \
+            --hidden-import platformdirs \
             src/securevector/app/main.py
 
       - name: Prepare package structure

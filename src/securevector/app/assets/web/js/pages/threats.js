@@ -483,6 +483,24 @@ const ThreatsPage = {
                 llmSection.appendChild(adjRow);
             }
 
+            // LLM Recommendation
+            if (threat.llm_recommendation) {
+                const recBox = document.createElement('div');
+                recBox.className = 'llm-recommendation-box';
+
+                const recLabel = document.createElement('div');
+                recLabel.className = 'llm-recommendation-label';
+                recLabel.textContent = 'Recommended Action';
+                recBox.appendChild(recLabel);
+
+                const recText = document.createElement('div');
+                recText.className = 'llm-recommendation-text';
+                recText.textContent = threat.llm_recommendation;
+                recBox.appendChild(recText);
+
+                llmSection.appendChild(recBox);
+            }
+
             // LLM Reasoning
             if (threat.llm_reasoning || threat.llm_explanation) {
                 const reasoningBox = document.createElement('div');
@@ -490,7 +508,7 @@ const ThreatsPage = {
 
                 const reasoningLabel = document.createElement('div');
                 reasoningLabel.className = 'llm-reasoning-label';
-                reasoningLabel.textContent = 'LLM Reasoning';
+                reasoningLabel.textContent = 'LLM Analysis';
                 reasoningBox.appendChild(reasoningLabel);
 
                 const reasoningText = document.createElement('div');

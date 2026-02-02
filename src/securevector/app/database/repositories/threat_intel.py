@@ -39,6 +39,14 @@ class ThreatIntelRecord:
     source_identifier: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Optional[dict] = None
+    # LLM Review fields
+    llm_reviewed: bool = False
+    llm_agrees: bool = True
+    llm_confidence: float = 0.0
+    llm_explanation: Optional[str] = None
+    llm_recommendation: Optional[str] = None
+    llm_risk_adjustment: int = 0
+    llm_model_used: Optional[str] = None
 
     @property
     def text_preview(self) -> str:
@@ -49,7 +57,7 @@ class ThreatIntelRecord:
 
     def to_dict(self) -> dict:
         """Convert to dictionary for API response."""
-        return {
+        result = {
             "id": self.id,
             "request_id": self.request_id,
             "text_content": self.text_content,
@@ -65,7 +73,17 @@ class ThreatIntelRecord:
             "processing_time_ms": self.processing_time_ms,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "metadata": self.metadata,
+            # LLM Review fields (flat for frontend compatibility)
+            "llm_reviewed": self.llm_reviewed,
+            "llm_agrees": self.llm_agrees,
+            "llm_confidence": self.llm_confidence,
+            "llm_reasoning": self.llm_explanation,  # Alias for frontend
+            "llm_explanation": self.llm_explanation,
+            "llm_recommendation": self.llm_recommendation,
+            "llm_risk_adjustment": self.llm_risk_adjustment,
+            "llm_model_used": self.llm_model_used,
         }
+        return result
 
 
 @dataclass
@@ -123,6 +141,14 @@ class ThreatIntelRepository:
         source: Optional[str] = None,
         session_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        # LLM Review fields
+        llm_reviewed: bool = False,
+        llm_agrees: bool = True,
+        llm_confidence: float = 0.0,
+        llm_explanation: Optional[str] = None,
+        llm_recommendation: Optional[str] = None,
+        llm_risk_adjustment: int = 0,
+        llm_model_used: Optional[str] = None,
     ) -> ThreatIntelRecord:
         """
         Create a new threat intel record.
@@ -155,8 +181,10 @@ class ThreatIntelRepository:
                 id, request_id, text_content, text_hash, text_length,
                 is_threat, threat_type, risk_score, confidence,
                 matched_rules, source_identifier, session_id,
-                processing_time_ms, created_at, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                processing_time_ms, created_at, metadata,
+                llm_reviewed, llm_agrees, llm_confidence, llm_explanation,
+                llm_recommendation, llm_risk_adjustment, llm_model_used
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -174,6 +202,13 @@ class ThreatIntelRepository:
                 processing_time_ms,
                 created_at.isoformat(),
                 json.dumps(metadata) if metadata else None,
+                int(llm_reviewed),
+                int(llm_agrees),
+                llm_confidence,
+                llm_explanation,
+                llm_recommendation,
+                llm_risk_adjustment,
+                llm_model_used,
             ),
         )
 
@@ -195,6 +230,13 @@ class ThreatIntelRepository:
             processing_time_ms=processing_time_ms,
             created_at=created_at,
             metadata=metadata,
+            llm_reviewed=llm_reviewed,
+            llm_agrees=llm_agrees,
+            llm_confidence=llm_confidence,
+            llm_explanation=llm_explanation,
+            llm_recommendation=llm_recommendation,
+            llm_risk_adjustment=llm_risk_adjustment,
+            llm_model_used=llm_model_used,
         )
 
     async def get_by_id(self, record_id: str) -> Optional[ThreatIntelRecord]:
@@ -358,4 +400,12 @@ class ThreatIntelRepository:
             processing_time_ms=row["processing_time_ms"],
             created_at=created_at,
             metadata=metadata,
+            # LLM Review fields (with defaults for older records)
+            llm_reviewed=bool(row.get("llm_reviewed", 0)),
+            llm_agrees=bool(row.get("llm_agrees", 1)),
+            llm_confidence=float(row.get("llm_confidence", 0) or 0),
+            llm_explanation=row.get("llm_explanation"),
+            llm_recommendation=row.get("llm_recommendation"),
+            llm_risk_adjustment=int(row.get("llm_risk_adjustment", 0) or 0),
+            llm_model_used=row.get("llm_model_used"),
         )

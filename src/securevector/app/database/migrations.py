@@ -207,6 +207,7 @@ async def migrate_to_v4(db: DatabaseConnection) -> None:
         ("llm_agrees", "INTEGER DEFAULT 1"),
         ("llm_confidence", "REAL DEFAULT 0"),
         ("llm_explanation", "TEXT DEFAULT NULL"),
+        ("llm_recommendation", "TEXT DEFAULT NULL"),
         ("llm_risk_adjustment", "INTEGER DEFAULT 0"),
         ("llm_model_used", "TEXT DEFAULT NULL"),
     ]
