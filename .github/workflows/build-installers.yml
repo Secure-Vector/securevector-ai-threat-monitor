@@ -256,6 +256,8 @@ jobs:
           mkdir -p SecureVector.AppDir/usr/bin
           cp "dist/${PKG_NAME}" SecureVector.AppDir/usr/bin/
           cp "package/usr/share/applications/${PKG_NAME}.desktop" SecureVector.AppDir/
+          # Copy icon for AppImage (required by appimagetool)
+          cp src/securevector/app/assets/favicon.png SecureVector.AppDir/securevector.png
           cat > SecureVector.AppDir/AppRun << APPRUN_EOF
           #!/bin/bash
           SELF=\$(readlink -f "\$0")
