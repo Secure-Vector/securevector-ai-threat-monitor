@@ -73,6 +73,7 @@ jobs:
           fi
           pyinstaller --noconfirm --onefile $WINDOWED_FLAG \
             --name "SecureVector${{ steps.version.outputs.suffix }}" \
+            --icon "src/securevector/app/assets/favicon.ico" \
             --add-data "src/securevector/rules;securevector/rules" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
             --hidden-import webview \
@@ -165,6 +166,7 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed \
             --name "${{ steps.version.outputs.app_name }}" \
             --osx-bundle-identifier "io.securevector.threatmonitor" \
+            --icon "src/securevector/app/assets/favicon.png" \
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --hidden-import webview \
@@ -324,9 +326,14 @@ jobs:
         run: |
           mkdir -p package/usr/bin
           mkdir -p package/usr/share/applications
+          mkdir -p package/usr/share/icons/hicolor/256x256/apps
+          mkdir -p package/usr/share/pixmaps
           mkdir -p package/lib/systemd/user
           cp "dist/${PKG_NAME}" package/usr/bin/
           chmod +x "package/usr/bin/${PKG_NAME}"
+          # Copy app icon
+          cp src/securevector/app/assets/favicon.png package/usr/share/icons/hicolor/256x256/apps/securevector.png
+          cp src/securevector/app/assets/favicon.png package/usr/share/pixmaps/securevector.png
           cat > "package/usr/share/applications/${PKG_NAME}.desktop" << DESKTOP_EOF
           [Desktop Entry]
           Name=SecureVector${{ steps.version.outputs.suffix }}

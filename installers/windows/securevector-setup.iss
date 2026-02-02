@@ -30,6 +30,8 @@ DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir=Output
 OutputBaseFilename=SecureVector{#AppSuffix}-{#MyAppVersion}-Windows-Setup
+SetupIconFile=..\..\src\securevector\app\assets\favicon.ico
+UninstallDisplayIcon={app}\assets\favicon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -50,10 +52,10 @@ Source: "..\..\src\securevector\rules\*"; DestDir: "{app}\rules"; Flags: ignorev
 Source: "..\..\src\securevector\app\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--minimized"; Tasks: startupicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Tasks: desktopicon
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--minimized"; Tasks: startupicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
