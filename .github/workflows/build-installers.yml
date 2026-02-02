@@ -226,9 +226,9 @@ jobs:
             *.dmg
 
   # Build Linux Installers (.deb, .rpm, AppImage)
-  # Use ubuntu-20.04 for GLIBC 2.31 compatibility with older Linux distros
+  # Use ubuntu-22.04 for GLIBC 2.35 compatibility (supports Ubuntu 22.04+, Debian 12+)
   build-linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     env:
       APP_VERSION: ${{ github.event.inputs.version || github.ref_name }}
       IS_DEVELOP: ${{ github.ref == 'refs/heads/develop' }}
