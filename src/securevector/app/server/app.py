@@ -126,6 +126,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         threat_analytics,
         threat_intel,
         llm,
+        proxy,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -137,6 +138,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(rules.router, prefix="/api", tags=["Rules"])
     app.include_router(cloud_settings.router, prefix="/api", tags=["Cloud Settings"])
     app.include_router(llm.router, prefix="/api", tags=["LLM Review"])
+    app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

@@ -174,49 +174,69 @@ Autonomous AI agents (LangGraph, CrewAI, n8n, AutoGen) execute tasks without hum
 
 SecureVector provides a local WebSocket proxy that scans all OpenClaw messages for security threats. 100% local.
 
-> **Why proxy?** OpenClaw doesn't have message interception hooks yet. The proxy is the only way to guarantee every message is scanned before reaching the LLM.
+> **Why proxy?** OpenClaw doesn't have built-in message interception hooks. Hooks only fire AFTER messages reach the LLM (too late for blocking). Skills require LLM cooperation which is unreliable. The proxy intercepts at network level = 100% coverage before the LLM sees the message.
 
-**Quick Start (3 terminals):**
-```bash
-openclaw gateway --port 18790           # Terminal 1: OpenClaw on alternate port
-securevector-app --web --proxy openclaw # Terminal 2: SecureVector + Proxy (analyze mode)
-openclaw tui                            # Terminal 3: Use OpenClaw normally
-```
+**🆕 Easy Setup with Proxy Page:**
 
-**Modes:**
-- `--mode analyze` (default) — Log threats only, let requests through
-- `--mode block` — Block threats, send error response to client
+1. **Start OpenClaw** on alternate port:
+   ```bash
+   openclaw gateway --port 18790
+   ```
 
-```bash
-# Analyze mode (default): Log threats, don't block
-securevector-app --web --proxy openclaw
+2. **Start SecureVector** and open the app:
+   ```bash
+   securevector-app --web
+   ```
 
-# Block mode: Stop threats from reaching the LLM
-securevector-app --web --proxy openclaw --mode block
-```
+3. **Go to "OpenClaw Proxy"** in the sidebar and click **Start Proxy**
+
+4. **Use OpenClaw TUI** normally — it connects through the proxy automatically:
+   ```bash
+   openclaw tui
+   ```
+
+**Proxy Page Features:**
+- **Start/Stop Proxy** — One-click control from the UI
+- **Block Mode (Input Only)** — Block detected threats before they reach the LLM
+- **Output Scanning** — Scan LLM responses for credential leakage, PII, system prompts
+
+**Modes (configurable in Proxy page):**
+- **Block Mode OFF** (default) — Log threats only, let requests through
+- **Block Mode ON** — Block threats, send error response to client (applies to INPUT only)
 
 **🆕 Smart Output Detection:**
-Enable "Output Scan" in the header to scan LLM responses for:
+Enable "Scan LLM Responses for Leaks" in the Proxy page to detect:
 - Credential leakage (API keys, tokens, passwords)
 - System prompt exposure
 - PII disclosure (SSN, credit cards)
 - Jailbreak success indicators
 
-**Binary installer users:**
-- **Windows:** Start Menu → "SecureVector (OpenClaw Proxy)"
-- **Linux:** Applications → "SecureVector (OpenClaw Proxy)"
-
 **How it works:**
 ```
 User → Proxy:18789 → [INPUT SCAN] → OpenClaw:18790 → LLM → [OUTPUT SCAN] → User
+         ↑                                                      ↓
+    Block threats                                    Detect leaks (log only)
+    (if enabled)
 ```
 
-**Uninstall:**
+**Alternative: Command-line proxy:**
 ```bash
-# Stop the proxy (Ctrl+C) and run OpenClaw directly:
+# Run proxy directly from terminal
+python -m securevector.integrations.openclaw_proxy
+
+# With options
+python -m securevector.integrations.openclaw_proxy --port 18789 --openclaw-port 18790 -v
+```
+
+**Stopping the proxy:**
+```bash
+# 1. Click "Stop Proxy" in the UI (or Ctrl+C if running from terminal)
+# 2. Restart OpenClaw gateway on default port so TUI can connect directly:
 openclaw gateway  # Back to default port 18789
 openclaw tui
 ```
+
+**Note:** When you stop the proxy, OpenClaw TUI will lose connection. Restart the gateway on the default port (18789) so TUI can reconnect without the proxy.
 </details>
 
 <details>

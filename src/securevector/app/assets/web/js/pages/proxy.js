@@ -1,10 +1,13 @@
 /**
  * Proxy Page
- * Proxy settings for Block Mode and Output Scan
+ * Proxy control and settings for Block Mode and Output Scan
+ * Currently supports OpenClaw only
  */
 
 const ProxyPage = {
     settings: null,
+    proxyStatus: 'stopped', // 'stopped', 'starting', 'running', 'stopping'
+    statusCheckInterval: null,
 
     async render(container) {
         container.textContent = '';
@@ -19,39 +22,344 @@ const ProxyPage = {
 
         try {
             this.settings = await API.getSettings();
+            await this.checkProxyStatus();
             this.renderContent(container);
+            this.startStatusPolling();
         } catch (error) {
             this.settings = { block_threats: false, scan_llm_responses: true };
             this.renderContent(container);
         }
     },
 
+    async checkProxyStatus() {
+        try {
+            const response = await fetch('/api/proxy/status');
+            if (response.ok) {
+                const data = await response.json();
+                this.proxyStatus = data.running ? 'running' : 'stopped';
+            }
+        } catch (e) {
+            this.proxyStatus = 'stopped';
+        }
+    },
+
+    startStatusPolling() {
+        if (this.statusCheckInterval) clearInterval(this.statusCheckInterval);
+        this.statusCheckInterval = setInterval(async () => {
+            const oldStatus = this.proxyStatus;
+            await this.checkProxyStatus();
+            if (oldStatus !== this.proxyStatus) {
+                this.updateProxyStatusUI();
+            }
+        }, 3000);
+    },
+
+    stopStatusPolling() {
+        if (this.statusCheckInterval) {
+            clearInterval(this.statusCheckInterval);
+            this.statusCheckInterval = null;
+        }
+    },
+
     renderContent(container) {
         container.textContent = '';
 
-        // Page intro
+        // Page intro with why proxy explanation
         const intro = document.createElement('div');
         intro.className = 'page-intro';
-        intro.style.cssText = 'margin-bottom: 24px; color: var(--text-secondary); font-size: 14px;';
-        intro.textContent = 'Configure proxy behavior for threat detection and blocking.';
+        intro.style.cssText = 'margin-bottom: 24px;';
+
+        const introTitle = document.createElement('div');
+        introTitle.style.cssText = 'color: var(--text-primary); font-size: 14px; margin-bottom: 12px;';
+        introTitle.textContent = 'WebSocket proxy for intercepting and scanning OpenClaw agent messages in real-time.';
+        intro.appendChild(introTitle);
+
+        // Why proxy box
+        const whyBox = document.createElement('div');
+        whyBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 16px; font-size: 13px;';
+
+        const whyTitle = document.createElement('div');
+        whyTitle.style.cssText = 'font-weight: 600; margin-bottom: 8px; color: var(--accent-primary);';
+        whyTitle.textContent = 'Why Proxy Mode?';
+        whyBox.appendChild(whyTitle);
+
+        const whyList = document.createElement('ul');
+        whyList.style.cssText = 'margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.8;';
+
+        const reasons = [
+            'OpenClaw has no built-in message interception hooks',
+            'Hooks only fire AFTER messages reach the LLM (too late for blocking)',
+            'Skills require LLM cooperation which is unreliable',
+            'Proxy intercepts at network level = 100% coverage before LLM sees the message'
+        ];
+
+        reasons.forEach(reason => {
+            const li = document.createElement('li');
+            li.textContent = reason;
+            whyList.appendChild(li);
+        });
+
+        whyBox.appendChild(whyList);
+
+        const supportNote = document.createElement('div');
+        supportNote.style.cssText = 'margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-default); color: var(--warning); font-size: 12px;';
+        supportNote.textContent = 'Currently supports OpenClaw only. More agent platforms coming soon.';
+        whyBox.appendChild(supportNote);
+
+        intro.appendChild(whyBox);
         container.appendChild(intro);
 
+        // Proxy Control Section
+        const proxySection = this.createSection('OpenClaw Proxy', 'WebSocket proxy for intercepting and scanning OpenClaw messages');
+        const proxyCard = this.createCard();
+        const proxyBody = proxyCard.querySelector('.card-body');
+        this.renderProxyControl(proxyBody);
+        proxySection.appendChild(proxyCard);
+        container.appendChild(proxySection);
+
         // Block Mode Section
-        const blockSection = this.createSection('Block Mode', 'When enabled, detected threats are blocked and not forwarded to the LLM');
+        const blockSection = this.createSection('Block Mode (Input Only)', 'When enabled, detected threats in INPUT are blocked and not forwarded to the LLM');
         const blockCard = this.createCard();
         const blockBody = blockCard.querySelector('.card-body');
         this.renderBlockMode(blockBody);
         blockSection.appendChild(blockCard);
         container.appendChild(blockSection);
 
-        // Output Scan Section
-        const outputSection = this.createSection('Output Scan', 'Scan LLM responses for data leakage, credentials, and PII exposure');
+        // Output Scan Section - Highlighted
+        const outputSection = this.createSection('Scan LLM Responses for Leaks', 'Scan LLM responses for data leakage, credentials, and PII exposure', true);
         const outputCard = this.createCard();
         const outputBody = outputCard.querySelector('.card-body');
         this.renderOutputScan(outputBody);
         outputSection.appendChild(outputCard);
         container.appendChild(outputSection);
 
+    },
+
+    renderProxyControl(container) {
+        // Prerequisites section
+        const prereqBox = document.createElement('div');
+        prereqBox.style.cssText = 'background: rgba(255, 193, 7, 0.1); border: 1px solid var(--warning); border-radius: 8px; padding: 16px; margin-bottom: 20px;';
+
+        const prereqTitle = document.createElement('div');
+        prereqTitle.style.cssText = 'font-weight: 600; margin-bottom: 8px; color: var(--warning);';
+        prereqTitle.textContent = '⚠️ Prerequisites';
+
+        const prereqList = document.createElement('ol');
+        prereqList.style.cssText = 'margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.8;';
+
+        const prereq1 = document.createElement('li');
+        prereq1.textContent = 'OpenClaw must be installed and configured';
+        prereqList.appendChild(prereq1);
+
+        const prereq2 = document.createElement('li');
+        const prereq2Text = document.createTextNode('Start OpenClaw gateway on port 18790: ');
+        const prereq2Code = document.createElement('code');
+        prereq2Code.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;';
+        prereq2Code.textContent = 'openclaw gateway --port 18790';
+        prereq2.appendChild(prereq2Text);
+        prereq2.appendChild(prereq2Code);
+        prereqList.appendChild(prereq2);
+
+        prereqBox.appendChild(prereqTitle);
+        prereqBox.appendChild(prereqList);
+        container.appendChild(prereqBox);
+
+        // Status row
+        const statusRow = document.createElement('div');
+        statusRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border-default);';
+
+        const statusInfo = document.createElement('div');
+
+        const statusLabel = document.createElement('div');
+        statusLabel.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
+        statusLabel.textContent = 'Proxy Status';
+        statusInfo.appendChild(statusLabel);
+
+        const statusDesc = document.createElement('div');
+        statusDesc.id = 'proxy-status-text';
+        statusDesc.style.cssText = 'font-size: 13px; display: flex; align-items: center; gap: 8px;';
+        this.updateStatusText(statusDesc);
+        statusInfo.appendChild(statusDesc);
+
+        statusRow.appendChild(statusInfo);
+
+        // Start/Stop button
+        const actionBtn = document.createElement('button');
+        actionBtn.id = 'proxy-action-btn';
+        actionBtn.style.cssText = 'padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;';
+        this.updateActionButton(actionBtn);
+        actionBtn.addEventListener('click', () => this.toggleProxy());
+        statusRow.appendChild(actionBtn);
+
+        container.appendChild(statusRow);
+
+        // Connection info
+        const connInfo = document.createElement('div');
+        connInfo.style.cssText = 'padding: 16px 0;';
+
+        const connGrid = document.createElement('div');
+        connGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px;';
+
+        // Proxy Port
+        const proxyPortBox = document.createElement('div');
+        proxyPortBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 12px 16px;';
+        const proxyPortLabel = document.createElement('div');
+        proxyPortLabel.style.cssText = 'color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;';
+        proxyPortLabel.textContent = 'Proxy Listen Port';
+        const proxyPortValue = document.createElement('div');
+        proxyPortValue.style.cssText = 'font-family: monospace; font-size: 14px; color: var(--accent-primary);';
+        proxyPortValue.textContent = 'ws://127.0.0.1:18789';
+        proxyPortBox.appendChild(proxyPortLabel);
+        proxyPortBox.appendChild(proxyPortValue);
+        connGrid.appendChild(proxyPortBox);
+
+        // OpenClaw Port
+        const openclawPortBox = document.createElement('div');
+        openclawPortBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 12px 16px;';
+        const openclawPortLabel = document.createElement('div');
+        openclawPortLabel.style.cssText = 'color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;';
+        openclawPortLabel.textContent = 'OpenClaw Gateway Port';
+        const openclawPortValue = document.createElement('div');
+        openclawPortValue.style.cssText = 'font-family: monospace; font-size: 14px; color: var(--text-primary);';
+        openclawPortValue.textContent = 'ws://127.0.0.1:18790';
+        openclawPortBox.appendChild(openclawPortLabel);
+        openclawPortBox.appendChild(openclawPortValue);
+        connGrid.appendChild(openclawPortBox);
+
+        connInfo.appendChild(connGrid);
+        container.appendChild(connInfo);
+
+        // Stop proxy note
+        const stopNote = document.createElement('div');
+        stopNote.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px;';
+
+        const stopNoteTitle = document.createElement('div');
+        stopNoteTitle.style.cssText = 'font-weight: 600; margin-bottom: 6px; color: var(--text-primary);';
+        stopNoteTitle.textContent = 'When stopping the proxy:';
+        stopNote.appendChild(stopNoteTitle);
+
+        const stopNoteText = document.createElement('div');
+        stopNoteText.style.cssText = 'color: var(--text-secondary);';
+        stopNoteText.textContent = 'Restart OpenClaw gateway on default port so TUI can connect directly: ';
+        const stopNoteCode = document.createElement('code');
+        stopNoteCode.style.cssText = 'background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px;';
+        stopNoteCode.textContent = 'openclaw gateway';
+        stopNoteText.appendChild(stopNoteCode);
+        stopNote.appendChild(stopNoteText);
+
+        container.appendChild(stopNote);
+
+        // Supported platforms note
+        const note = document.createElement('div');
+        note.style.cssText = 'background: linear-gradient(135deg, rgba(0, 188, 212, 0.1), rgba(156, 39, 176, 0.1)); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--text-secondary);';
+        note.textContent = 'Currently supports OpenClaw only. More agent platforms coming soon.';
+        container.appendChild(note);
+    },
+
+    updateStatusText(element) {
+        const el = element || document.getElementById('proxy-status-text');
+        if (!el) return;
+
+        el.textContent = '';
+
+        const statusColors = {
+            'stopped': 'var(--text-secondary)',
+            'starting': 'var(--warning)',
+            'running': 'var(--success)',
+            'stopping': 'var(--warning)'
+        };
+
+        const statusIcons = {
+            'stopped': '⚫',
+            'starting': '🟡',
+            'running': '🟢',
+            'stopping': '🟡'
+        };
+
+        const statusTextMap = {
+            'stopped': 'Not Running',
+            'starting': 'Starting...',
+            'running': 'Running',
+            'stopping': 'Stopping...'
+        };
+
+        const icon = document.createElement('span');
+        icon.style.fontSize = '10px';
+        icon.textContent = statusIcons[this.proxyStatus];
+
+        const text = document.createElement('span');
+        text.style.color = statusColors[this.proxyStatus];
+        text.textContent = statusTextMap[this.proxyStatus];
+
+        el.appendChild(icon);
+        el.appendChild(text);
+    },
+
+    updateActionButton(button) {
+        const btn = button || document.getElementById('proxy-action-btn');
+        if (!btn) return;
+
+        btn.textContent = '';
+
+        if (this.proxyStatus === 'running') {
+            btn.style.background = 'var(--danger)';
+            btn.style.color = 'white';
+            btn.style.border = 'none';
+            btn.textContent = '⏹ Stop Proxy';
+            btn.disabled = false;
+        } else if (this.proxyStatus === 'stopped') {
+            btn.style.background = 'var(--success)';
+            btn.style.color = 'white';
+            btn.style.border = 'none';
+            btn.textContent = '▶ Start Proxy';
+            btn.disabled = false;
+        } else {
+            btn.style.background = 'var(--bg-tertiary)';
+            btn.style.color = 'var(--text-secondary)';
+            btn.style.border = '1px solid var(--border-default)';
+            btn.textContent = '⏳ ' + (this.proxyStatus === 'starting' ? 'Starting...' : 'Stopping...');
+            btn.disabled = true;
+        }
+    },
+
+    updateProxyStatusUI() {
+        this.updateStatusText();
+        this.updateActionButton();
+    },
+
+    async toggleProxy() {
+        if (this.proxyStatus === 'running') {
+            this.proxyStatus = 'stopping';
+            this.updateProxyStatusUI();
+            try {
+                const response = await fetch('/api/proxy/stop', { method: 'POST' });
+                if (response.ok) {
+                    this.proxyStatus = 'stopped';
+                    Toast.success('Proxy stopped');
+                } else {
+                    throw new Error('Failed to stop proxy');
+                }
+            } catch (e) {
+                Toast.error('Failed to stop proxy');
+                this.proxyStatus = 'running';
+            }
+        } else if (this.proxyStatus === 'stopped') {
+            this.proxyStatus = 'starting';
+            this.updateProxyStatusUI();
+            try {
+                const response = await fetch('/api/proxy/start', { method: 'POST' });
+                if (response.ok) {
+                    this.proxyStatus = 'running';
+                    Toast.success('Proxy started on port 18789');
+                } else {
+                    throw new Error('Failed to start proxy');
+                }
+            } catch (e) {
+                Toast.error('Failed to start proxy');
+                this.proxyStatus = 'stopped';
+            }
+        }
+        this.updateProxyStatusUI();
     },
 
     renderBlockMode(container) {
@@ -176,7 +484,7 @@ const ProxyPage = {
         container.appendChild(note);
     },
 
-    createSection(title, subtitle) {
+    createSection(title, subtitle, highlight = false) {
         const section = document.createElement('div');
         section.className = 'settings-section';
         section.style.cssText = 'margin-bottom: 32px;';
@@ -185,7 +493,18 @@ const ProxyPage = {
         header.style.cssText = 'margin-bottom: 16px;';
 
         const titleEl = document.createElement('h2');
-        titleEl.style.cssText = 'font-size: 18px; font-weight: 600; margin-bottom: 4px;';
+        if (highlight) {
+            titleEl.style.cssText = 'font-size: 18px; font-weight: 600; margin-bottom: 4px; color: var(--accent-primary); animation: pulse-glow 2s ease-in-out infinite;';
+            // Add keyframe animation via style tag if not already present
+            if (!document.getElementById('pulse-glow-style')) {
+                const style = document.createElement('style');
+                style.id = 'pulse-glow-style';
+                style.textContent = '@keyframes pulse-glow { 0%, 100% { text-shadow: 0 0 5px var(--accent-primary); } 50% { text-shadow: 0 0 20px var(--accent-primary), 0 0 30px var(--accent-primary); } }';
+                document.head.appendChild(style);
+            }
+        } else {
+            titleEl.style.cssText = 'font-size: 18px; font-weight: 600; margin-bottom: 4px;';
+        }
         titleEl.textContent = title;
         header.appendChild(titleEl);
 

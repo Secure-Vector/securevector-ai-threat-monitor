@@ -8,7 +8,7 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'proxy', label: 'Security', icon: 'shield' },
+        { id: 'proxy', label: 'OpenClaw Proxy', icon: 'proxy' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
 

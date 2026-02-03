@@ -1217,10 +1217,10 @@ const Header = {
                 },
                 steps: [
                     { num: '1', title: 'Start OpenClaw', desc: 'Run OpenClaw gateway on alternate port', code: 'openclaw gateway --port 18790' },
-                    { num: '2', title: 'Start SecureVector', desc: 'Run with analyze mode (default) or block mode. Enable "Output Scan" in header to scan LLM responses for data leakage.', code: 'securevector-app --web --proxy openclaw\n# Or with blocking:\nsecurevector-app --web --proxy openclaw --mode block' },
-                    { num: '3', title: 'Connect Client', desc: 'Use OpenClaw TUI normally', code: 'openclaw tui' },
+                    { num: '2', title: 'Start Proxy', desc: 'Go to OpenClaw Proxy page in sidebar and click Start Proxy, or run from terminal:', code: '# Option 1: Use the Proxy page in sidebar\n# Option 2: Run from terminal:\npython -m securevector.integrations.openclaw_proxy' },
+                    { num: '3', title: 'Connect Client', desc: 'Use OpenClaw TUI normally - it connects through proxy automatically', code: 'openclaw tui' },
                 ],
-                note: 'Smart Output Detection: Scans LLM responses for credentials, PII, system prompt leaks, and encoded data. Toggle "Output Scan" in header to enable/disable.',
+                note: 'Manage proxy from the OpenClaw Proxy page in sidebar. Configure Block Mode (input only) and Output Scanning for leak detection.',
             },
             'langchain': {
                 name: 'LangChain',
