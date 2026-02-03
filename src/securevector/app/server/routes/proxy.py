@@ -76,9 +76,9 @@ async def start_proxy():
         else:
             return {"status": "failed", "message": "Proxy failed to start"}
 
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to start proxy")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Failed to start proxy. Check logs for details."}
 
 
 @router.post("/stop")
@@ -99,6 +99,6 @@ async def stop_proxy():
         _proxy_process.kill()
         _proxy_process = None
         return {"status": "killed", "message": "Proxy force killed"}
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to stop proxy")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Failed to stop proxy. Check logs for details."}
