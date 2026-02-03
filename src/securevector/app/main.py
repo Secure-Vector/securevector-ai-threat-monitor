@@ -8,6 +8,9 @@ Options:
     --port PORT       API server port (default: 8741)
     --host HOST       API server host (default: 127.0.0.1)
     --web             Run in web browser mode (no desktop window)
+    --proxy PLATFORM  Start proxy for agent platform (e.g., openclaw)
+    --proxy-port PORT Proxy listen port (default: 18789)
+    --mode MODE       Proxy mode: analyze (log only) or block (stop threats)
     --debug           Enable debug logging
     --version         Show version and exit
 """
@@ -118,6 +121,91 @@ def run_web(host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+def run_proxy(platform: str, proxy_port: int, target_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze") -> None:
+    """Run SecureVector proxy only (no web server)."""
+    import asyncio
+
+    block_threats = (mode == "block")
+
+    if platform == "openclaw":
+        try:
+            from securevector.integrations.openclaw_proxy import SecureVectorProxy
+        except ImportError:
+            print("Error: Missing dependencies. Install with: pip install websockets httpx")
+            sys.exit(1)
+
+        proxy = SecureVectorProxy(
+            proxy_port=proxy_port,
+            openclaw_host="127.0.0.1",
+            openclaw_port=target_port,
+            securevector_host="127.0.0.1",
+            securevector_port=securevector_port,
+            verbose=verbose,
+            block_threats=block_threats,
+        )
+
+        try:
+            asyncio.run(proxy.run())
+        except KeyboardInterrupt:
+            print("\n[proxy] Shutting down...")
+    else:
+        print(f"Error: Unknown platform '{platform}'. Supported: openclaw")
+        sys.exit(1)
+
+
+def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, target_port: int, verbose: bool = False, mode: str = "analyze") -> None:
+    """Run web server and proxy together."""
+    import asyncio
+    import uvicorn
+    from securevector.app.server.app import create_app
+
+    block_threats = (mode == "block")
+    mode_label = "BLOCK" if block_threats else "ANALYZE"
+
+    try:
+        from securevector.integrations.openclaw_proxy import SecureVectorProxy
+    except ImportError:
+        print("Error: Missing dependencies. Install with: pip install websockets httpx")
+        sys.exit(1)
+
+    print(f"\n  SecureVector Local Threat Monitor v{__version__}")
+    print(f"  ─────────────────────────────────────────")
+    print(f"  Web UI:     http://{host}:{port}")
+    print(f"  API:        http://{host}:{port}/docs")
+    print(f"  Proxy:      ws://127.0.0.1:{proxy_port} → OpenClaw ({target_port})")
+    print(f"  Mode:       {mode_label} {'(threats will be blocked)' if block_threats else '(threats logged only)'}")
+    if verbose:
+        print(f"  Verbose:    ON (logging all messages)")
+    print(f"\n  Press Ctrl+C to stop\n")
+
+    app = create_app(host=host, port=port)
+
+    # Run both uvicorn and proxy
+    async def run_both():
+        proxy = SecureVectorProxy(
+            proxy_port=proxy_port,
+            openclaw_host="127.0.0.1",
+            openclaw_port=target_port,
+            securevector_host="127.0.0.1",
+            securevector_port=port,
+            verbose=verbose,
+            block_threats=block_threats,
+        )
+
+        config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+        server = uvicorn.Server(config)
+
+        await asyncio.gather(
+            server.serve(),
+            proxy.run(),
+        )
+
+    try:
+        asyncio.run(run_both())
+    except KeyboardInterrupt:
+        print("\n  Shutting down...")
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -151,6 +239,36 @@ def main() -> None:
         action="store_true",
         help="Show version and exit",
     )
+    parser.add_argument(
+        "--proxy",
+        type=str,
+        choices=["openclaw"],
+        help="Start proxy for agent platform (e.g., openclaw)",
+    )
+    parser.add_argument(
+        "--proxy-port",
+        type=int,
+        default=18789,
+        help="Proxy listen port (default: 18789 - OpenClaw's default)",
+    )
+    parser.add_argument(
+        "--target-port",
+        type=int,
+        default=18790,
+        help="Target platform port (default: 18790 - run OpenClaw with --port 18790)",
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Log all messages passing through proxy",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["analyze", "block"],
+        default="analyze",
+        help="Proxy mode: analyze (log only, default) or block (stop threats)",
+    )
 
     args = parser.parse_args()
 
@@ -161,6 +279,17 @@ def main() -> None:
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
+
+    # Proxy mode
+    if args.proxy:
+        if args.web:
+            # Run both web server and proxy together
+            run_web_with_proxy(args.host, args.port, args.proxy, args.proxy_port, args.target_port, args.verbose, args.mode)
+            return
+        else:
+            # Run proxy only
+            run_proxy(args.proxy, args.proxy_port, args.target_port, args.port, args.verbose, args.mode)
+            return
 
     # Check dependencies
     try:

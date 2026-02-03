@@ -36,7 +36,7 @@ const DashboardPage = {
         }
     },
 
-    renderContent(container) {
+    async renderContent(container) {
         container.textContent = '';
 
         // Dashboard header with title
@@ -67,6 +67,10 @@ const DashboardPage = {
 
         container.appendChild(header);
 
+        // Security Controls - immediately visible
+        const securityControls = await this.renderSecurityControls();
+        container.appendChild(securityControls);
+
         // Stats grid
         const statsGrid = document.createElement('div');
         statsGrid.className = 'stats-grid';
@@ -74,7 +78,7 @@ const DashboardPage = {
         const stats = [
             {
                 value: this.data.total_threats || 0,
-                label: 'Total Threats',
+                label: 'Analyzed Requests',
                 icon: 'shield',
                 color: 'primary',
             },
@@ -502,6 +506,104 @@ const DashboardPage = {
             }
             if (window.Toast) Toast.info('Auto refresh disabled');
         }
+    },
+
+    async renderSecurityControls() {
+        const section = document.createElement('div');
+        section.className = 'security-controls-section';
+        section.style.cssText = 'display: flex; gap: 16px; margin-bottom: 24px;';
+
+        // Fetch current settings
+        let settings = { block_threats: false, scan_llm_responses: true };
+        try {
+            settings = await API.getSettings();
+        } catch (e) {}
+
+        // Block Mode Card
+        const blockCard = document.createElement('div');
+        blockCard.className = 'security-control-card';
+        blockCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
+
+        const blockInfo = document.createElement('div');
+        const blockTitle = document.createElement('div');
+        blockTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
+        blockTitle.textContent = 'Block Mode';
+        blockInfo.appendChild(blockTitle);
+        const blockDesc = document.createElement('div');
+        blockDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
+        blockDesc.textContent = 'Block threats instead of logging';
+        blockInfo.appendChild(blockDesc);
+        blockCard.appendChild(blockInfo);
+
+        const blockToggle = document.createElement('label');
+        blockToggle.className = 'toggle';
+        const blockCheckbox = document.createElement('input');
+        blockCheckbox.type = 'checkbox';
+        blockCheckbox.checked = settings.block_threats;
+        blockCheckbox.addEventListener('change', async (e) => {
+            const newState = e.target.checked;
+            if (!confirm(newState ? 'Enable Block Mode?\n\nThreats will be BLOCKED.' : 'Disable Block Mode?\n\nThreats will only be logged.')) {
+                e.target.checked = !newState;
+                return;
+            }
+            try {
+                await API.updateSettings({ block_threats: newState });
+                Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
+            } catch (err) {
+                Toast.error('Failed to update');
+                e.target.checked = !newState;
+            }
+        });
+        blockToggle.appendChild(blockCheckbox);
+        const blockSlider = document.createElement('span');
+        blockSlider.className = 'toggle-slider';
+        blockToggle.appendChild(blockSlider);
+        blockCard.appendChild(blockToggle);
+        section.appendChild(blockCard);
+
+        // Output Scan Card
+        const outputCard = document.createElement('div');
+        outputCard.className = 'security-control-card';
+        outputCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
+
+        const outputInfo = document.createElement('div');
+        const outputTitle = document.createElement('div');
+        outputTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
+        outputTitle.textContent = 'Output Scan';
+        outputInfo.appendChild(outputTitle);
+        const outputDesc = document.createElement('div');
+        outputDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
+        outputDesc.textContent = 'Scan LLM responses for leaks';
+        outputInfo.appendChild(outputDesc);
+        outputCard.appendChild(outputInfo);
+
+        const outputToggle = document.createElement('label');
+        outputToggle.className = 'toggle';
+        const outputCheckbox = document.createElement('input');
+        outputCheckbox.type = 'checkbox';
+        outputCheckbox.checked = settings.scan_llm_responses;
+        outputCheckbox.addEventListener('change', async (e) => {
+            const newState = e.target.checked;
+            if (!confirm(newState ? 'Enable Output Scan?\n\nLLM responses will be scanned.' : 'Disable Output Scan?\n\nResponses will not be monitored.')) {
+                e.target.checked = !newState;
+                return;
+            }
+            try {
+                await API.updateSettings({ scan_llm_responses: newState });
+                Toast.success(newState ? 'Output scan enabled' : 'Output scan disabled');
+            } catch (err) {
+                Toast.error('Failed to update');
+                e.target.checked = !newState;
+            }
+        });
+        outputToggle.appendChild(outputCheckbox);
+        const outputSlider = document.createElement('span');
+        outputSlider.className = 'toggle-slider';
+        outputToggle.appendChild(outputSlider);
+        outputCard.appendChild(outputToggle);
+        section.appendChild(outputCard);
+
+        return section;
     },
 
     renderError(container, error) {

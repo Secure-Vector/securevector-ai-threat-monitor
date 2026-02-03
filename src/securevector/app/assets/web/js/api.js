@@ -55,14 +55,15 @@ const API = {
         // Get dashboard summary from threat intel and rules
         try {
             const [threats, rules] = await Promise.all([
-                this.getThreats({ page_size: 100 }),
+                this.getThreats({ page_size: 50 }),
                 this.getRules(),
             ]);
 
             const items = threats.items || [];
+            const totalCount = threats.total || items.length;  // Use total from API response
             const ruleItems = rules.items || [];
 
-            // Calculate stats
+            // Calculate stats from available items (sample)
             const criticalCount = items.filter(t => t.risk_score >= 80).length;
             const recentThreats = items.slice(0, 5);
             const activeRulesCount = ruleItems.filter(r => r.enabled).length;
@@ -75,7 +76,7 @@ const API = {
             });
 
             return {
-                total_threats: items.length,
+                total_threats: totalCount,  // Use actual total from API
                 critical_count: criticalCount,
                 blocked_count: items.filter(t => t.blocked).length,
                 active_rules: activeRulesCount,
@@ -114,6 +115,19 @@ const API = {
 
     async getThreat(id) {
         return this.request(`/api/threat-intel/${id}`);
+    },
+
+    async deleteThreats(options = {}) {
+        return this.request('/api/threat-intel', {
+            method: 'DELETE',
+            body: JSON.stringify(options),
+        });
+    },
+
+    async deleteThreat(id) {
+        return this.request(`/api/threat-intel/${id}`, {
+            method: 'DELETE',
+        });
     },
 
     // ==================== Rules ====================
@@ -155,6 +169,21 @@ const API = {
         } catch (e) {
             return 0;
         }
+    },
+
+    // ==================== General Settings ====================
+
+    async getSettings() {
+        return this.request('/api/settings').catch(() => ({
+            scan_llm_responses: true,
+        }));
+    },
+
+    async updateSettings(settings) {
+        return this.request('/api/settings', {
+            method: 'PUT',
+            body: JSON.stringify(settings),
+        });
     },
 
     // ==================== Cloud Settings ====================

@@ -140,6 +140,9 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         2: migrate_to_v2,
         3: migrate_to_v3,
         4: migrate_to_v4,
+        5: migrate_to_v5,
+        6: migrate_to_v6,
+        7: migrate_to_v7,
     }
 
     if version in migrations:
@@ -225,6 +228,70 @@ async def migrate_to_v4(db: DatabaseConnection) -> None:
     )
 
     logger.info("Applied migration v4: LLM review settings")
+
+
+async def migrate_to_v5(db: DatabaseConnection) -> None:
+    """Migration v4 -> v5: Add user_agent column for client tracking."""
+    conn = await db.connect()
+
+    # Check if column already exists
+    cursor = await conn.execute("PRAGMA table_info(threat_intel_records)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "user_agent" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE threat_intel_records ADD COLUMN user_agent TEXT DEFAULT NULL"
+        )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (5, CURRENT_TIMESTAMP, 'Add user_agent column for client tracking')"
+    )
+
+    logger.info("Applied migration v5: user_agent column")
+
+
+async def migrate_to_v6(db: DatabaseConnection) -> None:
+    """Migration v5 -> v6: Add scan_llm_responses setting for output leakage detection."""
+    conn = await db.connect()
+
+    # Check if column already exists
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "scan_llm_responses" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN scan_llm_responses INTEGER NOT NULL DEFAULT 1"
+        )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (6, CURRENT_TIMESTAMP, 'Add scan_llm_responses setting for output leakage detection')"
+    )
+
+    logger.info("Applied migration v6: scan_llm_responses setting")
+
+
+async def migrate_to_v7(db: DatabaseConnection) -> None:
+    """Migration v6 -> v7: Add block_threats setting for proxy blocking mode."""
+    conn = await db.connect()
+
+    # Check if column already exists
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "block_threats" not in existing_columns:
+        # Default to 0 (disabled) - user must explicitly enable blocking
+        await conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN block_threats INTEGER NOT NULL DEFAULT 0"
+        )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (7, CURRENT_TIMESTAMP, 'Add block_threats setting for proxy blocking mode')"
+    )
+
+    logger.info("Applied migration v7: block_threats setting")
 
 
 # Future migration functions would be defined here:

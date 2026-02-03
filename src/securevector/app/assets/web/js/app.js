@@ -10,6 +10,7 @@ const App = {
         dashboard: DashboardPage,
         threats: ThreatsPage,
         rules: RulesPage,
+        proxy: ProxyPage,
         settings: SettingsPage,
     },
 

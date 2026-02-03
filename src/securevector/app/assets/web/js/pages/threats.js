@@ -8,6 +8,7 @@ const ThreatsPage = {
     categories: [],
     autoRefreshInterval: null,
     autoRefreshEnabled: false,
+    selectedIds: new Set(),
     filters: {
         page: 1,
         page_size: 20,
@@ -17,6 +18,7 @@ const ThreatsPage = {
 
     async render(container) {
         container.textContent = '';
+        this.selectedIds.clear();
 
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
@@ -121,6 +123,19 @@ const ThreatsPage = {
         spacer.className = 'filter-spacer';
         bar.appendChild(spacer);
 
+        // Delete Selected button (hidden by default)
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-danger';
+        deleteBtn.id = 'delete-selected-btn';
+        deleteBtn.style.display = 'none';
+        deleteBtn.textContent = 'Delete Selected (0)';
+        const self = this;
+        deleteBtn.onclick = function() {
+            console.log('Delete button clicked, selected:', self.selectedIds.size);
+            self.confirmDeleteSelected();
+        };
+        bar.appendChild(deleteBtn);
+
         // Auto-refresh toggle
         const refreshBtn = document.createElement('button');
         refreshBtn.className = 'btn btn-secondary auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
@@ -139,6 +154,94 @@ const ThreatsPage = {
         exportBtn.title = 'Download threat report as PDF';
         exportBtn.addEventListener('click', () => this.exportToPDF());
         bar.appendChild(exportBtn);
+    },
+
+    updateDeleteButton() {
+        const btn = document.getElementById('delete-selected-btn');
+        if (!btn) return;
+
+        const count = this.selectedIds.size;
+        if (count > 0) {
+            btn.style.display = 'inline-flex';
+            btn.textContent = `Delete Selected (${count})`;
+        } else {
+            btn.style.display = 'none';
+        }
+    },
+
+    toggleSelectAll(checked) {
+        const threats = this.data?.items || [];
+        if (checked) {
+            threats.forEach(t => this.selectedIds.add(t.id));
+        } else {
+            this.selectedIds.clear();
+        }
+
+        // Update all checkboxes
+        document.querySelectorAll('.threat-checkbox').forEach(cb => {
+            cb.checked = checked;
+        });
+
+        this.updateDeleteButton();
+    },
+
+    toggleSelect(id, checked) {
+        if (checked) {
+            this.selectedIds.add(id);
+        } else {
+            this.selectedIds.delete(id);
+        }
+
+        // Update select-all checkbox state
+        const selectAllCb = document.getElementById('select-all-checkbox');
+        if (selectAllCb) {
+            const threats = this.data?.items || [];
+            selectAllCb.checked = threats.length > 0 && this.selectedIds.size === threats.length;
+            selectAllCb.indeterminate = this.selectedIds.size > 0 && this.selectedIds.size < threats.length;
+        }
+
+        this.updateDeleteButton();
+    },
+
+    confirmDeleteSelected() {
+        const count = this.selectedIds.size;
+
+        if (count === 0) {
+            alert('No records selected');
+            return;
+        }
+
+        // Use native confirm for reliability
+        const confirmed = confirm(`Delete ${count} selected record${count !== 1 ? 's' : ''}?\n\nThis action cannot be undone.`);
+
+        if (confirmed) {
+            this.deleteSelectedRecords();
+        }
+    },
+
+    async deleteSelectedRecords() {
+        try {
+            const ids = Array.from(this.selectedIds);
+            const response = await fetch('/api/threat-intel', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete records');
+            }
+
+            const result = await response.json();
+            if (window.Toast) Toast.success(`Deleted ${result.deleted} record${result.deleted !== 1 ? 's' : ''}`);
+            this.selectedIds.clear();
+            this.filters.page = 1;
+            await this.loadData();
+            this.buildFiltersBar();
+        } catch (error) {
+            console.error('Failed to delete records:', error);
+            if (window.Toast) Toast.error('Failed to delete records');
+        }
     },
 
     toggleAutoRefresh() {
@@ -188,12 +291,12 @@ const ThreatsPage = {
             const content = escapeHtml((threat.text_preview || threat.text_content || '').substring(0, 100));
             const llmStatus = threat.llm_reviewed ? (threat.llm_agrees ? 'Confirmed' : 'Disputed') : 'Not Reviewed';
             const date = threat.created_at ? new Date(threat.created_at).toLocaleDateString() : '-';
-            rows += '<tr><td>' + content + '</td><td>' + escapeHtml(threat.threat_type || 'Unknown') + '</td><td class="' + riskClass + '">' + threat.risk_score + '%</td><td>' + llmStatus + '</td><td>' + date + '</td></tr>';
+            rows += '<tr><td>' + content + '</td><td>' + escapeHtml(threat.threat_type || 'No Threat Detected') + '</td><td class="' + riskClass + '">' + threat.risk_score + '%</td><td>' + llmStatus + '</td><td>' + date + '</td></tr>';
         });
         let details = '';
         threats.filter(t => t.risk_score >= 60).forEach(threat => {
             const riskClass = threat.risk_score >= 80 ? 'risk-high' : 'risk-medium';
-            details += '<div class="threat"><div class="threat-header"><strong>' + escapeHtml(threat.threat_type || 'Threat') + '</strong><span class="' + riskClass + '">' + threat.risk_score + '% Risk</span></div>';
+            details += '<div class="threat"><div class="threat-header"><strong>' + escapeHtml(threat.threat_type || 'No Threat Detected') + '</strong><span class="' + riskClass + '">' + threat.risk_score + '% Risk</span></div>';
             details += '<p><span class="label">Content:</span> ' + escapeHtml(threat.text_content || threat.text_preview || '') + '</p>';
             if (threat.llm_reviewed) {
                 details += '<div class="llm-section"><strong>LLM Analysis (' + escapeHtml(threat.llm_model_used || 'AI') + '):</strong><br>' + escapeHtml(threat.llm_explanation || threat.llm_reasoning || 'No explanation') + '<br><em>Recommendation: ' + escapeHtml(threat.llm_recommendation || 'N/A') + '</em></div>';
@@ -219,7 +322,7 @@ const ThreatsPage = {
 
     formatCategoryLabel(category) {
         // Convert snake_case to Title Case
-        if (!category) return 'Unknown';
+        if (!category) return 'No Threat Detected';
         return category
             .split('_')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -258,6 +361,36 @@ const ThreatsPage = {
             return;
         }
 
+        // Summary stats bar
+        const statsBar = document.createElement('div');
+        statsBar.className = 'threats-stats-bar';
+        statsBar.style.cssText = 'display:flex;gap:24px;padding:12px 16px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;margin-bottom:16px;font-size:13px;';
+
+        // Total records
+        const recordsStat = document.createElement('div');
+        recordsStat.innerHTML = '<span style="color:var(--text-secondary)">Records:</span> <strong>' + (this.data.total || threats.length) + '</strong>';
+        statsBar.appendChild(recordsStat);
+
+        // Total LLM reviewed
+        const llmReviewed = threats.filter(t => t.llm_reviewed).length;
+        const llmStat = document.createElement('div');
+        llmStat.innerHTML = '<span style="color:var(--text-secondary)">LLM Reviewed:</span> <strong>' + llmReviewed + '</strong>';
+        statsBar.appendChild(llmStat);
+
+        // Total tokens used
+        const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
+        const tokensStat = document.createElement('div');
+        tokensStat.innerHTML = '<span style="color:var(--text-secondary)">Total Tokens:</span> <strong style="color:var(--accent-primary)">' + totalTokens.toLocaleString() + '</strong>';
+        statsBar.appendChild(tokensStat);
+
+        // High risk count
+        const highRisk = threats.filter(t => t.risk_score >= 60).length;
+        const riskStat = document.createElement('div');
+        riskStat.innerHTML = '<span style="color:var(--text-secondary)">High Risk:</span> <strong style="color:var(--danger)">' + highRisk + '</strong>';
+        statsBar.appendChild(riskStat);
+
+        container.appendChild(statsBar);
+
         // Threats table
         const tableWrapper = document.createElement('div');
         tableWrapper.className = 'table-wrapper';
@@ -269,7 +402,19 @@ const ThreatsPage = {
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
 
-        const headers = ['Indicator', 'Type', 'Risk Score', 'First Seen', 'Actions'];
+        // Checkbox header
+        const checkboxTh = document.createElement('th');
+        checkboxTh.style.width = '40px';
+        const selectAllCb = document.createElement('input');
+        selectAllCb.type = 'checkbox';
+        selectAllCb.id = 'select-all-checkbox';
+        selectAllCb.className = 'threat-select-all';
+        selectAllCb.title = 'Select all';
+        selectAllCb.addEventListener('change', (e) => this.toggleSelectAll(e.target.checked));
+        checkboxTh.appendChild(selectAllCb);
+        headerRow.appendChild(checkboxTh);
+
+        const headers = ['Indicator', 'Type', 'Risk Score', 'Client', 'First Seen', 'Actions'];
         headers.forEach(text => {
             const th = document.createElement('th');
             th.textContent = text;
@@ -284,6 +429,28 @@ const ThreatsPage = {
 
         threats.forEach(threat => {
             const row = document.createElement('tr');
+            row.className = 'clickable-row';
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', (e) => {
+                // Don't trigger if clicking checkbox or button
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+                this.showThreatDetails(threat);
+            });
+
+            // Checkbox cell
+            const checkboxCell = document.createElement('td');
+            checkboxCell.className = 'checkbox-cell';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'threat-checkbox';
+            checkbox.checked = this.selectedIds.has(threat.id);
+            checkbox.addEventListener('change', (e) => {
+                e.stopPropagation();
+                this.toggleSelect(threat.id, e.target.checked);
+            });
+            checkbox.addEventListener('click', (e) => e.stopPropagation());
+            checkboxCell.appendChild(checkbox);
+            row.appendChild(checkboxCell);
 
             // Indicator (use text content if available)
             const indicatorCell = document.createElement('td');
@@ -299,8 +466,17 @@ const ThreatsPage = {
             // Type
             const typeCell = document.createElement('td');
             const typeBadge = document.createElement('span');
-            typeBadge.className = 'type-badge';
-            typeBadge.textContent = threat.threat_type || 'Unknown';
+            const threatType = threat.threat_type || 'No Threat Detected';
+            const isOutputScan = threatType.startsWith('output_');
+            typeBadge.className = 'type-badge' + (isOutputScan ? ' output-scan' : '');
+            // Format: remove output_ prefix and display nicely
+            typeBadge.textContent = isOutputScan ? threatType.replace('output_', '') : threatType;
+            if (isOutputScan) {
+                const outputLabel = document.createElement('span');
+                outputLabel.className = 'output-scan-label';
+                outputLabel.textContent = 'OUTPUT';
+                typeCell.appendChild(outputLabel);
+            }
             typeCell.appendChild(typeBadge);
             row.appendChild(typeCell);
 
@@ -327,6 +503,20 @@ const ThreatsPage = {
             }
             row.appendChild(riskCell);
 
+            // Client (User Agent)
+            const clientCell = document.createElement('td');
+            const clientName = this.parseUserAgent(threat.user_agent);
+            if (clientName) {
+                const clientBadge = document.createElement('span');
+                clientBadge.className = 'client-badge';
+                clientBadge.textContent = clientName;
+                clientBadge.title = threat.user_agent || '';
+                clientCell.appendChild(clientBadge);
+            } else {
+                clientCell.textContent = '-';
+            }
+            row.appendChild(clientCell);
+
             // First Seen
             const dateCell = document.createElement('td');
             dateCell.textContent = this.formatDate(threat.first_seen || threat.created_at);
@@ -337,7 +527,10 @@ const ThreatsPage = {
             const viewBtn = document.createElement('button');
             viewBtn.className = 'btn btn-small';
             viewBtn.textContent = 'View';
-            viewBtn.addEventListener('click', () => this.showThreatDetails(threat));
+            viewBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showThreatDetails(threat);
+            });
             actionsCell.appendChild(viewBtn);
             row.appendChild(actionsCell);
 
@@ -353,6 +546,9 @@ const ThreatsPage = {
             const pagination = this.createPagination();
             container.appendChild(pagination);
         }
+
+        // Update delete button visibility
+        this.updateDeleteButton();
     },
 
     createPagination() {
@@ -400,7 +596,7 @@ const ThreatsPage = {
         riskHeader.appendChild(riskBadge);
         const typeBadge = document.createElement('span');
         typeBadge.className = 'type-badge';
-        typeBadge.textContent = threat.threat_type || 'Unknown';
+        typeBadge.textContent = threat.threat_type || 'No Threat Detected';
         typeBadge.style.marginLeft = '8px';
         riskHeader.appendChild(typeBadge);
         content.appendChild(riskHeader);
@@ -624,6 +820,7 @@ const ThreatsPage = {
             { label: 'First Seen', value: this.formatDate(threat.first_seen || threat.created_at) },
             { label: 'Processing Time', value: (threat.processing_time_ms || 0) + 'ms' },
             { label: 'Source', value: threat.source_identifier || 'Local' },
+            { label: 'Client', value: this.parseUserAgent(threat.user_agent) },
         ];
 
         const grid = document.createElement('div');
@@ -709,6 +906,29 @@ const ThreatsPage = {
         } catch (e) {
             return dateStr;
         }
+    },
+
+    parseUserAgent(userAgent) {
+        if (!userAgent) return null;
+        // Extract friendly client name from user agent
+        if (userAgent.includes('SecureVector-Proxy') || userAgent.includes('OpenClaw')) return 'OpenClaw';
+        if (userAgent.includes('LangGraph')) return 'LangGraph';
+        if (userAgent.includes('LangChain')) return 'LangChain';
+        if (userAgent.includes('Claude')) return 'Claude';
+        if (userAgent.includes('python-requests')) return 'Python Requests';
+        if (userAgent.includes('curl')) return 'cURL';
+        if (userAgent.includes('Chrome')) {
+            const match = userAgent.match(/Chrome\/([\d.]+)/);
+            return match ? 'Chrome ' + match[1].split('.')[0] : 'Chrome';
+        }
+        if (userAgent.includes('Firefox')) {
+            const match = userAgent.match(/Firefox\/([\d.]+)/);
+            return match ? 'Firefox ' + match[1].split('.')[0] : 'Firefox';
+        }
+        if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) return 'Safari';
+        if (userAgent.includes('Edge')) return 'Edge';
+        // Return first 30 chars if unknown
+        return userAgent.substring(0, 30) + (userAgent.length > 30 ? '...' : '');
     },
 
     renderEmptyState(container) {

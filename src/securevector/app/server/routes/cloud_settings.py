@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class GeneralSettingsResponse(BaseModel):
+    """General app settings response."""
+
+    scan_llm_responses: bool = True
+    store_text_content: bool = True
+    retention_days: int = 30
+    block_threats: bool = False
+
+
+class GeneralSettingsUpdate(BaseModel):
+    """General app settings update request."""
+
+    scan_llm_responses: Optional[bool] = None
+    store_text_content: Optional[bool] = None
+    retention_days: Optional[int] = None
+    block_threats: Optional[bool] = None
+
+
 class CloudSettingsResponse(BaseModel):
     """Cloud mode settings response."""
 
@@ -71,6 +89,67 @@ class MessageResponse(BaseModel):
     """Simple message response."""
 
     message: str
+
+
+@router.get("/settings", response_model=GeneralSettingsResponse)
+async def get_general_settings() -> GeneralSettingsResponse:
+    """
+    Get general app settings.
+
+    Returns settings for output scanning, text storage, etc.
+    """
+    try:
+        db = get_database()
+        settings_repo = SettingsRepository(db)
+        settings = await settings_repo.get()
+
+        return GeneralSettingsResponse(
+            scan_llm_responses=settings.scan_llm_responses,
+            store_text_content=settings.store_text_content,
+            retention_days=settings.retention_days,
+            block_threats=settings.block_threats,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get general settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/settings", response_model=GeneralSettingsResponse)
+async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSettingsResponse:
+    """
+    Update general app settings.
+    """
+    try:
+        db = get_database()
+        settings_repo = SettingsRepository(db)
+
+        # Build update dict from non-None values
+        updates = {}
+        if request.scan_llm_responses is not None:
+            updates["scan_llm_responses"] = request.scan_llm_responses
+        if request.store_text_content is not None:
+            updates["store_text_content"] = request.store_text_content
+        if request.retention_days is not None:
+            updates["retention_days"] = request.retention_days
+        if request.block_threats is not None:
+            updates["block_threats"] = request.block_threats
+
+        if updates:
+            await settings_repo.update(**updates)
+
+        settings = await settings_repo.get()
+
+        return GeneralSettingsResponse(
+            scan_llm_responses=settings.scan_llm_responses,
+            store_text_content=settings.store_text_content,
+            retention_days=settings.retention_days,
+            block_threats=settings.block_threats,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update general settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/settings/cloud", response_model=CloudSettingsResponse)

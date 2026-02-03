@@ -38,6 +38,7 @@ class ThreatIntelResponse(BaseModel):
     processing_time_ms: int
     created_at: str
     metadata: Optional[dict]
+    user_agent: Optional[str] = None
     # LLM Review fields
     llm_reviewed: bool = False
     llm_agrees: bool = True
@@ -111,6 +112,7 @@ async def list_threat_intel(
                     processing_time_ms=item.processing_time_ms,
                     created_at=item.created_at.isoformat() if item.created_at else "",
                     metadata=item.metadata,
+                    user_agent=item.user_agent,
                     # LLM Review fields
                     llm_reviewed=item.llm_reviewed,
                     llm_agrees=item.llm_agrees,
@@ -132,6 +134,78 @@ async def list_threat_intel(
 
     except Exception as e:
         logger.error(f"Failed to list threat intel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DeleteResponse(BaseModel):
+    """Delete operation response."""
+    deleted: int
+    message: str
+
+
+class BulkDeleteRequest(BaseModel):
+    """Request body for bulk delete."""
+    ids: Optional[list[str]] = None
+    delete_all: bool = False
+
+
+@router.delete("/threat-intel", response_model=DeleteResponse)
+async def bulk_delete_threat_intel(request: BulkDeleteRequest) -> DeleteResponse:
+    """
+    Delete multiple or all threat intel records.
+
+    Use delete_all=true to delete all records, or provide specific IDs.
+    """
+    try:
+        db = get_database()
+        repo = ThreatIntelRepository(db)
+
+        if request.delete_all:
+            deleted = await repo.delete_all()
+            return DeleteResponse(
+                deleted=deleted,
+                message=f"Deleted all {deleted} records"
+            )
+        elif request.ids:
+            deleted = await repo.delete_by_ids(request.ids)
+            return DeleteResponse(
+                deleted=deleted,
+                message=f"Deleted {deleted} of {len(request.ids)} requested records"
+            )
+        else:
+            return DeleteResponse(
+                deleted=0,
+                message="No records specified for deletion"
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to delete threat intel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/threat-intel/{record_id}", response_model=DeleteResponse)
+async def delete_threat_intel(record_id: str) -> DeleteResponse:
+    """
+    Delete a single threat intel record by ID.
+    """
+    try:
+        db = get_database()
+        repo = ThreatIntelRepository(db)
+
+        deleted = await repo.delete_by_id(record_id)
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        return DeleteResponse(
+            deleted=1,
+            message=f"Deleted record {record_id}"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete threat intel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -165,6 +239,7 @@ async def get_threat_intel(record_id: str) -> ThreatIntelResponse:
             processing_time_ms=record.processing_time_ms,
             created_at=record.created_at.isoformat() if record.created_at else "",
             metadata=record.metadata,
+            user_agent=record.user_agent,
             # LLM Review fields
             llm_reviewed=record.llm_reviewed,
             llm_agrees=record.llm_agrees,

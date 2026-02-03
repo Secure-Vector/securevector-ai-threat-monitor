@@ -68,6 +68,7 @@ setup(
             "platformdirs>=3.0.0",  # Cross-platform paths
             "keyring>=23.0.0",  # Secure credential storage (OS keychain)
             "httpx>=0.24.0",  # Async HTTP client for cloud API
+            "websockets>=12.0",  # WebSocket proxy for OpenClaw integration
         ],
         "dev": [
             "pytest>=6.0",

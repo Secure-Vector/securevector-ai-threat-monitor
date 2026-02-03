@@ -300,11 +300,39 @@ Please provide your assessment in JSON format."""
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse LLM response as JSON: {e}")
 
-        # Fallback: try to extract meaning from text
+        # Fallback: try to extract threat info from raw text
+        response_lower = response.lower()
+
+        # Detect threat indicators in the text
+        is_threat_text = any(indicator in response_lower for indicator in [
+            '"is_threat": true', '"is_threat":true',
+            'is a threat', 'is threat', 'detected threat',
+            'block', 'malicious', 'dangerous', 'attack',
+            'injection', 'exfiltration', 'jailbreak'
+        ])
+
+        # Extract risk score if present
+        risk_adjustment = 0
+        import re
+        risk_match = re.search(r'"risk_(?:score|adjustment)"[:\s]+(\+?\d+)', response)
+        if risk_match:
+            try:
+                risk_adjustment = int(risk_match.group(1).replace('+', ''))
+            except ValueError:
+                pass
+
+        # Extract category if present
+        category_match = re.search(r'"suggested_category"[:\s]*"([^"]+)"', response, re.IGNORECASE)
+        suggested_category = category_match.group(1) if category_match else None
+
         return LLMReviewResult(
             reviewed=True,
+            llm_threat_assessment="threat" if is_threat_text else "safe",
             llm_explanation=response[:500],
-            llm_confidence=0.5,
+            llm_confidence=0.7 if is_threat_text else 0.5,
+            llm_risk_adjustment=risk_adjustment if is_threat_text else 0,
+            llm_suggested_category=suggested_category,
+            llm_recommendation="BLOCK" if is_threat_text else "ALLOW",
         )
 
     async def _call_ollama(self, prompt: str) -> tuple[str, int]:

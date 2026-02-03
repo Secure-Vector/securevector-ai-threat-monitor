@@ -344,6 +344,16 @@ jobs:
           Type=Application
           Categories=Security;Development;
           DESKTOP_EOF
+          cat > "package/usr/share/applications/${PKG_NAME}-openclaw-proxy.desktop" << DESKTOP_EOF2
+          [Desktop Entry]
+          Name=SecureVector${{ steps.version.outputs.suffix }} (OpenClaw Proxy)
+          Comment=AI Threat Monitor with OpenClaw Proxy
+          Exec=/usr/bin/${PKG_NAME} --web --proxy openclaw
+          Icon=securevector
+          Terminal=false
+          Type=Application
+          Categories=Security;Development;
+          DESKTOP_EOF2
           cat > "package/lib/systemd/user/${PKG_NAME}.service" << SERVICE_EOF
           [Unit]
           Description=SecureVector AI Threat Monitor

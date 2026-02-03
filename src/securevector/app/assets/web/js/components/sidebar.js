@@ -8,6 +8,7 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
+        { id: 'proxy', label: 'Security', icon: 'shield' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
 
@@ -140,6 +141,21 @@ const Sidebar = {
         themeRow.appendChild(themeBtn);
         bottomSection.appendChild(themeRow);
 
+        // Uninstall button
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.className = 'sidebar-uninstall-btn';
+        uninstallBtn.setAttribute('aria-label', 'Uninstall');
+
+        const uninstallIcon = this.createIcon('uninstall');
+        uninstallBtn.appendChild(uninstallIcon);
+
+        const uninstallLabel = document.createElement('span');
+        uninstallLabel.textContent = 'Uninstall';
+        uninstallBtn.appendChild(uninstallLabel);
+
+        uninstallBtn.addEventListener('click', () => this.showUninstallModal());
+        bottomSection.appendChild(uninstallBtn);
+
         // Server Status (live indicator)
         const statusContainer = document.createElement('div');
         statusContainer.className = 'sidebar-status';
@@ -225,6 +241,140 @@ const Sidebar = {
         if (window.Header) Header.render();
     },
 
+    showUninstallModal() {
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        const closeModal = () => {
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.remove(), 150);
+        };
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+
+        const modal = document.createElement('div');
+        modal.className = 'modal uninstall-modal';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+
+        const title = document.createElement('h2');
+        title.textContent = 'Uninstall SecureVector';
+        header.appendChild(title);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'modal-close';
+        closeBtn.textContent = '\u00D7';
+        closeBtn.addEventListener('click', closeModal);
+        header.appendChild(closeBtn);
+
+        modal.appendChild(header);
+
+        // Content (scrollable)
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        content.style.cssText = 'overflow-y: auto; max-height: 60vh;';
+
+        // Windows section
+        const winSection = document.createElement('div');
+        winSection.className = 'uninstall-section';
+        const winTitle = document.createElement('h3');
+        winTitle.textContent = 'Windows';
+        winSection.appendChild(winTitle);
+
+        const winDesc = document.createElement('p');
+        winDesc.textContent = 'Use the Windows uninstaller:';
+        winSection.appendChild(winDesc);
+
+        const winSteps = document.createElement('ol');
+        const step1 = document.createElement('li');
+        step1.textContent = 'Open Settings > Apps > Installed apps';
+        winSteps.appendChild(step1);
+        const step2 = document.createElement('li');
+        step2.textContent = 'Search for SecureVector';
+        winSteps.appendChild(step2);
+        const step3 = document.createElement('li');
+        step3.textContent = 'Click Uninstall';
+        winSteps.appendChild(step3);
+        winSection.appendChild(winSteps);
+
+        const winAlt = document.createElement('p');
+        winAlt.textContent = 'Or run from command line:';
+        winSection.appendChild(winAlt);
+        const winCmd = document.createElement('code');
+        winCmd.textContent = 'pip uninstall securevector';
+        winSection.appendChild(winCmd);
+        content.appendChild(winSection);
+
+        // macOS/Linux section
+        const macSection = document.createElement('div');
+        macSection.className = 'uninstall-section';
+        const macTitle = document.createElement('h3');
+        macTitle.textContent = 'macOS / Linux';
+        macSection.appendChild(macTitle);
+
+        const macDesc = document.createElement('p');
+        macDesc.textContent = 'Run from terminal:';
+        macSection.appendChild(macDesc);
+        const macCmd = document.createElement('code');
+        macCmd.textContent = 'pip uninstall securevector';
+        macSection.appendChild(macCmd);
+        content.appendChild(macSection);
+
+        // Remove data section
+        const dataSection = document.createElement('div');
+        dataSection.className = 'uninstall-section';
+        const dataTitle = document.createElement('h3');
+        dataTitle.textContent = 'Remove Data (Optional)';
+        dataSection.appendChild(dataTitle);
+
+        const dataDesc = document.createElement('p');
+        dataDesc.textContent = 'To also remove the database and settings:';
+        dataSection.appendChild(dataDesc);
+        const dataCmd = document.createElement('code');
+        dataCmd.textContent = 'rm -rf ~/.securevector';
+        dataSection.appendChild(dataCmd);
+
+        const dataNote = document.createElement('p');
+        dataNote.className = 'muted';
+        dataNote.textContent = 'This will delete all threat analytics history and custom rules.';
+        dataSection.appendChild(dataNote);
+        content.appendChild(dataSection);
+
+        // Warning
+        const warning = document.createElement('div');
+        warning.className = 'uninstall-warning';
+        const warningBold = document.createElement('strong');
+        warningBold.textContent = 'Note: ';
+        warning.appendChild(warningBold);
+        warning.appendChild(document.createTextNode('Running the pip uninstall command will remove the application. Make sure to close SecureVector before uninstalling.'));
+        content.appendChild(warning);
+
+        modal.appendChild(content);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.textContent = 'Close';
+        cancelBtn.addEventListener('click', closeModal);
+        footer.appendChild(cancelBtn);
+
+        modal.appendChild(footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Trigger animation after DOM insertion
+        requestAnimationFrame(() => {
+            overlay.classList.add('active');
+        });
+    },
+
     async loadRulesCount() {
         try {
             const rules = await API.getRules();
@@ -295,6 +445,16 @@ const Sidebar = {
             ],
             chat: [
                 { tag: 'path', attrs: { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' } },
+            ],
+            proxy: [
+                { tag: 'path', attrs: { d: 'M12 2L2 7l10 5 10-5-10-5z' } },
+                { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
+                { tag: 'path', attrs: { d: 'M2 12l10 5 10-5' } },
+            ],
+            uninstall: [
+                { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
+                { tag: 'line', attrs: { x1: '10', y1: '11', x2: '10', y2: '17' } },
+                { tag: 'line', attrs: { x1: '14', y1: '11', x2: '14', y2: '17' } },
             ],
         };
 

@@ -42,6 +42,10 @@ class AppSettings:
     updated_at: Optional[datetime] = None
     # LLM Review settings (stored as JSON)
     llm_settings: Optional[dict] = field(default_factory=lambda: None)
+    # Output leakage detection (scan LLM responses for data leaks)
+    scan_llm_responses: bool = True
+    # Block threats mode (when enabled, proxy blocks detected threats)
+    block_threats: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -65,6 +69,8 @@ class AppSettings:
                 if self.cloud_connected_at
                 else None
             ),
+            "scan_llm_responses": self.scan_llm_responses,
+            "block_threats": self.block_threats,
         }
 
 
@@ -141,6 +147,8 @@ class SettingsRepository:
             cloud_connected_at=cloud_connected_at,
             updated_at=row_dict["updated_at"],
             llm_settings=llm_settings,
+            scan_llm_responses=bool(row_dict.get("scan_llm_responses", True)),
+            block_threats=bool(row_dict.get("block_threats", False)),
         )
 
     async def update(self, **kwargs) -> AppSettings:
@@ -174,6 +182,8 @@ class SettingsRepository:
             "cloud_user_email",
             "cloud_connected_at",
             "llm_settings",
+            "scan_llm_responses",
+            "block_threats",
         }
 
         updates = {}

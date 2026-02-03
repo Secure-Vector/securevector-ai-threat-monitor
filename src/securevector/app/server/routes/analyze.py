@@ -8,12 +8,13 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
 from securevector.app.database.repositories.settings import SettingsRepository
+from securevector.app.utils.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class AnalysisRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=64, description="Session ID")
     request_id: Optional[str] = Field(None, max_length=64, description="Client request ID")
     metadata: Optional[dict] = Field(None, description="Additional metadata")
+    llm_response: bool = Field(False, description="Set true when analyzing LLM output (checks for leaks, PII)")
 
 
 class MatchedRule(BaseModel):
@@ -72,7 +74,7 @@ class AnalysisResult(BaseModel):
 
 
 @router.post("/analyze", response_model=AnalysisResult)
-async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
+async def analyze_text(request: AnalysisRequest, http_request: Request) -> AnalysisResult:
     """
     Analyze text content for threats.
 
@@ -82,12 +84,29 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
     """
     start_time = time.perf_counter()
     analysis_source = "local"
+    user_agent = http_request.headers.get("user-agent")
+    is_llm_response = request.llm_response  # True when analyzing LLM output
 
     try:
-        # Check if cloud mode is enabled
+        # Check settings
         db = get_database()
         settings_repo = SettingsRepository(db)
         settings = await settings_repo.get()
+
+        # If this is an LLM response scan and scan_llm_responses is disabled, skip
+        if is_llm_response and not settings.scan_llm_responses:
+            logger.debug("LLM response scanning disabled, skipping")
+            return AnalysisResult(
+                is_threat=False,
+                threat_type=None,
+                risk_score=0,
+                confidence=0.0,
+                matched_rules=[],
+                analysis_id="skipped",
+                processing_time_ms=0,
+                request_id=request.request_id,
+                analysis_source="disabled",
+            )
 
         if settings.cloud_mode_enabled:
             # Try cloud analysis
@@ -124,6 +143,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
                     source=request.source,
                     session_id=request.session_id,
                     metadata=request.metadata,
+                    user_agent=user_agent,
                 )
 
                 return AnalysisResult(
@@ -177,6 +197,12 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
         final_confidence = result.confidence
         final_threat_type = result.threat_type
 
+        # Mark output scan threats with "output_" prefix
+        scan_type = (request.metadata or {}).get("scan_type", "input")
+        if is_llm_response and scan_type == "output" and final_threat_type:
+            if not final_threat_type.startswith("output_"):
+                final_threat_type = f"output_{final_threat_type}"
+
         llm_settings = settings.llm_settings or {}
         if llm_settings.get("enabled"):
             try:
@@ -202,6 +228,8 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
                         "risk_score": result.risk_score,
                         "confidence": result.confidence,
                         "matched_rules": [r.rule_name for r in matched_rules],
+                        # Context for LLM review: output scan looks for data leakage, PII exposure
+                        "scan_type": "output" if is_llm_response else "input",
                     }
 
                     llm_result = await llm_service.review(request.text, analysis_dict)
@@ -251,11 +279,19 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
-        # Store in threat intel
+        # Store in threat intel (with secrets redacted)
         threat_intel_repo = ThreatIntelRepository(db)
 
+        # Redact secrets before storing
+        text_to_store = request.text
+        if settings.store_text_content:
+            redacted_text, redaction_count = redact_secrets(request.text)
+            if redaction_count > 0:
+                text_to_store = redacted_text
+                logger.info(f"Redacted {redaction_count} secret(s) before storing")
+
         record = await threat_intel_repo.create(
-            text=request.text,
+            text=text_to_store,
             is_threat=final_is_threat,
             threat_type=final_threat_type,
             risk_score=final_risk_score,
@@ -276,6 +312,7 @@ async def analyze_text(request: AnalysisRequest) -> AnalysisResult:
             llm_risk_adjustment=llm_review_info.risk_adjustment if llm_review_info else 0,
             llm_model_used=llm_review_info.model_used if llm_review_info else None,
             llm_tokens_used=llm_review_info.tokens_used if llm_review_info else 0,
+            user_agent=user_agent,
         )
 
         logger.debug(

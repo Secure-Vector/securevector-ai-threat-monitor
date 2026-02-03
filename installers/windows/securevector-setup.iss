@@ -53,6 +53,7 @@ Source: "..\..\src\securevector\app\assets\*"; DestDir: "{app}\assets"; Flags: i
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"
+Name: "{group}\{#MyAppName} (OpenClaw Proxy)"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--web --proxy openclaw"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Tasks: desktopicon
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--minimized"; Tasks: startupicon

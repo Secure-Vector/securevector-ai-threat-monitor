@@ -13,7 +13,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from securevector.app.database.connection import DatabaseConnection
 
@@ -39,6 +39,7 @@ class ThreatIntelRecord:
     source_identifier: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Optional[dict] = None
+    user_agent: Optional[str] = None
     # LLM Review fields
     llm_reviewed: bool = False
     llm_agrees: bool = True
@@ -74,6 +75,7 @@ class ThreatIntelRecord:
             "processing_time_ms": self.processing_time_ms,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "metadata": self.metadata,
+            "user_agent": self.user_agent,
             # LLM Review fields (flat for frontend compatibility)
             "llm_reviewed": self.llm_reviewed,
             "llm_agrees": self.llm_agrees,
@@ -143,6 +145,7 @@ class ThreatIntelRepository:
         source: Optional[str] = None,
         session_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        user_agent: Optional[str] = None,
         # LLM Review fields
         llm_reviewed: bool = False,
         llm_agrees: bool = True,
@@ -184,10 +187,10 @@ class ThreatIntelRepository:
                 id, request_id, text_content, text_hash, text_length,
                 is_threat, threat_type, risk_score, confidence,
                 matched_rules, source_identifier, session_id,
-                processing_time_ms, created_at, metadata,
+                processing_time_ms, created_at, metadata, user_agent,
                 llm_reviewed, llm_agrees, llm_confidence, llm_explanation,
                 llm_recommendation, llm_risk_adjustment, llm_model_used, llm_tokens_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -205,6 +208,7 @@ class ThreatIntelRepository:
                 processing_time_ms,
                 created_at.isoformat(),
                 json.dumps(metadata) if metadata else None,
+                user_agent,
                 int(llm_reviewed),
                 int(llm_agrees),
                 llm_confidence,
@@ -234,6 +238,7 @@ class ThreatIntelRepository:
             processing_time_ms=processing_time_ms,
             created_at=created_at,
             metadata=metadata,
+            user_agent=user_agent,
             llm_reviewed=llm_reviewed,
             llm_agrees=llm_agrees,
             llm_confidence=llm_confidence,
@@ -383,6 +388,64 @@ class ThreatIntelRepository:
         )
         return row["count"] if row else 0
 
+    async def delete_by_id(self, record_id: str) -> bool:
+        """
+        Delete a single threat intel record by ID.
+
+        Args:
+            record_id: Record UUID to delete.
+
+        Returns:
+            True if record was deleted, False if not found.
+        """
+        cursor = await self.db.execute(
+            "DELETE FROM threat_intel_records WHERE id = ?",
+            (record_id,),
+        )
+        deleted = cursor.rowcount > 0
+        if deleted:
+            logger.info(f"Deleted threat intel record: {record_id}")
+        return deleted
+
+    async def delete_all(self) -> int:
+        """
+        Delete all threat intel records.
+
+        Returns:
+            Number of deleted records.
+        """
+        # Get count first
+        count = await self.get_count()
+
+        if count > 0:
+            await self.db.execute("DELETE FROM threat_intel_records")
+            logger.info(f"Deleted all {count} threat intel records")
+
+        return count
+
+    async def delete_by_ids(self, record_ids: List[str]) -> int:
+        """
+        Delete multiple threat intel records by IDs.
+
+        Args:
+            record_ids: List of record UUIDs to delete.
+
+        Returns:
+            Number of deleted records.
+        """
+        if not record_ids:
+            return 0
+
+        placeholders = ",".join("?" * len(record_ids))
+        cursor = await self.db.execute(
+            f"DELETE FROM threat_intel_records WHERE id IN ({placeholders})",
+            tuple(record_ids),
+        )
+        deleted = cursor.rowcount
+        if deleted > 0:
+            logger.info(f"Deleted {deleted} threat intel records")
+        return deleted
+
     def _row_to_record(self, row) -> ThreatIntelRecord:
         """Convert database row to ThreatIntelRecord."""
         matched_rules = json.loads(row["matched_rules"]) if row["matched_rules"] else []
@@ -415,6 +478,7 @@ class ThreatIntelRepository:
             processing_time_ms=row["processing_time_ms"],
             created_at=created_at,
             metadata=metadata,
+            user_agent=safe_get("user_agent"),
             # LLM Review fields (with defaults for older records)
             llm_reviewed=bool(safe_get("llm_reviewed", 0)),
             llm_agrees=bool(safe_get("llm_agrees", 1)),

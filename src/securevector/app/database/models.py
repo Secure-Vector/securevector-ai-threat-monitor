@@ -281,8 +281,8 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 4
-SCHEMA_DESCRIPTION = "Add cloud mode fields to app_settings"
+CURRENT_SCHEMA_VERSION = 7
+SCHEMA_DESCRIPTION = "Add block_threats setting for proxy blocking mode"
 
 # Migration SQL for v2
 MIGRATION_V2_SQL = """

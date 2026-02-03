@@ -63,6 +63,98 @@ const SettingsPage = {
         this.renderThemeSettings(themeBody);
         themeSection.appendChild(themeCard);
         container.appendChild(themeSection);
+
+        // Uninstall Section
+        const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
+        const uninstallCard = Card.create({ gradient: true });
+        const uninstallBody = uninstallCard.querySelector('.card-body');
+        this.renderUninstallSection(uninstallBody);
+        uninstallSection.appendChild(uninstallCard);
+        container.appendChild(uninstallSection);
+    },
+
+    renderUninstallSection(container) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'uninstall-section';
+
+        const desc = document.createElement('p');
+        desc.className = 'uninstall-desc';
+        desc.textContent = 'To completely remove SecureVector, run the appropriate commands for your operating system:';
+        wrapper.appendChild(desc);
+
+        const tabs = document.createElement('div');
+        tabs.className = 'uninstall-tabs';
+
+        const platforms = [
+            { id: 'macos', name: 'macOS', icon: '🍎' },
+            { id: 'linux', name: 'Linux', icon: '🐧' },
+            { id: 'windows', name: 'Windows', icon: '🪟' },
+        ];
+
+        const commands = {
+            macos: `# Stop service
+launchctl unload ~/Library/LaunchAgents/io.securevector.app.plist
+rm ~/Library/LaunchAgents/io.securevector.app.plist
+
+# Uninstall package
+pip uninstall securevector-ai-monitor
+
+# Remove data (optional)
+rm -rf ~/.local/share/securevector`,
+
+            linux: `# Stop service
+systemctl --user stop securevector
+systemctl --user disable securevector
+rm ~/.config/systemd/user/securevector.service
+
+# Uninstall package
+pip uninstall securevector-ai-monitor
+
+# Remove data (optional)
+rm -rf ~/.local/share/securevector`,
+
+            windows: `# Stop scheduled task (PowerShell as Admin)
+schtasks /delete /tn "SecureVector" /f
+
+# Uninstall package
+pip uninstall securevector-ai-monitor
+
+# Remove data (optional)
+Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
+        };
+
+        platforms.forEach((platform, index) => {
+            const tab = document.createElement('button');
+            tab.className = 'uninstall-tab' + (index === 0 ? ' active' : '');
+            tab.dataset.platform = platform.id;
+            tab.textContent = platform.icon + ' ' + platform.name;
+            tab.addEventListener('click', () => {
+                tabs.querySelectorAll('.uninstall-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                codeBlock.textContent = commands[platform.id];
+            });
+            tabs.appendChild(tab);
+        });
+
+        wrapper.appendChild(tabs);
+
+        const codeBlock = document.createElement('pre');
+        codeBlock.className = 'uninstall-code';
+        codeBlock.textContent = commands.macos;
+        wrapper.appendChild(codeBlock);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn btn-secondary btn-small';
+        copyBtn.textContent = 'Copy Commands';
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(codeBlock.textContent).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy Commands'; }, 2000);
+            });
+        });
+        wrapper.appendChild(copyBtn);
+
+        container.appendChild(wrapper);
     },
 
     renderTestAnalyze(container) {
