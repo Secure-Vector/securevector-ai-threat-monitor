@@ -19,16 +19,22 @@
 
 <table>
 <tr>
-<td><img src="docs/app-agent-integrations.png" alt="Dashboard & Agent Integrations" width="100%"><br><em>Dashboard & Agent Integrations</em></td>
-<td><img src="docs/app-threats.png" alt="Threat Analytics" width="100%"><br><em>Threat Analytics</em></td>
-<td><img src="docs/app-llm-review-details.png" alt="LLM Review" width="100%"><br><em>LLM Review Details</em></td>
+<td><img src="docs/app-dashboard.png" alt="Real-time Dashboard" width="100%"><br><em>Real-time Threat Dashboard</em></td>
+<td><img src="docs/app-proxy.png" alt="OpenClaw Proxy" width="100%"><br><em><b>INPUT & OUTPUT Scanning</b> via Proxy</em></td>
+<td><img src="docs/app-threats.png" alt="Threat Analytics" width="100%"><br><em>Threat Detection & Analytics</em></td>
 </tr>
 <tr>
 <td><img src="docs/app-rules.png" alt="Rules Management" width="100%"><br><em>Rules Management</em></td>
-<td><img src="docs/app-settings.png" alt="Settings" width="100%"><br><em>Settings</em></td>
+<td><img src="docs/app-settings.png" alt="Settings" width="100%"><br><em>LLM Review (OpenAI/Anthropic/Ollama)</em></td>
 <td><img src="docs/app-light.png" alt="Light Mode" width="100%"><br><em>Light Mode</em></td>
 </tr>
 </table>
+
+**Key Features:**
+- **Input Scanning** — Block prompt injection, jailbreaks before they reach your AI
+- **Output Scanning** — Detect credential leaks, PII, system prompt exposure in LLM responses
+- **One-Click Proxy** — Start/Stop proxy from UI, no command line needed
+- **LLM Review** — AI-powered threat analysis with OpenAI, Anthropic, or local Ollama
 
 </div>
 
@@ -130,7 +136,7 @@ The desktop application is **completely local** - no API key needed, no data tra
 - **Visual Dashboard** - Real-time threat monitoring and statistics
 - **Local API Server** - REST API at `localhost:8741` for agent integration
 - **System Tray** - Minimize to tray to keep running in background
-- **Rule Management** - Create custom rules using natural language (NLP-to-regex)
+- **Rule Management** - View and manage detection rules
 - **Threat Intel Browser** - Search and analyze detected threats
 - **Cross-Platform** - Windows, macOS, and Linux support
 
@@ -386,7 +392,6 @@ See [MCP Server Guide](docs/MCP_GUIDE.md) for complete installation and configur
 | Local threat detection | ✅ | ✅ |
 | Visual dashboard | ❌ | ✅ |
 | Local REST API server | ❌ | ✅ (localhost:8741) |
-| NLP rule creation | ❌ | ✅ |
 | Threat history browser | ❌ | ✅ |
 | SQLite persistence | ❌ | ✅ |
 | System tray | ❌ | ✅ |
@@ -433,7 +438,6 @@ Local, cloud, or hybrid deployment. Works with your existing infrastructure.
 - ✓ Zero data sharing
 - ✓ **NEW:** Desktop app with visual dashboard (`pip install securevector-ai-monitor[app]`)
 - ✓ **NEW:** Local API server for AI agent monitoring
-- ✓ **NEW:** NLP-based rule creation
 
 </td>
 <td width="50%" valign="top">
@@ -621,7 +625,7 @@ pip install securevector-ai-monitor[app]
 - Deploy on any infrastructure
 - Zero external API calls (local mode)
 - Full control over data and rules
-- **Optional:** Desktop app with visual dashboard, local API server, and NLP rule creation
+- **Optional:** Desktop app with visual dashboard and local API server
 
 **Perfect for:**
 - Development and testing
@@ -659,7 +663,7 @@ See the 2x3 screenshot grid above for all app views including:
 - **Dashboard & Agent Integrations** — Real-time stats with OpenClaw, LangChain, CrewAI, n8n integrations
 - **Threat Analytics** — LLM review badges, token tracking, PDF export, auto-refresh
 - **LLM Review Details** — AI-powered threat analysis with risk adjustment
-- **Rules Management** — NLP-to-Regex rule creation
+- **Rules Management** — View and manage detection rules
 - **Settings** — Configure LLM providers (OpenAI, Anthropic, Ollama)
 - **Light Mode** — Alternative theme
 
