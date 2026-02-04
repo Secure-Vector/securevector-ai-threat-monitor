@@ -35,11 +35,11 @@ const Header = {
 
         container.appendChild(left);
 
-        // Right side - LLM Review, agent dropdown, cloud mode (rightmost)
+        // Right side - AI Analysis, agent dropdown, cloud mode (rightmost)
         const right = document.createElement('div');
         right.className = 'header-right';
 
-        // LLM Review button (opens modal)
+        // AI Analysis button (opens modal)
         const llmToggle = this.createLLMToggle();
         right.appendChild(llmToggle);
 
@@ -273,7 +273,7 @@ const Header = {
         btn.appendChild(icon);
 
         const text = document.createElement('span');
-        text.textContent = 'LLM Review';
+        text.textContent = 'AI Analysis';
         text.id = 'llm-toggle-text';
         btn.appendChild(text);
 
@@ -307,7 +307,7 @@ const Header = {
 
         const enableLabel = document.createElement('div');
         enableLabel.className = 'llm-config-label';
-        enableLabel.textContent = 'Enable LLM Review';
+        enableLabel.textContent = 'Enable AI Analysis';
         enableInfo.appendChild(enableLabel);
 
         const enableDesc = document.createElement('div');
@@ -573,7 +573,7 @@ const Header = {
         content.appendChild(actions);
 
         Modal.show({
-            title: 'LLM Review Configuration',
+            title: 'AI Analysis Configuration',
             content: content,
             size: 'medium',
         });
@@ -700,9 +700,9 @@ const Header = {
             btn.className = 'llm-toggle-btn active';
             btn.classList.remove('flashing-border');
             if (text) {
-                // Show "LLM Review - ON (MODEL)" format
+                // Show "AI Analysis - ON (MODEL)" format
                 const modelShort = model ? model.split('-')[0].split('/').pop().toUpperCase() : 'LLM';
-                text.textContent = `LLM Review - ON (${modelShort})`;
+                text.textContent = `AI Analysis - ON (${modelShort})`;
             }
             if (indicator) {
                 indicator.className = 'llm-toggle-indicator on';
@@ -710,7 +710,7 @@ const Header = {
             }
         } else {
             btn.className = 'llm-toggle-btn flashing-border';
-            if (text) text.textContent = 'LLM Review';
+            if (text) text.textContent = 'AI Analysis';
             if (indicator) {
                 indicator.className = 'llm-toggle-indicator';
                 indicator.textContent = '';
@@ -732,9 +732,9 @@ const Header = {
 
             await API.updateLLMSettings({ enabled: newState });
             this.updateLLMToggle(newState, settings.provider, settings.model);
-            Toast.success(newState ? 'LLM Review enabled' : 'LLM Review disabled');
+            Toast.success(newState ? 'AI Analysis enabled' : 'AI Analysis disabled');
         } catch (error) {
-            Toast.error('Failed to toggle LLM Review');
+            Toast.error('Failed to toggle AI Analysis');
         }
     },
 

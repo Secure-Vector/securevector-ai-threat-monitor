@@ -1,7 +1,6 @@
 /**
  * Proxy Page
  * Proxy control and settings for Block Mode and Output Scan
- * Currently supports OpenClaw only
  */
 
 const ProxyPage = {
@@ -64,6 +63,34 @@ const ProxyPage = {
     renderContent(container) {
         container.textContent = '';
 
+        // Value proposition banner
+        const valueBanner = document.createElement('div');
+        valueBanner.style.cssText = 'background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 12px; padding: 20px; margin-bottom: 24px; color: white;';
+
+        const valueTitle = document.createElement('div');
+        valueTitle.style.cssText = 'font-size: 18px; font-weight: 700; margin-bottom: 12px;';
+        valueTitle.textContent = '100% Local Security for Your AI Agents';
+        valueBanner.appendChild(valueTitle);
+
+        const valueGrid = document.createElement('div');
+        valueGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 13px;';
+
+        const valuePoints = [
+            '100% Local - Nothing leaves your machine',
+            'Block threats in & out',
+            'Real-time monitoring'
+        ];
+
+        valuePoints.forEach(point => {
+            const item = document.createElement('div');
+            item.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+            item.textContent = '• ' + point;
+            valueGrid.appendChild(item);
+        });
+
+        valueBanner.appendChild(valueGrid);
+        container.appendChild(valueBanner);
+
         // Page intro with why proxy explanation
         const intro = document.createElement('div');
         intro.className = 'page-intro';
@@ -87,6 +114,7 @@ const ProxyPage = {
         whyList.style.cssText = 'margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.8;';
 
         const reasons = [
+            'Detects & prevents: prompt injection, jailbreaks, data leaks, PII, social engineering, OWASP LLM Top 10',
             'OpenClaw has no built-in message interception hooks',
             'Hooks only fire AFTER messages reach the LLM (too late for blocking)',
             'Skills require LLM cooperation which is unreliable',
@@ -101,11 +129,6 @@ const ProxyPage = {
 
         whyBox.appendChild(whyList);
 
-        const supportNote = document.createElement('div');
-        supportNote.style.cssText = 'margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-default); color: var(--warning); font-size: 12px;';
-        supportNote.textContent = 'Currently supports OpenClaw only. More agent platforms coming soon.';
-        whyBox.appendChild(supportNote);
-
         intro.appendChild(whyBox);
         container.appendChild(intro);
 
@@ -118,7 +141,7 @@ const ProxyPage = {
         container.appendChild(proxySection);
 
         // Block Mode Section
-        const blockSection = this.createSection('Block Mode (Input Only)', 'When enabled, detected threats in INPUT are blocked and not forwarded to the LLM');
+        const blockSection = this.createSection('Block Mode', 'When enabled, detected threats are blocked (inputs not sent to agents, outputs not sent to user)');
         const blockCard = this.createCard();
         const blockBody = blockCard.querySelector('.card-body');
         this.renderBlockMode(blockBody);
@@ -248,12 +271,6 @@ const ProxyPage = {
         stopNote.appendChild(stopNoteText);
 
         container.appendChild(stopNote);
-
-        // Supported platforms note
-        const note = document.createElement('div');
-        note.style.cssText = 'background: linear-gradient(135deg, rgba(0, 188, 212, 0.1), rgba(156, 39, 176, 0.1)); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--text-secondary);';
-        note.textContent = 'Currently supports OpenClaw only. More agent platforms coming soon.';
-        container.appendChild(note);
     },
 
     updateStatusText(element) {
@@ -391,7 +408,7 @@ const ProxyPage = {
         checkbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
             const message = newState
-                ? 'Enable Block Mode?\n\nDetected threats will be BLOCKED and not forwarded to the LLM.'
+                ? 'Enable Block Mode?\n\nInput threats will be BLOCKED (not sent to agents).\nOutput threats will be BLOCKED (not sent to user).\n\nNote: Output blocking disables streaming.'
                 : 'Disable Block Mode?\n\nThreats will be logged but NOT blocked.';
 
             if (!confirm(message)) {
@@ -419,7 +436,7 @@ const ProxyPage = {
         // Warning note
         const note = document.createElement('div');
         note.style.cssText = 'background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--danger);';
-        note.textContent = 'When enabled, messages flagged as threats will be blocked and not sent to the AI.';
+        note.textContent = 'When enabled, input threats are blocked from agents and output threats are blocked from users.';
         container.appendChild(note);
     },
 

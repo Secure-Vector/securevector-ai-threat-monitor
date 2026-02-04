@@ -306,22 +306,29 @@ class SecureVectorProxy:
                     pass
 
             async def openclaw_to_client():
-                """Forward messages from OpenClaw to client, scanning at end of each response.
+                """Forward messages from OpenClaw to client, with optional blocking.
 
-                Messages are forwarded immediately (preserves streaming UX).
-                When response is complete (state="final"), scans accumulated text for secrets.
+                If block mode is OFF: Forward immediately (streaming UX), scan at end.
+                If block mode is ON: Buffer response, scan, then forward or block.
                 """
                 accumulated_text = ""
+                buffered_messages = []
+                block_mode = await self.check_block_mode_enabled()
 
                 try:
                     async for message in openclaw_ws:
                         if self.verbose:
                             print(f"[proxy] ← OPENCLAW->USER: {self._truncate(message)}")
 
-                        # Always forward immediately (preserve streaming)
-                        await client_ws.send(message)
+                        # If block mode OFF, forward immediately (preserve streaming)
+                        if not block_mode:
+                            await client_ws.send(message)
 
-                        # Accumulate text for end-of-response scanning
+                        # Buffer message if block mode is ON
+                        if block_mode:
+                            buffered_messages.append(message)
+
+                        # Accumulate text for scanning
                         if self.scan_outgoing:
                             try:
                                 data = json.loads(message)
@@ -367,8 +374,39 @@ class SecureVectorProxy:
                                     # Scan when response is complete (state="final")
                                     if state == "final" and accumulated_text and len(accumulated_text) > 20:
                                         print(f"[proxy] 📤 Response complete, scanning {len(accumulated_text)} chars...")
-                                        # Run scan in background to not block forwarding
-                                        asyncio.create_task(self._scan_output(accumulated_text))
+
+                                        if block_mode:
+                                            # Block mode ON: scan synchronously, then decide to forward or block
+                                            result = await self.scan_message(accumulated_text, is_llm_response=True, store=True, scan_type="output")
+                                            if result.get("is_threat"):
+                                                threat_type = result.get("threat_type", "unknown")
+                                                risk_score = result.get("risk_score", 0)
+                                                print(f"[proxy] ⚠️  OUTPUT BLOCKED: {threat_type} (risk: {risk_score}%)")
+                                                self.stats["blocked"] += 1
+                                                # Send blocked message instead of buffered response
+                                                error_response = json.dumps({
+                                                    "type": "event",
+                                                    "event": "chat",
+                                                    "payload": {
+                                                        "state": "final",
+                                                        "message": {
+                                                            "role": "assistant",
+                                                            "content": f"⚠️ Response blocked by SecureVector\n\nThreat Type: {threat_type}\nRisk Score: {risk_score}%\n\nThe AI response contained potentially sensitive data and was blocked."
+                                                        }
+                                                    }
+                                                })
+                                                await client_ws.send(error_response)
+                                                buffered_messages = []  # Clear buffer
+                                            else:
+                                                # No threat, forward all buffered messages
+                                                print(f"[proxy] ✓ Output scanned - forwarding {len(buffered_messages)} messages")
+                                                for msg in buffered_messages:
+                                                    await client_ws.send(msg)
+                                                buffered_messages = []
+                                        else:
+                                            # Block mode OFF: scan in background
+                                            asyncio.create_task(self._scan_output(accumulated_text))
+
                                         accumulated_text = ""  # Reset for next response
 
                             except (json.JSONDecodeError, TypeError) as e:
@@ -378,6 +416,14 @@ class SecureVectorProxy:
                 except websockets.exceptions.ConnectionClosed:
                     pass
                 finally:
+                    # Handle remaining buffered messages on disconnect
+                    if block_mode and buffered_messages:
+                        # Forward remaining messages if no final state was reached
+                        for msg in buffered_messages:
+                            try:
+                                await client_ws.send(msg)
+                            except:
+                                pass
                     # Scan any remaining text if connection closes mid-response
                     if self.scan_outgoing and accumulated_text and len(accumulated_text) > 20:
                         print(f"[proxy] 📤 Connection closed, scanning remaining {len(accumulated_text)} chars...")

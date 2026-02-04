@@ -30,11 +30,15 @@
 </tr>
 </table>
 
-**Key Features:**
-- **Input Scanning** — Block prompt injection, jailbreaks before they reach your AI
-- **Output Scanning** — Detect credential leaks, PII, system prompt exposure in LLM responses
-- **One-Click Proxy** — Start/Stop proxy from UI, no command line needed
-- **LLM Review** — AI-powered threat analysis with OpenAI, Anthropic, or local Ollama
+**Why SecureVector?**
+
+| | |
+|---|---|
+| **100% Local** | Nothing leaves your machine. Complete privacy. No cloud required. |
+| **Detect & Prevent** | Block threats before they reach agents AND before responses reach users. |
+| **Real-time** | All agent traffic monitored — inputs, outputs, agent-to-agent. |
+| **Comprehensive** | OWASP LLM Top 10, prompt injection, jailbreaks, data leaks, PII, social engineering. |
+| **One-Click** | Start proxy from UI. No code changes. Works immediately. |
 
 </div>
 
@@ -243,6 +247,17 @@ openclaw tui
 ```
 
 **Note:** When you stop the proxy, OpenClaw TUI will lose connection. Restart the gateway on the default port (18789) so TUI can reconnect without the proxy.
+</details>
+
+<details>
+<summary><strong> Security Monitoring </strong></summary>
+
+All traffic routed through SecureVector is analyzed to detect and prevent: prompt injection, jailbreaks, data leakage, PII exposure, social engineering, harmful content, privilege escalation, and OWASP LLM Top 10 threats.
+
+**Limitations:**
+- Proxy for OpenClaw only (more platforms coming)
+- Block mode buffers responses before forwarding (no streaming when enabled)
+
 </details>
 
 <details>

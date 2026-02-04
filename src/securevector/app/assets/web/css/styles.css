@@ -244,13 +244,22 @@ html, body {
 }
 
 .llm-toggle-btn.active {
-    background: var(--gradient);
-    border-color: transparent;
-    color: #ffffff;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    animation: llm-flash 3s ease-in-out infinite;
+}
+
+@keyframes llm-flash {
+    0%, 100% {
+        border-color: var(--accent-primary);
+    }
+    50% {
+        border-color: var(--danger);
+    }
 }
 
 .llm-toggle-btn.active svg {
-    color: #ffffff;
+    color: var(--accent-primary);
 }
 
 .llm-toggle-btn.active:hover {
