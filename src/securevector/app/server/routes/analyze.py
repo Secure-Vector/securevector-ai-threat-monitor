@@ -292,7 +292,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 redacted_text, redaction_count = redact_secrets(request.text)
                 if redaction_count > 0:
                     text_to_store = redacted_text
-                    logger.info("Redacted %d sensitive value(s) before storing", redaction_count)
+                    logger.info("Redacted")
 
             record = await threat_intel_repo.create(
                 text=text_to_store,
