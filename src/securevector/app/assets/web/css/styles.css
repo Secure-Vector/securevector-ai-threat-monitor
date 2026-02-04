@@ -179,9 +179,9 @@ html, body {
     gap: 6px;
     padding: 8px 14px;
     background: var(--bg-tertiary);
-    border: 2px solid var(--border-default);
+    border: 2px solid var(--accent-primary);
     border-radius: var(--radius-md);
-    color: var(--text-secondary);
+    color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -189,8 +189,7 @@ html, body {
 }
 
 .cloud-toggle-btn:hover {
-    border-color: var(--accent-primary);
-    color: var(--text-primary);
+    background: var(--bg-hover);
 }
 
 .cloud-toggle-btn svg {
@@ -199,17 +198,20 @@ html, body {
 }
 
 .cloud-toggle-btn.gradient-btn {
-    background: var(--gradient);
-    border-color: transparent;
-    color: #ffffff;
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
 .cloud-toggle-btn.gradient-btn:hover {
-    opacity: 0.9;
+    background: var(--bg-hover);
 }
 
 .cloud-toggle-btn.active {
-    box-shadow: 0 0 12px rgba(0, 188, 212, 0.4);
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+    animation: flash-border 1.5s ease-in-out infinite;
 }
 
 /* LLM Toggle in Header (Primary Feature) */
@@ -227,20 +229,24 @@ html, body {
     border-radius: var(--radius-md);
     color: var(--text-primary);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
     position: relative;
 }
 
 .llm-toggle-btn:hover {
-    background: rgba(0, 188, 212, 0.1);
+    background: var(--bg-hover);
 }
 
 .llm-toggle-btn svg {
     width: 18px;
     height: 18px;
-    color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.llm-toggle-btn:hover svg {
+    color: var(--text-primary);
 }
 
 .llm-toggle-btn.active {
@@ -272,7 +278,7 @@ html, body {
 }
 
 .llm-toggle-btn.active:hover {
-    opacity: 0.9;
+    background: var(--bg-hover);
 }
 
 .llm-toggle-indicator {

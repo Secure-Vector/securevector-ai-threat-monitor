@@ -121,36 +121,39 @@ def run_web(host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
-def run_proxy(platform: str, proxy_port: int, target_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze") -> None:
-    """Run SecureVector proxy only (no web server)."""
-    import asyncio
+def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze") -> None:
+    """Run LLM proxy only (no web server)."""
+    try:
+        from securevector.integrations.openclaw_llm_proxy import LLMProxy
+        import uvicorn
+    except ImportError:
+        print("Error: Missing dependencies. Install with: pip install httpx fastapi uvicorn")
+        sys.exit(1)
 
     block_threats = (mode == "block")
+    target_url = LLMProxy.PROVIDERS.get(provider, "https://api.openai.com")
 
-    if platform == "openclaw":
-        try:
-            from securevector.integrations.openclaw_proxy import SecureVectorProxy
-        except ImportError:
-            print("Error: Missing dependencies. Install with: pip install websockets httpx")
-            sys.exit(1)
+    proxy = LLMProxy(
+        target_url=target_url,
+        securevector_url=f"http://127.0.0.1:{securevector_port}",
+        block_threats=block_threats,
+        verbose=verbose,
+    )
 
-        proxy = SecureVectorProxy(
-            proxy_port=proxy_port,
-            openclaw_host="127.0.0.1",
-            openclaw_port=target_port,
-            securevector_host="127.0.0.1",
-            securevector_port=securevector_port,
-            verbose=verbose,
-            block_threats=block_threats,
-        )
+    print(f"\n  SecureVector LLM Proxy")
+    print(f"  ─────────────────────────────────────────")
+    print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
+    print(f"  Provider:   {provider} → {target_url}")
+    print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
+    print(f"\n  Start OpenClaw with:")
+    print(f"    OPENAI_BASE_URL=http://localhost:{proxy_port} openclaw gateway")
+    print(f"\n  Press Ctrl+C to stop\n")
 
-        try:
-            asyncio.run(proxy.run())
-        except KeyboardInterrupt:
-            print("\n[proxy] Shutting down...")
-    else:
-        print(f"Error: Unknown platform '{platform}'. Supported: openclaw")
-        sys.exit(1)
+    app = proxy.create_app()
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=proxy_port, log_level="warning" if not verbose else "info")
+    except KeyboardInterrupt:
+        print("\n[llm-proxy] Shutting down...")
 
 
 def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, target_port: int, verbose: bool = False, mode: str = "analyze") -> None:
@@ -206,6 +209,61 @@ def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, tar
         print("\n  Shutting down...")
 
 
+def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int, verbose: bool = False, mode: str = "analyze") -> None:
+    """Run web server and LLM proxy together."""
+    import asyncio
+    import uvicorn
+    from securevector.app.server.app import create_app
+
+    try:
+        from securevector.integrations.openclaw_llm_proxy import LLMProxy
+    except ImportError:
+        print("Error: Missing dependencies. Install with: pip install httpx fastapi uvicorn")
+        sys.exit(1)
+
+    block_threats = (mode == "block")
+    target_url = LLMProxy.PROVIDERS.get(provider, "https://api.openai.com")
+
+    print(f"\n  SecureVector Local Threat Monitor v{__version__}")
+    print(f"  ─────────────────────────────────────────")
+    print(f"  Web UI:     http://{host}:{port}")
+    print(f"  API:        http://{host}:{port}/docs")
+    print(f"  LLM Proxy:  http://127.0.0.1:{proxy_port} → {provider}")
+    print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
+    if verbose:
+        print(f"  Verbose:    ON")
+    print(f"\n  Start OpenClaw with:")
+    print(f"    OPENAI_BASE_URL=http://localhost:{proxy_port} openclaw gateway")
+    print(f"\n  Press Ctrl+C to stop\n")
+
+    web_app = create_app(host=host, port=port)
+
+    proxy = LLMProxy(
+        target_url=target_url,
+        securevector_url=f"http://127.0.0.1:{port}",
+        block_threats=block_threats,
+        verbose=verbose,
+    )
+    proxy_app = proxy.create_app()
+
+    async def run_both():
+        web_config = uvicorn.Config(web_app, host=host, port=port, log_level="warning")
+        web_server = uvicorn.Server(web_config)
+
+        proxy_config = uvicorn.Config(proxy_app, host="127.0.0.1", port=proxy_port, log_level="warning" if not verbose else "info")
+        proxy_server = uvicorn.Server(proxy_config)
+
+        await asyncio.gather(
+            web_server.serve(),
+            proxy_server.serve(),
+        )
+
+    try:
+        asyncio.run(run_both())
+    except KeyboardInterrupt:
+        print("\n  Shutting down...")
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -241,21 +299,21 @@ def main() -> None:
     )
     parser.add_argument(
         "--proxy",
-        type=str,
-        choices=["openclaw"],
-        help="Start proxy for agent platform (e.g., openclaw)",
+        action="store_true",
+        help="Start LLM proxy for OpenClaw/MoltBot/ClawdBot",
     )
     parser.add_argument(
         "--proxy-port",
         type=int,
-        default=18789,
-        help="Proxy listen port (default: 18789 - OpenClaw's default)",
+        default=8742,
+        help="LLM proxy listen port (default: 8742)",
     )
     parser.add_argument(
-        "--target-port",
-        type=int,
-        default=18790,
-        help="Target platform port (default: 18790 - run OpenClaw with --port 18790)",
+        "--provider",
+        type=str,
+        choices=["openai", "anthropic", "ollama", "groq", "openrouter", "deepseek", "mistral", "azure", "gemini"],
+        default="openai",
+        help="LLM provider (default: openai)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -283,12 +341,12 @@ def main() -> None:
     # Proxy mode
     if args.proxy:
         if args.web:
-            # Run both web server and proxy together
-            run_web_with_proxy(args.host, args.port, args.proxy, args.proxy_port, args.target_port, args.verbose, args.mode)
+            # Run both web server and LLM proxy together
+            run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode)
             return
         else:
-            # Run proxy only
-            run_proxy(args.proxy, args.proxy_port, args.target_port, args.port, args.verbose, args.mode)
+            # Run LLM proxy only
+            run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode)
             return
 
     # Check dependencies

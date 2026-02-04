@@ -542,9 +542,9 @@ const FloatingChat = {
         if (this.initialized) return;
         this.initialized = true;
 
-        // Create floating button
+        // Create floating button (hidden by default - show via sidebar "Try SecureVector")
         const fab = document.createElement('button');
-        fab.className = 'floating-chat-fab';
+        fab.className = 'floating-chat-fab hidden';
         fab.id = 'floating-chat-fab';
         fab.setAttribute('aria-label', 'Try SecureVector');
 

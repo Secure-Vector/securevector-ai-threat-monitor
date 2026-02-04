@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""
+SecureVector OpenClaw LLM Proxy
+
+Sits between OpenClaw (or any LLM client) and the LLM provider (OpenAI, Anthropic, etc.).
+Scans all messages before they reach the LLM and scans responses for data leakage.
+
+This captures ALL traffic regardless of client (TUI, Telegram, API, etc.).
+
+Usage:
+    python -m securevector.integrations.openclaw_llm_proxy --provider openai --port 8742
+
+    Then configure OpenClaw to use http://localhost:8742 as the API base URL:
+    OPENAI_BASE_URL=http://localhost:8742 openclaw gateway
+"""
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import sys
+from typing import Optional
+
+try:
+    import httpx
+    from fastapi import FastAPI, Request, Response, HTTPException
+    from fastapi.responses import StreamingResponse
+    import uvicorn
+except ImportError:
+    print("Missing dependencies. Install with:")
+    print("  pip install httpx fastapi uvicorn")
+    sys.exit(1)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class LLMProxy:
+    """Universal proxy for any LLM API that scans all messages.
+
+    Works with ANY provider - just set the target URL.
+    Auth headers are passed through from the client.
+    """
+
+    # Common providers with defaults (but proxy works with ANY URL)
+    PROVIDERS = {
+        "openai": "https://api.openai.com",
+        "anthropic": "https://api.anthropic.com",
+        "ollama": "http://localhost:11434",
+        "groq": "https://api.groq.com/openai",
+        "openrouter": "https://openrouter.ai/api",
+        "cerebras": "https://api.cerebras.ai",
+        "mistral": "https://api.mistral.ai",
+        "xai": "https://api.x.ai",
+        "gemini": "https://generativelanguage.googleapis.com",
+        "azure": "https://YOUR-RESOURCE.openai.azure.com",
+        "lmstudio": "http://localhost:1234",
+        "litellm": "http://localhost:4000",
+        "moonshot": "https://api.moonshot.ai",
+        "minimax": "https://api.minimax.chat",
+        "deepseek": "https://api.deepseek.com",
+        "together": "https://api.together.xyz",
+        "fireworks": "https://api.fireworks.ai/inference",
+        "perplexity": "https://api.perplexity.ai",
+        "cohere": "https://api.cohere.ai",
+    }
+
+    def __init__(
+        self,
+        target_url: str = "https://api.openai.com",
+        securevector_url: str = "http://127.0.0.1:8741",
+        block_threats: bool = False,
+        verbose: bool = False,
+    ):
+        self.target_url = target_url.rstrip("/")
+        self.securevector_url = securevector_url
+        self.analyze_url = f"{securevector_url}/analyze"
+        self.settings_url = f"{securevector_url}/api/settings"
+        self.block_threats = block_threats
+        self.verbose = verbose
+        self.stats = {"scanned": 0, "blocked": 0, "threats_detected": 0, "passed": 0}
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+        # Cache for settings
+        self._output_scan_enabled: Optional[bool] = None
+        self._block_threats_enabled: Optional[bool] = None
+        self._settings_checked_at: float = 0
+
+    def _truncate(self, text: str, max_len: int = 100) -> str:
+        """Truncate text for logging."""
+        if len(text) <= max_len:
+            return text
+        return text[:max_len] + f"... ({len(text)} chars)"
+
+    async def get_http_client(self) -> httpx.AsyncClient:
+        """Get or create shared HTTP client."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=120.0,  # LLM calls can be slow
+                headers={"User-Agent": "SecureVector-LLM-Proxy/1.0"}
+            )
+        return self._http_client
+
+    async def check_settings(self) -> dict:
+        """Check SecureVector settings (cached for 10s)."""
+        import time
+        now = time.time()
+        if self._output_scan_enabled is not None and (now - self._settings_checked_at) < 10:
+            return {
+                "scan_llm_responses": self._output_scan_enabled,
+                "block_threats": self._block_threats_enabled or self.block_threats,
+            }
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(self.settings_url)
+            if response.status_code == 200:
+                settings = response.json()
+                self._output_scan_enabled = settings.get("scan_llm_responses", True)
+                self._block_threats_enabled = settings.get("block_threats", False)
+                self._settings_checked_at = now
+                return {
+                    "scan_llm_responses": self._output_scan_enabled,
+                    "block_threats": self._block_threats_enabled,
+                }
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"Could not check settings: {e}")
+
+        return {"scan_llm_responses": True, "block_threats": self.block_threats}
+
+    async def scan_message(self, text: str, is_llm_response: bool = False) -> dict:
+        """Scan a message with SecureVector API."""
+        if not text:
+            return {"is_threat": False}
+
+        try:
+            client = await self.get_http_client()
+            response = await client.post(
+                self.analyze_url,
+                json={
+                    "text": text,
+                    "llm_response": is_llm_response,
+                    "metadata": {
+                        "source": "llm-proxy",
+                        "target": self.target_url,
+                        "scan_type": "output" if is_llm_response else "input",
+                    }
+                },
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            logger.warning(f"SecureVector scan error: {e}")
+
+        return {"is_threat": False}
+
+    def extract_messages_text(self, body: dict) -> str:
+        """Extract text content from LLM API request body."""
+        texts = []
+
+        # OpenAI format
+        if "messages" in body:
+            for msg in body["messages"]:
+                if isinstance(msg, dict):
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        texts.append(content)
+                    elif isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                texts.append(item.get("text", ""))
+
+        # Anthropic format
+        if "prompt" in body:
+            texts.append(body["prompt"])
+
+        # Direct text
+        if "text" in body:
+            texts.append(body["text"])
+
+        return "\n".join(texts)
+
+    def extract_response_text(self, body: dict) -> str:
+        """Extract text content from LLM API response body."""
+        texts = []
+
+        # OpenAI format
+        if "choices" in body:
+            for choice in body["choices"]:
+                if isinstance(choice, dict):
+                    msg = choice.get("message", {})
+                    if isinstance(msg, dict):
+                        content = msg.get("content", "")
+                        if content:
+                            texts.append(content)
+                    # Streaming delta
+                    delta = choice.get("delta", {})
+                    if isinstance(delta, dict):
+                        content = delta.get("content", "")
+                        if content:
+                            texts.append(content)
+
+        # Anthropic format
+        if "content" in body:
+            for item in body.get("content", []):
+                if isinstance(item, dict) and item.get("type") == "text":
+                    texts.append(item.get("text", ""))
+
+        # Direct completion
+        if "completion" in body:
+            texts.append(body["completion"])
+
+        return "\n".join(texts)
+
+    async def handle_request(self, request: Request) -> Response:
+        """Handle incoming request, scan, and forward to LLM provider."""
+        path = request.url.path
+        method = request.method
+
+        # Read request body
+        body_bytes = await request.body()
+        body_text = body_bytes.decode("utf-8") if body_bytes else ""
+
+        if self.verbose:
+            logger.info(f"[llm-proxy] {method} {path}")
+
+        # Parse body for scanning
+        body_dict = {}
+        if body_text:
+            try:
+                body_dict = json.loads(body_text)
+            except json.JSONDecodeError:
+                pass
+
+        # Scan input messages
+        if body_dict and method == "POST":
+            input_text = self.extract_messages_text(body_dict)
+            if input_text:
+                self.stats["scanned"] += 1
+                result = await self.scan_message(input_text, is_llm_response=False)
+
+                if result.get("is_threat"):
+                    self.stats["threats_detected"] += 1
+                    threat_type = result.get("threat_type", "unknown")
+                    risk_score = result.get("risk_score", 0)
+                    logger.warning(f"[llm-proxy] ⚠️ THREAT DETECTED: {threat_type} (risk: {risk_score}%)")
+
+                    # Check if blocking is enabled
+                    settings = await self.check_settings()
+                    if settings.get("block_threats"):
+                        self.stats["blocked"] += 1
+                        logger.warning(f"[llm-proxy] 🚫 BLOCKED - not forwarding to LLM")
+
+                        # Return error in OpenAI-compatible format (works with most providers)
+                        error_response = {
+                            "error": {
+                                "message": f"Request blocked by SecureVector: {threat_type} detected (risk: {risk_score}%)",
+                                "type": "security_error",
+                                "code": "blocked_by_securevector",
+                            }
+                        }
+                        return Response(
+                            content=json.dumps(error_response),
+                            status_code=400,
+                            media_type="application/json",
+                        )
+                else:
+                    if self.verbose:
+                        logger.info(f"[llm-proxy] ✓ Input scanned - no threat")
+
+        # Build headers for upstream request
+        # Pass through all headers including auth (OpenClaw sends them)
+        headers = dict(request.headers)
+        headers.pop("host", None)
+        headers.pop("content-length", None)
+
+        # Forward request to LLM provider
+        target = f"{self.target_url}{path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+
+        try:
+            client = await self.get_http_client()
+
+            # Check if streaming
+            is_streaming = body_dict.get("stream", False)
+
+            if is_streaming:
+                # Handle streaming response
+                return await self.handle_streaming_request(
+                    client, method, target, headers, body_bytes
+                )
+            else:
+                # Handle regular request
+                response = await client.request(
+                    method=method,
+                    url=target,
+                    headers=headers,
+                    content=body_bytes,
+                )
+
+                # Scan response
+                response_text = response.text
+                if response.status_code == 200 and response_text:
+                    try:
+                        response_dict = json.loads(response_text)
+                        output_text = self.extract_response_text(response_dict)
+                        if output_text:
+                            settings = await self.check_settings()
+                            if settings.get("scan_llm_responses"):
+                                result = await self.scan_message(output_text, is_llm_response=True)
+                                if result.get("is_threat"):
+                                    threat_type = result.get("threat_type", "unknown")
+                                    logger.warning(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type}")
+                    except json.JSONDecodeError:
+                        pass
+
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                )
+
+        except httpx.RequestError as e:
+            logger.error(f"[llm-proxy] Request error: {e}")
+            return Response(
+                content=json.dumps({"error": {"message": str(e)}}),
+                status_code=502,
+                media_type="application/json",
+            )
+
+    async def handle_streaming_request(
+        self, client: httpx.AsyncClient, method: str, url: str,
+        headers: dict, body: bytes
+    ) -> StreamingResponse:
+        """Handle streaming LLM response."""
+        accumulated_text = ""
+
+        async def stream_generator():
+            nonlocal accumulated_text
+
+            async with client.stream(method, url, headers=headers, content=body) as response:
+                async for chunk in response.aiter_bytes():
+                    # Try to extract text from SSE chunk for scanning
+                    try:
+                        chunk_str = chunk.decode("utf-8")
+                        for line in chunk_str.split("\n"):
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                data = json.loads(line[6:])
+                                text = self.extract_response_text(data)
+                                if text:
+                                    accumulated_text += text
+                    except:
+                        pass
+
+                    yield chunk
+
+            # Scan accumulated text after stream completes
+            if accumulated_text:
+                settings = await self.check_settings()
+                if settings.get("scan_llm_responses"):
+                    result = await self.scan_message(accumulated_text, is_llm_response=True)
+                    if result.get("is_threat"):
+                        threat_type = result.get("threat_type", "unknown")
+                        logger.warning(f"[llm-proxy] ⚠️ OUTPUT THREAT (streamed): {threat_type}")
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/event-stream",
+        )
+
+    def create_app(self) -> FastAPI:
+        """Create FastAPI application."""
+        app = FastAPI(title="SecureVector LLM Proxy")
+
+        @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+        async def proxy_all(request: Request, path: str):
+            return await self.handle_request(request)
+
+        @app.get("/")
+        async def root():
+            return {
+                "service": "SecureVector LLM Proxy",
+                "target": self.target_url,
+                "stats": self.stats,
+            }
+
+        return app
+
+    async def cleanup(self):
+        """Clean up resources."""
+        if self._http_client:
+            await self._http_client.aclose()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="SecureVector LLM API Proxy - scans all LLM traffic for threats"
+    )
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=8742,
+        help="Proxy listen port (default: 8742)"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Proxy listen host (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=list(LLMProxy.PROVIDERS.keys()),
+        default="openai",
+        help="LLM provider (default: openai)"
+    )
+    parser.add_argument(
+        "--target-url",
+        type=str,
+        default=None,
+        help="Override target LLM API URL"
+    )
+    parser.add_argument(
+        "--securevector-url",
+        type=str,
+        default="http://127.0.0.1:8741",
+        help="SecureVector API URL (default: http://127.0.0.1:8741)"
+    )
+    parser.add_argument(
+        "--block",
+        action="store_true",
+        help="Block detected threats (default: log only)"
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose logging"
+    )
+
+    args = parser.parse_args()
+
+    # Determine target URL
+    target_url = args.target_url
+    if not target_url:
+        target_url = LLMProxy.PROVIDERS.get(args.provider, "https://api.openai.com")
+
+    proxy = LLMProxy(
+        target_url=target_url,
+        securevector_url=args.securevector_url,
+        block_threats=args.block,
+        verbose=args.verbose,
+    )
+
+    print(f"""
+╔═══════════════════════════════════════════════════════════════╗
+║                 SecureVector LLM Proxy                        ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Listening on:         http://{args.host}:{args.port:<5}                      ║
+║  Forwarding to:        {proxy.target_url[:35]:<35} ║
+║  SecureVector:         {args.securevector_url:<25}       ║
+║  Block threats:        {str(args.block):<5}                                 ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Start OpenClaw with:                                         ║
+║    OPENAI_BASE_URL=http://{args.host}:{args.port} openclaw gateway          ║
+║                                                               ║
+║  For Anthropic:                                               ║
+║    ANTHROPIC_BASE_URL=http://{args.host}:{args.port} openclaw gateway       ║
+╚═══════════════════════════════════════════════════════════════╝
+""")
+
+    app = proxy.create_app()
+
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    except KeyboardInterrupt:
+        print("\n[llm-proxy] Shutting down...")
+    finally:
+        asyncio.run(proxy.cleanup())
+
+
+if __name__ == "__main__":
+    main()
