@@ -8,7 +8,7 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'proxy', label: 'OpenClaw Proxy', icon: 'proxy' },
+        { id: 'proxy', label: 'Agent Proxy', icon: 'proxy' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
 
@@ -651,9 +651,6 @@ const FloatingChat = {
         chatWindow.appendChild(inputArea);
 
         document.body.appendChild(chatWindow);
-
-        // Open chat by default
-        setTimeout(() => this.open(), 500);
     },
 
     toggle() {

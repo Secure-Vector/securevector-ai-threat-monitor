@@ -68,7 +68,7 @@ class SecureVectorProxy:
         """Get or create shared HTTP client."""
         if self._http_client is None or self._http_client.is_closed:
             self._http_client = httpx.AsyncClient(
-                timeout=5.0,
+                timeout=15.0,  # Increased for LLM review
                 headers={"User-Agent": "SecureVector-Proxy/1.0 (OpenClaw)"}
             )
         return self._http_client
@@ -314,6 +314,7 @@ class SecureVectorProxy:
                 accumulated_text = ""
                 buffered_messages = []
                 block_mode = await self.check_block_mode_enabled()
+                scan_timeout = 10.0  # Max seconds to wait for scan
 
                 try:
                     async for message in openclaw_ws:
@@ -375,31 +376,44 @@ class SecureVectorProxy:
                                     if state == "final" and accumulated_text and len(accumulated_text) > 20:
                                         print(f"[proxy] 📤 Response complete, scanning {len(accumulated_text)} chars...")
 
+                                        # Re-check block mode (settings may have changed)
+                                        block_mode = await self.check_block_mode_enabled()
+
                                         if block_mode:
-                                            # Block mode ON: scan synchronously, then decide to forward or block
-                                            result = await self.scan_message(accumulated_text, is_llm_response=True, store=True, scan_type="output")
-                                            if result.get("is_threat"):
-                                                threat_type = result.get("threat_type", "unknown")
-                                                risk_score = result.get("risk_score", 0)
-                                                print(f"[proxy] ⚠️  OUTPUT BLOCKED: {threat_type} (risk: {risk_score}%)")
-                                                self.stats["blocked"] += 1
-                                                # Send blocked message instead of buffered response
-                                                error_response = json.dumps({
-                                                    "type": "event",
-                                                    "event": "chat",
-                                                    "payload": {
-                                                        "state": "final",
-                                                        "message": {
-                                                            "role": "assistant",
-                                                            "content": f"⚠️ Response blocked by SecureVector\n\nThreat Type: {threat_type}\nRisk Score: {risk_score}%\n\nThe AI response contained potentially sensitive data and was blocked."
+                                            # Block mode ON: scan with timeout, then decide to forward or block
+                                            try:
+                                                result = await asyncio.wait_for(
+                                                    self.scan_message(accumulated_text, is_llm_response=True, store=True, scan_type="output"),
+                                                    timeout=scan_timeout
+                                                )
+                                                if result.get("is_threat"):
+                                                    threat_type = result.get("threat_type", "unknown")
+                                                    risk_score = result.get("risk_score", 0)
+                                                    print(f"[proxy] ⚠️  OUTPUT BLOCKED: {threat_type} (risk: {risk_score}%)")
+                                                    self.stats["blocked"] += 1
+                                                    # Send blocked message instead of buffered response
+                                                    error_response = json.dumps({
+                                                        "type": "event",
+                                                        "event": "chat",
+                                                        "payload": {
+                                                            "state": "final",
+                                                            "message": {
+                                                                "role": "assistant",
+                                                                "content": f"⚠️ Response blocked by SecureVector\n\nThreat Type: {threat_type}\nRisk Score: {risk_score}%\n\nThe AI response contained potentially sensitive data and was blocked."
+                                                            }
                                                         }
-                                                    }
-                                                })
-                                                await client_ws.send(error_response)
-                                                buffered_messages = []  # Clear buffer
-                                            else:
-                                                # No threat, forward all buffered messages
-                                                print(f"[proxy] ✓ Output scanned - forwarding {len(buffered_messages)} messages")
+                                                    })
+                                                    await client_ws.send(error_response)
+                                                    buffered_messages = []  # Clear buffer
+                                                else:
+                                                    # No threat, forward all buffered messages
+                                                    print(f"[proxy] ✓ Output scanned - forwarding {len(buffered_messages)} messages")
+                                                    for msg in buffered_messages:
+                                                        await client_ws.send(msg)
+                                                    buffered_messages = []
+                                            except asyncio.TimeoutError:
+                                                # Scan timed out, forward messages but log warning
+                                                print(f"[proxy] ⚠️ Scan timed out after {scan_timeout}s, forwarding without block")
                                                 for msg in buffered_messages:
                                                     await client_ws.send(msg)
                                                 buffered_messages = []

@@ -206,7 +206,10 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 final_threat_type = f"output_{final_threat_type}"
 
         llm_settings = settings.llm_settings or {}
-        if llm_settings.get("enabled"):
+        # Skip LLM review for output scans - regex is sufficient for data leakage detection
+        # and LLM review adds latency that causes timeouts in block mode
+        skip_llm_for_output = is_llm_response and scan_type == "output"
+        if llm_settings.get("enabled") and not skip_llm_for_output:
             try:
                 from securevector.app.services.llm_review import LLMConfig, LLMReviewService
 

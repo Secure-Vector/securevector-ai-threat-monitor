@@ -16,7 +16,9 @@ rules:
   pattern_type: regex
   patterns:
   - (?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*['\"]?[a-zA-Z0-9_\-]{20,}
-  - (?:password|passwd|pwd)[:\s]*['\"]?[^\s'"]{8,}
+  - (?:password|passwd|pwd|pass)[:\s]*['\"]?[^\s'"]{8,64}['\"]?
+  - (?:Password|password)\d{2,}
+  - (?:qwerty|letmein|admin|welcome|monkey|dragon|master|login)\d*
   - sk-[a-zA-Z0-9]{32,}
   - sk_(?:test|live)_[a-zA-Z0-9]{20,}
   - rk_(?:test|live)_[a-zA-Z0-9]{20,}
@@ -50,6 +52,11 @@ rules:
   - (?:my|the)\s+(?:original|hidden|secret)\s+(?:instructions?|rules?|guidelines?)
   - (?:here\s+(?:is|are)|showing)\s+(?:my|the)\s+(?:system|full)\s+prompt
   - \[SYSTEM\]|\[INST\]|\<\|system\|\>
+  - \<\<SYS\>\>.*\<\</SYS\>\>
+  - (?:system|user|assistant)\s*:\s*(?:you\s+are|your\s+role)
+  - (?:you\s+are\s+a|your\s+name\s+is)\s+(?:helpful|friendly|AI)\s+(?:assistant|agent)
+  - (?:never|do\s+not|don't)\s+(?:reveal|share|disclose)\s+(?:your|the|this)\s+(?:instructions?|prompt|rules?)
+  - (?:confidential|secret|hidden)\s+(?:instructions?|prompt|guidelines?)
 
 - category: data_leakage
   description: Detects PII (Personally Identifiable Information) in LLM outputs
@@ -68,7 +75,9 @@ rules:
   pattern_type: regex
   patterns:
   - \b\d{3}-\d{2}-\d{4}\b
+  - \b\d{3}\s\d{2}\s\d{4}\b
   - \b\d{16}\b
+  - \b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b
   - \b[A-Z]{2}\d{6,9}\b
   - (?:social\s+security|ssn)[:\s]*\d{3}[- ]?\d{2}[- ]?\d{4}
   - (?:credit\s+card|card\s+number)[:\s]*\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}

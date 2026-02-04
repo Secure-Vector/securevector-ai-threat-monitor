@@ -63,33 +63,21 @@ const ProxyPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Value proposition banner
-        const valueBanner = document.createElement('div');
-        valueBanner.style.cssText = 'background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 12px; padding: 20px; margin-bottom: 24px; color: white;';
+        // Page header
+        const header = document.createElement('div');
+        header.style.cssText = 'margin-bottom: 20px;';
 
-        const valueTitle = document.createElement('div');
-        valueTitle.style.cssText = 'font-size: 18px; font-weight: 700; margin-bottom: 12px;';
-        valueTitle.textContent = '100% Local Security for Your AI Agents';
-        valueBanner.appendChild(valueTitle);
+        const pageTitle = document.createElement('h1');
+        pageTitle.style.cssText = 'font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;';
+        pageTitle.textContent = 'Agent Proxy';
+        header.appendChild(pageTitle);
 
-        const valueGrid = document.createElement('div');
-        valueGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 13px;';
+        const pageSubtitle = document.createElement('p');
+        pageSubtitle.style.cssText = 'font-size: 14px; color: var(--text-secondary); margin: 0;';
+        pageSubtitle.textContent = 'Secure your OpenClaw/ClaudBot setup';
+        header.appendChild(pageSubtitle);
 
-        const valuePoints = [
-            '100% Local - Nothing leaves your machine',
-            'Block threats in & out',
-            'Real-time monitoring'
-        ];
-
-        valuePoints.forEach(point => {
-            const item = document.createElement('div');
-            item.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-            item.textContent = '• ' + point;
-            valueGrid.appendChild(item);
-        });
-
-        valueBanner.appendChild(valueGrid);
-        container.appendChild(valueBanner);
+        container.appendChild(header);
 
         // Page intro with why proxy explanation
         const intro = document.createElement('div');
@@ -98,7 +86,7 @@ const ProxyPage = {
 
         const introTitle = document.createElement('div');
         introTitle.style.cssText = 'color: var(--text-primary); font-size: 14px; margin-bottom: 12px;';
-        introTitle.textContent = 'WebSocket proxy for intercepting and scanning OpenClaw agent messages in real-time.';
+        introTitle.textContent = 'WebSocket proxy for intercepting and scanning agent messages in real-time.';
         intro.appendChild(introTitle);
 
         // Why proxy box

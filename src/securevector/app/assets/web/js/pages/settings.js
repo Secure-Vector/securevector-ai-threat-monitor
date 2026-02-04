@@ -48,6 +48,14 @@ const SettingsPage = {
         testSection.appendChild(testCard);
         container.appendChild(testSection);
 
+        // AI Analysis Section
+        const llmSection = this.createSection('AI Analysis', 'LLM-powered threat detection');
+        const llmCard = Card.create({ gradient: true });
+        const llmBody = llmCard.querySelector('.card-body');
+        this.renderLLMSettings(llmBody);
+        llmSection.appendChild(llmCard);
+        container.appendChild(llmSection);
+
         // Cloud Mode Section
         const cloudSection = this.createSection('Cloud Mode', 'Connect to SecureVector cloud for enhanced threat intelligence');
         const cloudCard = Card.create({ gradient: true });
@@ -380,12 +388,12 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         const enableLabel = document.createElement('span');
         enableLabel.className = 'setting-label';
-        enableLabel.textContent = 'Enable LLM Review';
+        enableLabel.textContent = 'Enable AI Analysis';
         enableInfo.appendChild(enableLabel);
 
         const enableDesc = document.createElement('span');
         enableDesc.className = 'setting-description';
-        enableDesc.textContent = 'Every analysis will be reviewed by your configured LLM for enhanced detection';
+        enableDesc.textContent = 'Enhanced detection using LLM. May add latency, but latency is better than leaking sensitive data.';
         enableInfo.appendChild(enableDesc);
 
         enableRow.appendChild(enableInfo);

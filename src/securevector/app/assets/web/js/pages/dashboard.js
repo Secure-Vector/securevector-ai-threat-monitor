@@ -67,6 +67,26 @@ const DashboardPage = {
 
         container.appendChild(header);
 
+        // Value proposition banner (compact)
+        const valueBanner = document.createElement('div');
+        valueBanner.style.cssText = 'background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: white; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;';
+
+        const valueTitle = document.createElement('span');
+        valueTitle.style.cssText = 'font-size: 14px; font-weight: 600;';
+        valueTitle.textContent = '100% Local Security for Your AI Agents';
+        valueBanner.appendChild(valueTitle);
+
+        const valuePoints = document.createElement('div');
+        valuePoints.style.cssText = 'display: flex; gap: 16px; font-size: 12px; opacity: 0.95;';
+        ['100% Local', 'Block threats in & out', 'Real-time monitoring'].forEach(point => {
+            const item = document.createElement('span');
+            item.textContent = point;
+            valuePoints.appendChild(item);
+        });
+        valueBanner.appendChild(valuePoints);
+
+        container.appendChild(valueBanner);
+
         // Security Controls - immediately visible
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);

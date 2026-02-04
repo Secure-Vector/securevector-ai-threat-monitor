@@ -30,6 +30,12 @@
 </tr>
 </table>
 
+**Supported Agents & Frameworks:**
+
+`OpenClaw` · `Claude Desktop` · `LangChain` · `LangGraph` · `CrewAI` · `n8n` · `Dify` · `AutoGen` · `Any HTTP/WebSocket client`
+
+> **Block threats, not just log them.** SecureVector actively prevents malicious inputs from reaching your AI and blocks sensitive data from leaking in outputs.
+
 **Why SecureVector?**
 
 | | |
@@ -171,7 +177,7 @@ Autonomous AI agents (LangGraph, CrewAI, n8n, AutoGen) execute tasks without hum
 
 | Agent/Tool | How to Add |
 |------------|------------|
-| **OpenClaw** | Create hook in `~/.openclaw/hooks/securevector/` (see below) |
+| **OpenClaw** | Use the proxy - see OpenClaw Proxy page in sidebar or run `python -m securevector.integrations.openclaw_proxy` |
 | **Claude Desktop** | See [MCP Guide](docs/MCP_GUIDE.md) |
 | **n8n** | Settings → Community Nodes → Install `n8n-nodes-securevector`, paste URL in node |
 | **Dify** | Settings → Triggers → Add Webhook → Paste URL |
