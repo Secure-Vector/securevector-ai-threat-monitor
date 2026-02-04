@@ -135,6 +135,20 @@ HARMFUL CONTENT REQUESTS
 - Self-Harm: Suicide/self-harm instructions or encouragement
 
 ═══════════════════════════════════════════════════════════════════
+SAFE CONTENT - DO NOT FLAG AS THREATS
+═══════════════════════════════════════════════════════════════════
+The following are LEGITIMATE operational messages and should NEVER be flagged as threats:
+- Pairing codes from chat platforms (Telegram, WhatsApp, Discord, Slack, etc.)
+- User ID notifications (e.g., "Your Telegram user id: 123456789")
+- Connection/access requests from external chat integrations
+- Bot setup/configuration messages (e.g., "OpenClaw: access not configured")
+- Authentication codes, verification codes, OTP messages from known services
+- Platform-specific approval commands (e.g., "openclaw pairing approve telegram <code>")
+- Session identifiers and handshake messages from chat bridges
+
+These messages are standard chat platform integration flows, NOT security threats.
+
+═══════════════════════════════════════════════════════════════════
 RISK SCORING
 ═══════════════════════════════════════════════════════════════════
 0-20:   SAFE - No malicious intent detected

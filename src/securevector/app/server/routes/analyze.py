@@ -65,7 +65,7 @@ class AnalysisResult(BaseModel):
     risk_score: int = Field(..., ge=0, le=100)
     confidence: float = Field(..., ge=0, le=1)
     matched_rules: list[MatchedRule]
-    analysis_id: str
+    analysis_id: Optional[str] = None
     processing_time_ms: int
     request_id: Optional[str] = None
     analysis_source: str = "local"  # "local", "cloud", or "local_fallback"
@@ -127,24 +127,26 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     (time.perf_counter() - start_time) * 1000
                 )
 
-                # Store in threat intel
-                threat_intel_repo = ThreatIntelRepository(db)
+                # Only store in database if threat detected
+                record = None
+                if cloud_result.get("is_threat", False):
+                    threat_intel_repo = ThreatIntelRepository(db)
 
-                record = await threat_intel_repo.create(
-                    text=request.text,
-                    is_threat=cloud_result.get("is_threat", False),
-                    threat_type=cloud_result.get("threat_type"),
-                    risk_score=cloud_result.get("risk_score", 0),
-                    confidence=cloud_result.get("confidence", 0.0),
-                    matched_rules=cloud_result.get("matched_rules", []),
-                    processing_time_ms=processing_time_ms,
-                    store_text=settings.store_text_content,
-                    request_id=request.request_id,
-                    source=request.source,
-                    session_id=request.session_id,
-                    metadata=request.metadata,
-                    user_agent=user_agent,
-                )
+                    record = await threat_intel_repo.create(
+                        text=request.text,
+                        is_threat=cloud_result.get("is_threat", False),
+                        threat_type=cloud_result.get("threat_type"),
+                        risk_score=cloud_result.get("risk_score", 0),
+                        confidence=cloud_result.get("confidence", 0.0),
+                        matched_rules=cloud_result.get("matched_rules", []),
+                        processing_time_ms=processing_time_ms,
+                        store_text=settings.store_text_content,
+                        request_id=request.request_id,
+                        source=request.source,
+                        session_id=request.session_id,
+                        metadata=request.metadata,
+                        user_agent=user_agent,
+                    )
 
                 return AnalysisResult(
                     is_threat=cloud_result.get("is_threat", False),
@@ -152,7 +154,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     risk_score=cloud_result.get("risk_score", 0),
                     confidence=cloud_result.get("confidence", 0.0),
                     matched_rules=[],  # Cloud doesn't return detailed rules
-                    analysis_id=record.id,
+                    analysis_id=record.id if record else None,
                     processing_time_ms=processing_time_ms,
                     request_id=request.request_id,
                     analysis_source="cloud",
@@ -279,41 +281,43 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
-        # Store in threat intel (with secrets redacted)
-        threat_intel_repo = ThreatIntelRepository(db)
+        # Only store in database if threat detected
+        record = None
+        if final_is_threat:
+            threat_intel_repo = ThreatIntelRepository(db)
 
-        # Redact secrets before storing
-        text_to_store = request.text
-        if settings.store_text_content:
-            redacted_text, redaction_count = redact_secrets(request.text)
-            if redaction_count > 0:
-                text_to_store = redacted_text
-                logger.info("Redacted %d sensitive value(s) before storing", redaction_count)
+            # Redact secrets before storing
+            text_to_store = request.text
+            if settings.store_text_content:
+                redacted_text, redaction_count = redact_secrets(request.text)
+                if redaction_count > 0:
+                    text_to_store = redacted_text
+                    logger.info("Redacted %d sensitive value(s) before storing", redaction_count)
 
-        record = await threat_intel_repo.create(
-            text=text_to_store,
-            is_threat=final_is_threat,
-            threat_type=final_threat_type,
-            risk_score=final_risk_score,
-            confidence=final_confidence,
-            matched_rules=[r.model_dump() for r in matched_rules],
-            processing_time_ms=processing_time_ms,
-            store_text=settings.store_text_content,
-            request_id=request.request_id,
-            source=request.source,
-            session_id=request.session_id,
-            metadata=request.metadata,
-            # LLM Review data
-            llm_reviewed=llm_review_info.reviewed if llm_review_info else False,
-            llm_agrees=llm_review_info.agrees if llm_review_info else True,
-            llm_confidence=llm_review_info.confidence if llm_review_info else 0.0,
-            llm_explanation=llm_review_info.reasoning if llm_review_info else None,
-            llm_recommendation=llm_review_info.recommendation if llm_review_info else None,
-            llm_risk_adjustment=llm_review_info.risk_adjustment if llm_review_info else 0,
-            llm_model_used=llm_review_info.model_used if llm_review_info else None,
-            llm_tokens_used=llm_review_info.tokens_used if llm_review_info else 0,
-            user_agent=user_agent,
-        )
+            record = await threat_intel_repo.create(
+                text=text_to_store,
+                is_threat=final_is_threat,
+                threat_type=final_threat_type,
+                risk_score=final_risk_score,
+                confidence=final_confidence,
+                matched_rules=[r.model_dump() for r in matched_rules],
+                processing_time_ms=processing_time_ms,
+                store_text=settings.store_text_content,
+                request_id=request.request_id,
+                source=request.source,
+                session_id=request.session_id,
+                metadata=request.metadata,
+                # LLM Review data
+                llm_reviewed=llm_review_info.reviewed if llm_review_info else False,
+                llm_agrees=llm_review_info.agrees if llm_review_info else True,
+                llm_confidence=llm_review_info.confidence if llm_review_info else 0.0,
+                llm_explanation=llm_review_info.reasoning if llm_review_info else None,
+                llm_recommendation=llm_review_info.recommendation if llm_review_info else None,
+                llm_risk_adjustment=llm_review_info.risk_adjustment if llm_review_info else 0,
+                llm_model_used=llm_review_info.model_used if llm_review_info else None,
+                llm_tokens_used=llm_review_info.tokens_used if llm_review_info else 0,
+                user_agent=user_agent,
+            )
 
         logger.debug(
             f"Analysis complete: is_threat={final_is_threat}, "
@@ -328,7 +332,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             risk_score=final_risk_score,
             confidence=final_confidence,
             matched_rules=matched_rules,
-            analysis_id=record.id,
+            analysis_id=record.id if record else None,
             processing_time_ms=processing_time_ms,
             request_id=request.request_id,
             analysis_source=analysis_source,

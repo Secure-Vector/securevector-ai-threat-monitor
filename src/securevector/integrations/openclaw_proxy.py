@@ -40,7 +40,7 @@ class SecureVectorProxy:
         securevector_host: str = "127.0.0.1",
         securevector_port: int = 8741,
         scan_outgoing: bool = True,
-        block_threats: bool = True,
+        block_threats: bool = False,
         verbose: bool = False,
     ):
         self.proxy_port = proxy_port
@@ -266,13 +266,13 @@ class SecureVectorProxy:
                             if result.get("is_threat"):
                                 threat_type = result.get("threat_type", "unknown")
                                 risk_score = result.get("risk_score", 0)
-                                self.stats["blocked"] += 1
                                 print(f"[proxy] ⚠️  THREAT DETECTED: {threat_type} (risk: {risk_score})")
 
-                                # Check if blocking is enabled (CLI flag OR global setting)
+                                # Check if blocking is enabled (UI setting is authoritative)
                                 # Note: Block mode only applies to INPUT - output scanning never blocks
-                                block_enabled = self.block_threats or await self.check_block_mode_enabled()
+                                block_enabled = await self.check_block_mode_enabled()
                                 if block_enabled:
+                                    self.stats["blocked"] += 1
                                     # Try to get original request ID for proper response
                                     req_id = None
                                     try:
@@ -292,6 +292,10 @@ class SecureVectorProxy:
                                     })
                                     await client_ws.send(error_response)
                                     continue
+                                else:
+                                    # Threat detected but block mode OFF - log and forward
+                                    self.stats["passed"] += 1
+                                    print(f"[proxy] ⚠️  Threat logged (block mode OFF) - forwarding message")
                             else:
                                 self.stats["passed"] += 1
                                 print(f"[proxy] ✓ Prompt scanned (total: {self.stats['scanned']})")
