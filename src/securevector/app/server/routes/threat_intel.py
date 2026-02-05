@@ -39,6 +39,8 @@ class ThreatIntelResponse(BaseModel):
     created_at: str
     metadata: Optional[dict]
     user_agent: Optional[str] = None
+    # Action tracking
+    action_taken: str = "logged"  # "logged", "blocked", or "redacted"
     # LLM Review fields
     llm_reviewed: bool = False
     llm_agrees: bool = True
@@ -113,6 +115,7 @@ async def list_threat_intel(
                     created_at=item.created_at.isoformat() if item.created_at else "",
                     metadata=item.metadata,
                     user_agent=item.user_agent,
+                    action_taken=item.action_taken,
                     # LLM Review fields
                     llm_reviewed=item.llm_reviewed,
                     llm_agrees=item.llm_agrees,

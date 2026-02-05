@@ -129,7 +129,7 @@ const ProxyPage = {
         container.appendChild(proxySection);
 
         // Block Mode Section
-        const blockSection = this.createSection('Block Mode', 'When enabled, detected threats are blocked (inputs not sent to agents, outputs not sent to user)');
+        const blockSection = this.createSection('Block Mode (Input Only)', 'Block INPUT threats before reaching LLM. Output secrets are redacted when stored.');
         const blockCard = this.createCard();
         const blockBody = blockCard.querySelector('.card-body');
         this.renderBlockMode(blockBody);
@@ -137,7 +137,7 @@ const ProxyPage = {
         container.appendChild(blockSection);
 
         // Output Scan Section - Highlighted
-        const outputSection = this.createSection('Scan LLM Responses for Leaks', 'Scan LLM responses for data leakage, credentials, and PII exposure', true);
+        const outputSection = this.createSection('Output Scan (Redact Sensitive Info)', 'Scan LLM responses for data leakage, credentials, and PII. Sensitive information is redacted when stored.', true);
         const outputCard = this.createCard();
         const outputBody = outputCard.querySelector('.card-body');
         this.renderOutputScan(outputBody);
@@ -381,7 +381,7 @@ const ProxyPage = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        desc.textContent = 'Block threats instead of just logging them';
+        desc.textContent = 'Block INPUT threats instead of just logging (output is logged only)';
         info.appendChild(desc);
 
         row.appendChild(info);
@@ -396,8 +396,8 @@ const ProxyPage = {
         checkbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
             const message = newState
-                ? 'Enable Block Mode?\n\nInput threats will be BLOCKED (not sent to agents).\nOutput threats will be BLOCKED (not sent to user).\n\nNote: Output blocking disables streaming.'
-                : 'Disable Block Mode?\n\nThreats will be logged but NOT blocked.';
+                ? 'Enable Block Mode?\n\nINPUT threats will be BLOCKED (not sent to LLM).\nOUTPUT secrets are redacted when stored.\n\nAll threats are logged.'
+                : 'Disable Block Mode?\n\nAll threats will be logged only.\nNo blocking will occur.';
 
             if (!confirm(message)) {
                 e.target.checked = !newState;

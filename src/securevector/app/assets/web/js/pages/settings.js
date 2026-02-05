@@ -49,7 +49,7 @@ const SettingsPage = {
         container.appendChild(testSection);
 
         // AI Analysis Section
-        const llmSection = this.createSection('AI Analysis', 'LLM-powered threat detection');
+        const llmSection = this.createSection('AI Analysis (Input Only)', 'LLM-powered threat detection for inputs. Outputs use fast regex rules.');
         const llmCard = Card.create({ gradient: true });
         const llmBody = llmCard.querySelector('.card-body');
         this.renderLLMSettings(llmBody);
@@ -393,7 +393,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         const enableDesc = document.createElement('span');
         enableDesc.className = 'setting-description';
-        enableDesc.textContent = 'Enhanced detection using LLM. May add latency, but latency is better than leaking sensitive data.';
+        enableDesc.textContent = 'Enhanced LLM detection for inputs only. Outputs use fast regex rules to avoid latency.';
         enableInfo.appendChild(enableDesc);
 
         enableRow.appendChild(enableInfo);

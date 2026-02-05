@@ -24,15 +24,22 @@ const Header = {
 
         container.textContent = '';
 
-        // Left side - page title
+        // Mobile hamburger menu button (hidden on desktop via CSS)
+        const mobileMenuBtn = document.createElement('button');
+        mobileMenuBtn.className = 'mobile-menu-btn';
+        mobileMenuBtn.id = 'mobile-menu-btn';
+        mobileMenuBtn.setAttribute('aria-label', 'Toggle navigation menu');
+        for (let i = 0; i < 3; i++) {
+            const line = document.createElement('span');
+            line.className = 'hamburger-line';
+            mobileMenuBtn.appendChild(line);
+        }
+        mobileMenuBtn.addEventListener('click', () => this.toggleMobileMenu());
+        container.appendChild(mobileMenuBtn);
+
+        // Left side
         const left = document.createElement('div');
         left.className = 'header-left';
-
-        const title = document.createElement('h1');
-        title.className = 'header-title';
-        title.textContent = this.getPageTitle();
-        left.appendChild(title);
-
         container.appendChild(left);
 
         // Right side - AI Analysis, agent dropdown, cloud mode (rightmost)
@@ -58,6 +65,37 @@ const Header = {
         this.checkLLMMode();
     },
 
+    toggleMobileMenu() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobile-overlay');
+        const btn = document.getElementById('mobile-menu-btn');
+
+        if (!sidebar) return;
+
+        const isOpen = sidebar.classList.contains('mobile-open');
+
+        if (isOpen) {
+            sidebar.classList.remove('mobile-open');
+            if (overlay) overlay.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+            document.body.classList.remove('mobile-menu-open');
+        } else {
+            sidebar.classList.add('mobile-open');
+            // Create overlay if it doesn't exist
+            let overlayEl = overlay;
+            if (!overlayEl) {
+                overlayEl = document.createElement('div');
+                overlayEl.id = 'mobile-overlay';
+                overlayEl.className = 'mobile-overlay';
+                overlayEl.addEventListener('click', () => this.toggleMobileMenu());
+                document.body.appendChild(overlayEl);
+            }
+            overlayEl.classList.add('active');
+            if (btn) btn.classList.add('active');
+            document.body.classList.add('mobile-menu-open');
+        }
+    },
+
     createBlockModeToggle() {
         const wrapper = document.createElement('div');
         wrapper.className = 'block-mode-toggle-wrapper';
@@ -66,7 +104,7 @@ const Header = {
         const btn = document.createElement('button');
         btn.className = 'block-mode-toggle-btn';
         btn.id = 'block-mode-toggle-btn';
-        btn.title = 'Block Mode - Block detected threats instead of just logging';
+        btn.title = 'Block Mode (INPUT only) - Block threats before reaching LLM. Output secrets are redacted when stored.';
 
         // Block/Stop icon
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -137,8 +175,8 @@ const Header = {
 
             // Show confirmation
             const message = newState
-                ? 'Enable Block Mode?\n\nDetected threats will be BLOCKED and not forwarded to the LLM.'
-                : 'Disable Block Mode?\n\nThreats will be logged but NOT blocked.\n\nMessages will pass through to the LLM.';
+                ? 'Enable Block Mode?\n\nINPUT: Threats will be BLOCKED before reaching the LLM.\nOUTPUT: Secrets are REDACTED when stored.\n\nAll threats are logged.'
+                : 'Disable Block Mode?\n\nAll threats will be logged only.\nNo blocking will occur.';
 
             if (!confirm(message)) {
                 return;
@@ -164,7 +202,7 @@ const Header = {
         const btn = document.createElement('button');
         btn.className = 'output-scan-toggle-btn';
         btn.id = 'output-scan-toggle-btn';
-        btn.title = 'Smart Output Detection - Scan LLM responses for data leakage';
+        btn.title = 'Output Scan (Redact Sensitive Info) - Scan LLM responses for data leakage. Sensitive information is redacted when stored.';
 
         // Shield icon
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -228,7 +266,7 @@ const Header = {
             // Show confirmation
             const action = newState ? 'enable' : 'disable';
             const message = newState
-                ? 'Enable output scanning?\n\nLLM responses will be scanned for:\n• Credential leakage\n• System prompt exposure\n• PII disclosure'
+                ? 'Enable output scanning?\n\nLLM responses will be scanned for:\n• Credential leakage\n• System prompt exposure\n• PII disclosure\n\nSecrets are REDACTED when stored. Threats are logged.'
                 : 'Disable output scanning?\n\nLLM responses will not be monitored for data leakage.';
 
             if (!confirm(message)) {

@@ -33,10 +33,25 @@ SECRET_PATTERNS = [
     (r'(access[_-]?token[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]'),
     (r'(auth[_-]?token[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]'),
     (r'(bearer[:\s]+)[a-zA-Z0-9_\-\.]{20,}', r'\1[REDACTED]'),
-    # Passwords (careful not to over-match)
-    (r'(password[:\s]*[\'"]?)[^\s\'"]{8,50}([\'"]?)', r'\1[REDACTED]\2'),
-    (r'(passwd[:\s]*[\'"]?)[^\s\'"]{8,50}([\'"]?)', r'\1[REDACTED]\2'),
-    (r'(pwd[:\s]*[\'"]?)[^\s\'"]{8,50}([\'"]?)', r'\1[REDACTED]\2'),
+    # Passwords (simplified patterns to avoid ReDoS)
+    (r'(password[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]'),
+    (r'(passwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]'),
+    (r'(pwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]'),
+    # Passwords in backticks - various patterns
+    # Pattern: letters + numbers (e.g., Sunshine123, Password1)
+    (r'`([A-Z][a-z]{3,15}[0-9]{1,6})`', r'`[REDACTED]`'),
+    # Pattern: mixed case + special chars (e.g., M@tn3r!2024^Day)
+    (r'`([A-Za-z0-9!@#$%^&*_]{8,30})`', r'`[REDACTED]`'),
+    # Passphrases (multiple words, e.g., CorrectHorseBattery)
+    (r'`([A-Z][a-z]+[A-Z][a-z]+[A-Za-z0-9!]*)`', r'`[REDACTED]`'),
+    # Passwords after bullet points (• TestPass1!, - Demo@123)
+    (r'([•\-\*]\s*)([A-Z][a-z]+[A-Z]?[a-z]*[0-9]*[!@#$%^&*]+[A-Za-z0-9!@#$%^&*]*)', r'\1[REDACTED]'),
+    (r'([•\-\*]\s*)([A-Z][a-z]+@[A-Za-z]+[0-9]+)', r'\1[REDACTED]'),
+    (r'([•\-\*]\s*)([A-Z][a-z]+[0-9]+[!@#$%^&*]+)', r'\1[REDACTED]'),
+    # Common password patterns anywhere (word + numbers + symbols)
+    (r'\b([A-Z][a-z]{3,10}[!@#$%^&*][A-Za-z0-9!@#$%^&*]{2,15})\b', r'[REDACTED]'),
+    (r'\b([A-Z][a-z]{3,10}@[A-Za-z]+[0-9]{2,6})\b', r'[REDACTED]'),
+    (r'\b([A-Z][a-z]+[0-9]{2,6}[!@#$%^&*]{1,3})\b', r'[REDACTED]'),
 ]
 
 

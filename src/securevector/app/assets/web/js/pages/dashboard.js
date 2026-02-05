@@ -78,7 +78,7 @@ const DashboardPage = {
 
         const valuePoints = document.createElement('div');
         valuePoints.style.cssText = 'display: flex; gap: 16px; font-size: 12px; opacity: 0.95;';
-        ['100% Local', 'Block threats in & out', 'Real-time monitoring'].forEach(point => {
+        ['100% Local', 'Block input threats', 'Real-time monitoring'].forEach(point => {
             const item = document.createElement('span');
             item.textContent = point;
             valuePoints.appendChild(item);
@@ -543,15 +543,16 @@ const DashboardPage = {
         const blockCard = document.createElement('div');
         blockCard.className = 'security-control-card';
         blockCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
+        if (!settings.block_threats) blockCard.classList.add('flashing-border');
 
         const blockInfo = document.createElement('div');
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        blockTitle.textContent = 'Block Mode';
+        blockTitle.textContent = 'Block Mode (Input Only)';
         blockInfo.appendChild(blockTitle);
         const blockDesc = document.createElement('div');
         blockDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        blockDesc.textContent = 'Block threats instead of logging';
+        blockDesc.textContent = 'Block INPUT threats before reaching LLM';
         blockInfo.appendChild(blockDesc);
         blockCard.appendChild(blockInfo);
 
@@ -562,7 +563,7 @@ const DashboardPage = {
         blockCheckbox.checked = settings.block_threats;
         blockCheckbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
-            if (!confirm(newState ? 'Enable Block Mode?\n\nThreats will be BLOCKED.' : 'Disable Block Mode?\n\nThreats will only be logged.')) {
+            if (!confirm(newState ? 'Enable Block Mode?\n\nINPUT threats will be BLOCKED (not sent to LLM).\nOutput secrets are redacted when stored.' : 'Disable Block Mode?\n\nAll threats will be logged only.')) {
                 e.target.checked = !newState;
                 return;
             }
@@ -585,15 +586,16 @@ const DashboardPage = {
         const outputCard = document.createElement('div');
         outputCard.className = 'security-control-card';
         outputCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
+        if (!settings.scan_llm_responses) outputCard.classList.add('flashing-border');
 
         const outputInfo = document.createElement('div');
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        outputTitle.textContent = 'Output Scan';
+        outputTitle.textContent = 'Output Scan (Redact Sensitive Info)';
         outputInfo.appendChild(outputTitle);
         const outputDesc = document.createElement('div');
         outputDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        outputDesc.textContent = 'Scan LLM responses for leaks';
+        outputDesc.textContent = 'Scan LLM responses, redact secrets when stored';
         outputInfo.appendChild(outputDesc);
         outputCard.appendChild(outputInfo);
 

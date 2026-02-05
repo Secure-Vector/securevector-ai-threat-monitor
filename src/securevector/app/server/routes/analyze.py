@@ -71,6 +71,10 @@ class AnalysisResult(BaseModel):
     analysis_source: str = "local"  # "local", "cloud", or "local_fallback"
     # LLM Review fields
     llm_review: Optional[LLMReviewInfo] = None
+    # Redacted text (returned when secrets are detected and redacted)
+    redacted_text: Optional[str] = None
+    # Action taken (logged, blocked, or redacted)
+    action_taken: str = "logged"
 
 
 @router.post("/analyze", response_model=AnalysisResult)
@@ -206,10 +210,9 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 final_threat_type = f"output_{final_threat_type}"
 
         llm_settings = settings.llm_settings or {}
-        # Skip LLM review for output scans - regex is sufficient for data leakage detection
-        # and LLM review adds latency that causes timeouts in block mode
-        skip_llm_for_output = is_llm_response and scan_type == "output"
-        if llm_settings.get("enabled") and not skip_llm_for_output:
+        # Only run LLM review for input scans (not output)
+        is_input_scan = scan_type == "input"
+        if llm_settings.get("enabled") and is_input_scan:
             try:
                 from securevector.app.services.llm_review import LLMConfig, LLMReviewService
 
@@ -284,18 +287,28 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
+        # Always run redaction to return redacted_text for output sanitization
+        redacted_text_result = None
+        redaction_count = 0
+        if final_is_threat:
+            redacted_text, redaction_count = redact_secrets(request.text)
+            if redaction_count > 0:
+                redacted_text_result = redacted_text
+                logger.info("Redacted")
+
+        # Determine action_taken from metadata (always, for response)
+        # Priority: blocked > redacted > logged
+        action_taken = (request.metadata or {}).get("action_taken", "logged")
+        if redaction_count > 0 and action_taken == "logged":
+            action_taken = "redacted"
+
         # Only store in database if threat detected
         record = None
         if final_is_threat:
             threat_intel_repo = ThreatIntelRepository(db)
 
-            # Redact secrets before storing
-            text_to_store = request.text
-            if settings.store_text_content:
-                redacted_text, redaction_count = redact_secrets(request.text)
-                if redaction_count > 0:
-                    text_to_store = redacted_text
-                    logger.info("Redacted")
+            # Use redacted text for storage
+            text_to_store = redacted_text_result if redacted_text_result else request.text
 
             record = await threat_intel_repo.create(
                 text=text_to_store,
@@ -320,6 +333,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 llm_model_used=llm_review_info.model_used if llm_review_info else None,
                 llm_tokens_used=llm_review_info.tokens_used if llm_review_info else 0,
                 user_agent=user_agent,
+                action_taken=action_taken,
             )
 
         logger.debug(
@@ -340,8 +354,10 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             request_id=request.request_id,
             analysis_source=analysis_source,
             llm_review=llm_review_info,
+            redacted_text=redacted_text_result,
+            action_taken=action_taken,
         )
 
     except Exception as e:
-        logger.error(f"Analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.error(f"Analysis failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Analysis failed. Please try again.")

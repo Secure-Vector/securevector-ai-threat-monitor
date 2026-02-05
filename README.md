@@ -1,8 +1,10 @@
 <div align="center">
 
+<h3>Runtime Firewall for Your AI Agents & Bots</h3>
+
 <h1>SecureVector AI Threat Monitor</h1>
 
-<p><strong>Protect your AI from prompt injection, jailbreaks, data exfiltration and more..</strong></p>
+<p><strong>Protect your AI from prompt injection, jailbreaks, data exfiltration and more.</strong></p>
 
 <br>
 

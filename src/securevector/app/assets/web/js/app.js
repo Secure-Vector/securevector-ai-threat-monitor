@@ -25,8 +25,154 @@ const App = {
         Sidebar.render();
         Header.render();
 
-        // Load initial page
-        await this.loadPage('dashboard');
+        // Handle browser back/forward
+        window.addEventListener('popstate', (e) => {
+            const page = e.state?.page || this.getPageFromURL();
+            this.loadPage(page, false);
+        });
+
+        // Load initial page from URL or default to dashboard
+        const initialPage = this.getPageFromURL();
+        await this.loadPage(initialPage);
+
+        // Show welcome modal on first launch
+        this.showWelcomeIfFirstLaunch();
+    },
+
+    /**
+     * Get page name from current URL
+     */
+    getPageFromURL() {
+        const path = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+        return this.pages[path] ? path : 'dashboard';
+    },
+
+    /**
+     * Show welcome modal on first launch
+     */
+    showWelcomeIfFirstLaunch() {
+        const hasSeenWelcome = localStorage.getItem('sv-welcome-seen');
+        // Skip welcome popup if already seen or if ?no-welcome param is present (for screenshots)
+        const urlParams = new URLSearchParams(window.location.search);
+        if (hasSeenWelcome || urlParams.has('no-welcome')) return;
+
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+
+        const modal = document.createElement('div');
+        modal.className = 'modal welcome-modal';
+        modal.style.cssText = 'max-width: 500px;';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px;';
+
+        const title = document.createElement('h2');
+        title.style.cssText = 'margin: 0; display: flex; align-items: center; gap: 10px;';
+
+        const logoImg = document.createElement('img');
+        logoImg.src = '/images/favicon.png';
+        logoImg.alt = '';
+        logoImg.style.cssText = 'width: 28px; height: 28px;';
+        title.appendChild(logoImg);
+
+        const titleText = document.createElement('span');
+        titleText.textContent = 'Welcome to SecureVector';
+        title.appendChild(titleText);
+
+        header.appendChild(title);
+        modal.appendChild(header);
+
+        // Content
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        content.style.cssText = 'padding: 20px 0;';
+
+        const intro = document.createElement('div');
+        intro.style.cssText = 'margin: 0 0 20px 0; padding: 12px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; color: white; font-weight: 600; text-align: center;';
+        intro.textContent = '100% Local AI Threat Detection for Your Agents';
+        content.appendChild(intro);
+
+        // Instructions
+        const instructionBox = document.createElement('div');
+        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px;';
+
+        // Step 1
+        const step1 = document.createElement('div');
+        step1.style.cssText = 'margin: 0 0 12px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 10px;';
+
+        const step1Num = document.createElement('span');
+        step1Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step1Num.textContent = '1';
+        step1.appendChild(step1Num);
+
+        const step1Text = document.createElement('span');
+        step1Text.textContent = 'Go to Agent Integrations in the top header menu and add agent you want to add protection for.';
+        step1.appendChild(step1Text);
+
+        instructionBox.appendChild(step1);
+
+        // Step 2
+        const step2 = document.createElement('div');
+        step2.style.cssText = 'margin: 0 0 12px 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); display: flex; gap: 10px;';
+
+        const step2Num = document.createElement('span');
+        step2Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step2Num.textContent = '2';
+        step2.appendChild(step2Num);
+
+        const step2Text = document.createElement('span');
+        step2Text.textContent = 'If using ClaudBot/OpenClaw, check Agent Proxy > OpenClaw/ClaudBot in the left menu and follow the steps.';
+        step2.appendChild(step2Text);
+
+        instructionBox.appendChild(step2);
+
+        // Step 3 - AI Analysis
+        const step3 = document.createElement('div');
+        step3.style.cssText = 'margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); display: flex; gap: 10px;';
+
+        const step3Num = document.createElement('span');
+        step3Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step3Num.textContent = '3';
+        step3.appendChild(step3Num);
+
+        const step3Content = document.createElement('span');
+        const aiLabel = document.createElement('span');
+        aiLabel.style.cssText = 'color: var(--accent-primary); font-weight: 600;';
+        aiLabel.textContent = 'AI Analysis';
+        step3Content.appendChild(aiLabel);
+        step3Content.appendChild(document.createTextNode(' (Recommended) - Enable in Settings for enhanced LLM-powered threat detection.'));
+        step3.appendChild(step3Content);
+
+        instructionBox.appendChild(step3);
+
+        content.appendChild(instructionBox);
+
+        modal.appendChild(content);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer';
+        footer.style.cssText = 'border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; justify-content: flex-end;';
+
+        const gotItBtn = document.createElement('button');
+        gotItBtn.className = 'btn btn-primary';
+        gotItBtn.textContent = 'Got it';
+        gotItBtn.addEventListener('click', () => {
+            localStorage.setItem('sv-welcome-seen', 'true');
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.remove(), 150);
+        });
+        footer.appendChild(gotItBtn);
+
+        modal.appendChild(footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Animate in
+        requestAnimationFrame(() => overlay.classList.add('active'));
     },
 
     /**
@@ -42,8 +188,9 @@ const App = {
     /**
      * Navigate to a page
      * @param {string} page - Page name
+     * @param {boolean} pushState - Whether to update browser history
      */
-    async loadPage(page) {
+    async loadPage(page, pushState = true) {
         const pageHandler = this.pages[page];
         if (!pageHandler) {
             console.error('Unknown page:', page);
@@ -51,6 +198,12 @@ const App = {
         }
 
         this.currentPage = page;
+
+        // Update URL
+        if (pushState) {
+            const url = '/' + page;
+            history.pushState({ page }, '', url);
+        }
 
         // Update sidebar
         if (window.Sidebar) {

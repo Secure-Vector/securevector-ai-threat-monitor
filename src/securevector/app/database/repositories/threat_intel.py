@@ -49,6 +49,7 @@ class ThreatIntelRecord:
     llm_risk_adjustment: int = 0
     llm_model_used: Optional[str] = None
     llm_tokens_used: int = 0
+    action_taken: str = "logged"  # "logged" or "blocked"
 
     @property
     def text_preview(self) -> str:
@@ -86,6 +87,7 @@ class ThreatIntelRecord:
             "llm_risk_adjustment": self.llm_risk_adjustment,
             "llm_model_used": self.llm_model_used,
             "llm_tokens_used": self.llm_tokens_used,
+            "action_taken": self.action_taken,
         }
         return result
 
@@ -155,6 +157,7 @@ class ThreatIntelRepository:
         llm_risk_adjustment: int = 0,
         llm_model_used: Optional[str] = None,
         llm_tokens_used: int = 0,
+        action_taken: str = "logged",
     ) -> ThreatIntelRecord:
         """
         Create a new threat intel record.
@@ -189,8 +192,9 @@ class ThreatIntelRepository:
                 matched_rules, source_identifier, session_id,
                 processing_time_ms, created_at, metadata, user_agent,
                 llm_reviewed, llm_agrees, llm_confidence, llm_explanation,
-                llm_recommendation, llm_risk_adjustment, llm_model_used, llm_tokens_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                llm_recommendation, llm_risk_adjustment, llm_model_used, llm_tokens_used,
+                action_taken
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -217,6 +221,7 @@ class ThreatIntelRepository:
                 llm_risk_adjustment,
                 llm_model_used,
                 llm_tokens_used,
+                action_taken,
             ),
         )
 
@@ -247,6 +252,7 @@ class ThreatIntelRepository:
             llm_risk_adjustment=llm_risk_adjustment,
             llm_model_used=llm_model_used,
             llm_tokens_used=llm_tokens_used,
+            action_taken=action_taken,
         )
 
     async def get_by_id(self, record_id: str) -> Optional[ThreatIntelRecord]:
@@ -488,4 +494,5 @@ class ThreatIntelRepository:
             llm_risk_adjustment=int(safe_get("llm_risk_adjustment", 0) or 0),
             llm_model_used=safe_get("llm_model_used"),
             llm_tokens_used=int(safe_get("llm_tokens_used", 0) or 0),
+            action_taken=safe_get("action_taken", "logged"),
         )

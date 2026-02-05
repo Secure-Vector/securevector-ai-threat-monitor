@@ -8,7 +8,9 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'proxy', label: 'Agent Proxy', icon: 'proxy' },
+        { id: 'proxy', label: 'Agent Proxy', icon: 'proxy', subItems: [
+            { id: 'proxy', label: 'OpenClaw/ClaudBot' }
+        ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
 
@@ -57,7 +59,10 @@ const Sidebar = {
 
         this.navItems.forEach(item => {
             const navItem = document.createElement('div');
-            navItem.className = 'nav-item' + (item.id === this.currentPage ? ' active' : '');
+            // Don't mark parent as active if it has subItems (let subItem be active instead)
+            const hasSubItems = item.subItems && item.subItems.length > 0;
+            const isActive = item.id === this.currentPage && !hasSubItems;
+            navItem.className = 'nav-item' + (isActive ? ' active' : '');
             navItem.dataset.page = item.id;
 
             // Add icon (SVG)
@@ -82,6 +87,33 @@ const Sidebar = {
             navItem.addEventListener('click', () => this.navigate(item.id));
 
             nav.appendChild(navItem);
+
+            // Add sub-items if present
+            if (item.subItems && item.subItems.length > 0) {
+                const subNav = document.createElement('div');
+                subNav.className = 'nav-sub-items';
+                subNav.style.cssText = 'padding-left: 32px; font-size: 12px;';
+
+                item.subItems.forEach(subItem => {
+                    const subNavItem = document.createElement('div');
+                    subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
+                    subNavItem.dataset.page = subItem.id;
+                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85;';
+
+                    const subLabel = document.createElement('span');
+                    subLabel.textContent = subItem.label;
+                    subNavItem.appendChild(subLabel);
+
+                    subNavItem.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.navigate(subItem.id);
+                    });
+
+                    subNav.appendChild(subNavItem);
+                });
+
+                nav.appendChild(subNav);
+            }
         });
 
         // Fetch rules count
@@ -484,7 +516,16 @@ const Sidebar = {
     setActive(page) {
         this.currentPage = page;
         document.querySelectorAll('.nav-item').forEach(item => {
-            item.classList.toggle('active', item.dataset.page === page);
+            const isSubItem = item.classList.contains('nav-sub-item');
+            const matchesPage = item.dataset.page === page;
+            // Only highlight sub-items, not parent items with sub-items
+            if (isSubItem) {
+                item.classList.toggle('active', matchesPage);
+            } else {
+                // Check if this parent has sub-items (next sibling is nav-sub-items)
+                const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
+                item.classList.toggle('active', matchesPage && !hasSubItems);
+            }
         });
     },
 };

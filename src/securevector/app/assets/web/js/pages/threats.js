@@ -524,9 +524,18 @@ const ThreatsPage = {
 
             // Actions
             const actionsCell = document.createElement('td');
+            actionsCell.className = 'actions-cell';
+            // Show action badge based on action_taken
+            const action = threat.action_taken || 'logged';
+            const actionBadge = document.createElement('span');
+            actionBadge.className = 'action-badge action-' + action;
+            actionBadge.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+            actionsCell.appendChild(actionBadge);
+            // View button
             const viewBtn = document.createElement('button');
-            viewBtn.className = 'btn btn-small';
-            viewBtn.textContent = 'View';
+            viewBtn.className = 'btn btn-small btn-icon';
+            viewBtn.textContent = '\u{1F441}'; // Eye icon (Unicode)
+            viewBtn.title = 'View details';
             viewBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.showThreatDetails(threat);

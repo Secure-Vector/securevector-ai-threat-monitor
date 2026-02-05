@@ -167,6 +167,17 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
                 return FileResponse(str(index_path))
             return {"error": "Web UI not found"}
 
+        # Client-side routing - serve index.html for all page routes
+        @app.get("/{page}", include_in_schema=False)
+        async def serve_page(page: str):
+            # Only handle known page routes, let other routes pass through
+            valid_pages = ["dashboard", "threats", "rules", "proxy", "settings"]
+            if page in valid_pages:
+                index_path = WEB_ASSETS_PATH / "index.html"
+                if index_path.exists():
+                    return FileResponse(str(index_path))
+            return {"error": "Page not found"}
+
         logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")
 
     logger.info("FastAPI application created")

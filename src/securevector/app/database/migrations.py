@@ -143,6 +143,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         5: migrate_to_v5,
         6: migrate_to_v6,
         7: migrate_to_v7,
+        8: migrate_to_v8,
     }
 
     if version in migrations:
@@ -292,6 +293,28 @@ async def migrate_to_v7(db: DatabaseConnection) -> None:
     )
 
     logger.info("Applied migration v7: block_threats setting")
+
+
+async def migrate_to_v8(db: DatabaseConnection) -> None:
+    """Migration v7 -> v8: Add action_taken column to track blocked vs logged threats."""
+    conn = await db.connect()
+
+    # Check if column already exists
+    cursor = await conn.execute("PRAGMA table_info(threat_intel_records)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "action_taken" not in existing_columns:
+        # Default to 'logged' for existing records
+        await conn.execute(
+            "ALTER TABLE threat_intel_records ADD COLUMN action_taken TEXT DEFAULT 'logged'"
+        )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (8, CURRENT_TIMESTAMP, 'Add action_taken column to track blocked vs logged threats')"
+    )
+
+    logger.info("Applied migration v8: action_taken column")
 
 
 # Future migration functions would be defined here:

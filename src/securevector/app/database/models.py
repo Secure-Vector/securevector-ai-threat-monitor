@@ -281,8 +281,8 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 7
-SCHEMA_DESCRIPTION = "Add block_threats setting for proxy blocking mode"
+CURRENT_SCHEMA_VERSION = 8
+SCHEMA_DESCRIPTION = "Add action_taken column to track blocked vs logged threats"
 
 # Migration SQL for v2
 MIGRATION_V2_SQL = """
