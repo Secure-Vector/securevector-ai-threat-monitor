@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector AI Firewall</h1>
+<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
 <h3>Runtime Firewall for AI Agents & Bots</h3>
 
