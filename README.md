@@ -30,7 +30,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage)
+Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/SecureVector-v2.0.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/SecureVector-2.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/securevector_2.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/securevector-2.0.0-1.x86_64.rpm)
 
 > **Open-source. 100% local. No API keys. No cloud. No data sharing.**
 
@@ -66,7 +66,18 @@ securevector-app
 pip install securevector-ai-monitor
 ```
 
-Binary installers: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage) · [All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases)
+**Binary installers:**
+
+| Platform | Download |
+|----------|----------|
+| Windows | [SecureVector-v2.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/SecureVector-v2.0.0-Windows-Setup.exe) |
+| Linux (AppImage) | [SecureVector-2.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/SecureVector-2.0.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_2.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/securevector_2.0.0_amd64.deb) |
+| Linux (RPM) | [securevector-2.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/securevector-2.0.0-1.x86_64.rpm) |
+
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.0.0/SHA256SUMS.txt)
+
+> **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
 <br>
 
