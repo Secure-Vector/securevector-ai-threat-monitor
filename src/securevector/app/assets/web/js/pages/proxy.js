@@ -70,7 +70,7 @@ const ProxyPage = {
         // Title
         const title = document.createElement('div');
         title.style.cssText = 'font-weight: 600; font-size: 16px; color: var(--text-primary); margin-bottom: 16px;';
-        title.textContent = 'OpenClaw / MoltBot / ClawdBot Proxy';
+        title.textContent = 'Agent Proxy';
         mainCard.appendChild(title);
 
         // Provider dropdown at top
@@ -79,7 +79,7 @@ const ProxyPage = {
 
         const providerLabel = document.createElement('span');
         providerLabel.style.cssText = 'font-weight: 500; font-size: 13px; color: var(--text-secondary);';
-        providerLabel.textContent = 'Select the LLM provider your agent uses:';
+        providerLabel.textContent = 'Select your LLM provider:';
         providerRow.appendChild(providerLabel);
 
         const providerSelect = document.createElement('select');
@@ -185,7 +185,7 @@ const ProxyPage = {
 
         const title = document.createElement('div');
         title.style.cssText = 'font-weight: 600; font-size: 15px; color: var(--text-primary);';
-        title.textContent = 'OpenClaw / MoltBot / ClawdBot Proxy';
+        title.textContent = 'Agent Proxy';
         titleRow.appendChild(title);
 
         // Provider dropdown
@@ -265,49 +265,25 @@ const ProxyPage = {
 
         box.innerHTML = '';
 
-        // Step 0 - Make sure SecureVector is running
-        const step0 = document.createElement('div');
-        step0.style.cssText = 'margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-default);';
-
-        const step0Label = document.createElement('div');
-        step0Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 6px;';
-        step0Label.textContent = 'Step 0: Make sure SecureVector is running';
-        step0.appendChild(step0Label);
-
-        const step0Code = document.createElement('code');
-        step0Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 4px;';
-        step0Code.textContent = 'securevector-app          # desktop app';
-        step0.appendChild(step0Code);
-
-        const step0Code2 = document.createElement('code');
-        step0Code2.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace;';
-        step0Code2.textContent = 'securevector-app --web    # browser mode (WSL/headless)';
-        step0.appendChild(step0Code2);
-
-        box.appendChild(step0);
-
-        // Step 1 - Start SecureVector LLM Proxy
+        // Step 1 - Start SecureVector + LLM Proxy (combined)
         const step1 = document.createElement('div');
         step1.style.cssText = 'margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-default);';
 
         const step1Label = document.createElement('div');
         step1Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 6px;';
-        step1Label.textContent = `Step 1: Start SecureVector LLM Proxy (${config.label})`;
+        step1Label.textContent = `Step 1: Start SecureVector + LLM Proxy (${config.label})`;
         step1.appendChild(step1Label);
 
         const step1Code = document.createElement('code');
         step1Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 8px;';
-        step1Code.textContent = `securevector-app --proxy --provider ${provider}`;
+        step1Code.textContent = `securevector-app --proxy --provider ${provider} --web`;
         step1.appendChild(step1Code);
 
         const step1Desc = document.createElement('div');
         step1Desc.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.6;';
         step1Desc.innerHTML = `
-            <strong style="color: var(--text-primary);">What this does:</strong> Starts a local HTTP proxy on port 8742 that sits between your agent and the ${config.label} API.
-            Every request and response is scanned for prompt injection, jailbreaks, data leaks, and other threats <em>before</em> being forwarded to the provider.<br>
-            <strong style="color: var(--text-primary);">Why:</strong> OpenClaw's pi-ai library hardcodes LLM API URLs, bypassing environment variable overrides.
-            This command auto-patches those files on first run so traffic routes through SecureVector for real-time threat scanning.
-            <span style="color: var(--warning); font-weight: 600;">Re-run after OpenClaw updates.</span>
+            Starts the dashboard (port 8741) and LLM proxy (port 8742). All traffic is scanned for threats.<br>
+            <strong>OpenClaw users:</strong> Add <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">--openclaw</code> flag to auto-patch pi-ai.
         `;
         step1.appendChild(step1Desc);
 
@@ -336,26 +312,23 @@ const ProxyPage = {
 
         box.appendChild(step1);
 
-        // Step 2 - Start OpenClaw with BASE_URL pointing to proxy
+        // Step 2 - Start your app through the proxy
         const step2 = document.createElement('div');
 
         const step2Label = document.createElement('div');
         step2Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 6px;';
-        step2Label.textContent = 'Step 2: Start OpenClaw with traffic routed through proxy';
+        step2Label.textContent = 'Step 2: Point your app to the proxy';
         step2.appendChild(step2Label);
 
         const step2Code = document.createElement('code');
         step2Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace;';
-        step2Code.textContent = `${config.envVar}=http://localhost:8742${config.basePath} openclaw gateway`;
+        step2Code.textContent = `${config.envVar}=http://localhost:8742${config.basePath} your-app`;
         step2.appendChild(step2Code);
 
-        // Show explanatory note for non-OpenAI providers that use OPENAI_BASE_URL
-        if (provider !== 'openai' && config.envVar === 'OPENAI_BASE_URL') {
-            const step2Note = document.createElement('div');
-            step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 6px; font-style: italic;';
-            step2Note.textContent = `${config.label} uses the OpenAI-compatible API, so OPENAI_BASE_URL is correct here.`;
-            step2.appendChild(step2Note);
-        }
+        const step2Note = document.createElement('div');
+        step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.6;';
+        step2Note.innerHTML = `Works with LangChain, CrewAI, custom Python apps, or any OpenAI-compatible client.`;
+        step2.appendChild(step2Note);
 
         box.appendChild(step2);
 
@@ -472,9 +445,14 @@ const ProxyPage = {
             this.updateProxyStatusUI();
             try {
                 const response = await fetch('/api/proxy/stop', { method: 'POST' });
-                if (response.ok) {
+                const data = await response.json();
+                if (response.ok && data.status === 'stopped') {
                     this.proxyStatus = 'stopped';
                     Toast.success('Proxy stopped');
+                } else if (data.status === 'error') {
+                    // Proxy running in-process or externally - can't stop from UI
+                    Toast.error(data.message || 'Cannot stop proxy from UI');
+                    this.proxyStatus = 'running';
                 } else {
                     throw new Error('Failed to stop proxy');
                 }

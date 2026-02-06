@@ -171,7 +171,12 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         @app.get("/{page}", include_in_schema=False)
         async def serve_page(page: str):
             # Only handle known page routes, let other routes pass through
-            valid_pages = ["dashboard", "threats", "rules", "proxy", "settings"]
+            valid_pages = [
+                "dashboard", "threats", "rules", "proxy", "settings",
+                # Integration pages
+                "proxy-langchain", "proxy-langgraph", "proxy-crewai",
+                "proxy-n8n", "proxy-ollama", "proxy-openclaw"
+            ]
             if page in valid_pages:
                 index_path = WEB_ASSETS_PATH / "index.html"
                 if index_path.exists():

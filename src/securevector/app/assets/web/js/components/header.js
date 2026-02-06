@@ -1,6 +1,6 @@
 /**
  * Header Component
- * Displays app title, Agent Integrations dropdown, server status, and theme toggle
+ * Displays AI Analysis, Cloud Connect, and status
  */
 
 const Header = {
@@ -49,10 +49,6 @@ const Header = {
         // AI Analysis button (opens modal)
         const llmToggle = this.createLLMToggle();
         right.appendChild(llmToggle);
-
-        // Agent Integrations dropdown
-        const agentDropdown = this.createAgentDropdown();
-        right.appendChild(agentDropdown);
 
         // Cloud Mode toggle - rightmost
         const cloudToggle = this.createCloudToggle();
@@ -314,13 +310,6 @@ const Header = {
         text.textContent = 'AI Analysis';
         text.id = 'llm-toggle-text';
         btn.appendChild(text);
-
-        // Recommended badge
-        const badge = document.createElement('span');
-        badge.className = 'recommended-badge';
-        badge.textContent = 'Recommended';
-        badge.style.cssText = 'font-size: 9px; background: linear-gradient(135deg, #ff9800, #ff5722); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; text-transform: uppercase;';
-        btn.appendChild(badge);
 
         btn.addEventListener('click', () => this.showLLMConfigModal());
 
@@ -1252,20 +1241,20 @@ const Header = {
                 name: 'OpenClaw',
                 description: 'Open-source AI agent platform with Smart Output Detection',
                 whyProxy: {
-                    title: 'Why LLM Proxy Mode?',
+                    title: 'Why Proxy Mode?',
                     reasons: [
-                        'Captures ALL LLM traffic (TUI, Telegram, API, etc.)',
-                        'Scans messages BEFORE they reach the LLM provider',
-                        'Supports 18+ providers (OpenAI, Anthropic, Ollama, etc.)',
-                        'No changes needed inside OpenClaw - just set an env var'
+                        'OpenClaw has no message interception hooks',
+                        'Hooks only fire AFTER messages reach the LLM (too late)',
+                        'Skills require LLM cooperation (unreliable)',
+                        'Proxy intercepts at network level = 100% coverage'
                     ]
                 },
                 steps: [
-                    { num: '1', title: 'Start LLM Proxy', desc: 'Choose your provider and start the proxy:', code: '# OpenAI (default):\nsecurevector-proxy\n\n# Other providers:\nsecurevector-proxy --provider anthropic\nsecurevector-proxy --provider ollama\nsecurevector-proxy --provider groq\nsecurevector-proxy --provider openrouter\nsecurevector-proxy --provider deepseek\nsecurevector-proxy --provider mistral\nsecurevector-proxy --provider azure\nsecurevector-proxy --provider gemini' },
-                    { num: '2', title: 'Start OpenClaw', desc: 'Set the matching BASE_URL for your provider:', code: '# OpenAI:\nOPENAI_BASE_URL=http://localhost:8742 openclaw gateway\n\n# Anthropic:\nANTHROPIC_BASE_URL=http://localhost:8742 openclaw gateway\n\n# Ollama:\nOLLAMA_HOST=http://localhost:8742 openclaw gateway\n\n# Groq:\nGROQ_BASE_URL=http://localhost:8742 openclaw gateway\n\n# OpenRouter:\nOPENROUTER_BASE_URL=http://localhost:8742 openclaw gateway\n\n# DeepSeek:\nDEEPSEEK_BASE_URL=http://localhost:8742 openclaw gateway' },
-                    { num: '3', title: 'Use Normally', desc: 'All LLM traffic now flows through SecureVector - TUI, Telegram, API, everything!' },
+                    { num: '1', title: 'Start OpenClaw', desc: 'Run OpenClaw gateway on alternate port', code: 'openclaw gateway --port 18790' },
+                    { num: '2', title: 'Start Proxy', desc: 'Go to OpenClaw Proxy page in sidebar and click Start Proxy, or run from terminal:', code: '# Option 1: Use the Proxy page in sidebar\n# Option 2: Run from terminal:\npython -m securevector.integrations.openclaw_proxy' },
+                    { num: '3', title: 'Connect Client', desc: 'Use OpenClaw TUI normally - it connects through proxy automatically', code: 'openclaw tui' },
                 ],
-                note: 'All 18+ providers supported: OpenAI, Anthropic, Ollama, Groq, OpenRouter, Cerebras, Mistral, xAI, Gemini, Azure, LM Studio, LiteLLM, Moonshot, MiniMax, DeepSeek, Together, Fireworks, Perplexity, Cohere.',
+                note: 'Manage proxy from the OpenClaw Proxy page in sidebar. Configure Block Mode (input only) and Output Scanning for leak detection.',
             },
             'langchain': {
                 name: 'LangChain',

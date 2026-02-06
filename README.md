@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/favicon.png" alt="SecureVector" width="80" height="80">
+
 <h1>SecureVector AI Threat Monitor</h1>
 
 <h3>Runtime Firewall for AI Agents & Bots</h3>
@@ -22,17 +24,17 @@
 ## How It Works
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │     SecureVector AI Firewall        │
-                    │                                     │
-   User Input ────▶ │  ☑ Prompt injection detection       │ ────▶ LLM Provider
-                    │  ☑ Jailbreak attempt blocking       │       (OpenAI, Anthropic,
-                    │  ☑ Data exfiltration prevention     │        Ollama, etc.)
-  LLM Response ◀─── │  ☑ PII/credential leak detection    │ ◀────
-                    │  ☑ System prompt exposure check     │
-                    │                                     │
-                    └─────────────────────────────────────┘
-                              100% Local · OWASP LLM Top 10
+┌─────────────┐     ┌──────────────────────────────┐     ┌─────────────────┐
+│             │     │   SecureVector AI Firewall   │     │                 │
+│  Your App   │────▶│                              │────▶│  LLM Provider   │
+│             │     │  ☑ Prompt injection block    │     │                 │
+│  LangChain  │◀────│  ☑ Jailbreak detection       │◀────│  OpenAI         │
+│  CrewAI     │     │  ☑ Data leak prevention      │     │  Anthropic      │
+│  LangGraph  │     │  ☑ PII/credential redaction  │     │  Ollama         │
+│  n8n        │     │                              │     │  Groq, etc.     │
+│  OpenClaw   │     │      100% Local Scanning     │     │                 │
+│             │     │                              │     │                 │
+└─────────────┘     └──────────────────────────────┘     └─────────────────┘
 ```
 
 **SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats. Runs entirely on your machine — nothing leaves your infrastructure.
@@ -42,11 +44,11 @@
 ## Highlights
 
 - ☑ **100% Local** — No data transmitted externally. Complete privacy.
+- ☑ **Agents Protected** — LangChain, LangGraph, CrewAI, n8n, OpenClaw, and any OpenAI-compatible app.
 - ☑ **Input Scanning** — Block prompt injection, jailbreaks, and manipulation before they reach the LLM.
 - ☑ **Output Scanning** — Detect credential leaks, PII exposure, and system prompt disclosure.
 - ☑ **18+ Providers** — OpenAI, Anthropic, Gemini, Ollama, Groq, Azure, and more.
-- ☑ **Visual Dashboard** — Real-time threat monitoring with desktop app.
-- ☑ **One Command** — `securevector-app --proxy --provider openai` and you're protected.
+- ☑ **One Command** — `securevector-app --proxy --provider openai --web` and you're protected.
 
 <br>
 
@@ -73,26 +75,31 @@ Binary installers: [Windows](https://github.com/Secure-Vector/securevector-ai-th
 
 <br>
 
-## Quick Start — LLM Proxy (OpenClaw / ClawdBot)
+## Quick Start — LLM Proxy
 
-Protect your AI agent with 3 commands:
+Protect any AI app with one command:
 
 ```bash
-# 1. Start SecureVector
-securevector-app --web
-
-# 2. Start the LLM proxy (auto-patches OpenClaw on first run)
-securevector-app --proxy --provider openai
-
-# 3. Start OpenClaw through the proxy
-OPENAI_BASE_URL=http://localhost:8742/v1 openclaw gateway
+# Start SecureVector proxy + dashboard
+securevector-app --proxy --provider ollama --web
 ```
 
-Every request is scanned for prompt injection. Every response is scanned for data leaks. Threats are blocked or logged based on your settings.
+Then point your app to the proxy:
+
+```bash
+# Any OpenAI-compatible app
+OPENAI_BASE_URL=http://localhost:8742/v1 python your_app.py
+
+# LangChain / CrewAI / custom apps
+OPENAI_BASE_URL=http://localhost:8742/v1 your-agent
+
+# OpenClaw (add --openclaw flag, auto-patches pi-ai)
+securevector-app --proxy --provider openai --web --openclaw
+```
+
+Every request is scanned for prompt injection. Every response is scanned for data leaks.
 
 **Supported providers:** `openai` `anthropic` `gemini` `ollama` `groq` `openrouter` `deepseek` `mistral` `xai` `azure` `together` `fireworks` `perplexity` `cohere` `cerebras` `lmstudio` `litellm`
-
-**Revert:** `securevector-app --revert-proxy` — restores original files, keeps your API keys.
 
 <br>
 
@@ -100,11 +107,13 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 
 | Agent/Framework | Integration |
 |-----------------|-------------|
-| **OpenClaw / ClawdBot** | LLM Proxy — `securevector-app --proxy --provider <provider>` |
+| **Any OpenAI-compatible app** | LLM Proxy — `OPENAI_BASE_URL=http://localhost:8742/v1` |
+| **LangChain** | [LLM Proxy](docs/USECASES.md#langchain) or Callback |
+| **LangGraph** | [LLM Proxy](docs/USECASES.md#langgraph) or Security Node |
+| **CrewAI** | [LLM Proxy](docs/USECASES.md#crewai) or Tool/Callback |
+| **Ollama** | LLM Proxy — `securevector-app --proxy --provider ollama` |
+| **OpenClaw / ClawdBot** | LLM Proxy — add `--openclaw` flag |
 | **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
-| **LangChain** | [Callback Integration](docs/USECASES.md#langchain) |
-| **LangGraph** | [Security Node](docs/USECASES.md#langgraph) |
-| **CrewAI** | [Webhook Integration](docs/USECASES.md#crewai) |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
 | **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
 
@@ -128,9 +137,9 @@ Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large
 
 <table>
 <tr>
-<td><img src="docs/app-dashboard.png" alt="Dashboard" width="100%"><br><em>Real-time Dashboard</em></td>
-<td><img src="docs/app-proxy.png" alt="Proxy" width="100%"><br><em>LLM Proxy Control</em></td>
-<td><img src="docs/app-threats.png" alt="Threats" width="100%"><br><em>Threat Analytics</em></td>
+<td><img src="docs/app-dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — stats, risk distribution, recent threats</em></td>
+<td><img src="docs/app-threats.png" alt="Threats" width="100%"><br><em>Threat Analytics — blocked, redacted, logged</em></td>
+<td><img src="docs/app-proxy.png" alt="Proxy" width="100%"><br><em>LLM Proxy — OpenClaw integration</em></td>
 </tr>
 </table>
 

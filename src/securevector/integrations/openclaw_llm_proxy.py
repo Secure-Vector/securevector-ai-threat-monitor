@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 from typing import Optional
+from urllib.parse import urlparse
 
 try:
     import httpx
@@ -34,6 +35,97 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Security: Allowed hosts for target URLs (prevents SSRF to internal services)
+ALLOWED_TARGET_HOSTS = {
+    # Known LLM providers
+    "api.openai.com",
+    "api.anthropic.com",
+    "api.groq.com",
+    "openrouter.ai",
+    "api.cerebras.ai",
+    "api.mistral.ai",
+    "api.x.ai",
+    "generativelanguage.googleapis.com",
+    "api.moonshot.ai",
+    "api.minimax.chat",
+    "api.deepseek.com",
+    "api.together.xyz",
+    "api.fireworks.ai",
+    "api.perplexity.ai",
+    "api.cohere.ai",
+    # Local development
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+}
+
+# Security: Allowed hosts for SecureVector URL
+ALLOWED_SECUREVECTOR_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "scan.securevector.io",  # Cloud API
+}
+
+
+def validate_url(url: str, allowed_hosts: set, url_type: str) -> str:
+    """Validate URL against allowed hosts to prevent SSRF.
+
+    Args:
+        url: The URL to validate
+        allowed_hosts: Set of allowed hostnames
+        url_type: Description for error messages (e.g., "target URL")
+
+    Returns:
+        The validated URL
+
+    Raises:
+        ValueError: If URL is invalid or host not allowed
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise ValueError(f"Invalid {url_type}: {e}")
+
+    if not parsed.scheme:
+        raise ValueError(f"Invalid {url_type}: missing scheme (http/https)")
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid {url_type}: scheme must be http or https")
+
+    if not parsed.hostname:
+        raise ValueError(f"Invalid {url_type}: missing hostname")
+
+    hostname = parsed.hostname.lower()
+
+    # Allow any Azure OpenAI endpoint (*.openai.azure.com)
+    if hostname.endswith(".openai.azure.com"):
+        return url
+
+    # Allow any local network for Ollama/LM Studio (user's choice)
+    if hostname in allowed_hosts:
+        return url
+
+    # Check if it's a private IP (additional SSRF protection)
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private and hostname not in ("127.0.0.1", "0.0.0.0"):
+            raise ValueError(
+                f"Invalid {url_type}: private IP addresses not allowed ({hostname}). "
+                f"Use localhost or 127.0.0.1 for local services."
+            )
+    except ValueError:
+        # Not an IP address, it's a hostname - check against allowlist
+        if hostname not in allowed_hosts:
+            raise ValueError(
+                f"Invalid {url_type}: host '{hostname}' not in allowed list. "
+                f"Allowed: {', '.join(sorted(allowed_hosts))}"
+            )
+
+    return url
 
 
 class LLMProxy:
@@ -96,7 +188,13 @@ class LLMProxy:
         block_threats: bool = False,
         verbose: bool = False,
         provider: str = "openai",
+        skip_url_validation: bool = False,
     ):
+        # Security: Validate URLs to prevent SSRF attacks
+        if not skip_url_validation:
+            target_url = validate_url(target_url, ALLOWED_TARGET_HOSTS, "target URL")
+            securevector_url = validate_url(securevector_url, ALLOWED_SECUREVECTOR_HOSTS, "SecureVector URL")
+
         self.target_url = target_url.rstrip("/")
         self.securevector_url = securevector_url
         self.analyze_url = f"{securevector_url}/analyze"
@@ -380,6 +478,21 @@ class LLMProxy:
         """Handle incoming request, scan, and forward to LLM provider."""
         path = request.url.path
         method = request.method
+
+        # Clean up path: remove extra spaces, normalize slashes
+        path = path.replace("  ", "/").replace(" /", "/").replace("/ ", "/")
+
+        # Strip provider prefix if present (e.g., /ollama/v1/models → /v1/models)
+        # This handles cases where client includes provider in path
+        provider_prefix = f"/{self.provider}"
+        if path.startswith(provider_prefix):
+            path = path[len(provider_prefix):]
+            if not path.startswith("/"):
+                path = "/" + path
+
+        # Remove double slashes
+        while "//" in path:
+            path = path.replace("//", "/")
 
         # Read request body
         body_bytes = await request.body()
@@ -674,6 +787,110 @@ class LLMProxy:
             await self._http_client.aclose()
 
 
+class MultiProviderProxy:
+    """Multi-provider proxy with path-based routing.
+
+    Routes requests based on path prefix:
+      /openai/v1/chat/completions → https://api.openai.com/v1/chat/completions
+      /anthropic/v1/messages → https://api.anthropic.com/v1/messages
+      /ollama/v1/chat/completions → http://localhost:11434/v1/chat/completions
+
+    Usage:
+      OPENAI_BASE_URL=http://localhost:8742/openai python app.py
+      ANTHROPIC_BASE_URL=http://localhost:8742/anthropic python app.py
+    """
+
+    def __init__(
+        self,
+        securevector_url: str = "http://127.0.0.1:8741",
+        block_threats: bool = False,
+        verbose: bool = False,
+    ):
+        self.securevector_url = securevector_url
+        self.block_threats = block_threats
+        self.verbose = verbose
+        self._proxies: dict[str, LLMProxy] = {}
+
+    def get_proxy(self, provider: str) -> LLMProxy:
+        """Get or create proxy for a provider."""
+        if provider not in self._proxies:
+            target_url = LLMProxy.PROVIDERS.get(provider)
+            if not target_url:
+                raise ValueError(f"Unknown provider: {provider}")
+
+            self._proxies[provider] = LLMProxy(
+                target_url=target_url,
+                securevector_url=self.securevector_url,
+                block_threats=self.block_threats,
+                verbose=self.verbose,
+                provider=provider,
+                skip_url_validation=True,  # Already validated in PROVIDERS
+            )
+            if self.verbose:
+                print(f"[multi-proxy] Created proxy for {provider} → {target_url}")
+
+        return self._proxies[provider]
+
+    def create_app(self) -> FastAPI:
+        """Create FastAPI application with multi-provider routing."""
+        app = FastAPI(title="SecureVector Multi-Provider LLM Proxy")
+
+        @app.api_route("/{provider}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+        async def proxy_with_provider(request: Request, provider: str, path: str):
+            """Route request to appropriate provider based on path prefix."""
+            # Normalize provider name (lowercase, strip spaces)
+            provider = provider.lower().strip()
+
+            if provider not in LLMProxy.PROVIDERS:
+                return Response(
+                    content=json.dumps({
+                        "error": f"Unknown provider: {provider}",
+                        "available": list(LLMProxy.PROVIDERS.keys())
+                    }),
+                    status_code=400,
+                    media_type="application/json",
+                )
+
+            proxy = self.get_proxy(provider)
+
+            # Normalize path: remove provider prefix, clean up any extra spaces/slashes
+            # e.g., "/ollama/v1/models" → "/v1/models"
+            new_path = f"/{path}".replace("  ", "/").replace(" /", "/").replace("/ ", "/")
+            # Remove double slashes
+            while "//" in new_path:
+                new_path = new_path.replace("//", "/")
+
+            # Create a new scope with modified path and raw_path
+            scope = dict(request.scope)
+            scope["path"] = new_path
+            scope["raw_path"] = new_path.encode("utf-8")
+            if "query_string" not in scope:
+                scope["query_string"] = b""
+            modified_request = Request(scope, request.receive)
+
+            return await proxy.handle_request(modified_request)
+
+        @app.get("/")
+        async def root():
+            return {
+                "service": "SecureVector Multi-Provider LLM Proxy",
+                "providers": list(LLMProxy.PROVIDERS.keys()),
+                "usage": {
+                    "openai": "OPENAI_BASE_URL=http://localhost:8742/openai/v1",
+                    "anthropic": "ANTHROPIC_BASE_URL=http://localhost:8742/anthropic",
+                    "ollama": "OPENAI_BASE_URL=http://localhost:8742/ollama/v1",
+                },
+                "active_proxies": list(self._proxies.keys()),
+            }
+
+        return app
+
+    async def cleanup(self):
+        """Clean up all proxy resources."""
+        for proxy in self._proxies.values():
+            await proxy.cleanup()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="SecureVector LLM API Proxy - scans all LLM traffic for threats"
@@ -695,13 +912,18 @@ def main():
         type=str,
         choices=list(LLMProxy.PROVIDERS.keys()),
         default="openai",
-        help="LLM provider (default: openai)"
+        help="LLM provider (default: openai). Ignored if --multi is set."
+    )
+    parser.add_argument(
+        "--multi",
+        action="store_true",
+        help="Enable multi-provider mode with path-based routing"
     )
     parser.add_argument(
         "--target-url",
         type=str,
         default=None,
-        help="Override target LLM API URL"
+        help="Override target LLM API URL (single provider mode only)"
     )
     parser.add_argument(
         "--securevector-url",
@@ -722,20 +944,58 @@ def main():
 
     args = parser.parse_args()
 
-    # Determine target URL
-    target_url = args.target_url
-    if not target_url:
-        target_url = LLMProxy.PROVIDERS.get(args.provider, "https://api.openai.com")
+    if args.multi:
+        # Multi-provider mode with path-based routing
+        proxy = MultiProviderProxy(
+            securevector_url=args.securevector_url,
+            block_threats=args.block,
+            verbose=args.verbose,
+        )
 
-    proxy = LLMProxy(
-        target_url=target_url,
-        securevector_url=args.securevector_url,
-        block_threats=args.block,
-        verbose=args.verbose,
-        provider=args.provider,
-    )
+        providers_list = ", ".join(LLMProxy.PROVIDERS.keys())
+        print(f"""
+╔═══════════════════════════════════════════════════════════════════╗
+║            SecureVector Multi-Provider LLM Proxy                  ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  Listening on:      http://{args.host}:{args.port:<5}                             ║
+║  SecureVector:      {args.securevector_url:<30}          ║
+║  Block threats:     {str(args.block):<5}                                        ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  Multi-provider routing enabled!                                  ║
+║                                                                   ║
+║  LangChain / Any OpenAI-compatible:                               ║
+║    base_url="http://{args.host}:{args.port}/openai/v1"                        ║
+║    base_url="http://{args.host}:{args.port}/ollama/v1"                        ║
+║    base_url="http://{args.host}:{args.port}/groq/v1"                          ║
+║                                                                   ║
+║  Anthropic:                                                       ║
+║    base_url="http://{args.host}:{args.port}/anthropic"                        ║
+║                                                                   ║
+║  Available providers: {providers_list[:45]:<45}║
+╚═══════════════════════════════════════════════════════════════════╝
+""")
+    else:
+        # Single provider mode
+        target_url = args.target_url
+        if not target_url:
+            target_url = LLMProxy.PROVIDERS.get(args.provider, "https://api.openai.com")
 
-    print(f"""
+        # Create proxy with URL validation
+        try:
+            proxy = LLMProxy(
+                target_url=target_url,
+                securevector_url=args.securevector_url,
+                block_threats=args.block,
+                verbose=args.verbose,
+                provider=args.provider,
+            )
+        except ValueError as e:
+            print(f"\n[ERROR] {e}")
+            print("\nFor custom URLs, ensure the host is in the allowed list.")
+            print("Known LLM providers are automatically allowed.")
+            sys.exit(1)
+
+        print(f"""
 ╔═══════════════════════════════════════════════════════════════╗
 ║                 SecureVector LLM Proxy                        ║
 ╠═══════════════════════════════════════════════════════════════╣

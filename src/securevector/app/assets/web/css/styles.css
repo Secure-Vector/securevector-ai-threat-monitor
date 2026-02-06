@@ -28,6 +28,7 @@
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
+    --error: #ef4444;
     --info: #3b82f6;
 
     /* Severity colors */
@@ -179,9 +180,9 @@ html, body {
     gap: 6px;
     padding: 8px 14px;
     background: var(--bg-tertiary);
-    border: 2px solid var(--accent-primary);
+    border: 2px solid var(--border-default);
     border-radius: var(--radius-md);
-    color: var(--text-primary);
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -189,7 +190,8 @@ html, body {
 }
 
 .cloud-toggle-btn:hover {
-    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
 .cloud-toggle-btn svg {
@@ -198,20 +200,17 @@ html, body {
 }
 
 .cloud-toggle-btn.gradient-btn {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
-    color: var(--text-primary);
+    background: var(--gradient);
+    border-color: transparent;
+    color: #ffffff;
 }
 
 .cloud-toggle-btn.gradient-btn:hover {
-    background: var(--bg-hover);
+    opacity: 0.9;
 }
 
 .cloud-toggle-btn.active {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
-    color: var(--text-primary);
-    animation: flash-border 1.5s ease-in-out infinite;
+    box-shadow: 0 0 12px rgba(0, 188, 212, 0.4);
 }
 
 /* LLM Toggle in Header (Primary Feature) */
@@ -229,24 +228,20 @@ html, body {
     border-radius: var(--radius-md);
     color: var(--text-primary);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     transition: all var(--transition-fast);
     position: relative;
 }
 
 .llm-toggle-btn:hover {
-    background: var(--bg-hover);
+    background: rgba(0, 188, 212, 0.1);
 }
 
 .llm-toggle-btn svg {
     width: 18px;
     height: 18px;
-    color: var(--text-primary);
-}
-
-.llm-toggle-btn:hover svg {
-    color: var(--text-primary);
+    color: var(--accent-primary);
 }
 
 .llm-toggle-btn.active {
@@ -278,7 +273,7 @@ html, body {
 }
 
 .llm-toggle-btn.active:hover {
-    background: var(--bg-hover);
+    opacity: 0.9;
 }
 
 .llm-toggle-indicator {
