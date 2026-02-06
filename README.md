@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/favicon.png" alt="SecureVector" width="80" height="80">
-
-<h1>SecureVector AI Threat Monitor</h1>
+<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector AI Threat Monitor</h1>
 
 <h3>Runtime Firewall for AI Agents & Bots</h3>
 
@@ -23,21 +21,11 @@
 
 ## How It Works
 
-```
-┌─────────────┐     ┌──────────────────────────────┐     ┌─────────────────┐
-│             │     │   SecureVector AI Firewall   │     │                 │
-│  Your App   │────▶│                              │────▶│  LLM Provider   │
-│             │     │  ☑ Prompt injection block    │     │                 │
-│  LangChain  │◀────│  ☑ Jailbreak detection       │◀────│  OpenAI         │
-│  CrewAI     │     │  ☑ Data leak prevention      │     │  Anthropic      │
-│  LangGraph  │     │  ☑ PII/credential redaction  │     │  Ollama         │
-│  n8n        │     │                              │     │  Groq, etc.     │
-│  OpenClaw   │     │      100% Local Scanning     │     │                 │
-│             │     │                              │     │                 │
-└─────────────┘     └──────────────────────────────┘     └─────────────────┘
-```
+<img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
 **SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats. Runs entirely on your machine — nothing leaves your infrastructure.
+
+> **Open-source AI firewall that runs 100% locally. No API keys. No cloud. No data sharing.**
 
 <br>
 
@@ -129,7 +117,10 @@ Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large
 <tr>
 <td><img src="docs/app-dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — stats, risk distribution, recent threats</em></td>
 <td><img src="docs/app-threats.png" alt="Threats" width="100%"><br><em>Threat Analytics — blocked, redacted, logged</em></td>
-<td><img src="docs/app-proxy.png" alt="Proxy" width="100%"><br><em>LLM Proxy — OpenClaw integration</em></td>
+</tr>
+<tr>
+<td><img src="docs/app-integrations.png" alt="Integrations" width="100%"><br><em>Integrations — LangChain, Ollama, OpenClaw, and more</em></td>
+<td><img src="docs/app-proxy.png" alt="Proxy" width="100%"><br><em>LLM Proxy — provider configuration</em></td>
 </tr>
 </table>
 
