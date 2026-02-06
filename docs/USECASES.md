@@ -679,6 +679,535 @@ pip install securevector-ai-monitor[all]
 
 ---
 
+## Agent Framework Integrations
+
+### LangChain
+
+Integrate SecureVector as a callback handler to scan all LLM inputs and outputs automatically.
+
+```python
+from langchain_core.callbacks.base import BaseCallbackHandler
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+from securevector import SecureVectorClient
+from typing import Any, Dict, List
+from uuid import UUID
+
+class SecureVectorCallback(BaseCallbackHandler):
+    """LangChain callback that scans all LLM traffic for threats."""
+
+    def __init__(self, block_threats: bool = True):
+        self.client = SecureVectorClient()
+        self.block_threats = block_threats
+
+    def on_chat_model_start(
+        self,
+        serialized: Dict[str, Any],
+        messages: List[List[Any]],
+        *,
+        run_id: UUID,
+        **kwargs: Any
+    ) -> None:
+        """Scan chat messages before sending to LLM (for ChatOpenAI, etc.)."""
+        for message_list in messages:
+            for msg in message_list:
+                content = msg.content if hasattr(msg, 'content') else str(msg)
+                result = self.client.analyze(content, direction="input")
+                if result.is_threat and self.block_threats:
+                    raise ValueError(f"Blocked: {result.threat_types[0]}")
+
+    def on_llm_start(
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str],
+        *,
+        run_id: UUID,
+        **kwargs: Any
+    ) -> None:
+        """Scan input prompts before sending to LLM (for non-chat models)."""
+        for prompt in prompts:
+            result = self.client.analyze(prompt, direction="input")
+            if result.is_threat and self.block_threats:
+                raise ValueError(f"Blocked: {result.threat_types[0]}")
+
+    def on_llm_end(self, response, *, run_id: UUID, **kwargs: Any) -> None:
+        """Scan LLM responses for data leaks."""
+        for generation in response.generations:
+            for gen in generation:
+                text = gen.text if hasattr(gen, 'text') else str(gen)
+                result = self.client.analyze(text, direction="output")
+                if result.is_threat and self.block_threats:
+                    raise ValueError(f"Response blocked: {result.threat_types[0]}")
+
+# Usage
+llm = ChatOpenAI(
+    model="gpt-4",
+    callbacks=[SecureVectorCallback(block_threats=True)]
+)
+
+# All interactions are now automatically scanned
+response = llm.invoke([HumanMessage(content="What is the capital of France?")])
+```
+
+**Alternative: Wrap the LLM directly**
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from securevector import SecureVectorClient
+
+client = SecureVectorClient()
+llm = ChatOpenAI(model="gpt-4")
+
+def secure_invoke(llm, messages):
+    """Wrapper that adds security scanning to any LangChain LLM."""
+    # Scan input
+    for msg in messages:
+        content = msg.content if hasattr(msg, 'content') else str(msg)
+        result = client.analyze(content, direction="input")
+        if result.is_threat:
+            return f"Request blocked: {result.threat_types[0]}"
+
+    # Call LLM
+    response = llm.invoke(messages)
+
+    # Scan output
+    result = client.analyze(response.content, direction="output")
+    if result.is_threat:
+        return "Response redacted due to security policy"
+
+    return response
+
+# Usage
+response = secure_invoke(llm, [HumanMessage(content="Hello!")])
+```
+
+---
+
+### LangGraph
+
+Add SecureVector as a security node in your LangGraph workflow to scan messages at critical points.
+
+```python
+from langgraph.graph import StateGraph, START, END
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+from securevector import SecureVectorClient
+from typing import TypedDict, Annotated
+import operator
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]
+    blocked: bool
+    block_reason: str
+
+security_client = SecureVectorClient()
+llm = ChatOpenAI(model="gpt-4")
+
+def security_input_node(state: AgentState) -> dict:
+    """Scan user input for threats before processing."""
+    last_message = state["messages"][-1]
+    content = last_message.content if hasattr(last_message, 'content') else str(last_message)
+
+    result = security_client.analyze(content, direction="input")
+
+    if result.is_threat:
+        return {
+            "messages": [],
+            "blocked": True,
+            "block_reason": f"Input blocked: {result.threat_types[0]}"
+        }
+
+    return {"messages": [], "blocked": False, "block_reason": ""}
+
+def llm_node(state: AgentState) -> dict:
+    """Process with LLM if not blocked."""
+    if state.get("blocked"):
+        return {"messages": [AIMessage(content=state["block_reason"])]}
+
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+def security_output_node(state: AgentState) -> dict:
+    """Scan LLM output for data leaks."""
+    if state.get("blocked"):
+        return {"messages": [], "blocked": state["blocked"], "block_reason": state["block_reason"]}
+
+    last_message = state["messages"][-1]
+    content = last_message.content if hasattr(last_message, 'content') else str(last_message)
+    result = security_client.analyze(content, direction="output")
+
+    if result.is_threat:
+        return {
+            "messages": [AIMessage(content="Response redacted for security.")],
+            "blocked": True,
+            "block_reason": result.threat_types[0]
+        }
+
+    return {"messages": [], "blocked": False, "block_reason": ""}
+
+def should_continue(state: AgentState) -> str:
+    """Route based on security status."""
+    if state.get("blocked"):
+        return END
+    return "llm"
+
+# Build the graph
+workflow = StateGraph(AgentState)
+
+workflow.add_node("security_input", security_input_node)
+workflow.add_node("llm", llm_node)
+workflow.add_node("security_output", security_output_node)
+
+# Use START constant instead of set_entry_point
+workflow.add_edge(START, "security_input")
+workflow.add_conditional_edges("security_input", should_continue, {"llm": "llm", END: END})
+workflow.add_edge("llm", "security_output")
+workflow.add_edge("security_output", END)
+
+app = workflow.compile()
+
+# Usage
+result = app.invoke({
+    "messages": [HumanMessage(content="What is 2+2?")],
+    "blocked": False,
+    "block_reason": ""
+})
+```
+
+---
+
+### CrewAI
+
+Integrate SecureVector using custom tools and step callbacks to scan CrewAI agent interactions.
+
+**Method 1: Custom Security Tool**
+
+```python
+from crewai import Agent, Task, Crew
+from crewai.tools import BaseTool
+from securevector import SecureVectorClient
+from typing import Type
+from pydantic import BaseModel, Field
+
+class SecurityScanInput(BaseModel):
+    """Input schema for security scanning tool."""
+    text: str = Field(description="Text to scan for security threats")
+    direction: str = Field(default="input", description="'input' or 'output'")
+
+class SecurityScanTool(BaseTool):
+    """Tool that scans text for security threats using SecureVector."""
+    name: str = "security_scan"
+    description: str = "Scan text for prompt injection, jailbreaks, and data leaks"
+    args_schema: Type[BaseModel] = SecurityScanInput
+
+    def __init__(self):
+        super().__init__()
+        self._client = SecureVectorClient()
+
+    def _run(self, text: str, direction: str = "input") -> str:
+        result = self._client.analyze(text, direction=direction)
+        if result.is_threat:
+            return f"THREAT DETECTED: {result.threat_types[0]} (risk: {result.risk_score})"
+        return f"SAFE: No threats detected (risk: {result.risk_score})"
+
+# Create security-aware agents
+security_tool = SecurityScanTool()
+
+researcher = Agent(
+    role="Security-Aware Researcher",
+    goal="Research topics while checking for security threats",
+    backstory="You are an expert researcher who always scans content for threats.",
+    tools=[security_tool],
+    verbose=True
+)
+
+# Create task that uses security scanning
+research_task = Task(
+    description="""Research the history of AI.
+    IMPORTANT: Use the security_scan tool to check any external content before processing.""",
+    agent=researcher,
+    expected_output="A security-verified summary of AI history"
+)
+
+crew = Crew(agents=[researcher], tasks=[research_task], verbose=True)
+result = crew.kickoff()
+```
+
+**Method 2: Step Callback for Automatic Scanning**
+
+```python
+from crewai import Agent, Task, Crew
+from securevector import SecureVectorClient
+
+security_client = SecureVectorClient()
+
+def security_step_callback(step_output):
+    """Callback that scans every step output for threats."""
+    text = str(step_output)
+    result = security_client.analyze(text, direction="output")
+
+    if result.is_threat:
+        print(f"⚠️  THREAT in step output: {result.threat_types[0]}")
+        # You can raise an exception to stop execution
+        # raise ValueError(f"Security threat detected: {result.threat_types[0]}")
+
+    return step_output
+
+# Create agents with step callback
+researcher = Agent(
+    role="Researcher",
+    goal="Research topics thoroughly",
+    backstory="You are an expert researcher.",
+    step_callback=security_step_callback,
+    verbose=True
+)
+
+writer = Agent(
+    role="Writer",
+    goal="Write clear content",
+    backstory="You are a skilled writer.",
+    step_callback=security_step_callback,
+    verbose=True
+)
+
+# Create tasks
+research_task = Task(
+    description="Research the history of AI",
+    agent=researcher,
+    expected_output="A summary of AI history"
+)
+
+write_task = Task(
+    description="Write an article based on the research",
+    agent=writer,
+    expected_output="A well-written article"
+)
+
+# Run crew - all steps are automatically scanned
+crew = Crew(
+    agents=[researcher, writer],
+    tasks=[research_task, write_task],
+    verbose=True
+)
+
+result = crew.kickoff()
+```
+
+**Method 3: Task Callback for Output Scanning**
+
+```python
+from crewai import Agent, Task, Crew
+from securevector import SecureVectorClient
+
+security_client = SecureVectorClient()
+
+def security_task_callback(task_output):
+    """Scan task output before passing to next task."""
+    result = security_client.analyze(str(task_output), direction="output")
+
+    if result.is_threat:
+        print(f"⚠️  Task output contains threat: {result.threat_types}")
+        return "Content redacted due to security policy"
+
+    return task_output
+
+research_task = Task(
+    description="Research the history of AI",
+    agent=researcher,
+    expected_output="A summary of AI history",
+    callback=security_task_callback  # Scan output before next task
+)
+```
+
+---
+
+### n8n
+
+Integrate SecureVector into n8n workflows using HTTP Request nodes.
+
+**Setup: Start the SecureVector API server**
+
+```bash
+securevector-app --web
+# API available at http://localhost:8741
+```
+
+**n8n Workflow Configuration:**
+
+1. **Add HTTP Request Node** (Security Check)
+   - Method: `POST`
+   - URL: `http://localhost:8741/analyze`
+   - Body Type: JSON
+   - Body:
+   ```json
+   {
+     "text": "={{ $json.user_input }}",
+     "direction": "input"
+   }
+   ```
+
+2. **Add IF Node** (Check Threat)
+   - Condition: `{{ $json.is_threat }}` equals `true`
+   - True branch: Handle blocked request
+   - False branch: Continue to LLM
+
+3. **Connect to your LLM node** (OpenAI, Anthropic, etc.)
+
+4. **Add another HTTP Request Node** (Output Check)
+   - Method: `POST`
+   - URL: `http://localhost:8741/analyze`
+   - Body:
+   ```json
+   {
+     "text": "={{ $json.response }}",
+     "direction": "output"
+   }
+   ```
+
+**Example n8n Workflow JSON:**
+
+```json
+{
+  "nodes": [
+    {
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "chat",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "name": "Security Input Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "http://localhost:8741/analyze",
+        "method": "POST",
+        "bodyType": "json",
+        "body": {
+          "text": "={{ $json.body.message }}",
+          "direction": "input"
+        }
+      }
+    },
+    {
+      "name": "Is Threat?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "boolean": [{
+            "value1": "={{ $json.is_threat }}",
+            "value2": true
+          }]
+        }
+      }
+    },
+    {
+      "name": "Block Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": {
+        "responseBody": "{\"error\": \"Request blocked for security\", \"threat\": \"{{ $json.threat_types[0] }}\"}"
+      }
+    },
+    {
+      "name": "OpenAI Chat",
+      "type": "n8n-nodes-base.openAi",
+      "parameters": {
+        "operation": "chat",
+        "prompt": "={{ $('Webhook Trigger').item.json.body.message }}"
+      }
+    },
+    {
+      "name": "Security Output Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "http://localhost:8741/analyze",
+        "method": "POST",
+        "bodyType": "json",
+        "body": {
+          "text": "={{ $json.choices[0].message.content }}",
+          "direction": "output"
+        }
+      }
+    },
+    {
+      "name": "Return Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": {
+        "responseBody": "={{ JSON.stringify({response: $('OpenAI Chat').item.json.choices[0].message.content}) }}"
+      }
+    }
+  ]
+}
+```
+
+**n8n Community Node:**
+
+Install the native n8n community node for easier integration:
+
+```bash
+# In your n8n instance
+npm install @securevector/n8n-nodes-securevector
+```
+
+Or install via n8n GUI: **Settings → Community Nodes → Install → `@securevector/n8n-nodes-securevector`**
+
+The node provides:
+- `SecureVector Analyze` - Scan text for threats
+- `SecureVector Batch` - Scan multiple texts
+- `SecureVector Guard` - Auto-block threats in workflow
+
+See [@securevector/n8n-nodes-securevector on npm](https://www.npmjs.com/package/@securevector/n8n-nodes-securevector) for documentation.
+
+---
+
+### FastAPI Middleware
+
+Add SecureVector as middleware to protect all your API endpoints.
+
+```python
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from securevector import SecureVectorClient
+
+app = FastAPI()
+security_client = SecureVectorClient()
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Skip non-JSON requests
+    if request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            body = await request.json()
+
+            # Scan request body for threats
+            text_to_scan = str(body)
+            result = security_client.analyze(text_to_scan, direction="input")
+
+            if result.is_threat:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Request blocked",
+                        "reason": result.threat_types[0],
+                        "risk_score": result.risk_score
+                    }
+                )
+        except:
+            pass  # Not JSON, continue
+
+    response = await call_next(request)
+    return response
+
+@app.post("/chat")
+async def chat(message: str):
+    # Your chat logic here - already protected by middleware
+    return {"response": "Hello!"}
+```
+
+---
+
 ## 📞 Need Help Choosing?
 
 - **Simple integration**: Start with **SDK**

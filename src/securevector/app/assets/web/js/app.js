@@ -11,6 +11,12 @@ const App = {
         threats: ThreatsPage,
         rules: RulesPage,
         proxy: ProxyPage,
+        'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
+        'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
+        'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },
+        'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
+        'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
+        'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
     },
 
@@ -101,49 +107,66 @@ const App = {
 
         // Step 1
         const step1 = document.createElement('div');
-        step1.style.cssText = 'margin: 0 0 12px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 10px;';
+        step1.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
 
         const step1Num = document.createElement('span');
-        step1Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step1Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
         step1Num.textContent = '1';
         step1.appendChild(step1Num);
 
-        const step1Text = document.createElement('span');
-        step1Text.textContent = 'Go to Agent Integrations in the top header menu and add agent you want to add protection for.';
-        step1.appendChild(step1Text);
+        const step1Content = document.createElement('div');
+        const step1Title = document.createElement('div');
+        step1Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
+        step1Title.textContent = 'Go to Integrations';
+        step1Content.appendChild(step1Title);
+        const step1Desc = document.createElement('div');
+        step1Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+        step1Desc.textContent = 'Choose your agent framework and LLM provider';
+        step1Content.appendChild(step1Desc);
+        step1.appendChild(step1Content);
 
         instructionBox.appendChild(step1);
 
         // Step 2
         const step2 = document.createElement('div');
-        step2.style.cssText = 'margin: 0 0 12px 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); display: flex; gap: 10px;';
+        step2.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
 
         const step2Num = document.createElement('span');
-        step2Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step2Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
         step2Num.textContent = '2';
         step2.appendChild(step2Num);
 
-        const step2Text = document.createElement('span');
-        step2Text.textContent = 'If using ClaudBot/OpenClaw, check Agent Proxy > OpenClaw/ClaudBot in the left menu and follow the steps.';
-        step2.appendChild(step2Text);
+        const step2Content = document.createElement('div');
+        const step2Title = document.createElement('div');
+        step2Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
+        step2Title.textContent = 'Start Proxy or Code Integration';
+        step2Content.appendChild(step2Title);
+        const step2Desc = document.createElement('div');
+        step2Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+        step2Desc.textContent = 'Choice is yours - use proxy or integrate via SDK';
+        step2Content.appendChild(step2Desc);
+        step2.appendChild(step2Content);
 
         instructionBox.appendChild(step2);
 
         // Step 3 - AI Analysis
         const step3 = document.createElement('div');
-        step3.style.cssText = 'margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); display: flex; gap: 10px;';
+        step3.style.cssText = 'margin: 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
 
         const step3Num = document.createElement('span');
-        step3Num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0;';
+        step3Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
         step3Num.textContent = '3';
         step3.appendChild(step3Num);
 
-        const step3Content = document.createElement('span');
-        const aiLabel = document.createElement('span');
-        aiLabel.style.cssText = 'color: var(--accent-primary); font-weight: 600;';
-        aiLabel.textContent = 'AI Analysis';
-        step3Content.appendChild(aiLabel);
-        step3Content.appendChild(document.createTextNode(' (Recommended) - Enable in Settings for enhanced LLM-powered threat detection.'));
+        const step3Content = document.createElement('div');
+        const step3Title = document.createElement('div');
+        step3Title.style.cssText = 'font-weight: 600; color: var(--accent-primary);';
+        step3Title.textContent = 'AI Analysis (Recommended)';
+        step3Content.appendChild(step3Title);
+        const step3Desc = document.createElement('div');
+        step3Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+        step3Desc.textContent = 'Enable in Settings for enhanced LLM-powered threat detection';
+        step3Content.appendChild(step3Desc);
         step3.appendChild(step3Content);
 
         instructionBox.appendChild(step3);

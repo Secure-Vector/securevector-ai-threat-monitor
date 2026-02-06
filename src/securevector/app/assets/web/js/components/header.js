@@ -1,6 +1,6 @@
 /**
  * Header Component
- * Displays app title, Agent Integrations dropdown, server status, and theme toggle
+ * Displays AI Analysis, Cloud Connect, and status
  */
 
 const Header = {
@@ -49,10 +49,6 @@ const Header = {
         // AI Analysis button (opens modal)
         const llmToggle = this.createLLMToggle();
         right.appendChild(llmToggle);
-
-        // Agent Integrations dropdown
-        const agentDropdown = this.createAgentDropdown();
-        right.appendChild(agentDropdown);
 
         // Cloud Mode toggle - rightmost
         const cloudToggle = this.createCloudToggle();

@@ -63,202 +63,309 @@ const ProxyPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Page header
-        const header = document.createElement('div');
-        header.style.cssText = 'margin-bottom: 20px;';
+        // Main card
+        const mainCard = document.createElement('div');
+        mainCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 20px;';
 
-        const pageTitle = document.createElement('h1');
-        pageTitle.style.cssText = 'font-size: 24px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;';
-        pageTitle.textContent = 'Agent Proxy';
-        header.appendChild(pageTitle);
+        // Title
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 16px; color: var(--text-primary); margin-bottom: 16px;';
+        title.textContent = 'Agent Proxy';
+        mainCard.appendChild(title);
 
-        const pageSubtitle = document.createElement('p');
-        pageSubtitle.style.cssText = 'font-size: 14px; color: var(--text-secondary); margin: 0;';
-        pageSubtitle.textContent = 'Secure your OpenClaw/ClaudBot setup';
-        header.appendChild(pageSubtitle);
+        // Provider dropdown at top
+        const providerRow = document.createElement('div');
+        providerRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-default);';
 
-        container.appendChild(header);
+        const providerLabel = document.createElement('span');
+        providerLabel.style.cssText = 'font-weight: 500; font-size: 13px; color: var(--text-secondary);';
+        providerLabel.textContent = 'Select your LLM provider:';
+        providerRow.appendChild(providerLabel);
 
-        // Page intro with why proxy explanation
-        const intro = document.createElement('div');
-        intro.className = 'page-intro';
-        intro.style.cssText = 'margin-bottom: 24px;';
+        const providerSelect = document.createElement('select');
+        providerSelect.id = 'proxy-provider-select';
+        providerSelect.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 2px solid var(--accent-primary); background: var(--bg-tertiary); color: var(--text-primary); font-size: 13px; cursor: pointer; font-weight: 600; flex: 1; max-width: 200px;';
 
-        const introTitle = document.createElement('div');
-        introTitle.style.cssText = 'color: var(--text-primary); font-size: 14px; margin-bottom: 12px;';
-        introTitle.textContent = 'WebSocket proxy for intercepting and scanning agent messages in real-time.';
-        intro.appendChild(introTitle);
-
-        // Why proxy box
-        const whyBox = document.createElement('div');
-        whyBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 16px; font-size: 13px;';
-
-        const whyTitle = document.createElement('div');
-        whyTitle.style.cssText = 'font-weight: 600; margin-bottom: 8px; color: var(--accent-primary);';
-        whyTitle.textContent = 'Why Proxy Mode?';
-        whyBox.appendChild(whyTitle);
-
-        const whyList = document.createElement('ul');
-        whyList.style.cssText = 'margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.8;';
-
-        const reasons = [
-            'Detects & prevents: prompt injection, jailbreaks, data leaks, PII, social engineering, OWASP LLM Top 10',
-            'OpenClaw has no built-in message interception hooks',
-            'Hooks only fire AFTER messages reach the LLM (too late for blocking)',
-            'Skills require LLM cooperation which is unreliable',
-            'Proxy intercepts at network level = 100% coverage before LLM sees the message'
-        ];
-
-        reasons.forEach(reason => {
-            const li = document.createElement('li');
-            li.textContent = reason;
-            whyList.appendChild(li);
+        Object.entries(this.providerConfigs).forEach(([value, config]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = config.label;
+            providerSelect.appendChild(opt);
         });
 
-        whyBox.appendChild(whyList);
+        providerSelect.addEventListener('change', () => this.updateInstructions());
+        providerRow.appendChild(providerSelect);
+        mainCard.appendChild(providerRow);
 
-        intro.appendChild(whyBox);
-        container.appendChild(intro);
+        // Instructions box (dynamic based on provider)
+        const instructionsBox = document.createElement('div');
+        instructionsBox.id = 'proxy-instructions-box';
+        instructionsBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 16px; margin-bottom: 16px;';
+        mainCard.appendChild(instructionsBox);
 
-        // Proxy Control Section
-        const proxySection = this.createSection('OpenClaw Proxy', 'WebSocket proxy for intercepting and scanning OpenClaw messages');
-        const proxyCard = this.createCard();
-        const proxyBody = proxyCard.querySelector('.card-body');
-        this.renderProxyControl(proxyBody);
-        proxySection.appendChild(proxyCard);
-        container.appendChild(proxySection);
+        // Why proxy section
+        const whySection = document.createElement('div');
+        whySection.style.cssText = 'background: var(--bg-secondary); border-radius: 6px; padding: 14px; border-left: 3px solid var(--accent-primary);';
 
-        // Block Mode Section
-        const blockSection = this.createSection('Block Mode (Input Only)', 'Block INPUT threats before reaching LLM. Output secrets are redacted when stored.');
-        const blockCard = this.createCard();
-        const blockBody = blockCard.querySelector('.card-body');
-        this.renderBlockMode(blockBody);
-        blockSection.appendChild(blockCard);
-        container.appendChild(blockSection);
+        const whyTitle = document.createElement('div');
+        whyTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        whyTitle.textContent = 'Why use a proxy?';
+        whySection.appendChild(whyTitle);
 
-        // Output Scan Section - Highlighted
-        const outputSection = this.createSection('Output Scan (Redact Sensitive Info)', 'Scan LLM responses for data leakage, credentials, and PII. Sensitive information is redacted when stored.', true);
-        const outputCard = this.createCard();
-        const outputBody = outputCard.querySelector('.card-body');
-        this.renderOutputScan(outputBody);
-        outputSection.appendChild(outputCard);
-        container.appendChild(outputSection);
+        const whyList = document.createElement('div');
+        whyList.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.6;';
+        whyList.innerHTML = `
+            <div style="margin-bottom: 4px;">✓ <strong>Captures ALL traffic</strong> - TUI, Telegram, API, MCP tools</div>
+            <div style="margin-bottom: 4px;">✓ <strong>Scans BEFORE provider</strong> - Block threats before they reach the LLM</div>
+            <div style="margin-bottom: 4px;">✓ <strong>Output scanning</strong> - Detect data leaks in LLM responses</div>
+            <div>✓ <strong>18+ providers</strong> - OpenAI, Anthropic, Ollama, Groq, and more</div>
+        `;
+        whySection.appendChild(whyList);
 
+        mainCard.appendChild(whySection);
+        container.appendChild(mainCard);
+
+        // Settings row - Block Mode and Output Scan side by side
+        const settingsRow = document.createElement('div');
+        settingsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;';
+
+        // Block Mode Card
+        const blockCard = document.createElement('div');
+        blockCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+        this.renderBlockMode(blockCard);
+        settingsRow.appendChild(blockCard);
+
+        // Output Scan Card
+        const outputCard = document.createElement('div');
+        outputCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 14px;';
+        this.renderOutputScan(outputCard);
+        settingsRow.appendChild(outputCard);
+
+        container.appendChild(settingsRow);
+
+        // Uninstall / Revert Proxy box (dynamic, updates with provider)
+        const revertCard = document.createElement('div');
+        revertCard.id = 'proxy-revert-box';
+        revertCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 16px; margin-top: 16px;';
+        container.appendChild(revertCard);
+
+        // Render instructions now that all DOM elements exist
+        this.updateInstructions();
+    },
+
+    // Provider configurations (all OpenClaw-supported providers)
+    // envVar: the env var pi-ai's SDK checks (OPENAI_BASE_URL for all OpenAI-compatible, ANTHROPIC_BASE_URL for Anthropic)
+    // basePath: the path suffix the SDK appends to differentiate API versions
+    providerConfigs: {
+        openai: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'OpenAI' },
+        anthropic: { envVar: 'ANTHROPIC_BASE_URL', basePath: '', label: 'Anthropic' },
+        ollama: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Ollama' },
+        groq: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Groq' },
+        openrouter: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'OpenRouter' },
+        cerebras: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Cerebras' },
+        mistral: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Mistral' },
+        xai: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'xAI' },
+        gemini: { envVar: 'GOOGLE_GENAI_BASE_URL', basePath: '/v1beta', label: 'Gemini' },
+        azure: { envVar: 'OPENAI_BASE_URL', basePath: '', label: 'Azure' },
+        lmstudio: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'LM Studio' },
+        litellm: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'LiteLLM' },
+        moonshot: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Moonshot' },
+        minimax: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'MiniMax' },
+        deepseek: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'DeepSeek' },
+        together: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Together' },
+        fireworks: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Fireworks' },
+        perplexity: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Perplexity' },
+        cohere: { envVar: 'OPENAI_BASE_URL', basePath: '/v1', label: 'Cohere' },
     },
 
     renderProxyControl(container) {
-        // Prerequisites section
-        const prereqBox = document.createElement('div');
-        prereqBox.style.cssText = 'background: rgba(255, 193, 7, 0.1); border: 1px solid var(--warning); border-radius: 8px; padding: 16px; margin-bottom: 20px;';
+        // Title row with provider dropdown
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
 
-        const prereqTitle = document.createElement('div');
-        prereqTitle.style.cssText = 'font-weight: 600; margin-bottom: 8px; color: var(--warning);';
-        prereqTitle.textContent = '⚠️ Prerequisites';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px; color: var(--text-primary);';
+        title.textContent = 'Agent Proxy';
+        titleRow.appendChild(title);
 
-        const prereqList = document.createElement('ol');
-        prereqList.style.cssText = 'margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.8;';
+        // Provider dropdown
+        const providerGroup = document.createElement('div');
+        providerGroup.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
-        const prereq1 = document.createElement('li');
-        prereq1.textContent = 'OpenClaw must be installed and configured';
-        prereqList.appendChild(prereq1);
+        const providerLabel = document.createElement('span');
+        providerLabel.style.cssText = 'font-weight: 500; font-size: 13px; color: var(--text-secondary);';
+        providerLabel.textContent = 'Provider:';
+        providerGroup.appendChild(providerLabel);
 
-        const prereq2 = document.createElement('li');
-        const prereq2Text = document.createTextNode('Start OpenClaw gateway on port 18790: ');
-        const prereq2Code = document.createElement('code');
-        prereq2Code.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;';
-        prereq2Code.textContent = 'openclaw gateway --port 18790';
-        prereq2.appendChild(prereq2Text);
-        prereq2.appendChild(prereq2Code);
-        prereqList.appendChild(prereq2);
+        const providerSelect = document.createElement('select');
+        providerSelect.id = 'proxy-provider-select';
+        providerSelect.style.cssText = 'padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; cursor: pointer; font-weight: 500;';
 
-        prereqBox.appendChild(prereqTitle);
-        prereqBox.appendChild(prereqList);
-        container.appendChild(prereqBox);
+        Object.entries(this.providerConfigs).forEach(([value, config]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = config.label;
+            providerSelect.appendChild(opt);
+        });
 
-        // Status row
-        const statusRow = document.createElement('div');
-        statusRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--border-default);';
+        providerSelect.addEventListener('change', () => this.updateInstructions());
+        providerGroup.appendChild(providerSelect);
+        titleRow.appendChild(providerGroup);
 
+        container.appendChild(titleRow);
+
+        // Instructions box (dynamic based on provider)
+        const instructionsBox = document.createElement('div');
+        instructionsBox.id = 'proxy-instructions-box';
+        instructionsBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; margin-bottom: 12px;';
+        container.appendChild(instructionsBox);
+
+        // Render initial instructions
+        this.updateInstructions();
+
+        // Control row - status + button
+        const controlRow = document.createElement('div');
+        controlRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--border-default);';
+
+        // Status info
         const statusInfo = document.createElement('div');
+        statusInfo.style.cssText = 'display: flex; align-items: center; gap: 6px;';
 
-        const statusLabel = document.createElement('div');
-        statusLabel.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        statusLabel.textContent = 'Proxy Status';
+        const statusLabel = document.createElement('span');
+        statusLabel.style.cssText = 'font-weight: 500; font-size: 13px; color: var(--text-secondary);';
+        statusLabel.textContent = 'Status:';
         statusInfo.appendChild(statusLabel);
 
-        const statusDesc = document.createElement('div');
+        const statusDesc = document.createElement('span');
         statusDesc.id = 'proxy-status-text';
-        statusDesc.style.cssText = 'font-size: 13px; display: flex; align-items: center; gap: 8px;';
+        statusDesc.style.cssText = 'font-size: 13px; display: flex; align-items: center; gap: 6px;';
         this.updateStatusText(statusDesc);
         statusInfo.appendChild(statusDesc);
 
-        statusRow.appendChild(statusInfo);
+        controlRow.appendChild(statusInfo);
 
         // Start/Stop button
         const actionBtn = document.createElement('button');
         actionBtn.id = 'proxy-action-btn';
-        actionBtn.style.cssText = 'padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;';
+        actionBtn.style.cssText = 'padding: 8px 24px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s;';
         this.updateActionButton(actionBtn);
         actionBtn.addEventListener('click', () => this.toggleProxy());
-        statusRow.appendChild(actionBtn);
+        controlRow.appendChild(actionBtn);
 
-        container.appendChild(statusRow);
+        container.appendChild(controlRow);
+    },
 
-        // Connection info
-        const connInfo = document.createElement('div');
-        connInfo.style.cssText = 'padding: 16px 0;';
+    updateInstructions() {
+        const box = document.getElementById('proxy-instructions-box');
+        const select = document.getElementById('proxy-provider-select');
+        if (!box || !select) return;
 
-        const connGrid = document.createElement('div');
-        connGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px;';
+        const provider = select.value;
+        const config = this.providerConfigs[provider];
 
-        // Proxy Port
-        const proxyPortBox = document.createElement('div');
-        proxyPortBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 12px 16px;';
-        const proxyPortLabel = document.createElement('div');
-        proxyPortLabel.style.cssText = 'color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;';
-        proxyPortLabel.textContent = 'Proxy Listen Port';
-        const proxyPortValue = document.createElement('div');
-        proxyPortValue.style.cssText = 'font-family: monospace; font-size: 14px; color: var(--accent-primary);';
-        proxyPortValue.textContent = 'ws://127.0.0.1:18789';
-        proxyPortBox.appendChild(proxyPortLabel);
-        proxyPortBox.appendChild(proxyPortValue);
-        connGrid.appendChild(proxyPortBox);
+        box.innerHTML = '';
 
-        // OpenClaw Port
-        const openclawPortBox = document.createElement('div');
-        openclawPortBox.style.cssText = 'background: var(--bg-tertiary); border-radius: 8px; padding: 12px 16px;';
-        const openclawPortLabel = document.createElement('div');
-        openclawPortLabel.style.cssText = 'color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;';
-        openclawPortLabel.textContent = 'OpenClaw Gateway Port';
-        const openclawPortValue = document.createElement('div');
-        openclawPortValue.style.cssText = 'font-family: monospace; font-size: 14px; color: var(--text-primary);';
-        openclawPortValue.textContent = 'ws://127.0.0.1:18790';
-        openclawPortBox.appendChild(openclawPortLabel);
-        openclawPortBox.appendChild(openclawPortValue);
-        connGrid.appendChild(openclawPortBox);
+        // Step 1 - Start SecureVector + LLM Proxy (combined)
+        const step1 = document.createElement('div');
+        step1.style.cssText = 'margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-default);';
 
-        connInfo.appendChild(connGrid);
-        container.appendChild(connInfo);
+        const step1Label = document.createElement('div');
+        step1Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 6px;';
+        step1Label.textContent = `Step 1: Start SecureVector + LLM Proxy (${config.label})`;
+        step1.appendChild(step1Label);
 
-        // Stop proxy note
-        const stopNote = document.createElement('div');
-        stopNote.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px;';
+        const step1Code = document.createElement('code');
+        step1Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 8px;';
+        step1Code.textContent = `securevector-app --proxy --provider ${provider} --web`;
+        step1.appendChild(step1Code);
 
-        const stopNoteTitle = document.createElement('div');
-        stopNoteTitle.style.cssText = 'font-weight: 600; margin-bottom: 6px; color: var(--text-primary);';
-        stopNoteTitle.textContent = 'When stopping the proxy:';
-        stopNote.appendChild(stopNoteTitle);
+        const step1Desc = document.createElement('div');
+        step1Desc.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.6;';
+        step1Desc.innerHTML = `
+            Starts the dashboard (port 8741) and LLM proxy (port 8742). All traffic is scanned for threats.<br>
+            <strong>OpenClaw users:</strong> Add <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">--openclaw</code> flag to auto-patch pi-ai.
+        `;
+        step1.appendChild(step1Desc);
 
-        const stopNoteText = document.createElement('div');
-        stopNoteText.style.cssText = 'color: var(--text-secondary);';
-        stopNoteText.textContent = 'Restart OpenClaw gateway on default port so TUI can connect directly: ';
-        const stopNoteCode = document.createElement('code');
-        stopNoteCode.style.cssText = 'background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px;';
-        stopNoteCode.textContent = 'openclaw gateway';
-        stopNoteText.appendChild(stopNoteCode);
-        stopNote.appendChild(stopNoteText);
+        // Start/Stop button + status inline
+        const step1Controls = document.createElement('div');
+        step1Controls.style.cssText = 'display: flex; align-items: center; gap: 12px;';
 
-        container.appendChild(stopNote);
+        const actionBtn = document.createElement('button');
+        actionBtn.id = 'proxy-action-btn';
+        actionBtn.style.cssText = 'padding: 6px 20px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; transition: all 0.2s;';
+        this.updateActionButton(actionBtn);
+        actionBtn.addEventListener('click', () => this.toggleProxy());
+        step1Controls.appendChild(actionBtn);
+
+        const statusInfo = document.createElement('div');
+        statusInfo.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+        const statusDesc = document.createElement('span');
+        statusDesc.id = 'proxy-status-text';
+        statusDesc.style.cssText = 'font-size: 12px; display: flex; align-items: center; gap: 4px;';
+        this.updateStatusText(statusDesc);
+        statusInfo.appendChild(statusDesc);
+
+        step1Controls.appendChild(statusInfo);
+        step1.appendChild(step1Controls);
+
+        box.appendChild(step1);
+
+        // Step 2 - Start your app through the proxy
+        const step2 = document.createElement('div');
+
+        const step2Label = document.createElement('div');
+        step2Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 6px;';
+        step2Label.textContent = 'Step 2: Point your app to the proxy';
+        step2.appendChild(step2Label);
+
+        const step2Code = document.createElement('code');
+        step2Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace;';
+        step2Code.textContent = `${config.envVar}=http://localhost:8742${config.basePath} your-app`;
+        step2.appendChild(step2Code);
+
+        const step2Note = document.createElement('div');
+        step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.6;';
+        step2Note.innerHTML = `Works with LangChain, CrewAI, custom Python apps, or any OpenAI-compatible client.`;
+        step2.appendChild(step2Note);
+
+        box.appendChild(step2);
+
+        // Update revert box
+        this.updateRevertBox();
+    },
+
+    updateRevertBox() {
+        const revertCard = document.getElementById('proxy-revert-box');
+        if (!revertCard) return;
+
+        revertCard.innerHTML = '';
+
+        const revertTitle = document.createElement('div');
+        revertTitle.style.cssText = 'font-weight: 600; font-size: 14px; color: var(--text-primary); margin-bottom: 10px;';
+        revertTitle.textContent = 'Uninstall / Revert Proxy';
+        revertCard.appendChild(revertTitle);
+
+        const revertDesc = document.createElement('div');
+        revertDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;';
+        revertDesc.textContent = 'To remove the proxy setup and restore OpenClaw to its original state:';
+        revertCard.appendChild(revertDesc);
+
+        const revertCode = document.createElement('code');
+        revertCode.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 12px;';
+        revertCode.textContent = 'securevector-app --revert-proxy';
+        revertCard.appendChild(revertCode);
+
+        const revertDetails = document.createElement('div');
+        revertDetails.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.7;';
+        revertDetails.innerHTML = `
+            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">What this does:</div>
+            <div style="margin-bottom: 2px;">1. <strong>Restores all pi-ai provider files</strong> from backups (openai, anthropic, gemini)</div>
+            <div style="margin-bottom: 6px;">2. <strong>Does not remove</strong> API keys, environment variables, or other settings</div>
+            <div style="font-style: italic; color: var(--text-secondary);">After reverting, OpenClaw will talk directly to providers without going through SecureVector.</div>
+        `;
+        revertCard.appendChild(revertDetails);
     },
 
     updateStatusText(element) {
@@ -338,9 +445,14 @@ const ProxyPage = {
             this.updateProxyStatusUI();
             try {
                 const response = await fetch('/api/proxy/stop', { method: 'POST' });
-                if (response.ok) {
+                const data = await response.json();
+                if (response.ok && data.status === 'stopped') {
                     this.proxyStatus = 'stopped';
                     Toast.success('Proxy stopped');
+                } else if (data.status === 'error') {
+                    // Proxy running in-process or externally - can't stop from UI
+                    Toast.error(data.message || 'Cannot stop proxy from UI');
+                    this.proxyStatus = 'running';
                 } else {
                     throw new Error('Failed to stop proxy');
                 }
@@ -352,10 +464,16 @@ const ProxyPage = {
             this.proxyStatus = 'starting';
             this.updateProxyStatusUI();
             try {
-                const response = await fetch('/api/proxy/start', { method: 'POST' });
+                const provider = document.getElementById('proxy-provider-select')?.value || 'openai';
+                const response = await fetch('/api/proxy/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider }),
+                });
                 if (response.ok) {
+                    const data = await response.json();
                     this.proxyStatus = 'running';
-                    Toast.success('Proxy started on port 18789');
+                    Toast.success(`Proxy started (${provider}) on port 8742`);
                 } else {
                     throw new Error('Failed to start proxy');
                 }
@@ -369,19 +487,18 @@ const ProxyPage = {
 
     renderBlockMode(container) {
         const row = document.createElement('div');
-        row.className = 'settings-row';
-        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 16px 0;';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
         const info = document.createElement('div');
 
         const label = document.createElement('div');
-        label.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        label.textContent = 'Enable Block Mode';
+        label.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 2px;';
+        label.textContent = 'Block Mode';
         info.appendChild(label);
 
         const desc = document.createElement('div');
-        desc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        desc.textContent = 'Block INPUT threats instead of just logging (output is logged only)';
+        desc.style.cssText = 'color: var(--text-secondary); font-size: 11px;';
+        desc.textContent = 'Block threats (input only)';
         info.appendChild(desc);
 
         row.appendChild(info);
@@ -420,29 +537,22 @@ const ProxyPage = {
 
         row.appendChild(toggle);
         container.appendChild(row);
-
-        // Warning note
-        const note = document.createElement('div');
-        note.style.cssText = 'background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--danger);';
-        note.textContent = 'When enabled, input threats are blocked from agents and output threats are blocked from users.';
-        container.appendChild(note);
     },
 
     renderOutputScan(container) {
         const row = document.createElement('div');
-        row.className = 'settings-row';
-        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 16px 0;';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
         const info = document.createElement('div');
 
         const label = document.createElement('div');
-        label.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        label.textContent = 'Enable Output Scanning';
+        label.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 2px;';
+        label.textContent = 'Output Scan';
         info.appendChild(label);
 
         const desc = document.createElement('div');
-        desc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        desc.textContent = 'Scan LLM responses for sensitive data';
+        desc.style.cssText = 'color: var(--text-secondary); font-size: 11px;';
+        desc.textContent = 'Scan LLM responses for leaks';
         info.appendChild(desc);
 
         row.appendChild(info);
@@ -456,15 +566,6 @@ const ProxyPage = {
         checkbox.checked = this.settings.scan_llm_responses;
         checkbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
-            const message = newState
-                ? 'Enable Output Scanning?\n\nLLM responses will be scanned for:\n• Credential leakage\n• System prompt exposure\n• PII disclosure'
-                : 'Disable Output Scanning?\n\nLLM responses will not be monitored for data leakage.';
-
-            if (!confirm(message)) {
-                e.target.checked = !newState;
-                return;
-            }
-
             try {
                 await API.updateSettings({ scan_llm_responses: newState });
                 Toast.success(newState ? 'Output scan enabled' : 'Output scan disabled');
@@ -481,12 +582,6 @@ const ProxyPage = {
 
         row.appendChild(toggle);
         container.appendChild(row);
-
-        // Info note
-        const note = document.createElement('div');
-        note.style.cssText = 'background: linear-gradient(135deg, rgba(0, 188, 212, 0.1), rgba(244, 67, 54, 0.1)); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 13px;';
-        note.textContent = 'Detects credential leakage, system prompt exposure, PII disclosure, and encoded data in AI responses.';
-        container.appendChild(note);
     },
 
     createSection(title, subtitle, highlight = false) {

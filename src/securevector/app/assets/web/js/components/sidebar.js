@@ -8,8 +8,13 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'proxy', label: 'Agent Proxy', icon: 'proxy', subItems: [
-            { id: 'proxy', label: 'OpenClaw/ClaudBot' }
+        { id: 'integrations', label: 'Integrations', icon: 'integrations', subItems: [
+            { id: 'proxy-langchain', label: 'LangChain' },
+            { id: 'proxy-langgraph', label: 'LangGraph' },
+            { id: 'proxy-crewai', label: 'CrewAI' },
+            { id: 'proxy-n8n', label: 'n8n' },
+            { id: 'proxy-ollama', label: 'Ollama' },
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClaudBot' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
@@ -483,6 +488,13 @@ const Sidebar = {
                 { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
                 { tag: 'path', attrs: { d: 'M2 12l10 5 10-5' } },
             ],
+            integrations: [
+                { tag: 'rect', attrs: { x: '3', y: '11', width: '18', height: '10', rx: '2' } },
+                { tag: 'circle', attrs: { cx: '12', cy: '5', r: '2' } },
+                { tag: 'path', attrs: { d: 'M12 7v4' } },
+                { tag: 'circle', attrs: { cx: '8', cy: '16', r: '1', fill: 'currentColor' } },
+                { tag: 'circle', attrs: { cx: '16', cy: '16', r: '1', fill: 'currentColor' } },
+            ],
             uninstall: [
                 { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
                 { tag: 'line', attrs: { x1: '10', y1: '11', x2: '10', y2: '17' } },
@@ -542,9 +554,9 @@ const FloatingChat = {
         if (this.initialized) return;
         this.initialized = true;
 
-        // Create floating button
+        // Create floating button (hidden by default - show via sidebar "Try SecureVector")
         const fab = document.createElement('button');
-        fab.className = 'floating-chat-fab';
+        fab.className = 'floating-chat-fab hidden';
         fab.id = 'floating-chat-fab';
         fab.setAttribute('aria-label', 'Try SecureVector');
 

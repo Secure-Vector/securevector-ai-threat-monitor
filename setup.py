@@ -124,6 +124,7 @@ setup(
             "securevector-monitor=securevector.cli:main",
             "securevector-mcp=securevector.mcp.__main__:main",
             "securevector-app=securevector.app.main:main",
+            "securevector-proxy=securevector.integrations.openclaw_llm_proxy:main",
         ],
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",
