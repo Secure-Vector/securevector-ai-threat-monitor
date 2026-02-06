@@ -56,7 +56,7 @@ _multi_mode = False
 @router.get("/status")
 async def get_proxy_status():
     """Get the current status of the LLM proxy."""
-    global _llm_proxy_process, _current_provider, _proxy_running_in_process, _multi_mode
+    global _llm_proxy_process, _multi_mode
 
     running = False
 
