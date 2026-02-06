@@ -48,7 +48,7 @@
 - ☑ **Input Scanning** — Block prompt injection, jailbreaks, and manipulation before they reach the LLM.
 - ☑ **Output Scanning** — Detect credential leaks, PII exposure, and system prompt disclosure.
 - ☑ **18+ Providers** — OpenAI, Anthropic, Gemini, Ollama, Groq, Azure, and more.
-- ☑ **One Command** — `securevector-app --proxy --provider openai --web` and you're protected.
+- ☑ **One Command** — `securevector-app --web` and follow the UI to start protecting.
 
 <br>
 
@@ -75,29 +75,19 @@ Binary installers: [Windows](https://github.com/Secure-Vector/securevector-ai-th
 
 <br>
 
-## Quick Start — LLM Proxy
+## Quick Start
 
-Protect any AI app with one command:
-
-```bash
-# Start SecureVector proxy + dashboard
-securevector-app --proxy --provider ollama --web
-```
-
-Then point your app to the proxy:
+**Step 1:** Start SecureVector app
 
 ```bash
-# Any OpenAI-compatible app
-OPENAI_BASE_URL=http://localhost:8742/v1 python your_app.py
-
-# LangChain / CrewAI / custom apps
-OPENAI_BASE_URL=http://localhost:8742/v1 your-agent
-
-# OpenClaw (add --openclaw flag, auto-patches pi-ai)
-securevector-app --proxy --provider openai --web --openclaw
+securevector-app --web
 ```
 
-Every request is scanned for prompt injection. Every response is scanned for data leaks.
+**Step 2:** Go to **Integrations** in the UI, choose your agent framework and LLM provider, then click **Start Proxy**.
+
+**Step 3:** Point your app to the proxy (shown in the UI).
+
+That's it! Every request is scanned for prompt injection. Every response is scanned for data leaks.
 
 **Supported providers:** `openai` `anthropic` `gemini` `ollama` `groq` `openrouter` `deepseek` `mistral` `xai` `azure` `together` `fireworks` `perplexity` `cohere` `cerebras` `lmstudio` `litellm`
 
@@ -107,14 +97,14 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 
 | Agent/Framework | Integration |
 |-----------------|-------------|
-| **Any OpenAI-compatible app** | LLM Proxy — `OPENAI_BASE_URL=http://localhost:8742/v1` |
-| **LangChain** | [LLM Proxy](docs/USECASES.md#langchain) or Callback |
-| **LangGraph** | [LLM Proxy](docs/USECASES.md#langgraph) or Security Node |
-| **CrewAI** | [LLM Proxy](docs/USECASES.md#crewai) or Tool/Callback |
-| **Ollama** | LLM Proxy — `securevector-app --proxy --provider ollama` |
-| **OpenClaw / ClawdBot** | LLM Proxy — add `--openclaw` flag |
-| **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
+| **LangChain** | LLM Proxy or [SDK Callback](docs/USECASES.md#langchain) |
+| **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
+| **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
+| **Ollama / Open WebUI** | LLM Proxy — see Integrations in UI |
+| **OpenClaw / ClaudBot** | LLM Proxy — see Integrations in UI |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
+| **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
+| **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
 | **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
 
 <br>
