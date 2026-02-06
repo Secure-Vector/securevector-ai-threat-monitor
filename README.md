@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector AI Threat Monitor</h1>
+<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector AI Firewall</h1>
 
 <h3>Runtime Firewall for AI Agents & Bots</h3>
 
@@ -25,7 +25,14 @@
 
 **SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats. Runs entirely on your machine — nothing leaves your infrastructure.
 
-> **Open-source AI firewall that runs 100% locally. No API keys. No cloud. No data sharing.**
+```bash
+pip install securevector-ai-monitor[app]
+securevector-app --web
+```
+
+Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest/download/SecureVector.AppImage)
+
+> **Open-source. 100% local. No API keys. No cloud. No data sharing.**
 
 <br>
 
