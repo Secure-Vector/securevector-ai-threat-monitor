@@ -66,12 +66,36 @@ class LLMProxy:
         "cohere": "https://api.cohere.ai",
     }
 
+    # API version prefix each provider expects (auto-prepended if missing from request)
+    API_PREFIXES = {
+        "openai": "/v1",
+        "anthropic": "",
+        "ollama": "/v1",
+        "groq": "/v1",
+        "openrouter": "/v1",
+        "cerebras": "/v1",
+        "mistral": "/v1",
+        "xai": "/v1",
+        "gemini": "/v1beta",
+        "azure": "",
+        "lmstudio": "/v1",
+        "litellm": "/v1",
+        "moonshot": "/v1",
+        "minimax": "/v1",
+        "deepseek": "/v1",
+        "together": "/v1",
+        "fireworks": "/v1",
+        "perplexity": "/v1",
+        "cohere": "/v1",
+    }
+
     def __init__(
         self,
         target_url: str = "https://api.openai.com",
         securevector_url: str = "http://127.0.0.1:8741",
         block_threats: bool = False,
         verbose: bool = False,
+        provider: str = "openai",
     ):
         self.target_url = target_url.rstrip("/")
         self.securevector_url = securevector_url
@@ -79,6 +103,8 @@ class LLMProxy:
         self.settings_url = f"{securevector_url}/api/settings"
         self.block_threats = block_threats
         self.verbose = verbose
+        self.provider = provider
+        self.api_prefix = self.API_PREFIXES.get(provider, "/v1")
         self.stats = {"scanned": 0, "blocked": 0, "threats_detected": 0, "passed": 0}
         self._http_client: Optional[httpx.AsyncClient] = None
 
@@ -131,89 +157,224 @@ class LLMProxy:
         return {"scan_llm_responses": True, "block_threats": self.block_threats}
 
     async def scan_message(self, text: str, is_llm_response: bool = False) -> dict:
-        """Scan a message with SecureVector API."""
+        """Scan a message with SecureVector API.
+
+        On scan failure: if block mode is ON, fails closed (treats as threat)
+        to prevent unscanned content from passing through. If block mode is
+        OFF, fails open (treats as clean) for availability.
+        """
         if not text:
             return {"is_threat": False}
 
-        try:
-            client = await self.get_http_client()
-            response = await client.post(
-                self.analyze_url,
-                json={
-                    "text": text,
-                    "llm_response": is_llm_response,
-                    "metadata": {
-                        "source": "llm-proxy",
-                        "target": self.target_url,
-                        "scan_type": "output" if is_llm_response else "input",
-                    }
-                },
-                timeout=5.0,
-            )
-            if response.status_code == 200:
-                return response.json()
-        except Exception as e:
-            logger.warning(f"SecureVector scan error: {e}")
+        scan_payload = {
+            "text": text,
+            "llm_response": is_llm_response,
+            "metadata": {
+                "source": "llm-proxy",
+                "target": self.target_url,
+                "scan_type": "output" if is_llm_response else "input",
+            }
+        }
 
+        # Try scan with one retry on failure
+        last_error = None
+        for attempt in range(2):
+            try:
+                client = await self.get_http_client()
+                response = await client.post(
+                    self.analyze_url,
+                    json=scan_payload,
+                    timeout=5.0,
+                )
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+            except httpx.ConnectError:
+                last_error = f"cannot connect to {self.analyze_url} - is securevector-app running?"
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e or repr(e)}"
+
+            if attempt == 0:
+                # Brief pause before retry
+                await asyncio.sleep(0.3)
+
+        # Both attempts failed
+        logger.warning(f"SecureVector scan error (after retry): {last_error}")
+
+        # Fail-closed when block mode is ON: treat scan failure as threat
+        settings = await self.check_settings()
+        if settings.get("block_threats"):
+            logger.warning("[llm-proxy] Block mode ON + scan failed → failing closed (blocking)")
+            return {
+                "is_threat": True,
+                "threat_type": "scan_unavailable",
+                "risk_score": 100,
+                "scan_error": True,
+            }
+
+        # Fail-open when block mode is OFF: log only, allow through
         return {"is_threat": False}
 
+    def _extract_content_parts(self, content) -> list:
+        """Extract text from content that can be a string or structured list."""
+        texts = []
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, str):
+                    texts.append(part)
+                elif isinstance(part, dict):
+                    # Covers: {type: "text", text: "..."} (OpenAI/Anthropic)
+                    #         {type: "input_text", text: "..."} (Responses API)
+                    if part.get("type") in ("text", "input_text"):
+                        texts.append(part.get("text", ""))
+                    # Gemini: {text: "..."}
+                    elif "text" in part and "type" not in part:
+                        texts.append(part["text"])
+        return texts
+
     def extract_messages_text(self, body: dict) -> str:
-        """Extract text content from LLM API request body."""
+        """Extract the LAST user message from any LLM API request body.
+
+        Only scans the incoming user prompt, not the system prompt or
+        conversation history. This keeps scans fast and focused on the
+        actual new input.
+        """
         texts = []
 
-        # OpenAI format
+        # --- OpenAI Chat Completions / Anthropic Messages / Mistral / Groq / xAI / DeepSeek etc. ---
         if "messages" in body:
-            for msg in body["messages"]:
-                if isinstance(msg, dict):
-                    content = msg.get("content", "")
-                    if isinstance(content, str):
-                        texts.append(content)
-                    elif isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict) and item.get("type") == "text":
-                                texts.append(item.get("text", ""))
+            # Find the last user message only
+            for msg in reversed(body["messages"]):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    texts.extend(self._extract_content_parts(msg.get("content", "")))
+                    break
 
-        # Anthropic format
-        if "prompt" in body:
+        # --- OpenAI Responses API ---
+        elif "input" in body:
+            inp = body["input"]
+            if isinstance(inp, str):
+                texts.append(inp)
+            elif isinstance(inp, list):
+                # Find the last user item
+                for item in reversed(inp):
+                    if isinstance(item, str):
+                        texts.append(item)
+                        break
+                    elif isinstance(item, dict) and item.get("role") == "user":
+                        texts.extend(self._extract_content_parts(item.get("content", "")))
+                        break
+
+        # --- Google Gemini ---
+        elif "contents" in body:
+            # Find the last user turn
+            for content_item in reversed(body["contents"]):
+                if isinstance(content_item, dict) and content_item.get("role") == "user":
+                    for part in content_item.get("parts", []):
+                        if isinstance(part, dict) and "text" in part:
+                            texts.append(part["text"])
+                    break
+
+        # --- Cohere ---
+        elif "message" in body and isinstance(body["message"], str):
+            texts.append(body["message"])
+
+        # --- Ollama / Legacy Anthropic ---
+        elif "prompt" in body and isinstance(body["prompt"], str):
             texts.append(body["prompt"])
 
-        # Direct text
-        if "text" in body:
+        # --- Direct text ---
+        elif "text" in body and isinstance(body["text"], str):
             texts.append(body["text"])
 
-        return "\n".join(texts)
+        return "\n".join(t for t in texts if t)
 
     def extract_response_text(self, body: dict) -> str:
-        """Extract text content from LLM API response body."""
+        """Extract text content from any LLM API response body.
+
+        Handles both non-streaming (full response) and streaming (SSE chunk)
+        formats for all providers.
+        """
         texts = []
 
-        # OpenAI format
+        # --- OpenAI Chat Completions / Mistral / Groq / xAI / DeepSeek etc. ---
+        # Non-streaming: {"choices": [{"message": {"content": "..."}}]}
+        # Streaming:     {"choices": [{"delta": {"content": "..."}}]}
         if "choices" in body:
             for choice in body["choices"]:
                 if isinstance(choice, dict):
                     msg = choice.get("message", {})
-                    if isinstance(msg, dict):
-                        content = msg.get("content", "")
-                        if content:
-                            texts.append(content)
-                    # Streaming delta
+                    if isinstance(msg, dict) and msg.get("content"):
+                        texts.append(msg["content"])
                     delta = choice.get("delta", {})
-                    if isinstance(delta, dict):
-                        content = delta.get("content", "")
-                        if content:
-                            texts.append(content)
+                    if isinstance(delta, dict) and delta.get("content"):
+                        texts.append(delta["content"])
 
-        # Anthropic format
-        if "content" in body:
-            for item in body.get("content", []):
+        # --- OpenAI Responses API ---
+        # Non-streaming: {"output": [{"type": "message", "content": [{"type": "output_text", "text": "..."}]}]}
+        # Streaming:     {"type": "response.output_text.delta", "delta": "..."} (delta is a STRING)
+        if "output" in body:
+            for item in body.get("output", []):
+                if isinstance(item, dict):
+                    if item.get("type") == "output_text":
+                        texts.append(item.get("text", ""))
+                    if item.get("type") == "message":
+                        for part in item.get("content", []):
+                            if isinstance(part, dict) and part.get("type") == "output_text":
+                                texts.append(part.get("text", ""))
+
+        # Responses API streaming delta (delta is a string, not dict)
+        if "delta" in body and isinstance(body.get("delta"), str):
+            texts.append(body["delta"])
+
+        # --- Anthropic Messages API ---
+        # Non-streaming: {"content": [{"type": "text", "text": "..."}]}
+        # Streaming:     {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "..."}}
+        if "content" in body and isinstance(body["content"], list) and "output" not in body and "choices" not in body:
+            for item in body["content"]:
                 if isinstance(item, dict) and item.get("type") == "text":
                     texts.append(item.get("text", ""))
 
-        # Direct completion
+        # Anthropic streaming: delta is a DICT with type "text_delta"
+        if "delta" in body and isinstance(body.get("delta"), dict):
+            delta = body["delta"]
+            if delta.get("type") == "text_delta" and delta.get("text"):
+                texts.append(delta["text"])
+
+        # --- Google Gemini ---
+        # Non-streaming & streaming: {"candidates": [{"content": {"parts": [{"text": "..."}]}}]}
+        if "candidates" in body:
+            for candidate in body["candidates"]:
+                if isinstance(candidate, dict):
+                    content = candidate.get("content", {})
+                    if isinstance(content, dict):
+                        for part in content.get("parts", []):
+                            if isinstance(part, dict) and "text" in part:
+                                texts.append(part["text"])
+
+        # --- Cohere ---
+        # {"text": "..."}
+        if "text" in body and isinstance(body["text"], str) and "choices" not in body and "candidates" not in body:
+            texts.append(body["text"])
+
+        # --- Ollama ---
+        # Generate: {"response": "..."}
+        # Chat:     {"message": {"content": "..."}}
+        if "response" in body and isinstance(body["response"], str):
+            texts.append(body["response"])
+        if "message" in body and isinstance(body["message"], dict):
+            content = body["message"].get("content", "")
+            if content:
+                texts.append(content)
+
+        # --- Legacy Anthropic ---
+        # {"completion": "..."}
         if "completion" in body:
             texts.append(body["completion"])
 
-        return "\n".join(texts)
+        return "\n".join(t for t in texts if t)
 
     async def handle_request(self, request: Request) -> Response:
         """Handle incoming request, scan, and forward to LLM provider."""
@@ -224,8 +385,7 @@ class LLMProxy:
         body_bytes = await request.body()
         body_text = body_bytes.decode("utf-8") if body_bytes else ""
 
-        if self.verbose:
-            logger.info(f"[llm-proxy] {method} {path}")
+        print(f"[llm-proxy] → {method} {path}")
 
         # Parse body for scanning
         body_dict = {}
@@ -240,26 +400,38 @@ class LLMProxy:
             input_text = self.extract_messages_text(body_dict)
             if input_text:
                 self.stats["scanned"] += 1
+                preview = input_text[:80].replace('\n', ' ')
+                print(f"[llm-proxy] 🔍 Scanning input ({len(input_text)} chars): {preview}...")
                 result = await self.scan_message(input_text, is_llm_response=False)
 
                 if result.get("is_threat"):
                     self.stats["threats_detected"] += 1
                     threat_type = result.get("threat_type", "unknown")
                     risk_score = result.get("risk_score", 0)
-                    logger.warning(f"[llm-proxy] ⚠️ THREAT DETECTED: {threat_type} (risk: {risk_score}%)")
 
-                    # Check if blocking is enabled
+                    if result.get("scan_error"):
+                        print(f"[llm-proxy] ⚠️  SCAN FAILED - blocking (fail-closed, block mode ON)")
+                    else:
+                        print(f"[llm-proxy] ⚠️  THREAT DETECTED: {threat_type} (risk: {risk_score}%)")
+
+                    # Check if blocking is enabled (scan_error already checked block mode)
                     settings = await self.check_settings()
                     if settings.get("block_threats"):
                         self.stats["blocked"] += 1
-                        logger.warning(f"[llm-proxy] 🚫 BLOCKED - not forwarding to LLM")
+                        print(f"[llm-proxy] 🚫 BLOCKED - not forwarding to LLM")
 
-                        # Return error in OpenAI-compatible format (works with most providers)
+                        if result.get("scan_error"):
+                            msg = "Request blocked by SecureVector: scan service unavailable (fail-closed mode)"
+                            code = "scan_unavailable_blocked"
+                        else:
+                            msg = f"Request blocked by SecureVector: {threat_type} detected (risk: {risk_score}%)"
+                            code = "blocked_by_securevector"
+
                         error_response = {
                             "error": {
-                                "message": f"Request blocked by SecureVector: {threat_type} detected (risk: {risk_score}%)",
+                                "message": msg,
                                 "type": "security_error",
-                                "code": "blocked_by_securevector",
+                                "code": code,
                             }
                         }
                         return Response(
@@ -268,14 +440,23 @@ class LLMProxy:
                             media_type="application/json",
                         )
                 else:
-                    if self.verbose:
-                        logger.info(f"[llm-proxy] ✓ Input scanned - no threat")
+                    print(f"[llm-proxy] ✓ Input clean - forwarding to {self.target_url}")
+        else:
+            if self.verbose:
+                logger.info(f"[llm-proxy] Non-POST request, skipping scan")
 
         # Build headers for upstream request
         # Pass through all headers including auth (OpenClaw sends them)
         headers = dict(request.headers)
         headers.pop("host", None)
         headers.pop("content-length", None)
+
+        # Auto-prepend API version prefix if missing from path
+        # e.g. /responses → /v1/responses for OpenAI
+        if self.api_prefix and not path.startswith(self.api_prefix):
+            path = self.api_prefix + path
+            if self.verbose:
+                print(f"[llm-proxy] Auto-prepended {self.api_prefix} → {path}")
 
         # Forward request to LLM provider
         target = f"{self.target_url}{path}"
@@ -302,7 +483,7 @@ class LLMProxy:
                     content=body_bytes,
                 )
 
-                # Scan response
+                # Scan response for output threats
                 response_text = response.text
                 if response.status_code == 200 and response_text:
                     try:
@@ -314,7 +495,25 @@ class LLMProxy:
                                 result = await self.scan_message(output_text, is_llm_response=True)
                                 if result.get("is_threat"):
                                     threat_type = result.get("threat_type", "unknown")
-                                    logger.warning(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type}")
+                                    risk_score = result.get("risk_score", 0)
+                                    print(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type} (risk: {risk_score}%)")
+
+                                    # Block output if block mode is enabled
+                                    if settings.get("block_threats"):
+                                        self.stats["blocked"] += 1
+                                        print(f"[llm-proxy] 🚫 OUTPUT BLOCKED - not delivering to client")
+                                        error_response = {
+                                            "error": {
+                                                "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
+                                                "type": "security_error",
+                                                "code": "output_blocked_by_securevector",
+                                            }
+                                        }
+                                        return Response(
+                                            content=json.dumps(error_response),
+                                            status_code=400,
+                                            media_type="application/json",
+                                        )
                     except json.JSONDecodeError:
                         pass
 
@@ -335,8 +534,88 @@ class LLMProxy:
     async def handle_streaming_request(
         self, client: httpx.AsyncClient, method: str, url: str,
         headers: dict, body: bytes
+    ) -> Response:
+        """Handle streaming LLM response.
+
+        When block mode is ON: buffers the full response, scans it, then
+        delivers or blocks. Adds latency but provides full output protection.
+
+        When block mode is OFF: streams through in real-time, scans at the
+        end for logging/detection only.
+        """
+        settings = await self.check_settings()
+        should_block = settings.get("block_threats") and settings.get("scan_llm_responses")
+
+        if should_block:
+            # BLOCK MODE: Buffer full response, scan, then deliver or block
+            return await self._handle_streaming_buffered(client, method, url, headers, body)
+        else:
+            # PASSTHROUGH MODE: Stream through, scan at end for logging
+            return await self._handle_streaming_passthrough(client, method, url, headers, body)
+
+    async def _handle_streaming_buffered(
+        self, client: httpx.AsyncClient, method: str, url: str,
+        headers: dict, body: bytes
+    ) -> Response:
+        """Buffer streaming response, scan, then deliver or block."""
+        accumulated_text = ""
+        all_chunks = []
+
+        print("[llm-proxy] 🛡️ Block mode ON - buffering stream for output scan...")
+
+        async with client.stream(method, url, headers=headers, content=body) as response:
+            async for chunk in response.aiter_bytes():
+                all_chunks.append(chunk)
+                try:
+                    chunk_str = chunk.decode("utf-8")
+                    for line in chunk_str.split("\n"):
+                        if line.startswith("data: ") and line != "data: [DONE]":
+                            data = json.loads(line[6:])
+                            text = self.extract_response_text(data)
+                            if text:
+                                accumulated_text += text
+                except:
+                    pass
+
+        # Scan accumulated text
+        if accumulated_text:
+            result = await self.scan_message(accumulated_text, is_llm_response=True)
+            if result.get("is_threat"):
+                threat_type = result.get("threat_type", "unknown")
+                risk_score = result.get("risk_score", 0)
+                self.stats["blocked"] += 1
+                print(f"[llm-proxy] 🚫 OUTPUT BLOCKED (streamed): {threat_type} (risk: {risk_score}%)")
+
+                error_response = {
+                    "error": {
+                        "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
+                        "type": "security_error",
+                        "code": "output_blocked_by_securevector",
+                    }
+                }
+                return Response(
+                    content=json.dumps(error_response),
+                    status_code=400,
+                    media_type="application/json",
+                )
+
+        print("[llm-proxy] ✓ Output clean - delivering to client")
+
+        # Deliver buffered stream
+        async def replay_chunks():
+            for chunk in all_chunks:
+                yield chunk
+
+        return StreamingResponse(
+            replay_chunks(),
+            media_type="text/event-stream",
+        )
+
+    async def _handle_streaming_passthrough(
+        self, client: httpx.AsyncClient, method: str, url: str,
+        headers: dict, body: bytes
     ) -> StreamingResponse:
-        """Handle streaming LLM response."""
+        """Stream through in real-time, scan at end for logging."""
         accumulated_text = ""
 
         async def stream_generator():
@@ -344,7 +623,6 @@ class LLMProxy:
 
             async with client.stream(method, url, headers=headers, content=body) as response:
                 async for chunk in response.aiter_bytes():
-                    # Try to extract text from SSE chunk for scanning
                     try:
                         chunk_str = chunk.decode("utf-8")
                         for line in chunk_str.split("\n"):
@@ -358,14 +636,14 @@ class LLMProxy:
 
                     yield chunk
 
-            # Scan accumulated text after stream completes
+            # Scan accumulated text after stream completes (logging only)
             if accumulated_text:
                 settings = await self.check_settings()
                 if settings.get("scan_llm_responses"):
                     result = await self.scan_message(accumulated_text, is_llm_response=True)
                     if result.get("is_threat"):
                         threat_type = result.get("threat_type", "unknown")
-                        logger.warning(f"[llm-proxy] ⚠️ OUTPUT THREAT (streamed): {threat_type}")
+                        print(f"[llm-proxy] ⚠️ OUTPUT THREAT (streamed): {threat_type}")
 
         return StreamingResponse(
             stream_generator(),
@@ -454,6 +732,7 @@ def main():
         securevector_url=args.securevector_url,
         block_threats=args.block,
         verbose=args.verbose,
+        provider=args.provider,
     )
 
     print(f"""

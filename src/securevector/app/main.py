@@ -138,6 +138,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
         securevector_url=f"http://127.0.0.1:{securevector_port}",
         block_threats=block_threats,
         verbose=verbose,
+        provider=provider,
     )
 
     print(f"\n  SecureVector LLM Proxy")
@@ -243,6 +244,7 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         securevector_url=f"http://127.0.0.1:{port}",
         block_threats=block_threats,
         verbose=verbose,
+        provider=provider,
     )
     proxy_app = proxy.create_app()
 
@@ -262,6 +264,352 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         asyncio.run(run_both())
     except KeyboardInterrupt:
         print("\n  Shutting down...")
+
+
+def _find_pi_ai_path() -> str:
+    """Find the pi-ai installation path. Returns path or exits with error."""
+    import subprocess
+
+    search_paths = []
+
+    # Method 1: npm root -g
+    try:
+        result = subprocess.run(
+            ["npm", "root", "-g"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            npm_global = result.stdout.strip()
+            search_paths.append(os.path.join(npm_global, "openclaw", "node_modules", "@mariozechner", "pi-ai"))
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Method 2: which openclaw -> trace back
+    try:
+        result = subprocess.run(
+            ["which", "openclaw"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            openclaw_bin = result.stdout.strip()
+            openclaw_real = os.path.realpath(openclaw_bin)
+            parts = openclaw_real.split(os.sep)
+            for i, part in enumerate(parts):
+                if part == "openclaw" and i > 0 and parts[i - 1] == "node_modules":
+                    base = os.sep.join(parts[:i + 1])
+                    search_paths.append(os.path.join(base, "node_modules", "@mariozechner", "pi-ai"))
+                    break
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Method 3: Common nvm paths
+    home = os.path.expanduser("~")
+    nvm_base = os.path.join(home, ".nvm", "versions", "node")
+    if os.path.isdir(nvm_base):
+        for node_ver in os.listdir(nvm_base):
+            search_paths.append(os.path.join(
+                nvm_base, node_ver, "lib", "node_modules", "openclaw",
+                "node_modules", "@mariozechner", "pi-ai"
+            ))
+
+    # Deduplicate and check
+    seen = set()
+    for path in search_paths:
+        path = os.path.normpath(path)
+        if path in seen:
+            continue
+        seen.add(path)
+        if os.path.isdir(path):
+            return path
+
+    print("  ✗ Could not find pi-ai installation.")
+    print()
+    print("  Make sure OpenClaw is installed globally:")
+    print("    npm install -g openclaw")
+    sys.exit(1)
+
+
+# Provider → which pi-ai files to patch
+_PROVIDER_PATCH_MAP = {
+    # All OpenAI-compatible providers go through these 2 files
+    "openai": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "groq": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "openrouter": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "cerebras": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "mistral": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "xai": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "deepseek": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "together": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "fireworks": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "perplexity": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "cohere": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "ollama": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "moonshot": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "minimax": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "lmstudio": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "litellm": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    "azure": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
+    # Anthropic has its own file
+    "anthropic": ["dist/providers/anthropic.js"],
+    # Google has 2 files
+    "gemini": ["dist/providers/google.js", "dist/providers/google-gemini-cli.js"],
+}
+
+# All patchable files
+_ALL_PATCH_FILES = [
+    "dist/providers/openai-completions.js",
+    "dist/providers/openai-responses.js",
+    "dist/providers/anthropic.js",
+    "dist/providers/google.js",
+    "dist/providers/google-gemini-cli.js",
+]
+
+# All patches keyed by file
+_ALL_PATCHES = [
+    {
+        "file": "dist/providers/openai-completions.js",
+        "search": "baseURL: model.baseUrl,",
+        "replace": "baseURL: process.env.OPENAI_BASE_URL || model.baseUrl,",
+        "desc": "openai-completions.js (OPENAI_BASE_URL)",
+    },
+    {
+        "file": "dist/providers/openai-responses.js",
+        "search": "baseURL: model.baseUrl,",
+        "replace": "baseURL: process.env.OPENAI_BASE_URL || model.baseUrl,",
+        "desc": "openai-responses.js  (OPENAI_BASE_URL)",
+    },
+    {
+        "file": "dist/providers/anthropic.js",
+        "search": "baseURL: model.baseUrl,",
+        "replace": "baseURL: process.env.ANTHROPIC_BASE_URL || model.baseUrl,",
+        "desc": "anthropic.js         (ANTHROPIC_BASE_URL)",
+    },
+    {
+        "file": "dist/providers/google.js",
+        "search": "if (model.baseUrl) {",
+        "replace": "const _gBaseUrl = process.env.GOOGLE_GENAI_BASE_URL || model.baseUrl;\n    if (_gBaseUrl) {",
+        "desc": "google.js            (GOOGLE_GENAI_BASE_URL)",
+    },
+    {
+        "file": "dist/providers/google.js",
+        "search": "httpOptions.baseUrl = model.baseUrl;",
+        "replace": "httpOptions.baseUrl = _gBaseUrl;",
+        "desc": "google.js            (baseUrl assignment)",
+    },
+    {
+        "file": "dist/providers/google-gemini-cli.js",
+        "search": "const baseUrl = model.baseUrl?.trim();",
+        "replace": "const baseUrl = (process.env.GOOGLE_GENAI_BASE_URL || model.baseUrl)?.trim();",
+        "desc": "google-gemini-cli.js (GOOGLE_GENAI_BASE_URL)",
+    },
+]
+
+# Provider → env var name
+_PROVIDER_ENV_VAR = {
+    "openai": "OPENAI_BASE_URL",
+    "anthropic": "ANTHROPIC_BASE_URL",
+    "gemini": "GOOGLE_GENAI_BASE_URL",
+}
+
+# Provider → basePath suffix
+_PROVIDER_BASE_PATH = {
+    "openai": "/v1",
+    "anthropic": "",
+    "gemini": "/v1beta",
+}
+
+
+def setup_proxy(provider: str = "openai") -> None:
+    """One-time setup: patch OpenClaw's pi-ai library for a specific provider."""
+    import shutil
+
+    # Resolve provider to patch files
+    if provider in _PROVIDER_PATCH_MAP:
+        target_files = _PROVIDER_PATCH_MAP[provider]
+        provider_label = provider
+    else:
+        # Unknown provider — assume OpenAI-compatible
+        target_files = _PROVIDER_PATCH_MAP["openai"]
+        provider_label = f"{provider} (OpenAI-compatible)"
+
+    # Deduplicate
+    target_files = list(dict.fromkeys(target_files))
+
+    # Determine env var for next steps
+    env_var = _PROVIDER_ENV_VAR.get(provider, "OPENAI_BASE_URL")
+    base_path = _PROVIDER_BASE_PATH.get(provider, "/v1")
+
+    print()
+    print("  SecureVector Proxy Setup")
+    print("  ════════════════════════════════════════════════════════════")
+    print()
+    print("  WHY THIS IS NEEDED:")
+    print("  OpenClaw uses the @mariozechner/pi-ai library which hardcodes")
+    print("  LLM API URLs in its source, bypassing env var overrides.")
+    print("  This patch restores env var support so traffic routes through")
+    print("  the SecureVector proxy for threat scanning.")
+    print()
+    print(f"  PROVIDER: {provider_label}")
+    print(f"  FILES TO PATCH: {len(target_files)}")
+    for f in target_files:
+        print(f"    - {os.path.basename(f)}")
+    print()
+    print("  ════════════════════════════════════════════════════════════")
+    print()
+
+    # --- Find pi-ai installation ---
+    print("  [1/3] Searching for pi-ai installation...")
+    pi_ai_path = _find_pi_ai_path()
+    print(f"  ✓ Found pi-ai at: {pi_ai_path}")
+    print()
+
+    # --- Filter patches to only the target files ---
+    patches = [p for p in _ALL_PATCHES if p["file"] in target_files]
+
+    # --- Apply patches ---
+    print("  [2/3] Applying patches...")
+
+    patched = 0
+    skipped = 0
+    failed = 0
+
+    for patch in patches:
+        filepath = os.path.join(pi_ai_path, patch["file"])
+        if not os.path.isfile(filepath):
+            print(f"    ✗ Not found: {patch['desc']}")
+            failed += 1
+            continue
+
+        with open(filepath, "r") as f:
+            content = f.read()
+
+        if patch["replace"] in content:
+            print(f"    ○ Already patched: {patch['desc']}")
+            skipped += 1
+            continue
+
+        if patch["search"] not in content:
+            print(f"    ✗ Pattern not found: {patch['desc']} (pi-ai version may have changed)")
+            failed += 1
+            continue
+
+        # Create backup
+        backup_path = filepath + ".securevector.bak"
+        if not os.path.exists(backup_path):
+            shutil.copy2(filepath, backup_path)
+
+        # Apply patch
+        new_content = content.replace(patch["search"], patch["replace"])
+        with open(filepath, "w") as f:
+            f.write(new_content)
+
+        print(f"    ✓ Patched: {patch['desc']}")
+        patched += 1
+
+    print()
+
+    # --- Summary ---
+    print("  [3/3] Summary")
+    print(f"    Patched: {patched}  Skipped (already done): {skipped}  Failed: {failed}")
+    print()
+
+    if failed > 0:
+        print("  ⚠ Some patches failed. The proxy may not work.")
+        print("  Try updating OpenClaw and running --setup-proxy again.")
+        print()
+
+    if patched > 0 or skipped > 0:
+        print("  ✓ Setup complete! Proxy routing is now supported.")
+        print()
+        print("  NEXT STEPS:")
+        print(f"    1. Start SecureVector proxy:")
+        print(f"         securevector-app --proxy --provider {provider}")
+        print()
+        print(f"    2. Start OpenClaw with proxy routing:")
+        print(f"         {env_var}=http://localhost:8742{base_path} openclaw gateway")
+        print()
+        print(f"  NOTE: Re-run after updating OpenClaw (npm update -g openclaw)")
+        print()
+        print(f"  To undo: securevector-app --revert-proxy --provider {provider}")
+    print()
+
+
+def _auto_setup_proxy_if_needed(provider: str) -> None:
+    """Check if proxy is already set up for this provider, auto-run setup if not."""
+    target_files = _PROVIDER_PATCH_MAP.get(provider, _PROVIDER_PATCH_MAP["openai"])
+    patches = [p for p in _ALL_PATCHES if p["file"] in target_files]
+
+    try:
+        pi_ai_path = _find_pi_ai_path()
+    except SystemExit:
+        # pi-ai not found, skip auto-setup
+        return
+
+    needs_setup = False
+    for patch in patches:
+        filepath = os.path.join(pi_ai_path, patch["file"])
+        if not os.path.isfile(filepath):
+            continue
+        with open(filepath, "r") as f:
+            content = f.read()
+        if patch["replace"] not in content and patch["search"] in content:
+            needs_setup = True
+            break
+
+    if needs_setup:
+        print(f"[proxy] Auto-running setup for {provider} (first time)...")
+        print()
+        setup_proxy(provider=provider)
+
+
+def revert_proxy() -> None:
+    """Revert proxy setup: restore ALL pi-ai files from backups."""
+    import shutil
+
+    print()
+    print("  SecureVector Proxy Revert")
+    print("  ════════════════════════════════════════════════════════════")
+    print()
+    print(f"  FILES TO CHECK: {len(_ALL_PATCH_FILES)}")
+    print("  ════════════════════════════════════════════════════════════")
+    print()
+
+    # --- Restore all pi-ai files ---
+    print("  Restoring pi-ai files...")
+    pi_ai_path = _find_pi_ai_path()
+    print(f"  Found pi-ai at: {pi_ai_path}")
+    print()
+
+    restored = 0
+    no_backup = 0
+
+    for rel_path in _ALL_PATCH_FILES:
+        filepath = os.path.join(pi_ai_path, rel_path)
+        backup_path = filepath + ".securevector.bak"
+        filename = os.path.basename(rel_path)
+
+        if not os.path.isfile(backup_path):
+            print(f"    ○ No backup: {filename}")
+            no_backup += 1
+            continue
+
+        shutil.copy2(backup_path, filepath)
+        os.remove(backup_path)
+        print(f"    ✓ Restored: {filename}")
+        restored += 1
+
+    print()
+
+    # --- Summary ---
+    print(f"  Files restored: {restored}")
+    print()
+
+    if restored > 0:
+        print("  ✓ Revert complete. OpenClaw is back to its original state.")
+        print("    API keys and environment variables were not modified.")
+    else:
+        print("  Nothing to revert. Everything was already clean.")
+    print()
 
 
 def main() -> None:
@@ -311,7 +659,7 @@ def main() -> None:
     parser.add_argument(
         "--provider",
         type=str,
-        choices=["openai", "anthropic", "ollama", "groq", "openrouter", "deepseek", "mistral", "azure", "gemini"],
+        choices=["openai", "anthropic", "ollama", "groq", "openrouter", "cerebras", "mistral", "xai", "gemini", "azure", "lmstudio", "litellm", "moonshot", "minimax", "deepseek", "together", "fireworks", "perplexity", "cohere"],
         default="openai",
         help="LLM provider (default: openai)",
     )
@@ -327,6 +675,16 @@ def main() -> None:
         default="analyze",
         help="Proxy mode: analyze (log only, default) or block (stop threats)",
     )
+    parser.add_argument(
+        "--setup-proxy",
+        action="store_true",
+        help="One-time setup: patch OpenClaw to support LLM proxy routing",
+    )
+    parser.add_argument(
+        "--revert-proxy",
+        action="store_true",
+        help="Undo --setup-proxy: restore original OpenClaw files from backups",
+    )
 
     args = parser.parse_args()
 
@@ -334,12 +692,23 @@ def main() -> None:
         print(f"SecureVector Local Threat Monitor v{__version__}")
         sys.exit(0)
 
+    if args.setup_proxy:
+        setup_proxy(provider=args.provider or "openai")
+        return
+
+    if args.revert_proxy:
+        revert_proxy()
+        return
+
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
 
     # Proxy mode
     if args.proxy:
+        # Auto-setup if pi-ai files not yet patched for this provider
+        _auto_setup_proxy_if_needed(args.provider)
+
         if args.web:
             # Run both web server and LLM proxy together
             run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode)

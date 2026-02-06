@@ -179,7 +179,7 @@ Autonomous AI agents (LangGraph, CrewAI, n8n, AutoGen) execute tasks without hum
 
 | Agent/Tool | How to Add |
 |------------|------------|
-| **OpenClaw** | Use the proxy - see OpenClaw Proxy page in sidebar or run `python -m securevector.integrations.openclaw_proxy` |
+| **OpenClaw** | LLM Proxy — see Proxy page in sidebar or run `securevector-app --proxy --provider openai` |
 | **Claude Desktop** | See [MCP Guide](docs/MCP_GUIDE.md) |
 | **n8n** | Settings → Community Nodes → Install `n8n-nodes-securevector`, paste URL in node |
 | **Dify** | Settings → Triggers → Add Webhook → Paste URL |
@@ -188,73 +188,62 @@ Autonomous AI agents (LangGraph, CrewAI, n8n, AutoGen) execute tasks without hum
 | **LangGraph** | Add security node to your graph (see below) |
 
 <details>
-<summary><strong>OpenClaw Integration</strong></summary>
+<summary><strong>OpenClaw / ClawdBot / MoltBot Integration (LLM Proxy)</strong></summary>
 
-SecureVector provides a local WebSocket proxy that scans all OpenClaw messages for security threats. 100% local.
+SecureVector provides a local LLM proxy that acts as an **AI Firewall** between your agent and the LLM provider — scanning every request and response for security threats. 100% local, nothing leaves your machine.
 
-> **Why proxy?** OpenClaw doesn't have built-in message interception hooks. Hooks only fire AFTER messages reach the LLM (too late for blocking). Skills require LLM cooperation which is unreliable. The proxy intercepts at network level = 100% coverage before the LLM sees the message.
+**How it works — SecureVector AI Firewall:**
+```
+Input → ┌─────────────────────────────┐ → LLM Provider
+        │  SecureVector AI Firewall   │    (OpenAI, Anthropic, etc.)
+        │  • Prompt injection scan    │
+        │  • Jailbreak detection      │
+        │  • Data leak prevention     │
+Output ← └─────────────────────────────┘ ← LLM Response
+          ↑ Block threats (input)        ↑ Detect leaks (output)
+```
 
-**🆕 Easy Setup with Proxy Page:**
+> **Why a proxy?** OpenClaw's pi-ai library hardcodes LLM API URLs in its source, bypassing environment variable overrides. SecureVector patches those files so traffic routes through a local proxy that scans every request and response for prompt injection, jailbreaks, data leaks, and more — before they reach the LLM or the user.
 
-1. **Start OpenClaw** on alternate port:
-   ```bash
-   openclaw gateway --port 18790
-   ```
+**Setup (3 steps):**
 
-2. **Start SecureVector** and open the app:
-   ```bash
-   securevector-app --web
-   ```
+**Step 0:** Make sure SecureVector is running:
+```bash
+securevector-app          # desktop app
+securevector-app --web    # browser mode (WSL/headless)
+```
 
-3. **Go to "OpenClaw Proxy"** in the sidebar and click **Start Proxy**
+**Step 1:** Start the SecureVector LLM proxy (auto-patches OpenClaw on first run):
+```bash
+securevector-app --proxy --provider openai
+```
 
-4. **Use OpenClaw TUI** normally — it connects through the proxy automatically:
-   ```bash
-   openclaw tui
-   ```
+This starts a local HTTP proxy on port 8742 that sits between your agent and the provider API. Every request is scanned for prompt injection and jailbreaks, every response is scanned for data leaks — before being forwarded. Re-run after OpenClaw updates.
 
-**Proxy Page Features:**
-- **Start/Stop Proxy** — One-click control from the UI
-- **Block Mode (Input Only)** — Block detected threats before they reach the LLM
+Supported providers: `openai` `anthropic` `gemini` `ollama` `groq` `openrouter` `deepseek` `mistral` `xai` `azure` `together` `fireworks` `perplexity` `cohere` `cerebras` `lmstudio` `litellm` `moonshot` `minimax`
+
+**Step 2:** Start OpenClaw with traffic routed through the proxy:
+```bash
+OPENAI_BASE_URL=http://localhost:8742/v1 openclaw gateway
+```
+
+For Anthropic: `ANTHROPIC_BASE_URL=http://localhost:8742 openclaw gateway`
+For Gemini: `GOOGLE_GENAI_BASE_URL=http://localhost:8742/v1beta openclaw gateway`
+
+**Proxy Page Features (in SecureVector UI):**
+- **Start/Stop Proxy** — One-click control from the dashboard
+- **Block Mode** — Block detected input threats before they reach the LLM
 - **Output Scanning** — Scan LLM responses for credential leakage, PII, system prompts
 
 **Modes (configurable in Proxy page):**
 - **Block Mode OFF** (default) — Log threats only, let requests through
 - **Block Mode ON** — Block threats, send error response to client (applies to INPUT only)
 
-**🆕 Smart Output Detection:**
-Enable "Scan LLM Responses for Leaks" in the Proxy page to detect:
-- Credential leakage (API keys, tokens, passwords)
-- System prompt exposure
-- PII disclosure (SSN, credit cards)
-- Jailbreak success indicators
-
-**How it works:**
-```
-User → Proxy:18789 → [INPUT SCAN] → OpenClaw:18790 → LLM → [OUTPUT SCAN] → User
-         ↑                                                      ↓
-    Block threats                                    Detect leaks (log only)
-    (if enabled)
-```
-
-**Alternative: Command-line proxy:**
+**Uninstall / Revert:**
 ```bash
-# Run proxy directly from terminal
-python -m securevector.integrations.openclaw_proxy
-
-# With options
-python -m securevector.integrations.openclaw_proxy --port 18789 --openclaw-port 18790 -v
+securevector-app --revert-proxy
 ```
-
-**Stopping the proxy:**
-```bash
-# 1. Click "Stop Proxy" in the UI (or Ctrl+C if running from terminal)
-# 2. Restart OpenClaw gateway on default port so TUI can connect directly:
-openclaw gateway  # Back to default port 18789
-openclaw tui
-```
-
-**Note:** When you stop the proxy, OpenClaw TUI will lose connection. Restart the gateway on the default port (18789) so TUI can reconnect without the proxy.
+Restores all patched pi-ai files from backups. Does not remove API keys or environment variables.
 </details>
 
 <details>
