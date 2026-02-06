@@ -1,0 +1,301 @@
+"""
+Settings repository for application preferences.
+
+The settings table is a singleton (always id=1), storing:
+- Theme preference (system/light/dark)
+- Server configuration
+- Data retention settings
+- Window state
+"""
+
+import json
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
+
+from securevector.app.database.connection import DatabaseConnection
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AppSettings:
+    """Application settings data class."""
+
+    theme: str = "system"
+    server_port: int = 8741
+    server_host: str = "127.0.0.1"
+    retention_days: int = 30
+    store_text_content: bool = True
+    notifications_enabled: bool = True
+    launch_on_startup: bool = False
+    minimize_to_tray: bool = True
+    window_width: Optional[int] = None
+    window_height: Optional[int] = None
+    window_x: Optional[int] = None
+    window_y: Optional[int] = None
+    # Cloud mode fields
+    cloud_mode_enabled: bool = False
+    cloud_user_email: Optional[str] = None
+    cloud_connected_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # LLM Review settings (stored as JSON)
+    llm_settings: Optional[dict] = field(default_factory=lambda: None)
+    # Output leakage detection (scan LLM responses for data leaks)
+    scan_llm_responses: bool = True
+    # Block threats mode (when enabled, proxy blocks detected threats)
+    block_threats: bool = False
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "theme": self.theme,
+            "server_port": self.server_port,
+            "server_host": self.server_host,
+            "retention_days": self.retention_days,
+            "store_text_content": self.store_text_content,
+            "notifications_enabled": self.notifications_enabled,
+            "launch_on_startup": self.launch_on_startup,
+            "minimize_to_tray": self.minimize_to_tray,
+            "window_width": self.window_width,
+            "window_height": self.window_height,
+            "window_x": self.window_x,
+            "window_y": self.window_y,
+            "cloud_mode_enabled": self.cloud_mode_enabled,
+            "cloud_user_email": self.cloud_user_email,
+            "cloud_connected_at": (
+                self.cloud_connected_at.isoformat()
+                if self.cloud_connected_at
+                else None
+            ),
+            "scan_llm_responses": self.scan_llm_responses,
+            "block_threats": self.block_threats,
+        }
+
+
+class SettingsRepository:
+    """
+    Repository for application settings.
+
+    Provides CRUD operations for the singleton settings row.
+    """
+
+    def __init__(self, db: DatabaseConnection):
+        """
+        Initialize settings repository.
+
+        Args:
+            db: Database connection instance.
+        """
+        self.db = db
+
+    async def get(self) -> AppSettings:
+        """
+        Get current application settings.
+
+        Returns:
+            AppSettings instance with current values.
+        """
+        row = await self.db.fetch_one(
+            "SELECT * FROM app_settings WHERE id = 1"
+        )
+
+        if row is None:
+            # Return defaults if no settings exist
+            return AppSettings()
+
+        # Convert row to dict for safe .get() access (sqlite3.Row doesn't support .get())
+        row_dict = dict(row)
+
+        # Parse cloud_connected_at if present
+        cloud_connected_at = None
+        if row_dict.get("cloud_connected_at"):
+            try:
+                if isinstance(row_dict["cloud_connected_at"], str):
+                    cloud_connected_at = datetime.fromisoformat(
+                        row_dict["cloud_connected_at"]
+                    )
+                else:
+                    cloud_connected_at = row_dict["cloud_connected_at"]
+            except (ValueError, TypeError):
+                pass
+
+        # Parse llm_settings JSON if present
+        llm_settings = None
+        if row_dict.get("llm_settings"):
+            try:
+                llm_settings = json.loads(row_dict["llm_settings"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return AppSettings(
+            theme=row_dict["theme"],
+            server_port=row_dict["server_port"],
+            server_host=row_dict["server_host"],
+            retention_days=row_dict["retention_days"],
+            store_text_content=bool(row_dict["store_text_content"]),
+            notifications_enabled=bool(row_dict["notifications_enabled"]),
+            launch_on_startup=bool(row_dict["launch_on_startup"]),
+            minimize_to_tray=bool(row_dict["minimize_to_tray"]),
+            window_width=row_dict["window_width"],
+            window_height=row_dict["window_height"],
+            window_x=row_dict["window_x"],
+            window_y=row_dict["window_y"],
+            cloud_mode_enabled=bool(row_dict.get("cloud_mode_enabled", False)),
+            cloud_user_email=row_dict.get("cloud_user_email"),
+            cloud_connected_at=cloud_connected_at,
+            updated_at=row_dict["updated_at"],
+            llm_settings=llm_settings,
+            scan_llm_responses=bool(row_dict.get("scan_llm_responses", True)),
+            block_threats=bool(row_dict.get("block_threats", False)),
+        )
+
+    async def update(self, **kwargs) -> AppSettings:
+        """
+        Update application settings.
+
+        Args:
+            **kwargs: Settings to update (only provided keys are updated).
+
+        Returns:
+            Updated AppSettings instance.
+        """
+        if not kwargs:
+            return await self.get()
+
+        # Build update query
+        valid_fields = {
+            "theme",
+            "server_port",
+            "server_host",
+            "retention_days",
+            "store_text_content",
+            "notifications_enabled",
+            "launch_on_startup",
+            "minimize_to_tray",
+            "window_width",
+            "window_height",
+            "window_x",
+            "window_y",
+            "cloud_mode_enabled",
+            "cloud_user_email",
+            "cloud_connected_at",
+            "llm_settings",
+            "scan_llm_responses",
+            "block_threats",
+        }
+
+        updates = {}
+        for k, v in kwargs.items():
+            if k not in valid_fields:
+                continue
+            # Convert llm_settings dict to JSON string
+            if k == "llm_settings" and isinstance(v, dict):
+                updates[k] = json.dumps(v)
+            else:
+                updates[k] = v
+        if not updates:
+            return await self.get()
+
+        # Add updated_at
+        updates["updated_at"] = datetime.utcnow().isoformat()
+
+        # Build SET clause
+        set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+        values = list(updates.values())
+
+        await self.db.execute(
+            f"UPDATE app_settings SET {set_clause} WHERE id = 1",
+            tuple(values),
+        )
+
+        logger.info(f"Updated settings: {list(updates.keys())}")
+        return await self.get()
+
+    async def update_window_state(
+        self,
+        width: int,
+        height: int,
+        x: int,
+        y: int,
+    ) -> None:
+        """
+        Update window position and size.
+
+        Args:
+            width: Window width.
+            height: Window height.
+            x: Window X position.
+            y: Window Y position.
+        """
+        await self.db.execute(
+            """
+            UPDATE app_settings
+            SET window_width = ?, window_height = ?, window_x = ?, window_y = ?,
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (width, height, x, y, datetime.utcnow().isoformat()),
+        )
+
+    async def reset_to_defaults(self) -> AppSettings:
+        """
+        Reset all settings to default values.
+
+        Returns:
+            Default AppSettings instance.
+        """
+        defaults = AppSettings()
+        await self.db.execute(
+            """
+            UPDATE app_settings SET
+                theme = ?,
+                server_port = ?,
+                server_host = ?,
+                retention_days = ?,
+                store_text_content = ?,
+                notifications_enabled = ?,
+                launch_on_startup = ?,
+                minimize_to_tray = ?,
+                window_width = NULL,
+                window_height = NULL,
+                window_x = NULL,
+                window_y = NULL,
+                cloud_mode_enabled = 0,
+                cloud_user_email = NULL,
+                cloud_connected_at = NULL,
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (
+                defaults.theme,
+                defaults.server_port,
+                defaults.server_host,
+                defaults.retention_days,
+                int(defaults.store_text_content),
+                int(defaults.notifications_enabled),
+                int(defaults.launch_on_startup),
+                int(defaults.minimize_to_tray),
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        logger.info("Reset settings to defaults")
+        return defaults
+
+    async def clear_cloud_settings(self) -> None:
+        """
+        Clear cloud mode settings (used when credentials are removed).
+        """
+        await self.db.execute(
+            """
+            UPDATE app_settings SET
+                cloud_mode_enabled = 0,
+                cloud_user_email = NULL,
+                cloud_connected_at = NULL,
+                updated_at = ?
+            WHERE id = 1
+            """,
+            (datetime.utcnow().isoformat(),),
+        )
+        logger.info("Cloud settings cleared")

@@ -1,0 +1,134 @@
+rules:
+- category: data_leakage
+  description: Detects potential credential or API key leakage in LLM outputs
+  id: sv_community_output_001_credential_leak
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-02-02T00:00:00Z'
+    direction: output
+    tags:
+    - credential_leak
+    - api_key
+    - secret_exposure
+  name: Output Credential Leakage Detection
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*['\"]?[a-zA-Z0-9_\-]{20,}
+  - (?:password|passwd|pwd|pass)[:\s]*['\"]?[^\s'"]{8,64}['\"]?
+  - (?:Password|password)\d{2,}
+  - (?:qwerty|letmein|admin|welcome|monkey|dragon|master|login)\d*
+  - (?:example|sample)\s+passwords?
+  - `[A-Za-z0-9]{3,20}[!@#$%^&*][A-Za-z0-9!@#$%^&*]{0,20}`
+  - `[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{0,15}`
+  - "[•\\-\\*]\\s*[A-Z][a-z]+[A-Z]?[a-z]*[0-9]*[!@#$%^&*]+[A-Za-z0-9!@#$%^&*]*"
+  - "[•\\-\\*]\\s*[A-Z][a-z]+@[A-Za-z]+[0-9]+"
+  - "[•\\-\\*]\\s*[A-Z][a-z]+[0-9]+[!@#$%^&*\\$]+"
+  - "[•\\-\\*]\\s*[A-Z][a-z]+[!@#$%^&*][A-Za-z]+[0-9]+"
+  - "Test.*Password|Password.*Test|Sample.*Pass|Demo.*Password"
+  - sk-[a-zA-Z0-9]{32,}
+  - sk_(?:test|live)_[a-zA-Z0-9]{20,}
+  - rk_(?:test|live)_[a-zA-Z0-9]{20,}
+  - pk_(?:test|live)_[a-zA-Z0-9]{20,}
+  - ghp_[a-zA-Z0-9]{36}
+  - gho_[a-zA-Z0-9]{36}
+  - github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}
+  - xox[baprs]-[a-zA-Z0-9\-]{10,}
+  - (?:bearer|token)[:\s]+[a-zA-Z0-9_\-\.]{20,}
+  - AKIA[A-Z0-9]{16}
+  - eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*
+
+- category: data_leakage
+  description: Detects system prompt or instruction leakage in LLM outputs
+  id: sv_community_output_002_prompt_leak
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-02-02T00:00:00Z'
+    direction: output
+    tags:
+    - prompt_leak
+    - system_instruction
+    - jailbreak_success
+  name: Output System Prompt Leakage Detection
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:my|the)\s+(?:system|initial)\s+(?:prompt|instructions?)\s+(?:is|are|says?)
+  - (?:i\s+was|i\s+am)\s+(?:told|instructed|programmed)\s+to
+  - (?:my|the)\s+(?:original|hidden|secret)\s+(?:instructions?|rules?|guidelines?)
+  - (?:here\s+(?:is|are)|showing)\s+(?:my|the)\s+(?:system|full)\s+prompt
+  - \[SYSTEM\]|\[INST\]|\<\|system\|\>
+  - \<\<SYS\>\>.*\<\</SYS\>\>
+  - (?:system|user|assistant)\s*:\s*(?:you\s+are|your\s+role)
+  - (?:you\s+are\s+a|your\s+name\s+is)\s+(?:helpful|friendly|AI)\s+(?:assistant|agent)
+  - (?:never|do\s+not|don't)\s+(?:reveal|share|disclose)\s+(?:your|the|this)\s+(?:instructions?|prompt|rules?)
+  - (?:confidential|secret|hidden)\s+(?:instructions?|prompt|guidelines?)
+
+- category: data_leakage
+  description: Detects PII (Personally Identifiable Information) in LLM outputs
+  id: sv_community_output_003_pii_leak
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-02-02T00:00:00Z'
+    direction: output
+    tags:
+    - pii_leak
+    - privacy
+    - sensitive_data
+  name: Output PII Leakage Detection
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - \b\d{3}-\d{2}-\d{4}\b
+  - \b\d{3}\s\d{2}\s\d{4}\b
+  - \b\d{16}\b
+  - \b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b
+  - \b[A-Z]{2}\d{6,9}\b
+  - (?:social\s+security|ssn)[:\s]*\d{3}[- ]?\d{2}[- ]?\d{4}
+  - (?:credit\s+card|card\s+number)[:\s]*\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}
+
+- category: jailbreak_success
+  description: Detects indicators that a jailbreak attempt succeeded
+  id: sv_community_output_004_jailbreak_success
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-02-02T00:00:00Z'
+    direction: output
+    tags:
+    - jailbreak
+    - bypass
+    - unrestricted
+  name: Output Jailbreak Success Detection
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:i\s+can|i'll|let\s+me)\s+(?:help\s+you\s+)?(?:hack|exploit|bypass|break\s+into)
+  - (?:here'?s?\s+how\s+to|instructions?\s+(?:for|to))\s+(?:hack|exploit|bypass|attack)
+  - (?:malware|virus|trojan|ransomware)\s+(?:code|script|payload)
+  - (?:dan|developer)\s+mode\s+(?:enabled|activated|on)
+  - (?:restrictions?|limitations?|guardrails?)\s+(?:removed|disabled|bypassed)
+
+- category: data_leakage
+  description: Detects encoded or obfuscated content that may hide malicious data
+  id: sv_community_output_005_encoded_content
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-02-02T00:00:00Z'
+    direction: output
+    tags:
+    - encoded
+    - obfuscated
+    - hidden_data
+  name: Output Encoded Content Detection
+  severity: medium
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:base64|b64)[:\s]*[A-Za-z0-9+/=]{50,}
+  - \\x[0-9a-fA-F]{2}(?:\\x[0-9a-fA-F]{2}){10,}
+  - (?:0x[0-9a-fA-F]{2}[,\s]*){10,}
+  - eval\s*\(|exec\s*\(|subprocess|os\.system

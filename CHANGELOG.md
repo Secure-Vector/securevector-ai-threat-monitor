@@ -5,6 +5,58 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-01-31
+
+### Added
+- **Desktop Application** - Cross-platform GUI for monitoring AI agents (`pip install securevector-ai-monitor[app]`)
+  - Visual dashboard with real-time threat monitoring and statistics
+  - Local REST API server at `localhost:8741` for agent integration
+  - NLP-based rule creation - describe threats in natural language
+  - Threat Intel browser for searching and analyzing detected threats
+  - SQLite persistence for threat records, custom rules, and settings
+  - System tray integration for background operation
+  - 100% local operation - no cloud, no API key required
+- **Unified Rule Architecture** - SDK automatically reads from database when desktop app is installed
+  - LocalAnalyzer auto-detects app database and uses it when available
+  - Falls back to YAML community rules when app is not installed
+  - Custom rules created in app are immediately available to SDK
+
+### Changed
+- **Installation Options Clarified**
+  - `pip install securevector-ai-monitor` - SDK only (default, lightweight ~6MB)
+  - `pip install securevector-ai-monitor[app]` - SDK + Desktop Application (~60-70MB)
+- Updated minimum dependency versions for security (see Security section)
+
+### Security
+- **CVE-2025-53643** (High) - Fixed HTTP Request Smuggling in aiohttp by requiring >=3.12.14
+- **CVE-2024-52303** (Medium) - Fixed memory leak in aiohttp middleware by requiring >=3.12.14
+- **CVE-2025-66418** (High) - Fixed unbounded decompression chain in urllib3 by requiring >=2.6.3
+- **CVE-2025-66471** (High) - Fixed streaming API decompression bomb in urllib3 by requiring >=2.6.3
+- **CVE-2026-21441** (High) - Fixed redirect decompression bypass in urllib3 by requiring >=2.6.3
+- Removed clear-text logging of sensitive information (client IDs, session keys) in MCP tools
+- Added explicit permissions to GitHub Actions workflows (principle of least privilege)
+
+### Dependencies
+- `aiohttp` minimum version: >=3.12.14 (security)
+- `urllib3` minimum version: >=2.6.3 (security)
+- New optional dependencies for `[app]` extra:
+  - pywebview >=5.0 (BSD-3-Clause) - Lightweight cross-platform webview
+  - FastAPI >=0.100.0 (MIT) - Local API server
+  - Uvicorn >=0.20.0 (BSD-3-Clause) - ASGI server
+  - SQLAlchemy >=2.0.0 (MIT) - Database ORM
+  - aiosqlite >=0.19.0 (MIT) - Async SQLite
+  - platformdirs >=3.0.0 (MIT) - Cross-platform paths
+  - watchdog >=3.0.0 (Apache-2.0) - File system events
+  - httpx >=0.24.0 (BSD-3-Clause) - Async HTTP client
+
+### Documentation
+- Updated README.md with desktop app installation and usage
+- Added SDK vs Desktop App feature comparison table
+- Updated PRIVACY_POLICY.md with desktop app local storage details
+- Updated SECURITY.md with desktop app security model and dependency licenses
+- Updated LICENSE_NOTICE.md with desktop app dependency table
+- All documentation clarifies SDK as default, desktop app as optional
+
 ## [1.3.1] - 2025-12-18
 
 ### Changed

@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" width="980" height="540">
+<defs>
+  <linearGradient id="svGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#06b6d4"/>
+    <stop offset="50%" stop-color="#0ea5e9"/>
+    <stop offset="100%" stop-color="#ef4444"/>
+  </linearGradient>
+  <linearGradient id="divGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="transparent"/>
+    <stop offset="20%" stop-color="#cbd5e1"/>
+    <stop offset="80%" stop-color="#cbd5e1"/>
+    <stop offset="100%" stop-color="transparent"/>
+  </linearGradient>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap');
+    .title { font-family: 'DM Sans', sans-serif; font-size: 26px; font-weight: 700; fill: #0f172a; }
+    .box-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 600; letter-spacing: 1.2px; }
+    .box-title { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; fill: #0f172a; }
+    .item-text { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500; }
+    .prov-text { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; }
+    .feat-text { font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 500; fill: #334155; }
+    .pill-text { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; }
+    .arrow-label { font-family: 'JetBrains Mono', monospace; font-size: 7.5px; fill: #64748b; letter-spacing: 0.5px; }
+    .env-name { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
+    .env-desc { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #64748b; }
+    .pi-text { font-size: 10px; font-weight: 700; font-family: 'DM Sans', sans-serif; }
+  </style>
+</defs>
+
+<!-- Outer container -->
+<rect x="0" y="0" width="980" height="540" rx="16" fill="#eef1f6" stroke="#d5dbe5" stroke-width="1"/>
+
+<rect x="36" y="36" width="192" height="280" rx="12" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1"/>
+<rect x="50" y="54" width="28" height="28" rx="7" fill="rgba(13,148,136,0.12)" stroke="none" stroke-width="0"/>
+<g transform="translate(54,58) scale(0.8333333333333334)"><g fill="none" stroke="#0d9488" stroke-width="1.8"><path d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3" stroke-linecap="round" stroke-linejoin="round"/><rect x="2.25" y="4.5" width="19.5" height="15" rx="2.25" fill="none"/></g></g>
+<text x="86" y="65" class="box-label" fill="#0e7490">FRAMEWORKS &amp; AGENTS</text>
+<text x="86" y="80" class="box-title">Your AI Stack</text>
+<line x1="50" y1="90" x2="214" y2="90" stroke="#99f6e4" stroke-width="1"/>
+<rect x="50" y="102" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="115.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="119.5" class="item-text" fill="#134e4a">LangChain</text>
+  <rect x="50" y="133" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="146.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="150.5" class="item-text" fill="#134e4a">CrewAI</text>
+  <rect x="50" y="164" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="177.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="181.5" class="item-text" fill="#134e4a">LangGraph</text>
+  <rect x="50" y="195" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="208.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="212.5" class="item-text" fill="#134e4a">n8n</text>
+  <rect x="50" y="226" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="239.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="243.5" class="item-text" fill="#134e4a">Ollama</text>
+  <rect x="50" y="257" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
+  <circle cx="62" cy="270.5" r="2.5" fill="#0d9488"/>
+  <text x="72" y="274.5" class="item-text" fill="#134e4a">OpenClaw/ClawdBot</text>
+  <line x1="238" y1="158" x2="264" y2="158" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="264,154.5 270,158 264,161.5" fill="#0891b2"/>
+<text x="254" y="174" class="arrow-label" text-anchor="middle">PROMPT</text>
+<line x1="244" y1="190" x2="270" y2="190" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="244,186.5 238,190 244,193.5" fill="#0891b2"/>
+<text x="254" y="206" class="arrow-label" text-anchor="middle">RESPONSE</text>
+<rect x="280" y="36" width="440" height="280" rx="12" fill="#ffffff" stroke="#d5dbe5" stroke-width="2"/>
+<image href="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAqACoDASIAAhEBAxEB/8QAHAAAAQQDAQAAAAAAAAAAAAAABQABBgcCAwQI/8QALxAAAQMDAQcBCAMBAAAAAAAAAQIDBAAFEQYHEhMhMUFhQhQiIzJRcaGxJERigf/EABkBAAIDAQAAAAAAAAAAAAAAAAUGAgQHA//EACgRAAEDBAIBAQkAAAAAAAAAAAECAxEABCExBZESQSIjYXGBseHw8f/aAAwDAQACEQMRAD8AqHQGk41mgMPvR0rubiQtx1aQVNEj5E/TAJBI68+2AJihj/X4rYEfyHuXrP7o9pPTczUUmQ3GkQ4rMVnjyZMt3httIyBknr1I6A04IQhlsAYArLHnXbp4lWVH96oGhjz+K3IZ8/ipwi07NIyfYpWq7rJlq/uRIA9laPlKjvr+4xXBqLSq7VbG7xCusC72l1/gIkxlkFK93e3VoUApKsDOOdSS8kmNfMRXNds4BIgxuCDHR/FRC62mDdIaodyiNSmFelxOcHBGQeqTgnmOYzVYSNjbxfcMe9oSyVHhhbBKgnPLJBAJx4q3yPdpYNUrsMuKHmJo5xTd2yglpUT9fvXGE/Hd5eo/s1N9mLan7VrGG3zecsTi0J7qCFoUrHnFQ4J+K7y9Rojpy7TtP3qPdresJkMKyAoZSsEYKVDuCMg/erykFbWN4oCl4M3Z8tSR3Iq4tmD9vvWjLNqK5rRxtHqkJfKuWW+GS3nPX0/9FQm7TJMzZF7fOOJF01M7LQCrOUhnCseAo4rXKs+za+SRqJd1cszKTvyrSGN95Kz6WFdCkn6/L37Cg2sNQqv0uO3Hipg2uC3wYMNByllHck91HqT3NB1EIWSP5vHZpvtmlPoSlUajGZ0J+GB65mgwHu0seKcDlWWKGXF37VO3G8L7rVBNK3ePfLLHucdQUHkDiJ7pX6gfINFuRqktgrzw1FIjh1wMqa3lN7x3SefPHTNXd3phauS5bpVFZe7xqGuQWkmcz3mm3RWQSKcAVkKBXj6q0bg7BvFJI8VF5O0HSceS7HcuKd9pZQrdGRkHBwaW1h96PoSa5HecZXgDeQopOD1GRXm2hTaAuVKpn5G/XZlLTIj1mv/Z" x="296" y="54" width="32" height="32" clip-path="inset(0 round 8px)"/>
+<text x="338" y="66" class="box-label" fill="#0891b2">AI FIREWALL</text>
+<text x="338" y="81" class="box-title" fill="url(#svGrad)">SecureVector</text>
+<line x1="296" y1="92" x2="704" y2="92" stroke="#e2e8f0" stroke-width="1"/>
+<rect x="296" y="104" width="408" height="28" rx="7" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="304" y="110" width="16" height="16" rx="4" fill="rgba(16,185,129,0.12)" stroke="none" stroke-width="0"/>
+  <g transform="translate(306,112) scale(0.5)"><g fill="none" stroke="#10b981" stroke-width="2.5"><path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+  <text x="328" y="122" class="feat-text">Prompt Injection Block</text>
+  <rect x="296" y="136" width="408" height="28" rx="7" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="304" y="142" width="16" height="16" rx="4" fill="rgba(16,185,129,0.12)" stroke="none" stroke-width="0"/>
+  <g transform="translate(306,144) scale(0.5)"><g fill="none" stroke="#10b981" stroke-width="2.5"><path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+  <text x="328" y="154" class="feat-text">Jailbreak Detection</text>
+  <rect x="296" y="168" width="408" height="28" rx="7" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="304" y="174" width="16" height="16" rx="4" fill="rgba(16,185,129,0.12)" stroke="none" stroke-width="0"/>
+  <g transform="translate(306,176) scale(0.5)"><g fill="none" stroke="#10b981" stroke-width="2.5"><path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+  <text x="328" y="186" class="feat-text">Data Leak Prevention</text>
+  <rect x="296" y="200" width="408" height="28" rx="7" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="304" y="206" width="16" height="16" rx="4" fill="rgba(16,185,129,0.12)" stroke="none" stroke-width="0"/>
+  <g transform="translate(306,208) scale(0.5)"><g fill="none" stroke="#10b981" stroke-width="2.5"><path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+  <text x="328" y="218" class="feat-text">PII / Credential Redaction</text>
+  <rect x="296" y="240" width="88" height="24" rx="12" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1"/>
+<g transform="translate(304,246) scale(0.5)"><g fill="none" stroke="#059669" stroke-width="2"><path d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+<text x="320" y="256" class="pill-text" fill="#059669">100% Local</text><rect x="390" y="240" width="72" height="24" rx="12" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+<g transform="translate(398,246) scale(0.5)"><g fill="none" stroke="#d97706" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+<text x="414" y="256" class="pill-text" fill="#d97706">&lt; 50ms</text><rect x="468" y="240" width="92" height="24" rx="12" fill="#fff1f2" stroke="#fecdd3" stroke-width="1"/>
+<text x="478" y="256" class="pill-text" fill="#e11d48">&lt;/&gt; Open Source</text><line x1="730" y1="158" x2="756" y2="158" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="756,154.5 762,158 756,161.5" fill="#0891b2"/>
+<text x="746" y="174" class="arrow-label" text-anchor="middle">SANITIZED</text>
+<line x1="736" y1="190" x2="762" y2="190" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="736,186.5 730,190 736,193.5" fill="#0891b2"/>
+<text x="746" y="206" class="arrow-label" text-anchor="middle">VALIDATED</text>
+<rect x="772" y="36" width="172" height="280" rx="12" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+<rect x="786" y="54" width="28" height="28" rx="7" fill="rgba(217,119,6,0.1)" stroke="none" stroke-width="0"/>
+<g transform="translate(790,58) scale(0.8333333333333334)"><g fill="none" stroke="#b45309" stroke-width="1.8"><path d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" stroke-linecap="round" stroke-linejoin="round"/></g></g>
+<text x="822" y="65" class="box-label" fill="#b45309">DESTINATION</text>
+<text x="822" y="80" class="box-title">LLM Provider</text>
+<line x1="786" y1="90" x2="930" y2="90" stroke="#fde68a" stroke-width="1"/>
+<rect x="786" y="102" width="144" height="28" rx="7" fill="#fef8e0" stroke="#fef3c7" stroke-width="1"/>
+  <rect x="792" y="105" width="22" height="22" rx="5" fill="rgba(15,23,42,0.06)" stroke="none" stroke-width="0"/>
+  <text x="803" y="121" class="pi-text" fill="#334155" text-anchor="middle">⬡</text>
+  <text x="820" y="120" class="prov-text" fill="#78350f">OpenAI</text>
+  <rect x="786" y="134" width="144" height="28" rx="7" fill="#fef8e0" stroke="#fef3c7" stroke-width="1"/>
+  <rect x="792" y="137" width="22" height="22" rx="5" fill="rgba(204,169,139,0.15)" stroke="none" stroke-width="0"/>
+  <text x="803" y="153" class="pi-text" fill="#92400e" text-anchor="middle">A</text>
+  <text x="820" y="152" class="prov-text" fill="#78350f">Anthropic</text>
+  <rect x="786" y="166" width="144" height="28" rx="7" fill="#fef8e0" stroke="#fef3c7" stroke-width="1"/>
+  <rect x="792" y="169" width="22" height="22" rx="5" fill="rgba(15,23,42,0.04)" stroke="none" stroke-width="0"/>
+  <text x="803" y="185" class="pi-text" fill="#475569" text-anchor="middle">🦙</text>
+  <text x="820" y="184" class="prov-text" fill="#78350f">Ollama</text>
+  <rect x="786" y="198" width="144" height="28" rx="7" fill="#fef8e0" stroke="#fef3c7" stroke-width="1"/>
+  <rect x="792" y="201" width="22" height="22" rx="5" fill="rgba(219,39,119,0.06)" stroke="none" stroke-width="0"/>
+  <text x="803" y="217" class="pi-text" fill="#be185d" text-anchor="middle">G</text>
+  <text x="820" y="216" class="prov-text" fill="#78350f">Groq</text>
+  <rect x="786" y="230" width="144" height="28" rx="7" fill="#fef8e0" stroke="#fef3c7" stroke-width="1"/>
+  <rect x="792" y="233" width="22" height="22" rx="5" fill="rgba(148,163,184,0.08)" stroke="none" stroke-width="0"/>
+  <text x="803" y="249" class="pi-text" fill="#64748b" text-anchor="middle">+</text>
+  <text x="820" y="248" class="prov-text" fill="#78350f">And more…</text>
+  <rect x="36" y="340" width="908" height="1" fill="url(#divGrad)"/><text x="36" y="382" class="title">Run Anywhere</text><rect x="36" y="396" width="173.6" height="100" rx="10" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1"/><rect x="101.8" y="410" width="42" height="42" rx="10" fill="rgba(13,148,136,0.1)" stroke="none" stroke-width="0"/>
+  <g transform="translate(111.8,420) scale(0.9166666666666666)"><g fill="none" stroke="#0d9488" stroke-width="1.5"><path d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" stroke-linecap="round" stroke-linejoin="round"/></g></g><text x="122.8" y="466" class="env-name" text-anchor="middle">Local</text><text x="122.8" y="480" class="env-desc" text-anchor="middle">macOS, Linux, Windows</text><rect x="219.6" y="396" width="173.6" height="100" rx="10" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1"/><rect x="285.4" y="410" width="42" height="42" rx="10" fill="rgba(8,145,178,0.1)" stroke="none" stroke-width="0"/>
+  <g transform="translate(295.4,420) scale(0.9166666666666666)"><g fill="none" stroke="#0891b2" stroke-width="1.5"><path d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" stroke-linecap="round" stroke-linejoin="round"/></g></g><text x="306.4" y="466" class="env-name" text-anchor="middle">Cloud</text><text x="306.4" y="480" class="env-desc" text-anchor="middle">AWS, GCP, Azure</text><rect x="403.2" y="396" width="173.6" height="100" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/><rect x="469" y="410" width="42" height="42" rx="10" fill="rgba(22,163,74,0.1)" stroke="none" stroke-width="0"/>
+  <g transform="translate(479,420) scale(0.9166666666666666)"><g fill="none" stroke="#16a34a" stroke-width="1.5"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" stroke-linecap="round" stroke-linejoin="round"/></g></g><text x="490" y="466" class="env-name" text-anchor="middle">Containers</text><text x="490" y="480" class="env-desc" text-anchor="middle">Docker &amp; Kubernetes</text><rect x="586.8" y="396" width="173.6" height="100" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/><rect x="652.5999999999999" y="410" width="42" height="42" rx="10" fill="rgba(217,119,6,0.1)" stroke="none" stroke-width="0"/>
+  <g transform="translate(662.5999999999999,420) scale(0.9166666666666666)"><g fill="none" stroke="#d97706" stroke-width="1.5"><path d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7" stroke-linecap="round" stroke-linejoin="round"/></g></g><text x="673.5999999999999" y="466" class="env-name" text-anchor="middle">Virtual Machines</text><text x="673.5999999999999" y="480" class="env-desc" text-anchor="middle">EC2, Droplets, VMs</text><rect x="770.4" y="396" width="173.6" height="100" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/><rect x="836.1999999999999" y="410" width="42" height="42" rx="10" fill="rgba(220,38,38,0.08)" stroke="none" stroke-width="0"/>
+  <g transform="translate(846.1999999999999,420) scale(0.9166666666666666)"><g fill="none" stroke="#dc2626" stroke-width="1.5"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" stroke-linecap="round" stroke-linejoin="round"/></g></g><text x="857.1999999999999" y="466" class="env-name" text-anchor="middle">Edge / Serverless</text><text x="857.1999999999999" y="480" class="env-desc" text-anchor="middle">Lambda, Workers, Vercel</text></svg>

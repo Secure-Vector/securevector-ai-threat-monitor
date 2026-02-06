@@ -45,7 +45,9 @@ rules:
   - ignore\s+(all\s+)?(previous\s+)?instructions?
   - disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)
   - forget\s+(everything|all)\s+(above|before)
-  detection_logic: .*(ignore\s+(all\s+)?(previous\s+)?instructions?|disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)|forget\s+(everything|all)\s+(above|before)).*
+  - forget\s+(your|all|previous|the)\s+instructions?
+  - forget\s+what\s+(you\s+were|I)\s+told
+  detection_logic: .*(ignore\s+(all\s+)?(previous\s+)?instructions?|disregard\s+(all\s+)?(previous\s+)?(instructions?|rules?)|forget\s+(everything|all)\s+(above|before)|forget\s+(your|all|previous|the)\s+instructions?|forget\s+what\s+(you\s+were|I)\s+told).*
   threshold: 0.85
   pattern_definitions:
     ignore_instructions_pattern:
@@ -217,7 +219,9 @@ rules:
   - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?
   - (?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions
   - what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)
-  detection_logic: .*((?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?|(?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions|what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)).*
+  - tell\s+me\s+(?:how\s+to\s+)?(?:get|access|retrieve)\s+(?:your\s+)?system\s+information
+  - (?:get|access|retrieve|show)\s+(?:your\s+)?(?:system|internal)\s+(?:info|information|data|config)
+  detection_logic: .*((?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?system\s+prompts?|(?:show|tell|give)\s+(?:me\s+)?(?:your\s+)?instructions|what\s+(?:is|are)\s+your\s+(?:system\s+)?(?:prompts?|instructions)|tell\s+me\s+(?:how\s+to\s+)?(?:get|access|retrieve)\s+(?:your\s+)?system\s+information|(?:get|access|retrieve|show)\s+(?:your\s+)?(?:system|internal)\s+(?:info|information|data|config)).*
   threshold: 0.88
   pattern_definitions:
     pattern_1:

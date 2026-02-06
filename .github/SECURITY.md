@@ -1,7 +1,7 @@
 # Security Policy
 
 **SecureVector AI Threat Monitor**
-**Last Updated:** December 16, 2025
+**Last Updated:** January 31, 2026
 
 ---
 
@@ -17,10 +17,10 @@ We provide security updates for the following versions:
 
 | Version | Supported          | End of Support |
 | ------- | ------------------ | -------------- |
-| 1.2.x   | ✅ Yes            | Current        |
-| 1.1.x   | ✅ Yes            | June 2025      |
-| 1.0.x   | ⚠️ Limited       | March 2025     |
-| < 1.0   | ❌ No             | Ended          |
+| 2.0.x   | ✅ Yes            | Current        |
+| 1.3.x   | ✅ Yes            | June 2026      |
+| 1.2.x   | ⚠️ Limited       | March 2026     |
+| < 1.2   | ❌ No             | Ended          |
 
 **Recommendation:** Always use the latest version for the best security and features.
 
@@ -250,20 +250,83 @@ As a small open source project, we do not offer monetary bug bounties. However, 
 - 30-day data retention maximum
 - See [Privacy Policy](../docs/legal/PRIVACY_POLICY.md) for details
 
-### Dependencies
+---
+
+## Desktop App Security
+
+The desktop application (`pip install securevector-ai-monitor[app]`) has additional security considerations:
+
+### Local API Server Security
+
+**Network Binding:**
+- API server binds to `localhost` (127.0.0.1) by default
+- Port 8741 is used for local communication
+- **No external network access** unless explicitly configured with `--host 0.0.0.0` (not recommended)
+
+**Access Control:**
+- No authentication required for localhost connections (trusted local environment)
+- If exposed to network (not recommended), implement reverse proxy with authentication
+
+**Attack Surface:**
+- Only local processes can reach the API
+- No remote exploitation possible in default configuration
+
+### SQLite Database Security
+
+**Data at Rest:**
+- Database stored in user-specific directory (requires user permissions to access)
+- No encryption at rest by default (relies on OS-level permissions)
+- Contains: threat intel records, custom rules, app settings
+
+**File Permissions:**
+- Database created with default OS permissions (typically 644)
+- Only the user running the app has write access
+
+**Data Sensitivity:**
+- Threat intel records contain analyzed text (may include sensitive content)
+- Custom rules contain detection patterns (not sensitive)
+- No credentials or API keys stored in database
+
+**Recommendations:**
+- Use full-disk encryption for sensitive environments
+- Regularly backup and secure database file if it contains sensitive analysis history
+
+### Desktop App Dependencies
+
+All desktop app dependencies use permissive open-source licenses:
+
+| Package | Version | License | Purpose |
+|---------|---------|---------|---------|
+| SQLite | (built-in) | Public Domain | Database engine |
+| aiosqlite | >=0.19.0 | MIT | Async SQLite wrapper |
+| SQLAlchemy | >=2.0.0 | MIT | Database ORM |
+| pywebview | >=5.0 | BSD-3-Clause | Lightweight cross-platform webview |
+| FastAPI | >=0.100.0 | MIT | Local API server |
+| Uvicorn | >=0.20.0 | BSD-3-Clause | ASGI server |
+| Starlette | (FastAPI dep) | BSD-3-Clause | Web framework |
+| Pydantic | (FastAPI dep) | MIT | Data validation |
+| platformdirs | >=3.0.0 | MIT | Cross-platform paths |
+| watchdog | >=3.0.0 | Apache-2.0 | File system events |
+| httpx | >=0.24.0 | BSD-3-Clause | Async HTTP client |
+| Click | (Uvicorn dep) | BSD-3-Clause | CLI framework |
+
+**All dependencies allow commercial use** with minimal attribution requirements.
+
+### Core Dependencies
 
 We carefully audit all dependencies:
 
-**Core Dependencies:**
+**Core SDK Dependencies:**
 - `PyYAML` - MIT License (YAML parsing)
 - `requests` - Apache 2.0 (HTTP client)
-- `aiohttp` - Apache 2.0 (Async HTTP)
-- `urllib3` - MIT License (HTTP library)
+- `aiohttp` - Apache 2.0 (Async HTTP) - **minimum v3.12.14** for security fixes
+- `urllib3` - MIT License (HTTP library) - **minimum v2.6.3** for security fixes
 
 **Security Monitoring:**
 - Dependabot enabled
 - Regular `safety check` scans
 - Automated security updates for critical CVEs
+- CodeQL static analysis on all PRs
 
 ---
 
@@ -297,9 +360,27 @@ For highly sensitive vulnerabilities, you may encrypt your email:
 
 ## Past Security Advisories
 
+### 2026
+
+**v2.0.0 (January 2026) - Dependency Security Updates**
+
+The following vulnerabilities were addressed by updating dependencies:
+
+| CVE | Severity | Package | Fixed Version | Description |
+|-----|----------|---------|---------------|-------------|
+| CVE-2025-53643 | High | aiohttp | >=3.12.14 | HTTP Request Smuggling |
+| CVE-2024-52303 | Medium | aiohttp | >=3.12.14 | Memory leak in middleware |
+| CVE-2025-66418 | High | urllib3 | >=2.6.3 | Unbounded decompression chain |
+| CVE-2025-66471 | High | urllib3 | >=2.6.3 | Streaming API decompression bomb |
+| CVE-2026-21441 | High | urllib3 | >=2.6.3 | Redirect decompression bypass |
+
+**Additional fixes in v2.0.0:**
+- Removed clear-text logging of sensitive information (client IDs, session keys)
+- Added explicit permissions to GitHub Actions workflows (principle of least privilege)
+
 ### 2025
 
-**No security advisories issued yet.**
+**No security advisories issued.**
 
 We will publish all security advisories at:
 - GitHub Security Advisories: https://github.com/Secure-Vector/securevector-ai-threat-monitor/security/advisories
@@ -362,5 +443,5 @@ We're committed to continuous improvement of our security practices.
 
 ---
 
-**Last Updated:** December 16, 2025
-**Next Review:** March 2026
+**Last Updated:** January 31, 2026
+**Next Review:** April 2026

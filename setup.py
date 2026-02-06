@@ -46,9 +46,9 @@ setup(
     install_requires=[
         "PyYAML>=5.1",
         "requests>=2.25.0",
-        "aiohttp>=3.8.0",
+        "aiohttp>=3.12.14",  # Security fix for CVE-2025-53643 (request smuggling) and earlier CVEs
         "typing-extensions>=4.0.0",
-        "urllib3>=2.6.0",  # Security fix for CVE-2025-66418 and CVE-2025-66416
+        "urllib3>=2.6.3",  # Security fix for CVE-2025-66418, CVE-2025-66471, CVE-2026-21441 (decompression bombs)
     ],
     extras_require={
         "mcp": [
@@ -56,6 +56,19 @@ setup(
             # The base package works with 3.9+, but [mcp] extras need 3.10+
             "mcp>=1.23.0",  # Security fix for GHSA-c2jp-c369-7pvx (was >=0.1.0)
             "fastmcp>=2.13.0",  # Security fix (was >=0.1.0)
+        ],
+        "app": [
+            # Desktop application dependencies
+            "pywebview>=5.0",  # Lightweight cross-platform webview
+            "fastapi>=0.100.0",  # Local API server
+            "uvicorn[standard]>=0.20.0",  # ASGI server
+            "aiosqlite>=0.19.0",  # Async SQLite
+            "sqlalchemy>=2.0.0",  # Database ORM
+            "watchdog>=3.0.0",  # File watching for hot-reload
+            "platformdirs>=3.0.0",  # Cross-platform paths
+            "keyring>=23.0.0",  # Secure credential storage (OS keychain)
+            "httpx>=0.24.0",  # Async HTTP client for cloud API
+            "websockets>=12.0",  # WebSocket proxy for OpenClaw integration
         ],
         "dev": [
             "pytest>=6.0",
@@ -77,6 +90,13 @@ setup(
         "all": [
             "mcp>=1.23.0",  # Security fix
             "fastmcp>=2.13.0",  # Security fix
+            "pywebview>=5.0",  # Lightweight cross-platform webview
+            "fastapi>=0.100.0",
+            "uvicorn[standard]>=0.20.0",
+            "aiosqlite>=0.19.0",
+            "sqlalchemy>=2.0.0",
+            "watchdog>=3.0.0",
+            "platformdirs>=3.0.0",
             "psutil>=5.8",
             "memory-profiler>=0.60",
         ],
@@ -89,7 +109,12 @@ setup(
             "rules/*.md",
             "rules/README.md",
             "rules/RULES_ATTRIBUTION.md",
-            "rules/LICENSE_NOTICE.md"
+            "rules/LICENSE_NOTICE.md",
+            "app/assets/**/*",
+            "app/assets/web/**/*",
+            "app/assets/web/css/*",
+            "app/assets/web/js/**/*",
+            "app/assets/web/icons/*",
         ],
         "": ["NOTICE"],
     },
@@ -98,6 +123,8 @@ setup(
             "sv-monitor=securevector.cli:main",
             "securevector-monitor=securevector.cli:main",
             "securevector-mcp=securevector.mcp.__main__:main",
+            "securevector-app=securevector.app.main:main",
+            "securevector-proxy=securevector.integrations.openclaw_llm_proxy:main",
         ],
     },
     keywords="ai security llm prompt-injection threat-detection threat-monitoring openai claude securevector",

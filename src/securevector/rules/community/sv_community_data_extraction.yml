@@ -105,10 +105,13 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:list|show)\s+all\s+(?:customers?|users?|emails?)
+  - (?:list|show|output|dump|export|give|get|retrieve)\s+all\s+(?:customers?|users?|emails?|credentials?|passwords?|accounts?)
+  - (?:list|show|output|dump|export)\s+(?:all\s+)?(?:user\s+)?(?:credentials?|passwords?|api\s+keys?|secrets?)
+  - (?:list|show|output|dump|export)\s+(?:all\s+)?(?:credit\s+cards?|ssns?|social\s+security|bank\s+accounts?|financial\s+data)
   - (?:give|show)\s+me\s+all\s+(?:customer|user)\s+information
-  - extract\s+all\s+(?:records|data)\s+from
-  detection_logic: .*((?:list|show)\s+all\s+(?:customers?|users?|emails?)|(?:give|show)\s+me\s+all\s+(?:customer|user)\s+information|extract\s+all\s+(?:records|data)\s+from).*
+  - extract\s+all\s+(?:records|data|credentials?|passwords?)\s+from
+  - (?:output|dump|export)\s+.*(?:as\s+)?(?:json|csv|xml)
+  detection_logic: .*((?:list|show|output|dump|export|give|get|retrieve)\s+all\s+(?:customers?|users?|emails?|credentials?|passwords?|accounts?)|(?:list|show|output|dump|export)\s+(?:all\s+)?(?:user\s+)?(?:credentials?|passwords?|api\s+keys?|secrets?)|(?:list|show|output|dump|export)\s+(?:all\s+)?(?:credit\s+cards?|ssns?|social\s+security|bank\s+accounts?|financial\s+data)|(?:give|show)\s+me\s+all\s+(?:customer|user)\s+information|extract\s+all\s+(?:records|data|credentials?|passwords?)\s+from|(?:output|dump|export)\s+.*(?:as\s+)?(?:json|csv|xml)).*
   threshold: 0.87
   pattern_definitions:
     pattern_1:
@@ -228,10 +231,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key
-  - what\s+is\s+your\s+API\s+key
-  - (?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key
-  detection_logic: .*((?:show|give)\s+(?:me\s+)?(?:your\s+)?API\s+key|what\s+is\s+your\s+API\s+key|(?:share|provide)\s+your\s+(?:OpenAI|Anthropic)\s+API\s+key).*
+  - (?:show|give|output|list|dump)\s+(?:me\s+)?(?:your\s+|all\s+)?(?:user\s+)?(?:api\s+)?(?:keys?|credentials?|passwords?|tokens?|secrets?)
+  - what\s+(?:is|are)\s+(?:your|the)\s+(?:api\s+)?(?:keys?|credentials?|passwords?)
+  - (?:share|provide|export)\s+(?:your\s+|all\s+)?(?:OpenAI|Anthropic|AWS|Azure)?\s*(?:api\s+)?(?:keys?|credentials?)
+  - (?:list|show|output|dump)\s+(?:all\s+)?(?:api\s+keys?\s+(?:and\s+)?|credentials?\s+(?:and\s+)?)+
+  detection_logic: .*((?:show|give|output|list|dump)\s+(?:me\s+)?(?:your\s+|all\s+)?(?:user\s+)?(?:api\s+)?(?:keys?|credentials?|passwords?|tokens?|secrets?)|what\s+(?:is|are)\s+(?:your|the)\s+(?:api\s+)?(?:keys?|credentials?|passwords?)|(?:share|provide|export)\s+(?:your\s+|all\s+)?(?:OpenAI|Anthropic|AWS|Azure)?\s*(?:api\s+)?(?:keys?|credentials?)|(?:list|show|output|dump)\s+(?:all\s+)?(?:api\s+keys?\s+(?:and\s+)?|credentials?\s+(?:and\s+)?)+).*
   threshold: 0.9
   pattern_definitions:
     pattern_1:
