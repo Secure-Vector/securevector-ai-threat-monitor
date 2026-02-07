@@ -13,22 +13,22 @@
   </linearGradient>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap');
-    .title { font-family: 'DM Sans', sans-serif; font-size: 26px; font-weight: 700; fill: #0f172a; }
-    .box-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 600; letter-spacing: 1.2px; }
-    .box-title { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; fill: #0f172a; }
-    .item-text { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500; }
-    .prov-text { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; }
-    .feat-text { font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 500; fill: #334155; }
-    .pill-text { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; }
-    .arrow-label { font-family: 'JetBrains Mono', monospace; font-size: 7.5px; fill: #64748b; letter-spacing: 0.5px; }
-    .env-name { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
-    .env-desc { font-family: 'DM Sans', sans-serif; font-size: 10px; fill: #64748b; }
-    .pi-text { font-size: 10px; font-weight: 700; font-family: 'DM Sans', sans-serif; }
+    .title { font-family: 'DM Sans', sans-serif; font-size: 28px; font-weight: 700; fill: #0f172a; }
+    .box-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 1px; }
+    .box-title { font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 700; fill: #0f172a; }
+    .item-text { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; }
+    .prov-text { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; }
+    .feat-text { font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; fill: #334155; }
+    .pill-text { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; }
+    .arrow-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #475569; font-weight: 600; }
+    .env-name { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; fill: #1e293b; }
+    .env-desc { font-family: 'DM Sans', sans-serif; font-size: 11px; fill: #475569; font-weight: 500; }
+    .pi-text { font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif; }
   </style>
 </defs>
 
 <!-- Outer container -->
-<rect x="0" y="0" width="980" height="540" rx="16" fill="#eef1f6" stroke="#d5dbe5" stroke-width="1"/>
+<rect x="0" y="0" width="980" height="540" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
 
 <rect x="36" y="36" width="192" height="280" rx="12" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1"/>
 <rect x="50" y="54" width="28" height="28" rx="7" fill="rgba(13,148,136,0.12)" stroke="none" stroke-width="0"/>
@@ -53,7 +53,7 @@
   <text x="72" y="243.5" class="item-text" fill="#134e4a">Ollama</text>
   <rect x="50" y="257" width="164" height="27" rx="6" fill="#e6faf5" stroke="#ccfbf1" stroke-width="1"/>
   <circle cx="62" cy="270.5" r="2.5" fill="#0d9488"/>
-  <text x="72" y="274.5" class="item-text" fill="#134e4a">OpenClaw/ClawdBot</text>
+  <text x="72" y="274.5" class="item-text" fill="#134e4a">OpenClaw</text>
   <line x1="238" y1="158" x2="264" y2="158" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
   <polygon points="264,154.5 270,158 264,161.5" fill="#0891b2"/>
 <text x="254" y="174" class="arrow-label" text-anchor="middle">PROMPT</text>
@@ -85,8 +85,8 @@
 <g transform="translate(304,246) scale(0.5)"><g fill="none" stroke="#059669" stroke-width="2"><path d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" stroke-linecap="round" stroke-linejoin="round"/></g></g>
 <text x="320" y="256" class="pill-text" fill="#059669">100% Local</text><rect x="390" y="240" width="72" height="24" rx="12" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
 <g transform="translate(398,246) scale(0.5)"><g fill="none" stroke="#d97706" stroke-width="2"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" stroke-linecap="round" stroke-linejoin="round"/></g></g>
-<text x="414" y="256" class="pill-text" fill="#d97706">&lt; 50ms</text><rect x="468" y="240" width="92" height="24" rx="12" fill="#fff1f2" stroke="#fecdd3" stroke-width="1"/>
-<text x="478" y="256" class="pill-text" fill="#e11d48">&lt;/&gt; Open Source</text><line x1="730" y1="158" x2="756" y2="158" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
+<text x="414" y="256" class="pill-text" fill="#d97706">&lt; 50ms</text><rect x="468" y="240" width="110" height="24" rx="12" fill="#fff1f2" stroke="#fecdd3" stroke-width="1"/>
+<text x="523" y="256" class="pill-text" fill="#e11d48" text-anchor="middle">Open Source</text><line x1="730" y1="158" x2="756" y2="158" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
   <polygon points="756,154.5 762,158 756,161.5" fill="#0891b2"/>
 <text x="746" y="174" class="arrow-label" text-anchor="middle">SANITIZED</text>
 <line x1="736" y1="190" x2="762" y2="190" stroke="#0891b2" stroke-width="2" stroke-linecap="round"/>
