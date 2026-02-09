@@ -7,6 +7,7 @@
 const IntegrationPage = {
     // Proxy state
     proxyStatus: { running: false, provider: null, multi: false },
+    currentIntegration: null, // Set when rendering an integration page
 
     // Check proxy status
     async checkProxyStatus() {
@@ -22,10 +23,11 @@ const IntegrationPage = {
     // Start proxy
     async startProxy(provider, multi = false) {
         try {
+            const integration = this.currentIntegration || null;
             const res = await fetch('/api/proxy/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider, multi })
+                body: JSON.stringify({ provider, multi, integration })
             });
             return await res.json();
         } catch (e) {
@@ -278,6 +280,9 @@ def chat_with_protection(user_input):
             container.textContent = 'Integration not found';
             return;
         }
+
+        // Track which integration page we're on (strip 'proxy-' prefix)
+        this.currentIntegration = integrationId.replace('proxy-', '');
 
         container.textContent = '';
 
@@ -909,7 +914,7 @@ def chat_with_protection(user_input):
 
         const step2Code = document.createElement('code');
         step2Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;';
-        step2Code.textContent = config.env + '=http://localhost:8742' + config.path + ' openclaw --gateway';
+        step2Code.textContent = config.env + '=http://localhost:8742' + config.path + ' openclaw gateway';
         container.appendChild(step2Code);
 
         const step2Note = document.createElement('div');

@@ -77,7 +77,7 @@ class AnalysisResult:
 
 
 # Cloud API base URL
-CLOUD_API_BASE_URL = "https://api.securevector.io"
+CLOUD_API_BASE_URL = "https://scan.securevector.io"
 
 # Timeout for cloud API requests (seconds)
 CLOUD_API_TIMEOUT = 5.0

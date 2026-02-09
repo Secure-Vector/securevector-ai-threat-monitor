@@ -131,6 +131,9 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     (time.perf_counter() - start_time) * 1000
                 )
 
+                # Determine action_taken from metadata (sent by LLM proxy)
+                action_taken = (request.metadata or {}).get("action_taken", "logged")
+
                 # Only store in database if threat detected
                 record = None
                 if cloud_result.get("is_threat", False):
@@ -150,6 +153,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                         session_id=request.session_id,
                         metadata=request.metadata,
                         user_agent=user_agent,
+                        action_taken=action_taken,
                     )
 
                 return AnalysisResult(
@@ -162,6 +166,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     processing_time_ms=processing_time_ms,
                     request_id=request.request_id,
                     analysis_source="cloud",
+                    action_taken=action_taken,
                 )
 
             except Exception as e:

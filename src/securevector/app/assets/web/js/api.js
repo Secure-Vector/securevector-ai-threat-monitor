@@ -78,7 +78,7 @@ const API = {
             return {
                 total_threats: totalCount,  // Use actual total from API
                 critical_count: criticalCount,
-                blocked_count: items.filter(t => t.blocked).length,
+                blocked_count: items.filter(t => t.action_taken === 'blocked').length,
                 active_rules: activeRulesCount,
                 recent_threats: recentThreats,
                 threat_types: threatTypes,
@@ -199,6 +199,19 @@ const API = {
         return this.request('/api/settings/cloud/mode', {
             method: 'PUT',
             body: JSON.stringify({ enabled }),
+        });
+    },
+
+    async setCloudCredentials(credentials) {
+        return this.request('/api/settings/cloud/credentials', {
+            method: 'POST',
+            body: JSON.stringify(credentials),
+        });
+    },
+
+    async clearCloudCredentials() {
+        return this.request('/api/settings/cloud/credentials', {
+            method: 'DELETE',
         });
     },
 

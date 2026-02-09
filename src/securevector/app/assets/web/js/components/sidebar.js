@@ -126,6 +126,36 @@ const Sidebar = {
 
         container.appendChild(nav);
 
+        // Integration proxy status indicator (shown when proxy is running)
+        const proxyBanner = document.createElement('div');
+        proxyBanner.id = 'integration-proxy-banner';
+        proxyBanner.style.cssText = 'display: none; margin: 12px; padding: 10px; border-radius: 8px; text-align: center; cursor: pointer;';
+
+        const bannerIcon = document.createElement('div');
+        bannerIcon.id = 'integration-banner-icon';
+        bannerIcon.style.fontSize = '20px';
+        proxyBanner.appendChild(bannerIcon);
+
+        const bannerText = document.createElement('div');
+        bannerText.id = 'integration-banner-text';
+        bannerText.style.cssText = 'color: white; font-weight: 600; font-size: 11px; margin-top: 4px;';
+        proxyBanner.appendChild(bannerText);
+
+        const bannerProvider = document.createElement('div');
+        bannerProvider.id = 'integration-banner-provider';
+        bannerProvider.style.cssText = 'color: rgba(255,255,255,0.9); font-size: 10px; margin-top: 2px; font-weight: 500;';
+        proxyBanner.appendChild(bannerProvider);
+
+        const bannerNote = document.createElement('div');
+        bannerNote.style.cssText = 'color: rgba(255,255,255,0.7); font-size: 9px; margin-top: 2px;';
+        bannerNote.textContent = 'Click to manage';
+        proxyBanner.appendChild(bannerNote);
+
+        container.appendChild(proxyBanner);
+
+        // Check proxy status
+        this.checkProxyStatus();
+
         // Collapse toggle button (at menu level)
         const collapseBtn = document.createElement('button');
         collapseBtn.className = 'sidebar-collapse-btn';
@@ -426,6 +456,74 @@ const Sidebar = {
                 badge.textContent = '0';
             }
         }
+    },
+
+    // Integration configurations for banner display
+    integrationConfigs: {
+        openclaw: { icon: '🦎', label: 'OPENCLAW PROXY', color: 'linear-gradient(135deg, #f59e0b, #d97706)', page: 'proxy-openclaw' },
+        ollama: { icon: '🦙', label: 'OLLAMA PROXY', color: 'linear-gradient(135deg, #6366f1, #4f46e5)', page: 'proxy-ollama' },
+        langchain: { icon: '🔗', label: 'LANGCHAIN PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langchain' },
+        langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
+        crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
+        n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
+        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #3b82f6, #2563eb)', page: 'integrations' },
+    },
+
+    async checkProxyStatus() {
+        try {
+            const response = await fetch('/api/proxy/status');
+            if (response.ok) {
+                const data = await response.json();
+                const banner = document.getElementById('integration-proxy-banner');
+                const iconEl = document.getElementById('integration-banner-icon');
+                const textEl = document.getElementById('integration-banner-text');
+                const providerEl = document.getElementById('integration-banner-provider');
+
+                if (banner) {
+                    if (data.running) {
+                        // Get integration config - use openclaw flag as fallback
+                        const integration = data.integration || (data.openclaw ? 'openclaw' : 'default');
+                        const config = this.integrationConfigs[integration] || this.integrationConfigs.default;
+
+                        banner.style.display = 'block';
+                        banner.style.background = config.color;
+                        banner.onclick = () => this.navigate(config.page);
+
+                        if (iconEl) iconEl.textContent = config.icon;
+                        if (textEl) {
+                            const intLabel = integration !== 'default' ? integration.toUpperCase() : '';
+                            const provLabel = data.provider ? data.provider.toUpperCase() : '';
+                            if (intLabel) {
+                                textEl.textContent = intLabel + ' PROXY ON';
+                            } else if (provLabel) {
+                                textEl.textContent = provLabel + ' PROXY ON';
+                            } else {
+                                textEl.textContent = 'PROXY ON';
+                            }
+                        }
+                        if (providerEl && data.provider) {
+                            providerEl.textContent = 'Provider: ' + data.provider.toUpperCase();
+                        } else if (providerEl) {
+                            providerEl.textContent = '';
+                        }
+
+                        // Store state for proxy pages to use
+                        window._proxyActive = true;
+                        window._proxyIntegration = integration;
+                        window._openclawProxyActive = data.openclaw || false;
+                    } else {
+                        banner.style.display = 'none';
+                        window._proxyActive = false;
+                        window._proxyIntegration = null;
+                        window._openclawProxyActive = false;
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+        // Refresh every 5 seconds
+        setTimeout(() => this.checkProxyStatus(), 5000);
     },
 
     async checkServerStatus() {

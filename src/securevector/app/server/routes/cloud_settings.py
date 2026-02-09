@@ -59,8 +59,8 @@ class CredentialsRequest(BaseModel):
     """Request to configure credentials."""
 
     api_key: str = Field(..., min_length=1, description="API Key from app.securevector.io")
-    bearer_token: str = Field(
-        ..., min_length=1, description="Bearer token from app.securevector.io"
+    bearer_token: Optional[str] = Field(
+        None, description="Bearer token (optional, defaults to api_key)"
     )
 
 
@@ -183,50 +183,31 @@ async def get_cloud_settings() -> CloudSettingsResponse:
 @router.post("/settings/cloud/credentials", response_model=CredentialsResponse)
 async def configure_credentials(request: CredentialsRequest) -> CredentialsResponse:
     """
-    Configure API Key and Bearer Token from app.securevector.io.
+    Configure API Key from app.securevector.io.
 
-    Validates credentials with cloud API before saving.
+    Saves to OS keychain (or encrypted file fallback) and enables cloud mode.
     """
     try:
-        # Validate credentials with cloud API
-        proxy = get_cloud_proxy()
-
-        try:
-            user_info = await proxy.validate_credentials(request.bearer_token)
-        except CloudProxyError as e:
-            logger.warning(f"Credential validation failed: {e}")
-            return CredentialsResponse(
-                valid=False,
-                message=f"Failed to validate credentials: {str(e)}",
-            )
-
-        if user_info is None:
-            return CredentialsResponse(
-                valid=False,
-                message="Invalid credentials",
-            )
-
-        # Save credentials to OS keychain
-        if not save_credentials(request.api_key, request.bearer_token):
+        # Save API key to credential store
+        if not save_credentials(request.api_key):
             raise HTTPException(
                 status_code=500,
-                detail="Failed to save credentials to OS keychain",
+                detail="Failed to save API key to credential store",
             )
 
-        # Update database with user info
+        # Enable cloud mode in database
         db = get_database()
         settings_repo = SettingsRepository(db)
         await settings_repo.update(
-            cloud_user_email=user_info.get("email"),
             cloud_connected_at=datetime.utcnow().isoformat(),
+            cloud_mode_enabled=True,
         )
 
-        logger.info(f"Credentials configured for user: {user_info.get('email')}")
+        logger.info("API key saved, cloud mode enabled")
 
         return CredentialsResponse(
             valid=True,
-            user_email=user_info.get("email"),
-            message="Credentials validated and saved",
+            message="API key saved. Cloud mode enabled.",
         )
 
     except HTTPException:

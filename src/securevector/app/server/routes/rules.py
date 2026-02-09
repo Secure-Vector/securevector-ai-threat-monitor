@@ -169,69 +169,10 @@ async def list_rules(
     """
     Get all rules (community and custom).
 
-    When cloud mode is enabled, returns cloud rules.
-    Otherwise, returns local rules with effective settings (overrides applied).
+    Rules are always local - cloud mode only affects analyze endpoint.
     """
     try:
         db = get_database()
-
-        # Check if cloud mode is enabled
-        from securevector.app.database.repositories.settings import SettingsRepository
-
-        settings_repo = SettingsRepository(db)
-        settings = await settings_repo.get()
-
-        if settings.cloud_mode_enabled:
-            # Try to get cloud rules
-            try:
-                from securevector.app.services.cloud_proxy import (
-                    get_cloud_proxy,
-                    CloudProxyError,
-                )
-
-                proxy = get_cloud_proxy()
-                cloud_result = await proxy.get_rules()
-
-                # Convert cloud response to our format
-                items = []
-                for rule in cloud_result.get("rules", []):
-                    items.append(
-                        RuleResponse(
-                            id=rule.get("id", "unknown"),
-                            name=rule.get("name", "Unknown Rule"),
-                            category=rule.get("category", "unknown"),
-                            description=rule.get("description", ""),
-                            severity=rule.get("severity", "medium"),
-                            patterns=rule.get("patterns", []),
-                            enabled=rule.get("enabled", True),
-                            source="cloud",
-                            has_override=False,
-                        )
-                    )
-
-                # Calculate category counts
-                category_counts = {}
-                for item in items:
-                    category_counts[item.category] = (
-                        category_counts.get(item.category, 0) + 1
-                    )
-
-                categories = [
-                    {"name": cat, "count": count}
-                    for cat, count in sorted(category_counts.items())
-                ]
-
-                return RuleListResponse(
-                    items=items,
-                    total=len(items),
-                    categories=categories,
-                    source="cloud",
-                )
-
-            except Exception as e:
-                logger.warning(f"Failed to get cloud rules, using local: {e}")
-                # Fall through to local rules
-
         repo = RulesRepository(db)
 
         # Build response

@@ -254,7 +254,7 @@ class LLMProxy:
 
         return {"scan_llm_responses": True, "block_threats": self.block_threats}
 
-    async def scan_message(self, text: str, is_llm_response: bool = False) -> dict:
+    async def scan_message(self, text: str, is_llm_response: bool = False, action_taken: str = "logged") -> dict:
         """Scan a message with SecureVector API.
 
         On scan failure: if block mode is ON, fails closed (treats as threat)
@@ -271,6 +271,7 @@ class LLMProxy:
                 "source": "llm-proxy",
                 "target": self.target_url,
                 "scan_type": "output" if is_llm_response else "input",
+                "action_taken": action_taken,
             }
         }
 
@@ -515,7 +516,13 @@ class LLMProxy:
                 self.stats["scanned"] += 1
                 preview = input_text[:80].replace('\n', ' ')
                 print(f"[llm-proxy] 🔍 Scanning input ({len(input_text)} chars): {preview}...")
-                result = await self.scan_message(input_text, is_llm_response=False)
+
+                # Check block mode first to record correct action
+                settings = await self.check_settings()
+                will_block = settings.get("block_threats", False)
+                action = "blocked" if will_block else "logged"
+
+                result = await self.scan_message(input_text, is_llm_response=False, action_taken=action)
 
                 if result.get("is_threat"):
                     self.stats["threats_detected"] += 1
@@ -527,9 +534,8 @@ class LLMProxy:
                     else:
                         print(f"[llm-proxy] ⚠️  THREAT DETECTED: {threat_type} (risk: {risk_score}%)")
 
-                    # Check if blocking is enabled (scan_error already checked block mode)
-                    settings = await self.check_settings()
-                    if settings.get("block_threats"):
+                    # Block if enabled
+                    if will_block:
                         self.stats["blocked"] += 1
                         print(f"[llm-proxy] 🚫 BLOCKED - not forwarding to LLM")
 
@@ -605,14 +611,16 @@ class LLMProxy:
                         if output_text:
                             settings = await self.check_settings()
                             if settings.get("scan_llm_responses"):
-                                result = await self.scan_message(output_text, is_llm_response=True)
+                                will_block = settings.get("block_threats", False)
+                                action = "blocked" if will_block else "logged"
+                                result = await self.scan_message(output_text, is_llm_response=True, action_taken=action)
                                 if result.get("is_threat"):
                                     threat_type = result.get("threat_type", "unknown")
                                     risk_score = result.get("risk_score", 0)
                                     print(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type} (risk: {risk_score}%)")
 
                                     # Block output if block mode is enabled
-                                    if settings.get("block_threats"):
+                                    if will_block:
                                         self.stats["blocked"] += 1
                                         print(f"[llm-proxy] 🚫 OUTPUT BLOCKED - not delivering to client")
                                         error_response = {
@@ -650,20 +658,19 @@ class LLMProxy:
     ) -> Response:
         """Handle streaming LLM response.
 
-        When block mode is ON: buffers the full response, scans it, then
-        delivers or blocks. Adds latency but provides full output protection.
+        When output scanning is ON: buffers the full response, scans it,
+        then delivers or blocks based on block mode setting.
 
-        When block mode is OFF: streams through in real-time, scans at the
-        end for logging/detection only.
+        When output scanning is OFF: streams through in real-time without scanning.
         """
         settings = await self.check_settings()
-        should_block = settings.get("block_threats") and settings.get("scan_llm_responses")
+        should_scan = settings.get("scan_llm_responses")
 
-        if should_block:
-            # BLOCK MODE: Buffer full response, scan, then deliver or block
+        if should_scan:
+            # SCAN MODE: Buffer full response, scan, then deliver or block
             return await self._handle_streaming_buffered(client, method, url, headers, body)
         else:
-            # PASSTHROUGH MODE: Stream through, scan at end for logging
+            # PASSTHROUGH MODE: Stream through without scanning
             return await self._handle_streaming_passthrough(client, method, url, headers, body)
 
     async def _handle_streaming_buffered(
@@ -674,7 +681,10 @@ class LLMProxy:
         accumulated_text = ""
         all_chunks = []
 
-        print("[llm-proxy] 🛡️ Block mode ON - buffering stream for output scan...")
+        settings = await self.check_settings()
+        will_block = settings.get("block_threats", False)
+
+        print("[llm-proxy] 🛡️ Buffering stream for output scan...")
 
         async with client.stream(method, url, headers=headers, content=body) as response:
             async for chunk in response.aiter_bytes():
@@ -692,27 +702,30 @@ class LLMProxy:
 
         # Scan accumulated text
         if accumulated_text:
-            result = await self.scan_message(accumulated_text, is_llm_response=True)
+            action = "blocked" if will_block else "logged"
+            result = await self.scan_message(accumulated_text, is_llm_response=True, action_taken=action)
             if result.get("is_threat"):
                 threat_type = result.get("threat_type", "unknown")
                 risk_score = result.get("risk_score", 0)
-                self.stats["blocked"] += 1
-                print(f"[llm-proxy] 🚫 OUTPUT BLOCKED (streamed): {threat_type} (risk: {risk_score}%)")
+                print(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type} (risk: {risk_score}%)")
 
-                error_response = {
-                    "error": {
-                        "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
-                        "type": "security_error",
-                        "code": "output_blocked_by_securevector",
+                if will_block:
+                    self.stats["blocked"] += 1
+                    print(f"[llm-proxy] 🚫 OUTPUT BLOCKED (streamed): {threat_type} (risk: {risk_score}%)")
+                    error_response = {
+                        "error": {
+                            "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
+                            "type": "security_error",
+                            "code": "output_blocked_by_securevector",
+                        }
                     }
-                }
-                return Response(
-                    content=json.dumps(error_response),
-                    status_code=400,
-                    media_type="application/json",
-                )
-
-        print("[llm-proxy] ✓ Output clean - delivering to client")
+                    return Response(
+                        content=json.dumps(error_response),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+            else:
+                print("[llm-proxy] ✓ Output clean")
 
         # Deliver buffered stream
         async def replay_chunks():

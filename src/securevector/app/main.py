@@ -131,7 +131,7 @@ def run_web(host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
-def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False) -> None:
+def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False) -> None:
     """Run LLM proxy only (no web server)."""
     try:
         from securevector.integrations.openclaw_llm_proxy import LLMProxy, MultiProviderProxy
@@ -186,6 +186,20 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
         uvicorn.run(app, host="127.0.0.1", port=proxy_port, log_level="warning" if not verbose else "info")
     except KeyboardInterrupt:
         print("\n[llm-proxy] Shutting down...")
+    finally:
+        # Revert pi-ai files if --openclaw was used
+        if openclaw and not multi:
+            print(f"\n  Reverting {provider} proxy patches...")
+            revert_provider_proxy(provider, quiet=False)
+            print("  ✓ Proxy patches reverted")
+
+        # Always show reminder for OpenClaw users
+        print("\n  ════════════════════════════════════════════════════════════")
+        print("  If using OpenClaw with SecureVector, remember to remove")
+        print("  the proxy patches when done:")
+        print("    securevector-app --revert-proxy")
+        print("  Or use 'Remove SecureVector Proxy' button in the Proxy page.")
+        print("  ════════════════════════════════════════════════════════════\n")
 
 
 def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, target_port: int, verbose: bool = False, mode: str = "analyze") -> None:
@@ -241,12 +255,15 @@ def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, tar
         print("\n  Shutting down...")
 
 
-def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False) -> None:
+def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False) -> None:
     """Run web server and LLM proxy together."""
     import asyncio
     import uvicorn
     from securevector.app.server.app import create_app
-    from securevector.app.server.routes.proxy import set_proxy_running_in_process
+    from securevector.app.server.routes.proxy import set_proxy_running_in_process, set_openclaw_mode
+
+    # Track if started with --openclaw for cleanup on stop
+    set_openclaw_mode(openclaw)
 
     try:
         from securevector.integrations.openclaw_llm_proxy import LLMProxy, MultiProviderProxy
@@ -279,7 +296,8 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
             verbose=verbose,
         )
         # Signal multi-provider mode
-        set_proxy_running_in_process(True, "multi")
+        integration_name = "openclaw" if openclaw else None
+        set_proxy_running_in_process(True, "multi", integration=integration_name)
     else:
         target_url = LLMProxy.PROVIDERS.get(provider, "https://api.openai.com")
         print(f"  LLM Proxy:  http://127.0.0.1:{proxy_port} → {provider}")
@@ -296,7 +314,8 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
             verbose=verbose,
             provider=provider,
         )
-        set_proxy_running_in_process(True, provider)
+        integration_name = "openclaw" if openclaw else None
+        set_proxy_running_in_process(True, provider, integration=integration_name)
 
     print(f"\n  Press Ctrl+C to stop\n")
 
@@ -321,6 +340,19 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         print("\n  Shutting down...")
     finally:
         set_proxy_running_in_process(False)
+        # Revert pi-ai files if --openclaw was used
+        if openclaw and not multi:
+            print(f"\n  Reverting {provider} proxy patches...")
+            revert_provider_proxy(provider, quiet=False)
+            print("  ✓ Proxy patches reverted")
+
+        # Always show reminder for OpenClaw users
+        print("\n  ════════════════════════════════════════════════════════════")
+        print("  If using OpenClaw with SecureVector, remember to remove")
+        print("  the proxy patches when done:")
+        print("    securevector-app --revert-proxy")
+        print("  Or use 'Remove SecureVector Proxy' button in the Proxy page.")
+        print("  ════════════════════════════════════════════════════════════\n")
 
 
 def _find_pi_ai_path() -> str:
@@ -499,6 +531,49 @@ _PROVIDER_BASE_PATH = {
     "anthropic": "",
     "gemini": "/v1beta",
 }
+
+
+def _check_provider_files_exist(provider: str) -> bool:
+    """Check if pi-ai files for this provider exist.
+
+    Returns True if files exist, False otherwise (with error message).
+    """
+    target_files = _PROVIDER_PATCH_MAP.get(provider, _PROVIDER_PATCH_MAP["openai"])
+    target_files = list(dict.fromkeys(target_files))
+
+    try:
+        pi_ai_path = _find_pi_ai_path()
+    except SystemExit:
+        # pi-ai not found - error already printed
+        return False
+
+    missing_files = []
+    for rel_path in target_files:
+        try:
+            filepath = _secure_path_join(pi_ai_path, rel_path)
+            if not os.path.isfile(filepath):
+                missing_files.append(rel_path)
+        except ValueError:
+            missing_files.append(rel_path)
+
+    if missing_files:
+        print()
+        print(f"  ERROR: Cannot use --openclaw with provider '{provider}'")
+        print(f"  ═══════════════════════════════════════════════════════")
+        print()
+        print(f"  Required pi-ai files not found:")
+        for f in missing_files:
+            print(f"    - {os.path.basename(f)}")
+        print()
+        print(f"  This provider is not supported at this moment.")
+        print(f"  The pi-ai library may have been updated or is missing these files.")
+        print()
+        print(f"  Try without --openclaw flag:")
+        print(f"    securevector-app --proxy --provider {provider} --web")
+        print()
+        return False
+
+    return True
 
 
 def setup_proxy(provider: str = "openai") -> None:
@@ -714,6 +789,53 @@ def revert_proxy() -> None:
     print()
 
 
+def revert_provider_proxy(provider: str, quiet: bool = False) -> None:
+    """Revert proxy setup for a specific provider only.
+
+    Called automatically when stopping a proxy that was started with --openclaw.
+    """
+    import shutil
+
+    # Get files for this provider
+    target_files = _PROVIDER_PATCH_MAP.get(provider, _PROVIDER_PATCH_MAP["openai"])
+    target_files = list(dict.fromkeys(target_files))  # Dedupe
+
+    try:
+        pi_ai_path = _find_pi_ai_path()
+    except SystemExit:
+        # pi-ai not found, nothing to revert
+        return
+
+    restored = 0
+    missing_files = []
+    for rel_path in target_files:
+        try:
+            filepath = _secure_path_join(pi_ai_path, rel_path)
+        except ValueError:
+            missing_files.append(rel_path)
+            continue
+
+        if not os.path.isfile(filepath):
+            missing_files.append(rel_path)
+            continue
+
+        backup_path = filepath + ".securevector.bak"
+        if not os.path.isfile(backup_path):
+            continue
+
+        shutil.copy2(backup_path, filepath)
+        os.remove(backup_path)
+        restored += 1
+
+    if missing_files and not quiet:
+        print(f"\n  [proxy] WARNING: Some pi-ai files not found for {provider}")
+        print(f"          pi-ai may have been updated. Run:")
+        print(f"            securevector-app --revert-proxy")
+        print(f"          Then start proxy again with --openclaw to re-patch.")
+    elif restored > 0 and not quiet:
+        print(f"\n  [proxy] Reverted pi-ai files for {provider} ({restored} file{'s' if restored > 1 else ''})")
+
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -732,7 +854,7 @@ Examples:
 
   OpenClaw integration:
     securevector-app --proxy --provider anthropic --web --openclaw
-    Then run: ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw --gateway
+    Then run: ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway
 
   Revert OpenClaw patches:
     securevector-app --revert-proxy
@@ -838,15 +960,18 @@ Examples:
     if args.proxy:
         # If --openclaw flag, auto-patch pi-ai files
         if args.openclaw:
+            # Check if provider files exist before proceeding
+            if not _check_provider_files_exist(args.provider):
+                return
             _auto_setup_proxy_if_needed(args.provider)
 
         if args.web:
             # Run both web server and LLM proxy together
-            run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode, args.multi)
+            run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode, args.multi, args.openclaw)
             return
         else:
             # Run LLM proxy only
-            run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi)
+            run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi, args.openclaw)
             return
 
     # Check dependencies

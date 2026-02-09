@@ -10,7 +10,7 @@ Features:
 - Automatic timeout handling (5 seconds)
 - Fallback to local analysis on errors
 - Correct authentication headers per endpoint:
-  - /api/analyze: X-Api-Key header
+  - /analyze: X-Api-Key header
   - /api/threat-analytics/: Authorization: Bearer header
   - /api/rules: Authorization: Bearer header
 """
@@ -110,7 +110,7 @@ class CloudProxyService:
         """
         Proxy analysis request to cloud API.
 
-        Uses X-Api-Key header for /api/analyze endpoint.
+        Uses X-Api-Key header for /analyze endpoint.
 
         Args:
             text: Text to analyze.
@@ -128,22 +128,58 @@ class CloudProxyService:
 
         try:
             client = await self._get_client()
-            payload = {"text": text}
+            payload = {
+                "prompt": text,
+                "user_tier": "professional",
+            }
             if metadata:
                 payload["metadata"] = metadata
 
             response = await client.post(
-                "/api/analyze",
+                "/analyze",
                 json=payload,
                 headers={"X-Api-Key": api_key},
             )
 
             if response.status_code == 200:
-                result = response.json()
-                result["analysis_source"] = "cloud"
+                raw = response.json()
+                logger.debug(f"Cloud API raw response: {raw}")
+
+                # Map cloud API fields to local format
+                verdict = raw.get("verdict", "").upper()
+                is_threat = verdict in ("BLOCK", "WARN", "REVIEW")
+                threat_score = raw.get("threat_score", 0)
+                risk_score = int(threat_score * 100) if threat_score <= 1 else int(threat_score)
+
+                # Get threat type from analysis.ml_category or matched_rules
+                threat_type = None
+                analysis = raw.get("analysis", {})
+                if analysis.get("ml_category"):
+                    threat_type = analysis["ml_category"]
+                elif raw.get("matched_rules"):
+                    threat_type = raw["matched_rules"][0].get("category")
+
+                result = {
+                    "is_threat": is_threat,
+                    "threat_type": threat_type or raw.get("threat_level"),
+                    "risk_score": risk_score,
+                    "confidence": raw.get("confidence_score", 0.0),
+                    "matched_rules": raw.get("matched_rules", []),
+                    "recommendation": raw.get("recommendation"),
+                    "verdict": verdict,
+                    "analysis_source": "cloud",
+                }
                 return result
             elif response.status_code == 401:
                 raise CloudProxyError("Invalid API key")
+            elif response.status_code == 422:
+                # Validation error - log details
+                try:
+                    error_detail = response.json()
+                    logger.error(f"Cloud API validation error: {error_detail}")
+                except Exception:
+                    logger.error(f"Cloud API validation error: {response.text}")
+                raise CloudProxyError(f"Cloud API validation error: {response.status_code}")
             else:
                 raise CloudProxyError(f"Cloud API error: {response.status_code}")
 
@@ -178,7 +214,7 @@ class CloudProxyService:
 
         try:
             client = await self._get_client()
-            payload = {"text": text}
+            payload = {"prompt": text}
             if metadata:
                 payload["metadata"] = metadata
 

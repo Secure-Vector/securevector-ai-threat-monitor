@@ -40,22 +40,6 @@ const SettingsPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Test Analyze Section
-        const testSection = this.createSection('Test Threat Analysis', 'Try the analyze endpoint to test threat detection');
-        const testCard = Card.create({ gradient: true });
-        const testBody = testCard.querySelector('.card-body');
-        this.renderTestAnalyze(testBody);
-        testSection.appendChild(testCard);
-        container.appendChild(testSection);
-
-        // AI Analysis Section
-        const llmSection = this.createSection('AI Analysis (Input Only)', 'LLM-powered threat detection for inputs. Outputs use fast regex rules.');
-        const llmCard = Card.create({ gradient: true });
-        const llmBody = llmCard.querySelector('.card-body');
-        this.renderLLMSettings(llmBody);
-        llmSection.appendChild(llmCard);
-        container.appendChild(llmSection);
-
         // Cloud Mode Section
         const cloudSection = this.createSection('Cloud Mode', 'Connect to SecureVector cloud for enhanced threat intelligence');
         const cloudCard = Card.create({ gradient: true });
@@ -63,6 +47,18 @@ const SettingsPage = {
         this.renderCloudSettings(cloudBody);
         cloudSection.appendChild(cloudCard);
         container.appendChild(cloudSection);
+
+        // AI Analysis Section (disabled when cloud mode is on)
+        const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
+        const llmDesc = cloudModeActive
+            ? 'Disabled - Cloud ML analysis is active'
+            : 'LLM-powered threat detection for inputs. Outputs use fast regex rules.';
+        const llmSection = this.createSection('AI Analysis (Input Only)', llmDesc);
+        const llmCard = Card.create({ gradient: true });
+        const llmBody = llmCard.querySelector('.card-body');
+        this.renderLLMSettings(llmBody, cloudModeActive);
+        llmSection.appendChild(llmCard);
+        container.appendChild(llmSection);
 
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
@@ -378,25 +374,44 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         return 'low';
     },
 
-    renderLLMSettings(container) {
-        // Enable toggle row
-        const enableRow = document.createElement('div');
-        enableRow.className = 'setting-row';
+    renderLLMSettings(container, cloudModeActive = false) {
+        // Show message if cloud mode is active
+        if (cloudModeActive) {
+            const cloudNote = document.createElement('div');
+            cloudNote.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; text-align: center;';
+
+            const icon = document.createElement('span');
+            icon.textContent = '☁️ ';
+            icon.style.fontSize = '24px';
+            cloudNote.appendChild(icon);
+
+            const text = document.createElement('p');
+            text.style.cssText = 'margin: 8px 0 0 0; color: var(--text-secondary);';
+            text.textContent = 'Cloud ML analysis is active. Local AI analysis is not needed.';
+            cloudNote.appendChild(text);
+
+            container.appendChild(cloudNote);
+            return;
+        }
+
+        // Row 1: Enable toggle + Test Connection button
+        const row1 = document.createElement('div');
+        row1.className = 'setting-row';
+        row1.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
 
         const enableInfo = document.createElement('div');
-        enableInfo.className = 'setting-info';
+        enableInfo.style.cssText = 'display: flex; align-items: center; gap: 12px;';
 
         const enableLabel = document.createElement('span');
         enableLabel.className = 'setting-label';
+        enableLabel.style.marginRight = '8px';
         enableLabel.textContent = 'Enable AI Analysis';
         enableInfo.appendChild(enableLabel);
 
-        const enableDesc = document.createElement('span');
-        enableDesc.className = 'setting-description';
-        enableDesc.textContent = 'Enhanced LLM detection for inputs only. Outputs use fast regex rules to avoid latency.';
-        enableInfo.appendChild(enableDesc);
-
-        enableRow.appendChild(enableInfo);
+        const saveNote = document.createElement('span');
+        saveNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-style: italic;';
+        saveNote.textContent = '(auto-saves on change)';
+        enableInfo.appendChild(saveNote);
 
         const enableToggle = document.createElement('label');
         enableToggle.className = 'toggle';
@@ -411,26 +426,49 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         enableSlider.className = 'toggle-slider';
         enableToggle.appendChild(enableSlider);
 
-        enableRow.appendChild(enableToggle);
-        container.appendChild(enableRow);
+        enableInfo.appendChild(enableToggle);
+        row1.appendChild(enableInfo);
 
-        // Provider select row
-        const providerRow = document.createElement('div');
-        providerRow.className = 'setting-row';
+        // Buttons on the right
+        const btnGroup = document.createElement('div');
+        btnGroup.style.cssText = 'display: flex; gap: 8px; align-items: center;';
 
-        const providerInfo = document.createElement('div');
-        providerInfo.className = 'setting-info';
+        const testBtn = document.createElement('button');
+        testBtn.className = 'btn btn-secondary btn-small';
+        testBtn.textContent = 'Test Connection';
+        testBtn.addEventListener('click', () => this.testLLMConnection());
+        btnGroup.appendChild(testBtn);
 
-        const providerLabel = document.createElement('span');
-        providerLabel.className = 'setting-label';
-        providerLabel.textContent = 'LLM Provider';
-        providerInfo.appendChild(providerLabel);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-danger btn-small';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', () => this.deleteLLMConfig());
+        btnGroup.appendChild(deleteBtn);
 
-        providerRow.appendChild(providerInfo);
+        const testResult = document.createElement('span');
+        testResult.id = 'llm-test-result';
+        testResult.className = 'llm-test-result';
+        testResult.style.fontSize = '12px';
+        btnGroup.appendChild(testResult);
+
+        row1.appendChild(btnGroup);
+        container.appendChild(row1);
+
+        // Row 2: Provider + Model (side by side)
+        const row2 = document.createElement('div');
+        row2.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;';
+
+        // Provider
+        const providerGroup = document.createElement('div');
+        const providerLabel = document.createElement('label');
+        providerLabel.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
+        providerLabel.textContent = 'Provider';
+        providerGroup.appendChild(providerLabel);
 
         const providerSelect = document.createElement('select');
-        providerSelect.className = 'form-select llm-select';
+        providerSelect.className = 'form-select';
         providerSelect.id = 'llm-provider';
+        providerSelect.style.cssText = 'width: 100%; padding: 8px; font-size: 13px;';
 
         const providers = [
             { id: 'ollama', name: 'Ollama (Local)' },
@@ -438,7 +476,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             { id: 'anthropic', name: 'Anthropic' },
             { id: 'azure', name: 'Azure OpenAI' },
             { id: 'bedrock', name: 'AWS Bedrock' },
-            { id: 'custom', name: 'Custom (OpenAI-compatible)' },
+            { id: 'custom', name: 'Custom' },
         ];
 
         providers.forEach(p => {
@@ -454,84 +492,70 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             this.updateProviderFields(e.target.value);
         });
 
-        providerRow.appendChild(providerSelect);
-        container.appendChild(providerRow);
+        providerGroup.appendChild(providerSelect);
+        row2.appendChild(providerGroup);
 
-        // Model input row
-        const modelRow = document.createElement('div');
-        modelRow.className = 'setting-row';
-
-        const modelInfo = document.createElement('div');
-        modelInfo.className = 'setting-info';
-
-        const modelLabel = document.createElement('span');
-        modelLabel.className = 'setting-label';
+        // Model
+        const modelGroup = document.createElement('div');
+        const modelLabel = document.createElement('label');
+        modelLabel.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
         modelLabel.textContent = 'Model';
-        modelInfo.appendChild(modelLabel);
-
-        modelRow.appendChild(modelInfo);
+        modelGroup.appendChild(modelLabel);
 
         const modelInput = document.createElement('input');
         modelInput.type = 'text';
-        modelInput.className = 'form-input llm-input';
+        modelInput.className = 'form-input';
         modelInput.id = 'llm-model';
+        modelInput.style.cssText = 'width: 100%; padding: 8px; font-size: 13px;';
         modelInput.value = this.llmSettings.model || '';
-        modelInput.placeholder = 'e.g., llama3, gpt-4o, claude-3-5-sonnet-20241022';
+        modelInput.placeholder = 'llama3, gpt-4o, claude-3-5-sonnet';
         modelInput.addEventListener('blur', (e) => this.updateLLMSetting('model', e.target.value));
 
-        modelRow.appendChild(modelInput);
-        container.appendChild(modelRow);
+        modelGroup.appendChild(modelInput);
+        row2.appendChild(modelGroup);
 
-        // Endpoint row
-        const endpointRow = document.createElement('div');
-        endpointRow.className = 'setting-row';
-        endpointRow.id = 'llm-endpoint-row';
+        container.appendChild(row2);
 
-        const endpointInfo = document.createElement('div');
-        endpointInfo.className = 'setting-info';
+        // Row 3: Endpoint + API Key (side by side)
+        const row3 = document.createElement('div');
+        row3.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;';
 
-        const endpointLabel = document.createElement('span');
-        endpointLabel.className = 'setting-label';
+        // Endpoint
+        const endpointGroup = document.createElement('div');
+        endpointGroup.id = 'llm-endpoint-row';
+        const endpointLabel = document.createElement('label');
+        endpointLabel.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
         endpointLabel.textContent = 'Endpoint URL';
-        endpointInfo.appendChild(endpointLabel);
-
-        endpointRow.appendChild(endpointInfo);
+        endpointGroup.appendChild(endpointLabel);
 
         const endpointInput = document.createElement('input');
         endpointInput.type = 'text';
-        endpointInput.className = 'form-input llm-input';
+        endpointInput.className = 'form-input';
         endpointInput.id = 'llm-endpoint';
+        endpointInput.style.cssText = 'width: 100%; padding: 8px; font-size: 13px;';
         endpointInput.value = this.llmSettings.endpoint || '';
         endpointInput.placeholder = 'http://localhost:11434';
         endpointInput.addEventListener('blur', (e) => this.updateLLMSetting('endpoint', e.target.value));
 
-        endpointRow.appendChild(endpointInput);
-        container.appendChild(endpointRow);
+        endpointGroup.appendChild(endpointInput);
+        row3.appendChild(endpointGroup);
 
-        // API Key row
-        const keyRow = document.createElement('div');
-        keyRow.className = 'setting-row';
-        keyRow.id = 'llm-apikey-row';
-
-        const keyInfo = document.createElement('div');
-        keyInfo.className = 'setting-info';
-
-        const keyLabel = document.createElement('span');
-        keyLabel.className = 'setting-label';
+        // API Key
+        const keyGroup = document.createElement('div');
+        keyGroup.id = 'llm-apikey-row';
+        const keyLabel = document.createElement('label');
+        keyLabel.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
         keyLabel.textContent = 'API Key';
-        keyInfo.appendChild(keyLabel);
-
-        const keyStatus = document.createElement('span');
-        keyStatus.className = 'setting-description';
-        keyStatus.textContent = this.llmSettings.api_key_configured ? 'Configured' : 'Not configured';
-        keyInfo.appendChild(keyStatus);
-
-        keyRow.appendChild(keyInfo);
+        if (this.llmSettings.api_key_configured) {
+            keyLabel.textContent += ' (configured)';
+        }
+        keyGroup.appendChild(keyLabel);
 
         const keyInput = document.createElement('input');
         keyInput.type = 'password';
-        keyInput.className = 'form-input llm-input';
+        keyInput.className = 'form-input';
         keyInput.id = 'llm-apikey';
+        keyInput.style.cssText = 'width: 100%; padding: 8px; font-size: 13px;';
         keyInput.placeholder = 'sk-... or your API key';
         keyInput.addEventListener('blur', (e) => {
             if (e.target.value) {
@@ -539,28 +563,25 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             }
         });
 
-        keyRow.appendChild(keyInput);
-        container.appendChild(keyRow);
+        keyGroup.appendChild(keyInput);
+        row3.appendChild(keyGroup);
 
-        // AWS Region row (for Bedrock)
+        container.appendChild(row3);
+
+        // AWS Region row (for Bedrock) - only shown when needed
         const regionRow = document.createElement('div');
-        regionRow.className = 'setting-row';
         regionRow.id = 'llm-region-row';
-        regionRow.style.display = 'none';
+        regionRow.style.cssText = 'display: none; margin-bottom: 12px;';
 
-        const regionInfo = document.createElement('div');
-        regionInfo.className = 'setting-info';
-
-        const regionLabel = document.createElement('span');
-        regionLabel.className = 'setting-label';
+        const regionLabel = document.createElement('label');
+        regionLabel.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
         regionLabel.textContent = 'AWS Region';
-        regionInfo.appendChild(regionLabel);
-
-        regionRow.appendChild(regionInfo);
+        regionRow.appendChild(regionLabel);
 
         const regionSelect = document.createElement('select');
-        regionSelect.className = 'form-select llm-select';
+        regionSelect.className = 'form-select';
         regionSelect.id = 'llm-region';
+        regionSelect.style.cssText = 'width: 200px; padding: 8px; font-size: 13px;';
 
         const regions = [
             'us-east-1', 'us-west-2', 'eu-west-1', 'eu-central-1',
@@ -579,31 +600,6 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         regionRow.appendChild(regionSelect);
         container.appendChild(regionRow);
-
-        // Test Connection button
-        const testRow = document.createElement('div');
-        testRow.className = 'setting-row';
-        testRow.style.justifyContent = 'flex-end';
-        testRow.style.gap = '12px';
-
-        const testBtn = document.createElement('button');
-        testBtn.className = 'btn btn-secondary';
-        testBtn.textContent = 'Test Connection';
-        testBtn.addEventListener('click', () => this.testLLMConnection());
-        testRow.appendChild(testBtn);
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'btn btn-danger';
-        deleteBtn.textContent = 'Delete Config';
-        deleteBtn.addEventListener('click', () => this.deleteLLMConfig());
-        testRow.appendChild(deleteBtn);
-
-        const testResult = document.createElement('span');
-        testResult.id = 'llm-test-result';
-        testResult.className = 'llm-test-result';
-        testRow.appendChild(testResult);
-
-        container.appendChild(testRow);
 
         // Show/hide fields based on provider (don't update model on initial load)
         this.updateProviderFields(this.llmSettings.provider, false);
@@ -735,34 +731,117 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     },
 
     renderCloudSettings(container) {
-        const row = document.createElement('div');
-        row.className = 'setting-row';
+        // Cloud Mode ON indicator (simple version - details in header tooltip)
+        if (this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled) {
+            const indicator = document.createElement('div');
+            indicator.style.cssText = 'margin-bottom: 16px; padding: 12px 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px; display: flex; align-items: center; gap: 10px;';
 
-        const info = document.createElement('div');
-        info.className = 'setting-info';
+            const icon = document.createElement('span');
+            icon.textContent = '☁️';
+            icon.style.fontSize = '20px';
+            indicator.appendChild(icon);
 
-        const label = document.createElement('span');
-        label.className = 'setting-label';
-        label.textContent = 'Cloud Sync';
-        info.appendChild(label);
+            const text = document.createElement('span');
+            text.style.cssText = 'color: white; font-weight: 600;';
+            text.textContent = 'CLOUD MODE ON';
+            indicator.appendChild(text);
 
-        const desc = document.createElement('span');
-        desc.className = 'setting-description';
-
-        if (this.cloudSettings.credentials_configured) {
-            desc.textContent = 'Connected to SecureVector cloud';
-            if (this.cloudSettings.user_email) {
-                desc.textContent += ' (' + this.cloudSettings.user_email + ')';
-            }
-        } else {
-            desc.textContent = 'Connect to app.securevector.io to enable cloud features';
+            container.appendChild(indicator);
         }
-        info.appendChild(desc);
 
-        row.appendChild(info);
+        // Instructions if not connected
+        if (!this.cloudSettings.credentials_configured) {
+            const helpText = document.createElement('div');
+            helpText.className = 'cloud-help-text';
+            helpText.style.cssText = 'margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 13px;';
 
-        // Connect button or toggle
+            const title = document.createElement('strong');
+            title.textContent = 'How to connect:';
+            helpText.appendChild(title);
+
+            const steps = document.createElement('ol');
+            steps.style.cssText = 'margin: 8px 0 0 16px; padding: 0;';
+
+            const step1 = document.createElement('li');
+            step1.textContent = 'Sign up at ';
+            const link = document.createElement('a');
+            link.href = 'https://app.securevector.io';
+            link.target = '_blank';
+            link.style.color = 'var(--accent)';
+            link.textContent = 'app.securevector.io';
+            step1.appendChild(link);
+            steps.appendChild(step1);
+
+            const step2 = document.createElement('li');
+            step2.textContent = 'Go to Access Management → Create a new key';
+            steps.appendChild(step2);
+
+            const step3 = document.createElement('li');
+            step3.textContent = 'Paste your API key below and click Connect';
+            steps.appendChild(step3);
+
+            helpText.appendChild(steps);
+            container.appendChild(helpText);
+        }
+
+        // API Key row
+        const keyRow = document.createElement('div');
+        keyRow.className = 'setting-row';
+
+        const keyInfo = document.createElement('div');
+        keyInfo.className = 'setting-info';
+
+        const keyLabel = document.createElement('span');
+        keyLabel.className = 'setting-label';
+        keyLabel.textContent = 'SecureVector API Key';
+        keyInfo.appendChild(keyLabel);
+
+        const keyDesc = document.createElement('span');
+        keyDesc.className = 'setting-description';
         if (this.cloudSettings.credentials_configured) {
+            keyDesc.textContent = 'API key configured - cloud analysis active';
+        } else {
+            keyDesc.textContent = 'Enter your API key from app.securevector.io';
+        }
+        keyInfo.appendChild(keyDesc);
+
+        keyRow.appendChild(keyInfo);
+
+        const keyInput = document.createElement('input');
+        keyInput.type = 'password';
+        keyInput.className = 'form-input';
+        keyInput.id = 'cloud-api-key';
+        keyInput.placeholder = 'sk_... or sv_...';
+        keyInput.style.width = '250px';
+        keyRow.appendChild(keyInput);
+
+        container.appendChild(keyRow);
+
+        // Connect/Disconnect row
+        const actionRow = document.createElement('div');
+        actionRow.className = 'setting-row';
+
+        const actionInfo = document.createElement('div');
+        actionInfo.className = 'setting-info';
+
+        const actionLabel = document.createElement('span');
+        actionLabel.className = 'setting-label';
+        actionLabel.textContent = 'Cloud Analysis';
+        actionInfo.appendChild(actionLabel);
+
+        const actionDesc = document.createElement('span');
+        actionDesc.className = 'setting-description';
+        if (this.cloudSettings.cloud_mode_enabled) {
+            actionDesc.textContent = 'All scans routed to scan.securevector.io';
+        } else {
+            actionDesc.textContent = 'Using local analysis';
+        }
+        actionInfo.appendChild(actionDesc);
+
+        actionRow.appendChild(actionInfo);
+
+        if (this.cloudSettings.credentials_configured) {
+            // Show toggle if API key is configured
             const toggle = document.createElement('label');
             toggle.className = 'toggle';
 
@@ -776,22 +855,66 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             slider.className = 'toggle-slider';
             toggle.appendChild(slider);
 
-            row.appendChild(toggle);
+            actionRow.appendChild(toggle);
         } else {
+            // Show Connect button if no API key
             const connectBtn = document.createElement('button');
             connectBtn.className = 'btn btn-primary';
-            connectBtn.textContent = 'Connect to Cloud';
-            connectBtn.addEventListener('click', () => this.openCloudLogin());
-            row.appendChild(connectBtn);
+            connectBtn.textContent = 'Connect';
+            connectBtn.addEventListener('click', () => this.saveCloudApiKey());
+            actionRow.appendChild(connectBtn);
         }
 
-        container.appendChild(row);
+        container.appendChild(actionRow);
+
+        // Disconnect option if connected
+        if (this.cloudSettings.credentials_configured) {
+            const disconnectRow = document.createElement('div');
+            disconnectRow.className = 'setting-row';
+            disconnectRow.style.justifyContent = 'flex-end';
+
+            const disconnectBtn = document.createElement('button');
+            disconnectBtn.className = 'btn btn-danger btn-small';
+            disconnectBtn.textContent = 'Disconnect';
+            disconnectBtn.addEventListener('click', () => this.disconnectCloud());
+            disconnectRow.appendChild(disconnectBtn);
+
+            container.appendChild(disconnectRow);
+        }
     },
 
-    openCloudLogin() {
-        // Open SecureVector cloud login in new window
-        window.open('https://app.securevector.io/login?redirect=desktop', '_blank');
-        Toast.info('Please login at app.securevector.io and copy your credentials');
+    async saveCloudApiKey() {
+        const keyInput = document.getElementById('cloud-api-key');
+        const apiKey = keyInput ? keyInput.value.trim() : '';
+
+        if (!apiKey) {
+            Toast.warning('Please enter your SecureVector API key');
+            return;
+        }
+
+        try {
+            await API.setCloudCredentials({ api_key: apiKey });
+            Toast.success('Connected to SecureVector Cloud');
+            // Full page reload to refresh all state
+            window.location.reload();
+        } catch (error) {
+            Toast.error('Failed to connect: ' + error.message);
+        }
+    },
+
+    async disconnectCloud() {
+        if (!confirm('Disconnect from SecureVector Cloud? This will switch back to local analysis.')) {
+            return;
+        }
+
+        try {
+            await API.clearCloudCredentials();
+            Toast.success('Disconnected from cloud');
+            // Full page reload to refresh all state
+            window.location.reload();
+        } catch (error) {
+            Toast.error('Failed to disconnect: ' + error.message);
+        }
     },
 
     async toggleCloudMode(enabled) {

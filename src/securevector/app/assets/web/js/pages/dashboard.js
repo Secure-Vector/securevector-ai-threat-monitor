@@ -548,11 +548,11 @@ const DashboardPage = {
         const blockInfo = document.createElement('div');
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        blockTitle.textContent = 'Block Mode (Input Only)';
+        blockTitle.textContent = 'Block Mode';
         blockInfo.appendChild(blockTitle);
         const blockDesc = document.createElement('div');
         blockDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        blockDesc.textContent = 'Block INPUT threats before reaching LLM';
+        blockDesc.textContent = 'Block threats on input and output';
         blockInfo.appendChild(blockDesc);
         blockCard.appendChild(blockInfo);
 
@@ -563,7 +563,7 @@ const DashboardPage = {
         blockCheckbox.checked = settings.block_threats;
         blockCheckbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
-            if (!confirm(newState ? 'Enable Block Mode?\n\nINPUT threats will be BLOCKED (not sent to LLM).\nOutput secrets are redacted when stored.' : 'Disable Block Mode?\n\nAll threats will be logged only.')) {
+            if (!confirm(newState ? 'Enable Block Mode?\n\nInput threats will be BLOCKED before reaching the LLM.\nOutput threats will be BLOCKED before reaching the client.' : 'Disable Block Mode?\n\nAll threats will be logged only.')) {
                 e.target.checked = !newState;
                 return;
             }
