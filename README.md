@@ -13,7 +13,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
 
-[Website](https://securevector.io) · [Docs](https://docs.securevector.io) · [Demo](https://securevector.io/demo) · [Getting Started](#install) · [Use Cases](docs/USECASES.md) · [API](docs/API_SPECIFICATION.md) · [Discord](https://discord.gg/securevector)
+[Website](https://securevector.io) · [Docs](https://docs.securevector.io) · [Demo](https://securevector.io/demo) · [Getting Started](docs/GETTING_STARTED.md) · [Use Cases](docs/USECASES.md) · [API](docs/API_SPECIFICATION.md) · [Discord](https://discord.gg/securevector)
 
 </div>
 
@@ -70,8 +70,8 @@ Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-m
 | Install | Use Case | Size |
 |---------|----------|------|
 | `pip install securevector-ai-monitor[app]` | **Local app** — dashboard, LLM proxy, self-hosted | ~60MB |
-| `pip install securevector-ai-monitor` | **Cloud SDK** — lightweight, uses [cloud API](https://scan.securevector.io) | ~6MB |
-| `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~20MB |
+| `pip install securevector-ai-monitor` | **Cloud SDK** — lightweight, uses [cloud API](https://scan.securevector.io) | ~18MB |
+| `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
 
 ```bash
 # Local users (self-hosted, OpenClaw proxy)

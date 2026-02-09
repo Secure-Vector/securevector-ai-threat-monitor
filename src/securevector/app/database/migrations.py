@@ -282,9 +282,9 @@ async def migrate_to_v7(db: DatabaseConnection) -> None:
     existing_columns = {row[1] for row in await cursor.fetchall()}
 
     if "block_threats" not in existing_columns:
-        # Default to 0 (disabled) - user must explicitly enable blocking
+        # Default to 1 (enabled) - block threats by default for security-first stance
         await conn.execute(
-            "ALTER TABLE app_settings ADD COLUMN block_threats INTEGER NOT NULL DEFAULT 0"
+            "ALTER TABLE app_settings ADD COLUMN block_threats INTEGER NOT NULL DEFAULT 1"
         )
 
     # Record migration

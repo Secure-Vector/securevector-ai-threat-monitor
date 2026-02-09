@@ -47,6 +47,10 @@ const Header = {
         const right = document.createElement('div');
         right.className = 'header-right';
 
+        // Theme toggle button (sun/moon)
+        const themeBtn = this.createThemeToggle();
+        right.appendChild(themeBtn);
+
         // Help button (question mark)
         const helpBtn = this.createHelpButton();
         right.appendChild(helpBtn);
@@ -95,6 +99,57 @@ const Header = {
             if (btn) btn.classList.add('active');
             document.body.classList.add('mobile-menu-open');
         }
+    },
+
+    createThemeToggle() {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const btn = document.createElement('button');
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 8px; padding: 0;';
+        btn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+        btn.setAttribute('aria-label', 'Toggle theme');
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.style.cssText = 'width: 14px; height: 14px;';
+
+        if (isDark) {
+            // Sun icon
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', '12');
+            circle.setAttribute('cy', '12');
+            circle.setAttribute('r', '5');
+            svg.appendChild(circle);
+            ['M12 1v2', 'M12 21v2', 'M4.22 4.22l1.42 1.42', 'M18.36 18.36l1.42 1.42', 'M1 12h2', 'M21 12h2', 'M4.22 19.78l1.42-1.42', 'M18.36 5.64l1.42-1.42'].forEach(d => {
+                const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                p.setAttribute('d', d);
+                svg.appendChild(p);
+            });
+        } else {
+            // Moon icon
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z');
+            svg.appendChild(path);
+        }
+
+        btn.appendChild(svg);
+
+        btn.addEventListener('mouseenter', () => {
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.color = 'var(--accent-primary)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.borderColor = 'var(--text-secondary)';
+            btn.style.color = 'var(--text-secondary)';
+        });
+
+        btn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.toggleTheme();
+        });
+
+        return btn;
     },
 
     createHelpButton() {
@@ -161,6 +216,19 @@ const Header = {
         note.style.cssText = 'margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 13px; color: var(--text-secondary);';
         note.textContent = 'All LLM traffic will be scanned for prompt injection, data leaks, and security threats before reaching the provider.';
         content.appendChild(note);
+
+        // Link to Docs
+        const docsLink = document.createElement('div');
+        docsLink.style.cssText = 'margin-top: 12px; text-align: center;';
+        const docsBtn = document.createElement('a');
+        docsBtn.style.cssText = 'color: var(--accent-primary); cursor: pointer; font-size: 13px; font-weight: 500;';
+        docsBtn.textContent = 'View Guide \u2192';
+        docsBtn.addEventListener('click', () => {
+            Modal.close();
+            if (window.Sidebar) Sidebar.navigate('guide');
+        });
+        docsLink.appendChild(docsBtn);
+        content.appendChild(docsLink);
 
         Modal.show({
             title: 'How to Use SecureVector',
@@ -1512,6 +1580,7 @@ graph.add_edge("output_security", END)`,
 
     getPageTitle() {
         const titles = {
+            'guide': 'Guide',
             dashboard: 'Dashboard',
             threats: 'Threat Analytics',
             rules: 'Rules',

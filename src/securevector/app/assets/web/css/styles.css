@@ -837,7 +837,15 @@ html, body {
 
 .sidebar-nav {
     flex: 1;
+    min-height: 0;
     padding: 16px 12px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .nav-item {
@@ -1288,6 +1296,8 @@ html, body {
 /* Header */
 .header {
     height: var(--header-height);
+    min-height: var(--header-height);
+    flex-shrink: 0;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-default);
     display: flex;
@@ -1337,9 +1347,16 @@ html, body {
 /* Page Content */
 .page-content {
     flex: 1;
+    min-height: 0;
     padding: 24px;
-    overflow-y: auto;
+    overflow: hidden auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     background: var(--bg-primary);
+}
+
+.page-content::-webkit-scrollbar {
+    display: none;
 }
 
 /* Loading Container */

@@ -173,7 +173,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
             # Only handle known page routes, let other routes pass through
             valid_pages = [
                 "dashboard", "threats", "rules", "proxy", "settings",
+                "guide",
                 # Integration pages
+                "integrations",
                 "proxy-langchain", "proxy-langgraph", "proxy-crewai",
                 "proxy-n8n", "proxy-ollama", "proxy-openclaw"
             ]

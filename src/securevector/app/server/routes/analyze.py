@@ -132,7 +132,8 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 )
 
                 # Determine action_taken from metadata (sent by LLM proxy)
-                action_taken = (request.metadata or {}).get("action_taken", "logged")
+                default_action = "blocked" if settings.block_threats else "logged"
+                action_taken = (request.metadata or {}).get("action_taken", default_action)
 
                 # Only store in database if threat detected
                 record = None
@@ -303,7 +304,8 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
         # Determine action_taken from metadata (always, for response)
         # Priority: blocked > redacted > logged
-        action_taken = (request.metadata or {}).get("action_taken", "logged")
+        default_action = "blocked" if settings.block_threats else "logged"
+        action_taken = (request.metadata or {}).get("action_taken", default_action)
         if redaction_count > 0 and action_taken == "logged":
             action_taken = "redacted"
 
