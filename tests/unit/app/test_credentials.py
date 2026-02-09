@@ -5,10 +5,8 @@ Tests secure credential storage using file-based storage.
 """
 
 import json
-import os
 import pytest
 from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 
 class TestCredentialsService:

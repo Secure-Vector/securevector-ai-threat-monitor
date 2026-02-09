@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def _get_credentials_file() -> Path:
     """Get path to credentials file."""
     from securevector.app.utils.platform import user_data_dir
-    return Path(user_data_dir()) / ".credentials"
+    return Path(user_data_dir(None, None)) / ".credentials"
 
 
 def save_credentials(api_key: str) -> bool:

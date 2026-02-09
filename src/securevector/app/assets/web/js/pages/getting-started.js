@@ -385,7 +385,7 @@ const GettingStartedPage = {
         [
             { num: '1', title: 'Create Account', desc: 'Sign up at app.securevector.io (free tier available)' },
             { num: '2', title: 'Get API Key', desc: 'Go to Access Management and create a new key' },
-            { num: '3', title: 'Add Key', desc: 'Go to Settings in the sidebar and paste your key under Cloud' },
+            { num: '3', title: 'Add Key', desc: 'Go to localhost/settings and add the key you just created on app.securevector.io' },
             { num: '4', title: 'Connect', desc: 'Click "Cloud Connect" in the header' },
         ].forEach(step => {
             const stepEl = document.createElement('div');

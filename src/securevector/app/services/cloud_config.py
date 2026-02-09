@@ -80,4 +80,5 @@ class AnalysisResult:
 CLOUD_API_BASE_URL = "https://scan.securevector.io"
 
 # Timeout for cloud API requests (seconds)
-CLOUD_API_TIMEOUT = 5.0
+# Keep short so local fallback has time within the proxy's scan timeout
+CLOUD_API_TIMEOUT = 3.0

@@ -207,12 +207,11 @@ async def revert_proxy():
         from securevector.app.main import revert_proxy as do_revert
 
         # Run the revert in a thread to avoid blocking
-        import asyncio
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, do_revert)
 
         logger.info("Proxy files reverted successfully")
         return {"status": "success", "message": "Pi-ai files reverted to original state"}
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to revert proxy files")
-        return {"status": "error", "message": f"Failed to revert: {str(e)}"}
+        return {"status": "error", "message": "Failed to revert proxy files"}

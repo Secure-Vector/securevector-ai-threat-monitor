@@ -188,7 +188,7 @@ SecureVector works 100% locally by default. Optionally connect to SecureVector C
 
 1. **Create Account** — Sign up at [app.securevector.io](https://app.securevector.io) (free tier available)
 2. **Get API Key** — Go to Access Management and create a new key
-3. **Add Key** — Go to **Settings** in the sidebar and paste your key under Cloud
+3. **Add Key** — Go to `localhost/settings` and add the key you just created on app.securevector.io
 4. **Connect** — Click **Cloud Connect** in the header
 
 When connected, scans are routed to `scan.securevector.io` and results appear in both the local dashboard and the cloud dashboard.

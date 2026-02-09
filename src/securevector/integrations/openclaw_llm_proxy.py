@@ -209,6 +209,8 @@ class LLMProxy:
         # Cache for settings
         self._output_scan_enabled: Optional[bool] = None
         self._block_threats_enabled: Optional[bool] = None
+        self._cloud_mode_enabled: Optional[bool] = None
+        self._cloud_api_key: Optional[str] = None
         self._settings_checked_at: float = 0
 
     def _truncate(self, text: str, max_len: int = 100) -> str:
@@ -234,6 +236,8 @@ class LLMProxy:
             return {
                 "scan_llm_responses": self._output_scan_enabled,
                 "block_threats": self._block_threats_enabled or self.block_threats,
+                "cloud_mode_enabled": self._cloud_mode_enabled or False,
+                "cloud_api_key": self._cloud_api_key,
             }
 
         try:
@@ -244,18 +248,101 @@ class LLMProxy:
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
                 self._settings_checked_at = now
-                return {
-                    "scan_llm_responses": self._output_scan_enabled,
-                    "block_threats": self._block_threats_enabled,
-                }
+
+            # Check cloud mode and get API key directly from credentials file
+            try:
+                cloud_resp = await client.get(f"{self.securevector_url}/api/settings/cloud")
+                if cloud_resp.status_code == 200:
+                    cloud_settings = cloud_resp.json()
+                    self._cloud_mode_enabled = cloud_settings.get("cloud_mode_enabled", False)
+                    if self._cloud_mode_enabled and cloud_settings.get("credentials_configured"):
+                        from securevector.app.services.credentials import get_api_key
+                        self._cloud_api_key = get_api_key()
+            except Exception:
+                pass
+
+            return {
+                "scan_llm_responses": self._output_scan_enabled,
+                "block_threats": self._block_threats_enabled,
+                "cloud_mode_enabled": self._cloud_mode_enabled or False,
+                "cloud_api_key": self._cloud_api_key,
+            }
         except Exception as e:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats}
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None}
+
+    async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
+        """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.
+
+        Returns scan result dict on success, None on failure (caller should fallback to local).
+        """
+        try:
+            client = await self.get_http_client()
+            payload = {"prompt": text, "user_tier": "professional"}
+            response = await client.post(
+                "https://scan.securevector.io/analyze",
+                json=payload,
+                headers={"X-Api-Key": api_key},
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                raw = response.json()
+                # Map cloud response to local format
+                verdict = raw.get("verdict", "").upper()
+                is_threat = verdict in ("BLOCK", "WARN", "REVIEW")
+                threat_score = raw.get("threat_score", 0)
+                risk_score = int(threat_score * 100) if threat_score <= 1 else int(threat_score)
+
+                threat_type = None
+                analysis = raw.get("analysis", {})
+                if analysis.get("ml_category"):
+                    threat_type = analysis["ml_category"]
+                elif raw.get("matched_rules"):
+                    threat_type = raw["matched_rules"][0].get("category")
+
+                result = {
+                    "is_threat": is_threat,
+                    "threat_type": threat_type or raw.get("threat_level"),
+                    "risk_score": risk_score,
+                    "confidence": raw.get("confidence_score", 0.0),
+                    "action_taken": action_taken,
+                    "analysis_source": "cloud",
+                }
+
+                # Store threat in local DB via /analyze (fire-and-forget for recording only)
+                if is_threat:
+                    try:
+                        scan_payload = {
+                            "text": text,
+                            "metadata": {
+                                "source": "llm-proxy",
+                                "target": self.target_url,
+                                "scan_type": "input",
+                                "action_taken": action_taken,
+                            }
+                        }
+                        await client.post(self.analyze_url, json=scan_payload, timeout=3.0)
+                    except Exception:
+                        pass  # Recording failure is non-critical
+
+                return result
+            elif response.status_code == 401:
+                logger.warning("[llm-proxy] Cloud API key invalid, falling back to local")
+                return None
+            else:
+                logger.warning(f"[llm-proxy] Cloud API error {response.status_code}, falling back to local")
+                return None
+        except Exception as e:
+            logger.warning(f"[llm-proxy] Cloud direct scan failed ({type(e).__name__}), falling back to local")
+            return None
 
     async def scan_message(self, text: str, is_llm_response: bool = False, action_taken: str = "logged") -> dict:
         """Scan a message with SecureVector API.
+
+        When cloud mode is enabled, scans directly via cloud API (skipping localhost hop).
+        Falls back to local /analyze if cloud fails.
 
         On scan failure: if block mode is ON, fails closed (treats as threat)
         to prevent unscanned content from passing through. If block mode is
@@ -264,8 +351,21 @@ class LLMProxy:
         if not text:
             return {"is_threat": False}
 
+        # Strip metadata prefix to avoid false positives (user IDs trigger PII detection)
+        scan_text = self._strip_metadata_prefix(text)
+
+        # When cloud mode is on, scan directly via cloud API (no localhost hop)
+        settings = await self.check_settings()
+        cloud_api_key = settings.get("cloud_api_key")
+        if settings.get("cloud_mode_enabled") and cloud_api_key and not is_llm_response:
+            cloud_result = await self._scan_cloud_direct(scan_text, cloud_api_key, action_taken)
+            if cloud_result is not None:
+                return cloud_result
+            # Cloud failed — fall through to local scan
+            logger.info("[llm-proxy] Cloud direct scan failed, falling back to local /analyze")
+
         scan_payload = {
-            "text": text,
+            "text": scan_text,
             "llm_response": is_llm_response,
             "metadata": {
                 "source": "llm-proxy",
@@ -283,7 +383,7 @@ class LLMProxy:
                 response = await client.post(
                     self.analyze_url,
                     json=scan_payload,
-                    timeout=5.0,
+                    timeout=10.0,
                 )
                 if response.status_code == 200:
                     return response.json()
@@ -302,7 +402,8 @@ class LLMProxy:
         logger.warning(f"SecureVector scan error (after retry): {last_error}")
 
         # Fail-closed when block mode is ON: treat scan failure as threat
-        settings = await self.check_settings()
+        if not settings:
+            settings = await self.check_settings()
         if settings.get("block_threats"):
             logger.warning("[llm-proxy] Block mode ON + scan failed → failing closed (blocking)")
             return {
@@ -314,6 +415,19 @@ class LLMProxy:
 
         # Fail-open when block mode is OFF: log only, allow through
         return {"is_threat": False}
+
+    @staticmethod
+    def _strip_metadata_prefix(text: str) -> str:
+        """Strip OpenClaw metadata prefix from message text.
+
+        OpenClaw wraps messages like: [Telegram Username id:123456 +2m 2026-02-09 16:05 CST] actual message
+        The metadata (user IDs, timestamps) can trigger false positive PII detection.
+        Returns the actual message content without the prefix.
+        """
+        import re
+        # Match [Platform Username id:NNNNN ...] prefix
+        stripped = re.sub(r'^\[(?:Telegram|Discord|Slack|WhatsApp|Web)\s+.*?\]\s*', '', text, count=1)
+        return stripped if stripped else text
 
     def _extract_content_parts(self, content) -> list:
         """Extract text from content that can be a string or structured list."""
