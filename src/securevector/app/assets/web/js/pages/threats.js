@@ -131,7 +131,6 @@ const ThreatsPage = {
         deleteBtn.textContent = 'Delete Selected (0)';
         const self = this;
         deleteBtn.onclick = function() {
-            console.log('Delete button clicked, selected:', self.selectedIds.size);
             self.confirmDeleteSelected();
         };
         bar.appendChild(deleteBtn);

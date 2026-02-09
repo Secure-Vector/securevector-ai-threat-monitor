@@ -19,7 +19,7 @@ def _get_credentials_file() -> Path:
     return Path(user_data_dir()) / ".credentials"
 
 
-def save_credentials(api_key: str, bearer_token: str = None) -> bool:
+def save_credentials(api_key: str) -> bool:
     """
     Save API key to file storage.
     """
@@ -28,10 +28,13 @@ def save_credentials(api_key: str, bearer_token: str = None) -> bool:
         creds_file.parent.mkdir(parents=True, exist_ok=True)
 
         data = {"api_key": api_key, "v": 1}
-        creds_file.write_text(json.dumps(data))
 
-        # Restrict permissions (owner read/write only)
-        os.chmod(creds_file, 0o600)
+        # Write with restricted permissions from the start (no race window)
+        fd = os.open(creds_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, json.dumps(data).encode())
+        finally:
+            os.close(fd)
         return True
     except Exception:
         return False

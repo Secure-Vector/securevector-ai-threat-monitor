@@ -108,11 +108,11 @@ def validate_url(url: str, allowed_hosts: set, url_type: str) -> str:
     if hostname in allowed_hosts:
         return url
 
-    # Check if it's a private IP (additional SSRF protection)
+    # Check if it's a private IP (SSRF protection)
     import ipaddress
     try:
         ip = ipaddress.ip_address(hostname)
-        if ip.is_private and hostname not in ("127.0.0.1", "0.0.0.0"):
+        if ip.is_private:
             raise ValueError(
                 f"Invalid {url_type}: private IP addresses not allowed ({hostname}). "
                 f"Use localhost or 127.0.0.1 for local services."
