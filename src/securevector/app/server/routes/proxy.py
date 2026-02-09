@@ -60,7 +60,7 @@ _multi_mode = False
 @router.get("/status")
 async def get_proxy_status():
     """Get the current status of the LLM proxy."""
-    global _llm_proxy_process, _multi_mode, _started_with_openclaw
+    global _llm_proxy_process, _multi_mode
 
     running = False
 
@@ -163,7 +163,7 @@ def set_openclaw_mode(enabled: bool):
 @router.post("/stop")
 async def stop_proxy():
     """Stop the LLM proxy and revert pi-ai files if started with --openclaw."""
-    global _llm_proxy_process, _current_provider, _current_integration, _started_with_openclaw
+    global _llm_proxy_process, _current_integration, _started_with_openclaw
 
     if _llm_proxy_process is None and not _proxy_running_in_process:
         return {"status": "not_running", "message": "LLM proxy is not running"}
