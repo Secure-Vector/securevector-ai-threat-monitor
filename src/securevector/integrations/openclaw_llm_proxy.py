@@ -356,13 +356,15 @@ class LLMProxy:
 
         # When cloud mode is on, scan directly via cloud API (no localhost hop)
         settings = await self.check_settings()
+        skip_cloud = False
         cloud_api_key = settings.get("cloud_api_key")
         if settings.get("cloud_mode_enabled") and cloud_api_key and not is_llm_response:
             cloud_result = await self._scan_cloud_direct(scan_text, cloud_api_key, action_taken)
             if cloud_result is not None:
                 return cloud_result
-            # Cloud failed — fall through to local scan
+            # Cloud failed — fall through to local scan (skip cloud in /analyze to avoid double timeout)
             logger.info("[llm-proxy] Cloud direct scan failed, falling back to local /analyze")
+            skip_cloud = True
 
         scan_payload = {
             "text": scan_text,
@@ -372,6 +374,7 @@ class LLMProxy:
                 "target": self.target_url,
                 "scan_type": "output" if is_llm_response else "input",
                 "action_taken": action_taken,
+                "skip_cloud": skip_cloud,
             }
         }
 

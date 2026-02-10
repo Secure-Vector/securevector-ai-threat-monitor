@@ -31,6 +31,11 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'Architecture', 'How SecureVector protects your AI agents',
+            'section-architecture', () => this.buildArchitectureContent()
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'How Scanning Works', 'Input and output threat detection',
             'section-scanning', () => this.buildScanningContent()
         ));
@@ -170,7 +175,7 @@ const GettingStartedPage = {
                 'Go to Integrations \u2192 OpenClaw in the sidebar',
                 'Select Anthropic as the provider',
                 'Click Start Proxy',
-                'Start OpenClaw gateway \u2014 it routes through SecureVector automatically',
+                ['Start OpenClaw with the flag ', { copy: '--securevector' }],
                 'Send a message from Telegram to test',
             ],
             'Telegram \u2192 OpenClaw gateway \u2192 SecureVector (scans) \u2192 Claude'
@@ -183,7 +188,7 @@ const GettingStartedPage = {
                 'Go to Integrations \u2192 Ollama in the sidebar',
                 'Select Ollama as the provider',
                 'Click Start Proxy',
-                'In Open WebUI: Settings \u2192 Connections \u2192 set Ollama URL to http://localhost:8742/ollama',
+                ['In Open WebUI: Settings \u2192 Connections \u2192 set Ollama URL to ', { copy: 'http://localhost:8742/ollama' }],
                 'Send a chat message to test',
             ],
             'Open WebUI \u2192 SecureVector (scans) \u2192 Ollama'
@@ -193,6 +198,62 @@ const GettingStartedPage = {
         doneNote.style.cssText = 'margin: 12px 0 0 0; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary);';
         doneNote.textContent = 'All LLM traffic is now scanned for prompt injection and data leaks.';
         frag.appendChild(doneNote);
+
+        return frag;
+    },
+
+    buildArchitectureContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        // Zoom controls
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+
+        let zoomLevel = 100;
+        const zoomLabel = document.createElement('span');
+        zoomLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); min-width: 36px; text-align: center;';
+        zoomLabel.textContent = '100%';
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border-color); background: #fafbfc; max-width: 100%;';
+
+        const img = document.createElement('img');
+        img.src = '/images/securevector-architecture.svg';
+        img.alt = 'SecureVector Architecture: AI Agents → SecureVector → LLM Providers';
+        img.style.cssText = 'width: 700px; height: auto; display: block;';
+
+        const createZoomBtn = (label, delta) => {
+            const btn = document.createElement('button');
+            btn.style.cssText = 'width: 28px; height: 28px; border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 4px; cursor: pointer; font-size: 14px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; line-height: 1;';
+            btn.textContent = label;
+            btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--accent-primary)'; });
+            btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--border-color)'; });
+            btn.addEventListener('click', () => {
+                zoomLevel = Math.max(50, Math.min(200, zoomLevel + delta));
+                img.style.width = (700 * zoomLevel / 100) + 'px';
+                zoomLabel.textContent = zoomLevel + '%';
+            });
+            return btn;
+        };
+
+        controls.appendChild(createZoomBtn('\u2212', -25));
+        controls.appendChild(zoomLabel);
+        controls.appendChild(createZoomBtn('+', 25));
+
+        const resetBtn = document.createElement('button');
+        resetBtn.style.cssText = 'border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 4px; cursor: pointer; font-size: 10px; color: var(--text-secondary); padding: 4px 8px; margin-left: 4px;';
+        resetBtn.textContent = 'Reset';
+        resetBtn.addEventListener('click', () => {
+            zoomLevel = 100;
+            img.style.width = '700px';
+            zoomLabel.textContent = '100%';
+        });
+        controls.appendChild(resetBtn);
+
+        frag.appendChild(controls);
+        wrapper.appendChild(img);
+        frag.appendChild(wrapper);
 
         return frag;
     },
@@ -373,19 +434,19 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'SecureVector works 100% locally by default. Optionally connect to SecureVector Cloud for multi-stage ML-powered analysis designed to minimize false positives through proprietary threat intelligence. When enabled, scans are routed to the cloud API and results appear in a centralized dashboard.';
+        desc.textContent = 'Optionally connect to SecureVector Cloud for multi-stage ML-powered analysis designed to minimize false positives through proprietary threat intelligence. When enabled, scans are routed to the cloud API and results appear in a centralized dashboard in your account.';
         frag.appendChild(desc);
 
-        frag.appendChild(this.createBulletList(['Advanced ML-powered threat detection beyond regex', 'Centralized dashboard at app.securevector.io', 'Replaces local AI Analysis when active', 'Falls back to local analysis if cloud is unreachable']));
+        frag.appendChild(this.createBulletList(['**Advanced ML-powered threat detection beyond regex**', 'Centralized dashboard at app.securevector.io', '**Industry-specific rule creation**', '**Notification system for webhook and email alerts**', 'Replaces local AI Analysis when active', 'Falls back to local analysis if cloud is unreachable']));
 
         const stepsWrapper = document.createElement('div');
         stepsWrapper.className = 'cloud-steps';
         stepsWrapper.style.cssText = 'margin-top: 14px;';
 
         [
-            { num: '1', title: 'Create Account', desc: 'Sign up at app.securevector.io (free tier available)' },
-            { num: '2', title: 'Get API Key', desc: 'Go to Access Management and create a new key' },
-            { num: '3', title: 'Add Key', desc: 'Go to localhost/settings and add the key you just created on app.securevector.io' },
+            { num: '1', title: 'Create Account', desc: ['Sign up at ', { copy: 'app.securevector.io' }, ' (free tier available)'] },
+            { num: '2', title: 'Get API Key', desc: 'Go to Access Management, accept the Terms of Service and Privacy Policy, then create a new API key' },
+            { num: '3', title: 'Add Key', desc: ['Go to ', { copy: 'localhost/settings' }, ' and add the key you just created on ', { copy: 'app.securevector.io' }] },
             { num: '4', title: 'Connect', desc: 'Click "Cloud Connect" in the header' },
         ].forEach(step => {
             const stepEl = document.createElement('div');
@@ -404,7 +465,17 @@ const GettingStartedPage = {
             textEl.appendChild(titleEl);
 
             const descEl = document.createElement('p');
-            descEl.textContent = step.desc;
+            if (Array.isArray(step.desc)) {
+                step.desc.forEach(part => {
+                    if (typeof part === 'string') {
+                        descEl.appendChild(document.createTextNode(part));
+                    } else if (part && part.copy) {
+                        descEl.appendChild(this.createInlineCopy(part.copy));
+                    }
+                });
+            } else {
+                descEl.textContent = step.desc;
+            }
             textEl.appendChild(descEl);
 
             stepEl.appendChild(textEl);
@@ -428,7 +499,7 @@ const GettingStartedPage = {
         linksGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;';
 
         [
-            { title: 'OpenAPI Spec (Swagger)', desc: 'Interactive API explorer with all endpoints', href: '/docs' },
+            { title: 'API Docs (OpenAPI)', desc: 'Interactive API explorer with all endpoints', href: '/docs' },
             { title: 'Integrations', desc: 'Framework-specific setup guides', page: 'integrations' },
             { title: 'Settings', desc: 'Configure scanning, modes, and providers', page: 'settings' },
         ].forEach(link => {
@@ -475,7 +546,14 @@ const GettingStartedPage = {
             bullet.textContent = '\u2022';
             item.appendChild(bullet);
 
-            item.appendChild(document.createTextNode(text));
+            if (text.startsWith('**') && text.endsWith('**')) {
+                const bold = document.createElement('strong');
+                bold.style.cssText = 'color: var(--text-primary); font-weight: 700;';
+                bold.textContent = text.slice(2, -2);
+                item.appendChild(bold);
+            } else {
+                item.appendChild(document.createTextNode(text));
+            }
             list.appendChild(item);
         });
         return list;
@@ -498,10 +576,20 @@ const GettingStartedPage = {
         if (Array.isArray(steps)) {
             const ol = document.createElement('ol');
             ol.style.cssText = 'margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;';
-            steps.forEach(text => {
+            steps.forEach(step => {
                 const li = document.createElement('li');
                 li.style.cssText = 'margin-bottom: 2px;';
-                li.textContent = text;
+                if (Array.isArray(step)) {
+                    step.forEach(part => {
+                        if (typeof part === 'string') {
+                            li.appendChild(document.createTextNode(part));
+                        } else if (part && part.copy) {
+                            li.appendChild(this.createInlineCopy(part.copy));
+                        }
+                    });
+                } else {
+                    li.textContent = step;
+                }
                 ol.appendChild(li);
             });
             box.appendChild(ol);
@@ -541,6 +629,39 @@ const GettingStartedPage = {
         textDiv.appendChild(descEl);
 
         wrapper.appendChild(textDiv);
+        return wrapper;
+    },
+
+    createInlineCopy(text) {
+        const wrapper = document.createElement('span');
+        wrapper.style.cssText = 'display: inline-flex; align-items: center; gap: 4px;';
+
+        const code = document.createElement('code');
+        code.style.cssText = 'font-family: monospace; font-size: 11px; background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; color: var(--accent-primary); border: 1px solid var(--border-color);';
+        code.textContent = text;
+        wrapper.appendChild(code);
+
+        const btn = document.createElement('button');
+        btn.style.cssText = 'border: none; background: none; cursor: pointer; padding: 0 2px; color: var(--text-secondary); font-size: 12px; line-height: 1; vertical-align: middle; opacity: 0.6; transition: opacity 0.15s;';
+        btn.textContent = '\u2398';
+        btn.title = 'Copy';
+        btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+        btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.6'; });
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(text).then(() => {
+                btn.textContent = '\u2713';
+                btn.style.color = 'var(--success, #10b981)';
+                btn.style.opacity = '1';
+                setTimeout(() => {
+                    btn.textContent = '\u2398';
+                    btn.style.color = 'var(--text-secondary)';
+                    btn.style.opacity = '0.6';
+                }, 1500);
+            });
+        });
+        wrapper.appendChild(btn);
+
         return wrapper;
     },
 

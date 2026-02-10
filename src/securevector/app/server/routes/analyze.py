@@ -112,7 +112,8 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 analysis_source="disabled",
             )
 
-        if settings.cloud_mode_enabled:
+        skip_cloud = (request.metadata or {}).get("skip_cloud", False)
+        if settings.cloud_mode_enabled and not skip_cloud:
             # Try cloud analysis
             try:
                 from securevector.app.services.cloud_proxy import (

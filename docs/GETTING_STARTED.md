@@ -176,18 +176,20 @@ SecureVector uses a two-stage detection pipeline.
 
 ## Cloud Mode (Optional)
 
-SecureVector works 100% locally by default. Optionally connect to SecureVector Cloud for multi-stage ML-powered analysis designed to minimize false positives through proprietary threat intelligence.
+Optionally connect to SecureVector Cloud for multi-stage ML-powered analysis designed to minimize false positives through proprietary threat intelligence. When enabled, scans are routed to the cloud API and results appear in a centralized dashboard in your account.
 
 **What Cloud Mode adds:**
-- Advanced ML-powered threat detection beyond regex
+- **Advanced ML-powered threat detection beyond regex**
 - Centralized dashboard at [app.securevector.io](https://app.securevector.io)
+- **Industry-specific rule creation**
+- **Notification system for webhook and email alerts**
 - Replaces local AI Analysis when active
 - Falls back to local analysis if cloud is unreachable
 
 ### Setup
 
 1. **Create Account** — Sign up at [app.securevector.io](https://app.securevector.io) (free tier available)
-2. **Get API Key** — Go to Access Management and create a new key
+2. **Get API Key** — Go to Access Management, accept the Terms of Service and Privacy Policy, then create a new API key
 3. **Add Key** — Go to `localhost/settings` and add the key you just created on app.securevector.io
 4. **Connect** — Click **Cloud Connect** in the header
 

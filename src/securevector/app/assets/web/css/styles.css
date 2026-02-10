@@ -8,13 +8,13 @@
     --gradient: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
 
     /* Base colors - Dark mode default */
-    --bg-primary: #020617;
+    --bg-primary: #0a0e1f;
     --bg-secondary: #0f172a;
     --bg-tertiary: #1e293b;
     --bg-card: #0f172a;
     --bg-hover: #1e293b;
 
-    --text-primary: #ffffff;
+    --text-primary: #e0f2fe;
     --text-secondary: #cbd5e1;
     --text-muted: #64748b;
 
@@ -62,13 +62,13 @@
 
 /* Light mode */
 [data-theme="light"] {
-    --bg-primary: #ffffff;
+    --bg-primary: #f8fafc;
     --bg-secondary: #f1f5f9;
     --bg-tertiary: #e2e8f0;
     --bg-card: #ffffff;
     --bg-hover: #e2e8f0;
 
-    --text-primary: #020617;
+    --text-primary: #1e293b;
     --text-secondary: #334155;
     --text-muted: #64748b;
 
@@ -201,17 +201,16 @@ html, body {
 
 .cloud-toggle-btn.gradient-btn {
     background: var(--gradient);
-    border-color: transparent;
+    border: none;
+    padding: 10px 16px;
     color: #ffffff;
+    font-weight: 600;
 }
 
 .cloud-toggle-btn.gradient-btn:hover {
     opacity: 0.9;
 }
 
-.cloud-toggle-btn.active {
-    box-shadow: 0 0 12px rgba(0, 188, 212, 0.4);
-}
 
 /* LLM Toggle in Header (Primary Feature) */
 .llm-toggle-wrapper {

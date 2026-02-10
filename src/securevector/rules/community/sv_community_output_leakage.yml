@@ -16,17 +16,14 @@ rules:
   pattern_type: regex
   patterns:
   - (?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*['\"]?[a-zA-Z0-9_\-]{20,}
-  - (?:password|passwd|pwd|pass)[:\s]*['\"]?[^\s'"]{8,64}['\"]?
+  - (?:password|passwd|pwd)\s*(?:[:=]|\bis\b)[:\s]*['\"]?[^\s'"]{8,64}['\"]?
   - (?:Password|password)\d{2,}
-  - (?:qwerty|letmein|admin|welcome|monkey|dragon|master|login)\d*
-  - (?:example|sample)\s+passwords?
-  - `[A-Za-z0-9]{3,20}[!@#$%^&*][A-Za-z0-9!@#$%^&*]{0,20}`
-  - `[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{0,15}`
-  - "[•\\-\\*]\\s*[A-Z][a-z]+[A-Z]?[a-z]*[0-9]*[!@#$%^&*]+[A-Za-z0-9!@#$%^&*]*"
+  - \b(?:qwerty|letmein|123456|passw0rd|p@ssword)\d*\b
+  - "[•\\-\\*]\\s*(?=[^ ]*[A-Za-z])(?=[^ ]*[0-9!@#$%^&*])[A-Za-z0-9!@#$%^&*@_]{8,}"
   - "[•\\-\\*]\\s*[A-Z][a-z]+@[A-Za-z]+[0-9]+"
   - "[•\\-\\*]\\s*[A-Z][a-z]+[0-9]+[!@#$%^&*\\$]+"
   - "[•\\-\\*]\\s*[A-Z][a-z]+[!@#$%^&*][A-Za-z]+[0-9]+"
-  - "Test.*Password|Password.*Test|Sample.*Pass|Demo.*Password"
+  - "[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{1,15}"
   - sk-[a-zA-Z0-9]{32,}
   - sk_(?:test|live)_[a-zA-Z0-9]{20,}
   - rk_(?:test|live)_[a-zA-Z0-9]{20,}
@@ -56,13 +53,10 @@ rules:
   pattern_type: regex
   patterns:
   - (?:my|the)\s+(?:system|initial)\s+(?:prompt|instructions?)\s+(?:is|are|says?)
-  - (?:i\s+was|i\s+am)\s+(?:told|instructed|programmed)\s+to
   - (?:my|the)\s+(?:original|hidden|secret)\s+(?:instructions?|rules?|guidelines?)
   - (?:here\s+(?:is|are)|showing)\s+(?:my|the)\s+(?:system|full)\s+prompt
   - \[SYSTEM\]|\[INST\]|\<\|system\|\>
   - \<\<SYS\>\>.*\<\</SYS\>\>
-  - (?:system|user|assistant)\s*:\s*(?:you\s+are|your\s+role)
-  - (?:you\s+are\s+a|your\s+name\s+is)\s+(?:helpful|friendly|AI)\s+(?:assistant|agent)
   - (?:never|do\s+not|don't)\s+(?:reveal|share|disclose)\s+(?:your|the|this)\s+(?:instructions?|prompt|rules?)
   - (?:confidential|secret|hidden)\s+(?:instructions?|prompt|guidelines?)
 
