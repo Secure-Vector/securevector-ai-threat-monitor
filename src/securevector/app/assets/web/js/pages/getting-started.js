@@ -143,7 +143,7 @@ const GettingStartedPage = {
         intBtn.style.cssText = 'font-size: 12px; margin: 0 0 16px 42px; padding: 6px 14px;';
         intBtn.textContent = 'Open Integrations';
         intBtn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('integrations');
+            if (window.Sidebar) Sidebar.navigate('proxy');
         });
         frag.appendChild(intBtn);
 
@@ -157,6 +157,11 @@ const GettingStartedPage = {
         cmdBlock.style.cssText = 'margin: 8px 0 12px 42px;';
         cmdBlock.appendChild(this.createCodeBlock('# Example env var shown on integration page:\nexport OPENAI_BASE_URL=http://localhost:8742/openai/v1'));
         frag.appendChild(cmdBlock);
+
+        const doneNote = document.createElement('div');
+        doneNote.style.cssText = 'margin: 8px 0 0 0; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary);';
+        doneNote.textContent = 'All LLM traffic is now scanned for prompt injection and data leaks.';
+        frag.appendChild(doneNote);
 
         // Examples
         const examplesTitle = document.createElement('div');
@@ -189,11 +194,6 @@ const GettingStartedPage = {
             ],
             'Open WebUI \u2192 SecureVector (scans) \u2192 Ollama'
         ));
-
-        const doneNote = document.createElement('div');
-        doneNote.style.cssText = 'margin: 12px 0 0 0; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary);';
-        doneNote.textContent = 'All LLM traffic is now scanned for prompt injection and data leaks.';
-        frag.appendChild(doneNote);
 
         return frag;
     },
@@ -501,17 +501,32 @@ const GettingStartedPage = {
 
     createExampleBox(title, scenario, steps, flow) {
         const box = document.createElement('div');
-        box.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;';
+        box.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; margin-bottom: 10px; overflow: hidden; border-left: 3px solid var(--accent-primary);';
+
+        // Clickable header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;';
 
         const titleEl = document.createElement('div');
-        titleEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
+        titleEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary);';
         titleEl.textContent = title;
-        box.appendChild(titleEl);
+        header.appendChild(titleEl);
+
+        const indicator = document.createElement('span');
+        indicator.style.cssText = 'font-size: 16px; font-weight: 300; color: var(--text-secondary); flex-shrink: 0;';
+        indicator.textContent = '+';
+        header.appendChild(indicator);
+
+        box.appendChild(header);
+
+        // Collapsible body
+        const body = document.createElement('div');
+        body.style.cssText = 'display: none; padding: 0 16px 14px 16px;';
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;';
         desc.textContent = scenario;
-        box.appendChild(desc);
+        body.appendChild(desc);
 
         if (Array.isArray(steps)) {
             const ol = document.createElement('ol');
@@ -532,17 +547,25 @@ const GettingStartedPage = {
                 }
                 ol.appendChild(li);
             });
-            box.appendChild(ol);
+            body.appendChild(ol);
         } else {
-            box.appendChild(this.createCodeBlock(steps));
+            body.appendChild(this.createCodeBlock(steps));
         }
 
         if (flow) {
             const flowEl = document.createElement('div');
             flowEl.style.cssText = 'margin-top: 8px; font-size: 11px; color: var(--text-secondary); font-family: monospace; padding: 6px 10px; background: var(--bg-tertiary); border-radius: 4px; text-align: center;';
             flowEl.textContent = flow;
-            box.appendChild(flowEl);
+            body.appendChild(flowEl);
         }
+
+        box.appendChild(body);
+
+        header.addEventListener('click', () => {
+            const hidden = body.style.display === 'none';
+            body.style.display = hidden ? 'block' : 'none';
+            indicator.textContent = hidden ? '\u2212' : '+';
+        });
 
         return box;
     },

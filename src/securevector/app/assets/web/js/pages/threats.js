@@ -1054,14 +1054,17 @@ const ThreatsPage = {
 
         const text = document.createElement('p');
         text.className = 'empty-state-text';
-        text.textContent = 'No threats have been detected yet. Use the Test Analyze feature in Settings to analyze content.';
+        text.textContent = 'No threats have been detected yet. Start the proxy from Integrations and route traffic through SecureVector to begin detecting threats.';
         empty.appendChild(text);
 
         const btn = document.createElement('button');
         btn.className = 'btn btn-primary';
-        btn.textContent = 'Go to Settings';
+        btn.textContent = 'Get Started';
         btn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('settings');
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-getting-started';
+                Sidebar.navigate('guide');
+            }
         });
         empty.appendChild(btn);
 

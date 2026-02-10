@@ -895,7 +895,7 @@ Examples:
     parser.add_argument(
         "--openclaw",
         action="store_true",
-        help="Auto-patch pi-ai provider files for OpenClaw/ClaudBot integration",
+        help="Auto-patch pi-ai provider files for OpenClaw/Clawdbot integration",
     )
     parser.add_argument(
         "--multi",

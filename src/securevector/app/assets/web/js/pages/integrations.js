@@ -267,7 +267,7 @@ def chat_with_protection(user_input):
     return output`
         },
         'proxy-openclaw': {
-            name: 'OpenClaw/ClaudBot',
+            name: 'OpenClaw/ClawdBot',
             description: 'AI agent framework for Claude',
             isOpenClaw: true,
             defaultProvider: 'anthropic'

@@ -14,7 +14,7 @@ const Sidebar = {
             { id: 'proxy-crewai', label: 'CrewAI' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClaudBot' },
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
