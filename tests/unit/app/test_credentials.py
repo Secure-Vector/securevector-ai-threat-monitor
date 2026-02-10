@@ -1,9 +1,10 @@
 """
 Unit tests for credentials service.
 
-Tests secure credential storage using OS keychain.
+Tests secure credential storage using file-based storage.
 """
 
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -11,119 +12,108 @@ from unittest.mock import patch, MagicMock
 class TestCredentialsService:
     """Tests for the credentials service."""
 
-    def test_is_keyring_available_when_installed(self):
-        """Test keyring availability check when keyring is installed."""
-        from securevector.app.services.credentials import is_keyring_available
-
-        # This will return True if keyring is actually installed
-        result = is_keyring_available()
-        assert isinstance(result, bool)
-
-    @patch("securevector.app.services.credentials.KEYRING_AVAILABLE", False)
-    def test_is_keyring_available_when_not_installed(self):
-        """Test keyring availability check when keyring is not installed."""
-        from securevector.app.services import credentials
-
-        # Need to reload to pick up the patched value
-        assert credentials.KEYRING_AVAILABLE is False or True  # Depends on environment
-
-    @patch("securevector.app.services.credentials.keyring")
-    def test_save_credentials_success(self, mock_keyring):
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_save_credentials_success(self, mock_get_file, tmp_path):
         """Test saving credentials successfully."""
         from securevector.app.services.credentials import save_credentials
 
-        result = save_credentials("test_api_key", "test_bearer_token")
+        creds_file = tmp_path / ".credentials"
+        mock_get_file.return_value = creds_file
+
+        result = save_credentials("test_api_key")
 
         assert result is True
-        assert mock_keyring.set_password.call_count == 2
-        mock_keyring.set_password.assert_any_call(
-            "securevector-desktop", "api_key", "test_api_key"
-        )
-        mock_keyring.set_password.assert_any_call(
-            "securevector-desktop", "bearer_token", "test_bearer_token"
-        )
+        assert creds_file.exists()
+        data = json.loads(creds_file.read_text())
+        assert data["api_key"] == "test_api_key"
+        assert data["v"] == 1
+        # Check file permissions (owner read/write only)
+        assert oct(creds_file.stat().st_mode & 0o777) == "0o600"
 
-    @patch("securevector.app.services.credentials.keyring")
-    def test_get_api_key_success(self, mock_keyring):
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_get_api_key_success(self, mock_get_file, tmp_path):
         """Test retrieving API key successfully."""
         from securevector.app.services.credentials import get_api_key
 
-        mock_keyring.get_password.return_value = "test_api_key"
+        creds_file = tmp_path / ".credentials"
+        creds_file.write_text(json.dumps({"api_key": "test_api_key", "v": 1}))
+        mock_get_file.return_value = creds_file
 
         result = get_api_key()
 
         assert result == "test_api_key"
-        mock_keyring.get_password.assert_called_once_with(
-            "securevector-desktop", "api_key"
-        )
 
-    @patch("securevector.app.services.credentials.keyring")
-    def test_get_bearer_token_success(self, mock_keyring):
-        """Test retrieving bearer token successfully."""
-        from securevector.app.services.credentials import get_bearer_token
-
-        mock_keyring.get_password.return_value = "test_bearer_token"
-
-        result = get_bearer_token()
-
-        assert result == "test_bearer_token"
-        mock_keyring.get_password.assert_called_once_with(
-            "securevector-desktop", "bearer_token"
-        )
-
-    @patch("securevector.app.services.credentials.keyring")
-    def test_get_api_key_not_found(self, mock_keyring):
-        """Test retrieving API key when not found."""
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_get_api_key_not_found(self, mock_get_file, tmp_path):
+        """Test retrieving API key when file doesn't exist."""
         from securevector.app.services.credentials import get_api_key
 
-        mock_keyring.get_password.return_value = None
+        creds_file = tmp_path / ".credentials"
+        mock_get_file.return_value = creds_file
 
         result = get_api_key()
 
         assert result is None
 
-    @patch("securevector.app.services.credentials.keyring")
-    def test_credentials_configured_both_present(self, mock_keyring):
-        """Test credentials_configured when both credentials are present."""
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_get_bearer_token_returns_api_key(self, mock_get_file, tmp_path):
+        """Test that get_bearer_token returns the API key."""
+        from securevector.app.services.credentials import get_bearer_token
+
+        creds_file = tmp_path / ".credentials"
+        creds_file.write_text(json.dumps({"api_key": "test_key", "v": 1}))
+        mock_get_file.return_value = creds_file
+
+        result = get_bearer_token()
+
+        assert result == "test_key"
+
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_credentials_configured_true(self, mock_get_file, tmp_path):
+        """Test credentials_configured when key is present."""
         from securevector.app.services.credentials import credentials_configured
 
-        mock_keyring.get_password.side_effect = ["api_key", "bearer_token"]
+        creds_file = tmp_path / ".credentials"
+        creds_file.write_text(json.dumps({"api_key": "test_key", "v": 1}))
+        mock_get_file.return_value = creds_file
 
-        result = credentials_configured()
+        assert credentials_configured() is True
 
-        assert result is True
-
-    @patch("securevector.app.services.credentials.keyring")
-    def test_credentials_configured_missing_api_key(self, mock_keyring):
-        """Test credentials_configured when API key is missing."""
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_credentials_configured_false(self, mock_get_file, tmp_path):
+        """Test credentials_configured when no file exists."""
         from securevector.app.services.credentials import credentials_configured
 
-        mock_keyring.get_password.side_effect = [None, "bearer_token"]
+        creds_file = tmp_path / ".credentials"
+        mock_get_file.return_value = creds_file
 
-        result = credentials_configured()
+        assert credentials_configured() is False
 
-        assert result is False
-
-    @patch("securevector.app.services.credentials.keyring")
-    def test_credentials_configured_missing_bearer_token(self, mock_keyring):
-        """Test credentials_configured when bearer token is missing."""
-        from securevector.app.services.credentials import credentials_configured
-
-        mock_keyring.get_password.side_effect = ["api_key", None]
-
-        result = credentials_configured()
-
-        assert result is False
-
-    @patch("securevector.app.services.credentials.keyring")
-    def test_delete_credentials_success(self, mock_keyring):
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_delete_credentials_success(self, mock_get_file, tmp_path):
         """Test deleting credentials successfully."""
         from securevector.app.services.credentials import delete_credentials
+
+        creds_file = tmp_path / ".credentials"
+        creds_file.write_text(json.dumps({"api_key": "test_key", "v": 1}))
+        mock_get_file.return_value = creds_file
 
         result = delete_credentials()
 
         assert result is True
-        assert mock_keyring.delete_password.call_count == 2
+        assert not creds_file.exists()
+
+    @patch("securevector.app.services.credentials._get_credentials_file")
+    def test_delete_credentials_no_file(self, mock_get_file, tmp_path):
+        """Test deleting credentials when file doesn't exist."""
+        from securevector.app.services.credentials import delete_credentials
+
+        creds_file = tmp_path / ".credentials"
+        mock_get_file.return_value = creds_file
+
+        result = delete_credentials()
+
+        assert result is True
 
 
 class TestCloudConfig:

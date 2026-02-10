@@ -108,11 +108,11 @@ def validate_url(url: str, allowed_hosts: set, url_type: str) -> str:
     if hostname in allowed_hosts:
         return url
 
-    # Check if it's a private IP (additional SSRF protection)
+    # Check if it's a private IP (SSRF protection)
     import ipaddress
     try:
         ip = ipaddress.ip_address(hostname)
-        if ip.is_private and hostname not in ("127.0.0.1", "0.0.0.0"):
+        if ip.is_private:
             raise ValueError(
                 f"Invalid {url_type}: private IP addresses not allowed ({hostname}). "
                 f"Use localhost or 127.0.0.1 for local services."
@@ -209,6 +209,8 @@ class LLMProxy:
         # Cache for settings
         self._output_scan_enabled: Optional[bool] = None
         self._block_threats_enabled: Optional[bool] = None
+        self._cloud_mode_enabled: Optional[bool] = None
+        self._cloud_api_key: Optional[str] = None
         self._settings_checked_at: float = 0
 
     def _truncate(self, text: str, max_len: int = 100) -> str:
@@ -234,6 +236,8 @@ class LLMProxy:
             return {
                 "scan_llm_responses": self._output_scan_enabled,
                 "block_threats": self._block_threats_enabled or self.block_threats,
+                "cloud_mode_enabled": self._cloud_mode_enabled or False,
+                "cloud_api_key": self._cloud_api_key,
             }
 
         try:
@@ -244,18 +248,101 @@ class LLMProxy:
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
                 self._settings_checked_at = now
-                return {
-                    "scan_llm_responses": self._output_scan_enabled,
-                    "block_threats": self._block_threats_enabled,
-                }
+
+            # Check cloud mode and get API key directly from credentials file
+            try:
+                cloud_resp = await client.get(f"{self.securevector_url}/api/settings/cloud")
+                if cloud_resp.status_code == 200:
+                    cloud_settings = cloud_resp.json()
+                    self._cloud_mode_enabled = cloud_settings.get("cloud_mode_enabled", False)
+                    if self._cloud_mode_enabled and cloud_settings.get("credentials_configured"):
+                        from securevector.app.services.credentials import get_api_key
+                        self._cloud_api_key = get_api_key()
+            except Exception:
+                pass
+
+            return {
+                "scan_llm_responses": self._output_scan_enabled,
+                "block_threats": self._block_threats_enabled,
+                "cloud_mode_enabled": self._cloud_mode_enabled or False,
+                "cloud_api_key": self._cloud_api_key,
+            }
         except Exception as e:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats}
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None}
 
-    async def scan_message(self, text: str, is_llm_response: bool = False) -> dict:
+    async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
+        """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.
+
+        Returns scan result dict on success, None on failure (caller should fallback to local).
+        """
+        try:
+            client = await self.get_http_client()
+            payload = {"prompt": text, "user_tier": "professional"}
+            response = await client.post(
+                "https://scan.securevector.io/analyze",
+                json=payload,
+                headers={"X-Api-Key": api_key},
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                raw = response.json()
+                # Map cloud response to local format
+                verdict = raw.get("verdict", "").upper()
+                is_threat = verdict in ("BLOCK", "WARN", "REVIEW")
+                threat_score = raw.get("threat_score", 0)
+                risk_score = int(threat_score * 100) if threat_score <= 1 else int(threat_score)
+
+                threat_type = None
+                analysis = raw.get("analysis", {})
+                if analysis.get("ml_category"):
+                    threat_type = analysis["ml_category"]
+                elif raw.get("matched_rules"):
+                    threat_type = raw["matched_rules"][0].get("category")
+
+                result = {
+                    "is_threat": is_threat,
+                    "threat_type": threat_type or raw.get("threat_level"),
+                    "risk_score": risk_score,
+                    "confidence": raw.get("confidence_score", 0.0),
+                    "action_taken": action_taken,
+                    "analysis_source": "cloud",
+                }
+
+                # Store threat in local DB via /analyze (fire-and-forget for recording only)
+                if is_threat:
+                    try:
+                        scan_payload = {
+                            "text": text,
+                            "metadata": {
+                                "source": "llm-proxy",
+                                "target": self.target_url,
+                                "scan_type": "input",
+                                "action_taken": action_taken,
+                            }
+                        }
+                        await client.post(self.analyze_url, json=scan_payload, timeout=3.0)
+                    except Exception:
+                        pass  # Recording failure is non-critical
+
+                return result
+            elif response.status_code == 401:
+                logger.warning("[llm-proxy] Cloud API key invalid, falling back to local")
+                return None
+            else:
+                logger.warning(f"[llm-proxy] Cloud API error {response.status_code}, falling back to local")
+                return None
+        except Exception as e:
+            logger.warning(f"[llm-proxy] Cloud direct scan failed ({type(e).__name__}), falling back to local")
+            return None
+
+    async def scan_message(self, text: str, is_llm_response: bool = False, action_taken: str = "logged") -> dict:
         """Scan a message with SecureVector API.
+
+        When cloud mode is enabled, scans directly via cloud API (skipping localhost hop).
+        Falls back to local /analyze if cloud fails.
 
         On scan failure: if block mode is ON, fails closed (treats as threat)
         to prevent unscanned content from passing through. If block mode is
@@ -264,13 +351,30 @@ class LLMProxy:
         if not text:
             return {"is_threat": False}
 
+        # Strip metadata prefix to avoid false positives (user IDs trigger PII detection)
+        scan_text = self._strip_metadata_prefix(text)
+
+        # When cloud mode is on, scan directly via cloud API (no localhost hop)
+        settings = await self.check_settings()
+        skip_cloud = False
+        cloud_api_key = settings.get("cloud_api_key")
+        if settings.get("cloud_mode_enabled") and cloud_api_key and not is_llm_response:
+            cloud_result = await self._scan_cloud_direct(scan_text, cloud_api_key, action_taken)
+            if cloud_result is not None:
+                return cloud_result
+            # Cloud failed — fall through to local scan (skip cloud in /analyze to avoid double timeout)
+            logger.info("[llm-proxy] Cloud direct scan failed, falling back to local /analyze")
+            skip_cloud = True
+
         scan_payload = {
-            "text": text,
+            "text": scan_text,
             "llm_response": is_llm_response,
             "metadata": {
                 "source": "llm-proxy",
                 "target": self.target_url,
                 "scan_type": "output" if is_llm_response else "input",
+                "action_taken": action_taken,
+                "skip_cloud": skip_cloud,
             }
         }
 
@@ -282,7 +386,7 @@ class LLMProxy:
                 response = await client.post(
                     self.analyze_url,
                     json=scan_payload,
-                    timeout=5.0,
+                    timeout=10.0,
                 )
                 if response.status_code == 200:
                     return response.json()
@@ -301,7 +405,8 @@ class LLMProxy:
         logger.warning(f"SecureVector scan error (after retry): {last_error}")
 
         # Fail-closed when block mode is ON: treat scan failure as threat
-        settings = await self.check_settings()
+        if not settings:
+            settings = await self.check_settings()
         if settings.get("block_threats"):
             logger.warning("[llm-proxy] Block mode ON + scan failed → failing closed (blocking)")
             return {
@@ -313,6 +418,19 @@ class LLMProxy:
 
         # Fail-open when block mode is OFF: log only, allow through
         return {"is_threat": False}
+
+    @staticmethod
+    def _strip_metadata_prefix(text: str) -> str:
+        """Strip OpenClaw metadata prefix from message text.
+
+        OpenClaw wraps messages like: [Telegram Username id:123456 +2m 2026-02-09 16:05 CST] actual message
+        The metadata (user IDs, timestamps) can trigger false positive PII detection.
+        Returns the actual message content without the prefix.
+        """
+        import re
+        # Match [Platform Username id:NNNNN ...] prefix
+        stripped = re.sub(r'^\[(?:Telegram|Discord|Slack|WhatsApp|Web)\s+.*?\]\s*', '', text, count=1)
+        return stripped if stripped else text
 
     def _extract_content_parts(self, content) -> list:
         """Extract text from content that can be a string or structured list."""
@@ -515,7 +633,13 @@ class LLMProxy:
                 self.stats["scanned"] += 1
                 preview = input_text[:80].replace('\n', ' ')
                 print(f"[llm-proxy] 🔍 Scanning input ({len(input_text)} chars): {preview}...")
-                result = await self.scan_message(input_text, is_llm_response=False)
+
+                # Check block mode first to record correct action
+                settings = await self.check_settings()
+                will_block = settings.get("block_threats", False)
+                action = "blocked" if will_block else "logged"
+
+                result = await self.scan_message(input_text, is_llm_response=False, action_taken=action)
 
                 if result.get("is_threat"):
                     self.stats["threats_detected"] += 1
@@ -527,9 +651,8 @@ class LLMProxy:
                     else:
                         print(f"[llm-proxy] ⚠️  THREAT DETECTED: {threat_type} (risk: {risk_score}%)")
 
-                    # Check if blocking is enabled (scan_error already checked block mode)
-                    settings = await self.check_settings()
-                    if settings.get("block_threats"):
+                    # Block if enabled
+                    if will_block:
                         self.stats["blocked"] += 1
                         print(f"[llm-proxy] 🚫 BLOCKED - not forwarding to LLM")
 
@@ -605,14 +728,16 @@ class LLMProxy:
                         if output_text:
                             settings = await self.check_settings()
                             if settings.get("scan_llm_responses"):
-                                result = await self.scan_message(output_text, is_llm_response=True)
+                                will_block = settings.get("block_threats", False)
+                                action = "blocked" if will_block else "logged"
+                                result = await self.scan_message(output_text, is_llm_response=True, action_taken=action)
                                 if result.get("is_threat"):
                                     threat_type = result.get("threat_type", "unknown")
                                     risk_score = result.get("risk_score", 0)
                                     print(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type} (risk: {risk_score}%)")
 
                                     # Block output if block mode is enabled
-                                    if settings.get("block_threats"):
+                                    if will_block:
                                         self.stats["blocked"] += 1
                                         print(f"[llm-proxy] 🚫 OUTPUT BLOCKED - not delivering to client")
                                         error_response = {
@@ -650,20 +775,19 @@ class LLMProxy:
     ) -> Response:
         """Handle streaming LLM response.
 
-        When block mode is ON: buffers the full response, scans it, then
-        delivers or blocks. Adds latency but provides full output protection.
+        When output scanning is ON: buffers the full response, scans it,
+        then delivers or blocks based on block mode setting.
 
-        When block mode is OFF: streams through in real-time, scans at the
-        end for logging/detection only.
+        When output scanning is OFF: streams through in real-time without scanning.
         """
         settings = await self.check_settings()
-        should_block = settings.get("block_threats") and settings.get("scan_llm_responses")
+        should_scan = settings.get("scan_llm_responses")
 
-        if should_block:
-            # BLOCK MODE: Buffer full response, scan, then deliver or block
+        if should_scan:
+            # SCAN MODE: Buffer full response, scan, then deliver or block
             return await self._handle_streaming_buffered(client, method, url, headers, body)
         else:
-            # PASSTHROUGH MODE: Stream through, scan at end for logging
+            # PASSTHROUGH MODE: Stream through without scanning
             return await self._handle_streaming_passthrough(client, method, url, headers, body)
 
     async def _handle_streaming_buffered(
@@ -674,7 +798,10 @@ class LLMProxy:
         accumulated_text = ""
         all_chunks = []
 
-        print("[llm-proxy] 🛡️ Block mode ON - buffering stream for output scan...")
+        settings = await self.check_settings()
+        will_block = settings.get("block_threats", False)
+
+        print("[llm-proxy] 🛡️ Buffering stream for output scan...")
 
         async with client.stream(method, url, headers=headers, content=body) as response:
             async for chunk in response.aiter_bytes():
@@ -692,27 +819,30 @@ class LLMProxy:
 
         # Scan accumulated text
         if accumulated_text:
-            result = await self.scan_message(accumulated_text, is_llm_response=True)
+            action = "blocked" if will_block else "logged"
+            result = await self.scan_message(accumulated_text, is_llm_response=True, action_taken=action)
             if result.get("is_threat"):
                 threat_type = result.get("threat_type", "unknown")
                 risk_score = result.get("risk_score", 0)
-                self.stats["blocked"] += 1
-                print(f"[llm-proxy] 🚫 OUTPUT BLOCKED (streamed): {threat_type} (risk: {risk_score}%)")
+                print(f"[llm-proxy] ⚠️ OUTPUT THREAT: {threat_type} (risk: {risk_score}%)")
 
-                error_response = {
-                    "error": {
-                        "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
-                        "type": "security_error",
-                        "code": "output_blocked_by_securevector",
+                if will_block:
+                    self.stats["blocked"] += 1
+                    print(f"[llm-proxy] 🚫 OUTPUT BLOCKED (streamed): {threat_type} (risk: {risk_score}%)")
+                    error_response = {
+                        "error": {
+                            "message": f"Response blocked by SecureVector: {threat_type} detected in LLM output (risk: {risk_score}%)",
+                            "type": "security_error",
+                            "code": "output_blocked_by_securevector",
+                        }
                     }
-                }
-                return Response(
-                    content=json.dumps(error_response),
-                    status_code=400,
-                    media_type="application/json",
-                )
-
-        print("[llm-proxy] ✓ Output clean - delivering to client")
+                    return Response(
+                        content=json.dumps(error_response),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+            else:
+                print("[llm-proxy] ✓ Output clean")
 
         # Deliver buffered stream
         async def replay_chunks():
@@ -952,7 +1082,14 @@ def main():
             verbose=args.verbose,
         )
 
-        providers_list = ", ".join(LLMProxy.PROVIDERS.keys())
+        providers = list(LLMProxy.PROVIDERS.keys())
+        # Format providers in rows of 6
+        provider_lines = []
+        for i in range(0, len(providers), 6):
+            row = ", ".join(providers[i:i+6])
+            provider_lines.append(f"║    {row:<63}║")
+
+        provider_block = "\n".join(provider_lines)
         print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
 ║            SecureVector Multi-Provider LLM Proxy                  ║
@@ -962,16 +1099,20 @@ def main():
 ║  Block threats:     {str(args.block):<5}                                        ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║  Multi-provider routing enabled!                                  ║
+║  All {len(providers)} providers ready — no configuration needed.              ║
 ║                                                                   ║
-║  LangChain / Any OpenAI-compatible:                               ║
-║    base_url="http://{args.host}:{args.port}/openai/v1"                        ║
-║    base_url="http://{args.host}:{args.port}/ollama/v1"                        ║
-║    base_url="http://{args.host}:{args.port}/groq/v1"                          ║
+║  Usage:                                                           ║
+║    base_url="http://{args.host}:{args.port}/{{provider}}/v1"                    ║
 ║                                                                   ║
-║  Anthropic:                                                       ║
-║    base_url="http://{args.host}:{args.port}/anthropic"                        ║
+║  Examples:                                                        ║
+║    http://{args.host}:{args.port}/openai/v1     (OpenAI, LangChain)             ║
+║    http://{args.host}:{args.port}/anthropic      (Anthropic/Claude)              ║
+║    http://{args.host}:{args.port}/ollama/v1     (Ollama local)                  ║
+║    http://{args.host}:{args.port}/groq/v1       (Groq)                          ║
+║    http://{args.host}:{args.port}/deepseek/v1   (DeepSeek)                      ║
 ║                                                                   ║
-║  Available providers: {providers_list[:45]:<45}║
+║  All supported providers:                                         ║
+{provider_block}
 ╚═══════════════════════════════════════════════════════════════════╝
 """)
     else:

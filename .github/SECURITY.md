@@ -1,7 +1,7 @@
 # Security Policy
 
 **SecureVector AI Threat Monitor**
-**Last Updated:** January 31, 2026
+**Last Updated:** February 9, 2026
 
 ---
 
@@ -17,10 +17,10 @@ We provide security updates for the following versions:
 
 | Version | Supported          | End of Support |
 | ------- | ------------------ | -------------- |
-| 2.0.x   | ✅ Yes            | Current        |
-| 1.3.x   | ✅ Yes            | June 2026      |
-| 1.2.x   | ⚠️ Limited       | March 2026     |
-| < 1.2   | ❌ No             | Ended          |
+| 2.1.x   | ✅ Yes            | Current        |
+| 2.0.x   | ✅ Yes            | June 2026      |
+| 1.3.x   | ⚠️ Limited       | March 2026     |
+| < 1.3   | ❌ No             | Ended          |
 
 **Recommendation:** Always use the latest version for the best security and features.
 
@@ -443,5 +443,5 @@ We're committed to continuous improvement of our security practices.
 
 ---
 
-**Last Updated:** January 31, 2026
-**Next Review:** April 2026
+**Last Updated:** February 9, 2026
+**Next Review:** May 2026

@@ -8,13 +8,16 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', subItems: [
+        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClaudBot' },
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+        ]},
+        { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            { id: 'gs-api', label: 'API Reference', section: 'section-api' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
@@ -64,11 +67,12 @@ const Sidebar = {
 
         this.navItems.forEach(item => {
             const navItem = document.createElement('div');
-            // Don't mark parent as active if it has subItems (let subItem be active instead)
             const hasSubItems = item.subItems && item.subItems.length > 0;
-            const isActive = item.id === this.currentPage && !hasSubItems;
+            // Collapsible parents (like Docs) stay active on their page
+            const isActive = item.id === this.currentPage && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '');
             navItem.dataset.page = item.id;
+            if (item.collapsible) navItem.dataset.collapsible = 'true';
 
             // Add icon (SVG)
             const iconSvg = this.createIcon(item.icon);
@@ -88,16 +92,51 @@ const Sidebar = {
                 navItem.appendChild(badge);
             }
 
+            // Chevron for collapsible items
+            let chevron = null;
+            if (item.collapsible && hasSubItems) {
+                const isExpanded = localStorage.getItem(`nav-${item.id}-expanded`) === 'true';
+                chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                chevron.setAttribute('viewBox', '0 0 24 24');
+                chevron.setAttribute('fill', 'none');
+                chevron.setAttribute('stroke', 'currentColor');
+                chevron.setAttribute('stroke-width', '2');
+                chevron.style.cssText = 'width: 14px; height: 14px; margin-left: auto; transition: transform 0.2s; flex-shrink: 0; opacity: 0.5;';
+                chevron.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                chevronPath.setAttribute('d', 'M6 9l6 6 6-6');
+                chevron.appendChild(chevronPath);
+                navItem.appendChild(chevron);
+            }
+
             // Click handler
-            navItem.addEventListener('click', () => this.navigate(item.id));
+            navItem.addEventListener('click', () => {
+                this.navigate(item.id);
+                // Toggle collapsible sub-items
+                if (item.collapsible && hasSubItems) {
+                    const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
+                    if (subNav) {
+                        const isVisible = subNav.style.display !== 'none';
+                        subNav.style.display = isVisible ? 'none' : 'block';
+                        localStorage.setItem(`nav-${item.id}-expanded`, String(!isVisible));
+                        if (chevron) chevron.style.transform = isVisible ? 'rotate(-90deg)' : 'rotate(0deg)';
+                    }
+                }
+            });
 
             nav.appendChild(navItem);
 
-            // Add sub-items if present
-            if (item.subItems && item.subItems.length > 0) {
+            // Sub-items
+            if (hasSubItems) {
                 const subNav = document.createElement('div');
                 subNav.className = 'nav-sub-items';
                 subNav.style.cssText = 'padding-left: 32px; font-size: 12px;';
+
+                if (item.collapsible) {
+                    subNav.dataset.subFor = item.id;
+                    const isExpanded = localStorage.getItem(`nav-${item.id}-expanded`) === 'true';
+                    subNav.style.display = isExpanded ? 'block' : 'none';
+                }
 
                 item.subItems.forEach(subItem => {
                     const subNavItem = document.createElement('div');
@@ -111,7 +150,11 @@ const Sidebar = {
 
                     subNavItem.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        this.navigate(subItem.id);
+                        if (subItem.section) {
+                            this.navigateToSection(item.id, subItem.section, subItem.id);
+                        } else {
+                            this.navigate(subItem.id);
+                        }
                     });
 
                     subNav.appendChild(subNavItem);
@@ -125,6 +168,36 @@ const Sidebar = {
         this.loadRulesCount();
 
         container.appendChild(nav);
+
+        // Integration proxy status indicator (shown when proxy is running)
+        const proxyBanner = document.createElement('div');
+        proxyBanner.id = 'integration-proxy-banner';
+        proxyBanner.style.cssText = 'display: none; margin: 12px; padding: 10px; border-radius: 8px; text-align: center; cursor: pointer;';
+
+        const bannerIcon = document.createElement('div');
+        bannerIcon.id = 'integration-banner-icon';
+        bannerIcon.style.fontSize = '20px';
+        proxyBanner.appendChild(bannerIcon);
+
+        const bannerText = document.createElement('div');
+        bannerText.id = 'integration-banner-text';
+        bannerText.style.cssText = 'color: white; font-weight: 600; font-size: 11px; margin-top: 4px;';
+        proxyBanner.appendChild(bannerText);
+
+        const bannerProvider = document.createElement('div');
+        bannerProvider.id = 'integration-banner-provider';
+        bannerProvider.style.cssText = 'color: rgba(255,255,255,0.9); font-size: 10px; margin-top: 2px; font-weight: 500;';
+        proxyBanner.appendChild(bannerProvider);
+
+        const bannerNote = document.createElement('div');
+        bannerNote.style.cssText = 'color: rgba(255,255,255,0.7); font-size: 9px; margin-top: 2px;';
+        bannerNote.textContent = 'Click to manage';
+        proxyBanner.appendChild(bannerNote);
+
+        container.appendChild(proxyBanner);
+
+        // Check proxy status
+        this.checkProxyStatus();
 
         // Collapse toggle button (at menu level)
         const collapseBtn = document.createElement('button');
@@ -144,39 +217,31 @@ const Sidebar = {
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
         container.appendChild(collapseBtn);
 
-        // Try SecureVector button at bottom of nav
-        const tryButton = document.createElement('div');
-        tryButton.className = 'nav-item try-securevector-btn';
-        tryButton.appendChild(this.createIcon('chat'));
-        const tryLabel = document.createElement('span');
-        tryLabel.textContent = 'Try SecureVector';
-        tryButton.appendChild(tryLabel);
-        tryButton.addEventListener('click', () => FloatingChat.toggle());
-        container.appendChild(tryButton);
-
-        // Bottom section - theme toggle and status
+        // Bottom section - Try SecureVector, uninstall, and status
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
 
-        // Theme toggle
-        const themeRow = document.createElement('div');
-        themeRow.className = 'sidebar-theme-row';
+        // Try SecureVector button (gradient)
+        const tryBtn = document.createElement('button');
+        tryBtn.style.cssText = 'display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.2s;';
+        tryBtn.setAttribute('aria-label', 'Try SecureVector');
 
-        const themeBtn = document.createElement('button');
-        themeBtn.className = 'sidebar-theme-btn';
-        themeBtn.setAttribute('aria-label', 'Toggle theme');
+        tryBtn.addEventListener('mouseenter', () => { tryBtn.style.opacity = '0.85'; });
+        tryBtn.addEventListener('mouseleave', () => { tryBtn.style.opacity = '1'; });
 
-        const themeIcon = this.createThemeIcon();
-        themeBtn.appendChild(themeIcon);
+        const tryIcon = this.createIcon('chat');
+        tryIcon.style.cssText = 'width: 18px; height: 18px; flex-shrink: 0; stroke: white;';
+        tryBtn.appendChild(tryIcon);
 
-        const themeLabel = document.createElement('span');
-        themeLabel.className = 'theme-label';
-        themeLabel.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? 'Dark' : 'Light';
-        themeBtn.appendChild(themeLabel);
+        const tryLabel = document.createElement('span');
+        tryLabel.textContent = 'Try SecureVector';
+        tryBtn.appendChild(tryLabel);
 
-        themeBtn.addEventListener('click', () => this.toggleTheme());
-        themeRow.appendChild(themeBtn);
-        bottomSection.appendChild(themeRow);
+        tryBtn.addEventListener('click', () => FloatingChat.toggle());
+        const tryRow = document.createElement('div');
+        tryRow.style.cssText = 'padding: 0 12px 8px 12px;';
+        tryRow.appendChild(tryBtn);
+        bottomSection.appendChild(tryRow);
 
         // Uninstall button
         const uninstallBtn = document.createElement('button');
@@ -428,6 +493,74 @@ const Sidebar = {
         }
     },
 
+    // Integration configurations for banner display
+    integrationConfigs: {
+        openclaw: { icon: '🦎', label: 'OPENCLAW PROXY', color: 'linear-gradient(135deg, #f59e0b, #d97706)', page: 'proxy-openclaw' },
+        ollama: { icon: '🦙', label: 'OLLAMA PROXY', color: 'linear-gradient(135deg, #6366f1, #4f46e5)', page: 'proxy-ollama' },
+        langchain: { icon: '🔗', label: 'LANGCHAIN PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langchain' },
+        langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
+        crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
+        n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
+        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #3b82f6, #2563eb)', page: 'integrations' },
+    },
+
+    async checkProxyStatus() {
+        try {
+            const response = await fetch('/api/proxy/status');
+            if (response.ok) {
+                const data = await response.json();
+                const banner = document.getElementById('integration-proxy-banner');
+                const iconEl = document.getElementById('integration-banner-icon');
+                const textEl = document.getElementById('integration-banner-text');
+                const providerEl = document.getElementById('integration-banner-provider');
+
+                if (banner) {
+                    if (data.running) {
+                        // Get integration config - use openclaw flag as fallback
+                        const integration = data.integration || (data.openclaw ? 'openclaw' : 'default');
+                        const config = this.integrationConfigs[integration] || this.integrationConfigs.default;
+
+                        banner.style.display = 'block';
+                        banner.style.background = config.color;
+                        banner.onclick = () => this.navigate(config.page);
+
+                        if (iconEl) iconEl.textContent = config.icon;
+                        if (textEl) {
+                            const intLabel = integration !== 'default' ? integration.toUpperCase() : '';
+                            const provLabel = data.provider ? data.provider.toUpperCase() : '';
+                            if (intLabel) {
+                                textEl.textContent = intLabel + ' PROXY ON';
+                            } else if (provLabel) {
+                                textEl.textContent = provLabel + ' PROXY ON';
+                            } else {
+                                textEl.textContent = 'PROXY ON';
+                            }
+                        }
+                        if (providerEl && data.provider) {
+                            providerEl.textContent = 'Provider: ' + data.provider.toUpperCase();
+                        } else if (providerEl) {
+                            providerEl.textContent = '';
+                        }
+
+                        // Store state for proxy pages to use
+                        window._proxyActive = true;
+                        window._proxyIntegration = integration;
+                        window._openclawProxyActive = data.openclaw || false;
+                    } else {
+                        banner.style.display = 'none';
+                        window._proxyActive = false;
+                        window._proxyIntegration = null;
+                        window._openclawProxyActive = false;
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+        // Refresh every 5 seconds
+        setTimeout(() => this.checkProxyStatus(), 5000);
+    },
+
     async checkServerStatus() {
         try {
             const health = await API.health();
@@ -495,6 +628,16 @@ const Sidebar = {
                 { tag: 'circle', attrs: { cx: '8', cy: '16', r: '1', fill: 'currentColor' } },
                 { tag: 'circle', attrs: { cx: '16', cy: '16', r: '1', fill: 'currentColor' } },
             ],
+            rocket: [
+                { tag: 'path', attrs: { d: 'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z' } },
+                { tag: 'path', attrs: { d: 'M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z' } },
+                { tag: 'path', attrs: { d: 'M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0' } },
+                { tag: 'path', attrs: { d: 'M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5' } },
+            ],
+            book: [
+                { tag: 'path', attrs: { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' } },
+                { tag: 'path', attrs: { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' } },
+            ],
             uninstall: [
                 { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
                 { tag: 'line', attrs: { x1: '10', y1: '11', x2: '10', y2: '17' } },
@@ -525,18 +668,38 @@ const Sidebar = {
         }
     },
 
+    navigateToSection(page, sectionId, subItemId) {
+        const alreadyOnPage = this.currentPage === page;
+        this.currentPage = page;
+
+        // Highlight parent and clicked sub-item
+        document.querySelectorAll('.nav-item').forEach(item => {
+            const matchesParent = item.dataset.page === page && !item.classList.contains('nav-sub-item');
+            const matchesSub = item.dataset.page === subItemId;
+            item.classList.toggle('active', matchesParent || matchesSub);
+        });
+
+        if (alreadyOnPage) {
+            const el = document.getElementById(sectionId);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            this._pendingScroll = sectionId;
+            if (window.App) App.loadPage(page);
+        }
+    },
+
     setActive(page) {
         this.currentPage = page;
         document.querySelectorAll('.nav-item').forEach(item => {
             const isSubItem = item.classList.contains('nav-sub-item');
             const matchesPage = item.dataset.page === page;
-            // Only highlight sub-items, not parent items with sub-items
             if (isSubItem) {
                 item.classList.toggle('active', matchesPage);
             } else {
-                // Check if this parent has sub-items (next sibling is nav-sub-items)
                 const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
-                item.classList.toggle('active', matchesPage && !hasSubItems);
+                const isCollapsible = item.dataset.collapsible === 'true';
+                // Collapsible parents (like Docs) stay active when on their page
+                item.classList.toggle('active', matchesPage && (!hasSubItems || isCollapsible));
             }
         });
     },

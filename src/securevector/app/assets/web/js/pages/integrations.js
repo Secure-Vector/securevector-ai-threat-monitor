@@ -7,6 +7,7 @@
 const IntegrationPage = {
     // Proxy state
     proxyStatus: { running: false, provider: null, multi: false },
+    currentIntegration: null, // Set when rendering an integration page
 
     // Check proxy status
     async checkProxyStatus() {
@@ -22,10 +23,11 @@ const IntegrationPage = {
     // Start proxy
     async startProxy(provider, multi = false) {
         try {
+            const integration = this.currentIntegration || null;
             const res = await fetch('/api/proxy/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider, multi })
+                body: JSON.stringify({ provider, multi, integration })
             });
             return await res.json();
         } catch (e) {
@@ -265,7 +267,7 @@ def chat_with_protection(user_input):
     return output`
         },
         'proxy-openclaw': {
-            name: 'OpenClaw/ClaudBot',
+            name: 'OpenClaw/ClawdBot',
             description: 'AI agent framework for Claude',
             isOpenClaw: true,
             defaultProvider: 'anthropic'
@@ -279,6 +281,9 @@ def chat_with_protection(user_input):
             return;
         }
 
+        // Track which integration page we're on (strip 'proxy-' prefix)
+        this.currentIntegration = integrationId.replace('proxy-', '');
+
         container.textContent = '';
 
         // Header
@@ -286,12 +291,12 @@ def chat_with_protection(user_input):
         header.style.cssText = 'margin-bottom: 24px;';
 
         const title = document.createElement('h1');
-        title.style.cssText = 'font-size: 24px; font-weight: 600; margin-bottom: 8px;';
+        title.className = 'dashboard-title';
         title.textContent = integration.name + ' Integration';
         header.appendChild(title);
 
         const desc = document.createElement('p');
-        desc.style.cssText = 'color: var(--text-secondary); font-size: 14px;';
+        desc.className = 'dashboard-subtitle';
         desc.textContent = integration.description;
         header.appendChild(desc);
 
@@ -307,16 +312,16 @@ def chat_with_protection(user_input):
             container.appendChild(this.createOpenClawCard(integration));
             container.appendChild(this.createRevertCard());
         } else if (integration.proxyOnly) {
-            // Ollama: Proxy + Multi-Provider + Example Code
-            container.appendChild(this.createProxyCard(integration, integrationId));
+            // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
             container.appendChild(this.createMultiProviderCard());
+            container.appendChild(this.createProxyCard(integration, integrationId));
             if (integration.exampleCode) {
                 container.appendChild(this.createExampleCodeCard(integration));
             }
         } else {
-            // LangChain, LangGraph, CrewAI: Proxy + Multi-Provider + SDK
-            container.appendChild(this.createProxyCard(integration, integrationId));
+            // LangChain, LangGraph, CrewAI: Multi-Provider (recommended) + Single Proxy + SDK
             container.appendChild(this.createMultiProviderCard());
+            container.appendChild(this.createProxyCard(integration, integrationId));
             container.appendChild(this.createSdkCard(integration));
         }
     },
@@ -340,19 +345,14 @@ def chat_with_protection(user_input):
         const titleDiv = document.createElement('div');
         const titleText = document.createElement('div');
         titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
-        titleText.textContent = 'Option 1: Agent Proxy';
+        titleText.textContent = 'Option 2: Single Provider Proxy';
         titleDiv.appendChild(titleText);
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'For single LLM across multiple agents';
+        subtitleText.textContent = 'Use this if you only use one LLM provider';
         titleDiv.appendChild(subtitleText);
         header.appendChild(titleDiv);
-
-        const badge = document.createElement('span');
-        badge.style.cssText = 'background: var(--accent-primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;';
-        badge.textContent = 'QUICK START';
-        header.appendChild(badge);
 
         card.appendChild(header);
 
@@ -407,17 +407,32 @@ def chat_with_protection(user_input):
 
         // Header
         const header = document.createElement('div');
-        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between;';
 
+        const titleDiv = document.createElement('div');
         const titleText = document.createElement('div');
         titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
-        titleText.textContent = 'Option 2: Multi-Provider Proxy';
-        header.appendChild(titleText);
+        titleText.textContent = 'Option 1: Multi-Provider Proxy';
+        titleDiv.appendChild(titleText);
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'If you are planning to use multiple LLMs across multiple agents';
-        header.appendChild(subtitleText);
+        subtitleText.textContent = 'Works with all providers — no wrong proxy configuration';
+        titleDiv.appendChild(subtitleText);
+        header.appendChild(titleDiv);
+
+        const badge = document.createElement('span');
+        badge.style.cssText = 'background: #f97316; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite;';
+        badge.textContent = 'RECOMMENDED';
+        header.appendChild(badge);
+
+        // Add pulse animation if not already present
+        if (!document.getElementById('pulse-badge-style')) {
+            const style = document.createElement('style');
+            style.id = 'pulse-badge-style';
+            style.textContent = '@keyframes pulse-badge { 0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(249,115,22,0.6); } 50% { opacity: 0.7; box-shadow: 0 0 2px rgba(249,115,22,0.2); } }';
+            document.head.appendChild(style);
+        }
 
         card.appendChild(header);
 
@@ -427,8 +442,8 @@ def chat_with_protection(user_input):
 
         // Description
         const desc = document.createElement('div');
-        desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;';
-        desc.textContent = 'The --multi flag enables path-based routing. Agents often use multiple LLMs (e.g., GPT-4 for reasoning, Claude for coding). One proxy protects all traffic.';
+        desc.style.cssText = 'font-size: 13px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.5; font-weight: 600;';
+        desc.textContent = 'Use this if you work with multiple LLM providers. All 19 providers are available instantly \u2014 no configuration needed.';
         content.appendChild(desc);
 
         // Step 1
@@ -437,10 +452,9 @@ def chat_with_protection(user_input):
         step1Label.textContent = 'Step 1: Start Multi-Provider Proxy';
         content.appendChild(step1Label);
 
-        const step1Code = document.createElement('code');
-        step1Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px;';
-        step1Code.textContent = 'securevector-app --proxy --multi --web';
-        content.appendChild(step1Code);
+        const step1Block = this.createCodeBlock('securevector-app --proxy --multi --web');
+        step1Block.style.marginBottom = '12px';
+        content.appendChild(step1Block);
 
         // Start Proxy button row (inside Step 1)
         const btnRow = document.createElement('div');
@@ -449,7 +463,7 @@ def chat_with_protection(user_input):
         const startBtn = document.createElement('button');
         startBtn.id = 'start-proxy-multi';
         startBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
-        startBtn.textContent = 'Start Proxy';
+        startBtn.textContent = 'Start Multi-Provider Proxy';
         startBtn.onclick = async () => {
             startBtn.disabled = true;
             startBtn.textContent = 'Starting...';
@@ -490,10 +504,9 @@ def chat_with_protection(user_input):
         step2Label.textContent = 'Step 2: Set environment variables';
         content.appendChild(step2Label);
 
-        const step2Code = document.createElement('code');
-        step2Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; white-space: pre; line-height: 1.6; margin-bottom: 8px;';
-        step2Code.textContent = 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic';
-        content.appendChild(step2Code);
+        const step2Block = this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic');
+        step2Block.style.marginBottom = '8px';
+        content.appendChild(step2Block);
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
@@ -506,10 +519,7 @@ def chat_with_protection(user_input):
         pathsLabel.textContent = 'Available Endpoints';
         content.appendChild(pathsLabel);
 
-        const pathsCode = document.createElement('code');
-        pathsCode.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; white-space: pre; line-height: 1.6;';
-        pathsCode.textContent = 'OpenAI:    http://localhost:8742/openai/v1\nAnthropic: http://localhost:8742/anthropic\nGoogle:    http://localhost:8742/gemini/v1\nOllama:    http://localhost:8742/ollama/v1\nGroq:      http://localhost:8742/groq/v1\nAzure:     http://localhost:8742/azure/v1\nMistral:   http://localhost:8742/mistral/v1\nDeepSeek:  http://localhost:8742/deepseek/v1';
-        content.appendChild(pathsCode);
+        content.appendChild(this.createCodeBlock('OpenAI:    http://localhost:8742/openai/v1\nAnthropic: http://localhost:8742/anthropic\nGoogle:    http://localhost:8742/gemini/v1\nOllama:    http://localhost:8742/ollama/v1\nGroq:      http://localhost:8742/groq/v1\nAzure:     http://localhost:8742/azure/v1\nMistral:   http://localhost:8742/mistral/v1\nDeepSeek:  http://localhost:8742/deepseek/v1'));
 
         card.appendChild(content);
         return card;
@@ -536,10 +546,8 @@ def chat_with_protection(user_input):
         card.appendChild(header);
 
         // Code block
-        const codeBlock = document.createElement('pre');
-        codeBlock.style.cssText = 'background: var(--bg-tertiary); padding: 16px; margin: 0; font-size: 12px; overflow-x: auto;';
-        codeBlock.textContent = integration.exampleCode;
-        card.appendChild(codeBlock);
+        const codeWrapper = this.createCodeBlock(integration.exampleCode);
+        card.appendChild(codeWrapper);
 
         return card;
     },
@@ -564,10 +572,9 @@ def chat_with_protection(user_input):
         step1Label.textContent = 'Step 1: Start SecureVector Proxy';
         container.appendChild(step1Label);
 
-        const step1Code = document.createElement('code');
-        step1Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px;';
-        step1Code.textContent = 'securevector-app --proxy --provider ' + provider + ' --web';
-        container.appendChild(step1Code);
+        const step1Block = this.createCodeBlock('securevector-app --proxy --provider ' + provider + ' --web');
+        step1Block.style.marginBottom = '12px';
+        container.appendChild(step1Block);
 
         // Start Proxy button row (inside Step 1)
         const btnRow = document.createElement('div');
@@ -619,10 +626,9 @@ def chat_with_protection(user_input):
 
         // Special handling for Ollama - show both options for Open WebUI
         if (provider === 'ollama') {
-            const step2Code = document.createElement('code');
-            step2Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; white-space: pre; line-height: 1.6;';
-            step2Code.textContent = '# Option A: Ollama API\nexport OLLAMA_HOST=http://localhost:8742/ollama\n\n# Option B: OpenAI API\nexport OPENAI_BASE_URL=http://localhost:8742/ollama/v1';
-            container.appendChild(step2Code);
+            const ollamaBlock = this.createCodeBlock('# Option A: Ollama API\nexport OLLAMA_HOST=http://localhost:8742/ollama\n\n# Option B: OpenAI API\nexport OPENAI_BASE_URL=http://localhost:8742/ollama/v1');
+            ollamaBlock.style.marginBottom = '12px';
+            container.appendChild(ollamaBlock);
 
             // Open WebUI specific
             const openwebuiLabel = document.createElement('div');
@@ -630,20 +636,18 @@ def chat_with_protection(user_input):
             openwebuiLabel.textContent = 'For Open WebUI:';
             container.appendChild(openwebuiLabel);
 
-            const openwebuiCode = document.createElement('code');
-            openwebuiCode.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;';
-            openwebuiCode.textContent = 'Settings → Connections → Ollama URL: http://localhost:8742/ollama';
-            container.appendChild(openwebuiCode);
+            const openwebuiBlock = this.createCodeBlock('Settings → Connections → Ollama URL: http://localhost:8742/ollama');
+            openwebuiBlock.style.marginBottom = '8px';
+            container.appendChild(openwebuiBlock);
 
             const step2Note = document.createElement('div');
             step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
             step2Note.textContent = 'Traffic routes: Open WebUI → SecureVector Proxy → Ollama';
             container.appendChild(step2Note);
         } else {
-            const step2Code = document.createElement('code');
-            step2Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;';
-            step2Code.textContent = config.env + '=http://localhost:8742' + config.path;
-            container.appendChild(step2Code);
+            const envBlock = this.createCodeBlock(config.env + '=http://localhost:8742' + config.path);
+            envBlock.style.marginBottom = '8px';
+            container.appendChild(envBlock);
 
             const step2Note = document.createElement('div');
             step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
@@ -774,10 +778,9 @@ def chat_with_protection(user_input):
         desc.textContent = 'Run this command to restore the original pi-ai provider files and remove SecureVector proxy routing:';
         content.appendChild(desc);
 
-        const revertCode = document.createElement('code');
-        revertCode.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 16px;';
-        revertCode.textContent = 'securevector-app --revert-proxy';
-        content.appendChild(revertCode);
+        const revertBlock = this.createCodeBlock('securevector-app --revert-proxy');
+        revertBlock.style.marginBottom = '16px';
+        content.appendChild(revertBlock);
 
         // Revert button
         const revertBtn = document.createElement('button');
@@ -823,10 +826,9 @@ def chat_with_protection(user_input):
         step1Label.textContent = 'Step 1: Start SecureVector with OpenClaw flag';
         container.appendChild(step1Label);
 
-        const step1Code = document.createElement('code');
-        step1Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;';
-        step1Code.textContent = 'securevector-app --proxy --provider ' + provider + ' --web --openclaw';
-        container.appendChild(step1Code);
+        const step1Block = this.createCodeBlock('securevector-app --proxy --provider ' + provider + ' --web --openclaw');
+        step1Block.style.marginBottom = '8px';
+        container.appendChild(step1Block);
 
         const step1Note = document.createElement('div');
         step1Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;';
@@ -835,32 +837,13 @@ def chat_with_protection(user_input):
 
         // Start Proxy button row (inside Step 1)
         const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;';
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;';
 
-        // Single provider button
-        const singleBtn = document.createElement('button');
-        singleBtn.id = 'start-proxy-openclaw-single';
-        singleBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
-        singleBtn.textContent = 'Start Single';
-        singleBtn.onclick = async () => {
-            singleBtn.disabled = true;
-            singleBtn.textContent = 'Starting...';
-            const result = await IntegrationPage.startProxy(provider, false);
-            if (result.status === 'started') {
-                await IntegrationPage.updateOpenClawProxyButton();
-            } else {
-                alert(result.message);
-                singleBtn.disabled = false;
-                singleBtn.textContent = 'Start Single';
-            }
-        };
-        btnRow.appendChild(singleBtn);
-
-        // Multi-provider button (recommended)
+        // Multi-provider button (recommended - first)
         const startBtn = document.createElement('button');
         startBtn.id = 'start-proxy-openclaw';
         startBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
-        startBtn.textContent = 'Start Multi (Recommended)';
+        startBtn.textContent = 'Start Multi-Provider Proxy';
         startBtn.onclick = async () => {
             startBtn.disabled = true;
             startBtn.textContent = 'Starting...';
@@ -870,10 +853,29 @@ def chat_with_protection(user_input):
             } else {
                 alert(result.message);
                 startBtn.disabled = false;
-                startBtn.textContent = 'Start Multi (Recommended)';
+                startBtn.textContent = 'Start Multi-Provider Proxy';
             }
         };
         btnRow.appendChild(startBtn);
+
+        // Single provider button
+        const singleBtn = document.createElement('button');
+        singleBtn.id = 'start-proxy-openclaw-single';
+        singleBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        singleBtn.textContent = 'Start Single Provider';
+        singleBtn.onclick = async () => {
+            singleBtn.disabled = true;
+            singleBtn.textContent = 'Starting...';
+            const result = await IntegrationPage.startProxy(provider, false);
+            if (result.status === 'started') {
+                await IntegrationPage.updateOpenClawProxyButton();
+            } else {
+                alert(result.message);
+                singleBtn.disabled = false;
+                singleBtn.textContent = 'Start Single Provider';
+            }
+        };
+        btnRow.appendChild(singleBtn);
 
         const stopBtn = document.createElement('button');
         stopBtn.id = 'stop-proxy-openclaw';
@@ -895,10 +897,18 @@ def chat_with_protection(user_input):
 
         container.appendChild(btnRow);
 
-        // Multi-provider explanation
+        // Multi-provider explanation with RECOMMENDED
         const multiNote = document.createElement('div');
-        multiNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; padding: 10px; background: var(--bg-tertiary); border-radius: 6px;';
-        multiNote.textContent = 'Multi-provider mode allows OpenClaw to switch between LLMs (Claude, GPT, Gemini, Ollama) without restarting. Each provider has its own path: /anthropic, /openai/v1, /gemini/v1, etc.';
+        multiNote.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-primary); font-weight: 600; margin-bottom: 16px; padding: 10px 14px; background: rgba(249, 115, 22, 0.06); border: 1px solid rgba(249, 115, 22, 0.2); border-radius: 6px; line-height: 1.5;';
+
+        const noteBadge = document.createElement('span');
+        noteBadge.style.cssText = 'background: #f97316; color: white; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite; flex-shrink: 0; margin-top: 1px;';
+        noteBadge.textContent = 'RECOMMENDED';
+        multiNote.appendChild(noteBadge);
+
+        const noteText = document.createElement('span');
+        noteText.textContent = 'Multi-provider mode allows OpenClaw to switch between LLMs (Claude, GPT, Gemini, Ollama) without restarting. Each provider has its own path: /anthropic, /openai/v1, /gemini/v1, etc.';
+        multiNote.appendChild(noteText);
         container.appendChild(multiNote);
 
         // Step 2
@@ -907,10 +917,9 @@ def chat_with_protection(user_input):
         step2Label.textContent = 'Step 2: Start OpenClaw (in another terminal)';
         container.appendChild(step2Label);
 
-        const step2Code = document.createElement('code');
-        step2Code.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 8px;';
-        step2Code.textContent = config.env + '=http://localhost:8742' + config.path + ' openclaw --gateway';
-        container.appendChild(step2Code);
+        const step2Block = this.createCodeBlock(config.env + '=http://localhost:8742' + config.path + ' openclaw gateway');
+        step2Block.style.marginBottom = '8px';
+        container.appendChild(step2Block);
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
@@ -942,10 +951,7 @@ def chat_with_protection(user_input):
         card.appendChild(header);
 
         // Code block
-        const codeBlock = document.createElement('pre');
-        codeBlock.style.cssText = 'background: var(--bg-tertiary); padding: 16px; margin: 0; font-size: 12px; overflow-x: auto;';
-        codeBlock.textContent = integration.sdkCode;
-        card.appendChild(codeBlock);
+        card.appendChild(this.createCodeBlock(integration.sdkCode));
 
         return card;
     },
@@ -987,10 +993,9 @@ def chat_with_protection(user_input):
         installLabel.textContent = 'Install';
         content.appendChild(installLabel);
 
-        const installCode = document.createElement('code');
-        installCode.style.cssText = 'display: block; background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 16px;';
-        installCode.textContent = integration.nodeInstall;
-        content.appendChild(installCode);
+        const installBlock = this.createCodeBlock(integration.nodeInstall);
+        installBlock.style.marginBottom = '16px';
+        content.appendChild(installBlock);
 
         // Setup steps
         const setupLabel = document.createElement('div');
@@ -998,13 +1003,41 @@ def chat_with_protection(user_input):
         setupLabel.textContent = 'Setup';
         content.appendChild(setupLabel);
 
-        const setupCode = document.createElement('pre');
-        setupCode.style.cssText = 'background: var(--bg-tertiary); padding: 12px; border-radius: 6px; font-size: 12px; margin: 0; white-space: pre-wrap;';
-        setupCode.textContent = integration.nodeSetup;
-        content.appendChild(setupCode);
+        content.appendChild(this.createCodeBlock(integration.nodeSetup));
 
         card.appendChild(content);
         return card;
+    },
+
+    createCodeBlock(code) {
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position: relative;';
+
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'background: var(--bg-tertiary); padding: 12px 14px; padding-right: 60px; border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.5; margin: 0; border: 1px solid var(--border-color); white-space: pre;';
+
+        const codeEl = document.createElement('code');
+        codeEl.style.cssText = 'color: var(--text-primary); font-family: monospace;';
+        codeEl.textContent = code;
+        pre.appendChild(codeEl);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 10px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 3px; color: var(--text-secondary); cursor: pointer;';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(code).then(() => {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.color = 'var(--success, #10b981)';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.style.color = 'var(--text-secondary)';
+                }, 2000);
+            });
+        });
+
+        wrapper.appendChild(pre);
+        wrapper.appendChild(copyBtn);
+        return wrapper;
     },
 
     createApiCard(integration) {
@@ -1028,10 +1061,7 @@ def chat_with_protection(user_input):
         card.appendChild(header);
 
         // Code block
-        const codeBlock = document.createElement('pre');
-        codeBlock.style.cssText = 'background: var(--bg-tertiary); padding: 16px; margin: 0; font-size: 12px; overflow-x: auto;';
-        codeBlock.textContent = integration.apiCode;
-        card.appendChild(codeBlock);
+        card.appendChild(this.createCodeBlock(integration.apiCode));
 
         return card;
     }

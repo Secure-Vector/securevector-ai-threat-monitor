@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Threat Intel browser for searching and analyzing detected threats
   - SQLite persistence for threat records, custom rules, and settings
   - System tray integration for background operation
-  - 100% local operation - no cloud, no API key required
+  - 100% local by default - no API key required
 - **Unified Rule Architecture** - SDK automatically reads from database when desktop app is installed
   - LocalAnalyzer auto-detects app database and uses it when available
   - Falls back to YAML community rules when app is not installed

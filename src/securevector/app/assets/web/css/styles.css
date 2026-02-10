@@ -163,8 +163,16 @@ html, body {
 .sidebar-logo {
     font-size: 20px;
     font-weight: 700;
-    background: var(--gradient);
+    background: linear-gradient(to right, #22d3ee, #fca5a5, #06b6d4);
     -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+[data-theme="light"] .sidebar-logo {
+    background: linear-gradient(to right, #0891b2, #ef4444, #0891b2);
+    -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
@@ -201,17 +209,16 @@ html, body {
 
 .cloud-toggle-btn.gradient-btn {
     background: var(--gradient);
-    border-color: transparent;
+    border: none;
+    padding: 10px 16px;
     color: #ffffff;
+    font-weight: 600;
 }
 
 .cloud-toggle-btn.gradient-btn:hover {
     opacity: 0.9;
 }
 
-.cloud-toggle-btn.active {
-    box-shadow: 0 0 12px rgba(0, 188, 212, 0.4);
-}
 
 /* LLM Toggle in Header (Primary Feature) */
 .llm-toggle-wrapper {
@@ -837,7 +844,15 @@ html, body {
 
 .sidebar-nav {
     flex: 1;
+    min-height: 0;
     padding: 16px 12px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .nav-item {
@@ -1288,6 +1303,8 @@ html, body {
 /* Header */
 .header {
     height: var(--header-height);
+    min-height: var(--header-height);
+    flex-shrink: 0;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-default);
     display: flex;
@@ -1303,10 +1320,17 @@ html, body {
 .header-title {
     font-size: 18px;
     font-weight: 600;
-    background: var(--gradient);
+    background: linear-gradient(to right, #22d3ee, #fca5a5, #06b6d4);
     -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
     background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+[data-theme="light"] .header-title {
+    background: linear-gradient(to right, #0891b2, #ef4444, #0891b2);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .header-actions {
@@ -1337,9 +1361,16 @@ html, body {
 /* Page Content */
 .page-content {
     flex: 1;
+    min-height: 0;
     padding: 24px;
-    overflow-y: auto;
+    overflow: hidden auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     background: var(--bg-primary);
+}
+
+.page-content::-webkit-scrollbar {
+    display: none;
 }
 
 /* Loading Container */
@@ -2183,6 +2214,7 @@ html, body {
 .page-title {
     font-size: 24px;
     font-weight: 700;
+    color: var(--text-primary);
     margin-bottom: 24px;
 }
 
@@ -3386,7 +3418,7 @@ html, body {
 .data-table .indicator {
     font-family: 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
-    color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
 .type-badge {

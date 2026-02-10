@@ -66,7 +66,8 @@ def secure_chat_completion(user_prompt: str):
         return f"I can't process that request. Reason: {threat_check.threat_types[0]}"
 
     # Safe to process with LLM
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
+        model="gpt-4",
         messages=[{"role": "user", "content": user_prompt}]
     )
 
@@ -215,7 +216,6 @@ dashboard = client.get_organization_summary()
 print(f"Projects monitored: {dashboard['project_count']}")
 print(f"Threats blocked this month: {dashboard['threats_blocked']}")
 print(f"Highest risk project: {dashboard['riskiest_project']}")
-```
 
 # Usage in CI/CD pipeline
 def validate_developer_prompts_in_ci():
@@ -672,8 +672,8 @@ python -m securevector.mcp
 
 ### **For Combined Use Cases:**
 ```bash
-pip install securevector-ai-monitor[all]
-# Use SDK in your applications
+pip install securevector-ai-monitor[app]
+# Install the app with all features
 # Use MCP server for interactive analysis
 ```
 
@@ -1148,17 +1148,17 @@ Install the native n8n community node for easier integration:
 
 ```bash
 # In your n8n instance
-npm install @securevector/n8n-nodes-securevector
+npm install n8n-nodes-securevector
 ```
 
-Or install via n8n GUI: **Settings → Community Nodes → Install → `@securevector/n8n-nodes-securevector`**
+Or install via n8n GUI: **Settings → Community Nodes → Install → `n8n-nodes-securevector`**
 
 The node provides:
 - `SecureVector Analyze` - Scan text for threats
 - `SecureVector Batch` - Scan multiple texts
 - `SecureVector Guard` - Auto-block threats in workflow
 
-See [@securevector/n8n-nodes-securevector on npm](https://www.npmjs.com/package/@securevector/n8n-nodes-securevector) for documentation.
+See [n8n-nodes-securevector on npm](https://www.npmjs.com/package/n8n-nodes-securevector) for documentation.
 
 ---
 
@@ -1215,4 +1215,4 @@ async def chat(message: str):
 - **Enterprise security**: Consider **both**
 - **Still unsure**: Try **MCP Server** first (easier to experiment)
 
-For specific questions about your use case, check our [GitHub Discussions](https://github.com/secure-vector/ai-threat-monitor/discussions) or review the main [README.md](README.md) for detailed implementation guides.
+For specific questions about your use case, check our [GitHub Discussions](https://github.com/Secure-Vector/securevector-ai-threat-monitor/discussions) or review the main [README.md](README.md) for detailed implementation guides.

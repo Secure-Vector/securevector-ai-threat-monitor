@@ -7,6 +7,7 @@ const App = {
     currentPage: 'dashboard',
 
     pages: {
+        guide: GettingStartedPage,
         dashboard: DashboardPage,
         threats: ThreatsPage,
         rules: RulesPage,
@@ -178,17 +179,28 @@ const App = {
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
-        footer.style.cssText = 'border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; justify-content: flex-end;';
+        footer.style.cssText = 'border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; justify-content: flex-end; gap: 8px;';
 
-        const gotItBtn = document.createElement('button');
-        gotItBtn.className = 'btn btn-primary';
-        gotItBtn.textContent = 'Got it';
-        gotItBtn.addEventListener('click', () => {
+        const dismissModal = () => {
             localStorage.setItem('sv-welcome-seen', 'true');
             overlay.classList.remove('active');
             setTimeout(() => overlay.remove(), 150);
-        });
+        };
+
+        const gotItBtn = document.createElement('button');
+        gotItBtn.className = 'btn btn-secondary';
+        gotItBtn.textContent = 'Got it';
+        gotItBtn.addEventListener('click', dismissModal);
         footer.appendChild(gotItBtn);
+
+        const docsBtn = document.createElement('button');
+        docsBtn.className = 'btn btn-primary';
+        docsBtn.textContent = 'Get Started';
+        docsBtn.addEventListener('click', () => {
+            dismissModal();
+            if (window.Sidebar) Sidebar.navigate('guide');
+        });
+        footer.appendChild(docsBtn);
 
         modal.appendChild(footer);
         overlay.appendChild(modal);
@@ -244,6 +256,9 @@ const App = {
             console.error('Page content container not found');
             return;
         }
+
+        // Reset scroll position
+        container.scrollTop = 0;
 
         // Render page
         try {

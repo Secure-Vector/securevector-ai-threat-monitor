@@ -94,7 +94,7 @@ Add to your config file:
 
 ### Claude Code (CLI)
 
-**Configuration Location:** `.cursor/mcp.json` in project root or `~/.cursor/mcp.json` globally
+**Configuration Location:** `.claude/mcp.json` in project root or `~/.claude.json` globally
 
 ```json
 {
@@ -125,9 +125,9 @@ Add to your config file:
 
 ### Cursor IDE
 
-Use the same configuration as Claude Code above. The config file location may be:
+Use the same JSON configuration as Claude Code above. The config file location for Cursor is:
 - Settings → MCP Servers
-- Or `.cursor/mcp.json`
+- Or `.cursor/mcp.json` in project root
 
 ---
 
@@ -314,7 +314,7 @@ docker-compose build --no-cache
 3. View logs in `~/Library/Logs/Claude/` (macOS) or equivalent
 
 **Claude Code:**
-1. Ensure `.cursor/mcp.json` exists
+1. Ensure `.claude/mcp.json` exists (or check `~/.claude.json`)
 2. Restart Claude Code completely
 3. Check for syntax errors in JSON
 
@@ -378,7 +378,7 @@ services:
 
 **Key Files:**
 - Docker: `docker-compose.yml`, `Dockerfile.mcp`
-- Config: `.cursor/mcp.json`, `claude_desktop_config.json`
+- Config: `.claude/mcp.json` (Claude Code), `.cursor/mcp.json` (Cursor), `claude_desktop_config.json` (Claude Desktop)
 - Examples: `examples/mcp/.env.example`
 
 ---

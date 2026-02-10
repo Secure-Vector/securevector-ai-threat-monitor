@@ -7,6 +7,9 @@ const ProxyPage = {
     settings: null,
     proxyStatus: 'stopped', // 'stopped', 'starting', 'running', 'stopping'
     statusCheckInterval: null,
+    currentIntegration: null, // Which integration started the proxy
+    currentProvider: null,
+    pageIntegration: null, // Which integration page we're on (set by page routing)
 
     async render(container) {
         container.textContent = '';
@@ -36,9 +39,17 @@ const ProxyPage = {
             if (response.ok) {
                 const data = await response.json();
                 this.proxyStatus = data.running ? 'running' : 'stopped';
+                this.openclawMode = data.openclaw || false;
+                this.inProcessMode = data.in_process || false;
+                this.currentIntegration = data.integration || null;
+                this.currentProvider = data.provider || null;
             }
         } catch (e) {
             this.proxyStatus = 'stopped';
+            this.openclawMode = false;
+            this.inProcessMode = false;
+            this.currentIntegration = null;
+            this.currentProvider = null;
         }
     },
 
@@ -118,7 +129,10 @@ const ProxyPage = {
             <div style="margin-bottom: 4px;">✓ <strong>Captures ALL traffic</strong> - TUI, Telegram, API, MCP tools</div>
             <div style="margin-bottom: 4px;">✓ <strong>Scans BEFORE provider</strong> - Block threats before they reach the LLM</div>
             <div style="margin-bottom: 4px;">✓ <strong>Output scanning</strong> - Detect data leaks in LLM responses</div>
-            <div>✓ <strong>18+ providers</strong> - OpenAI, Anthropic, Ollama, Groq, and more</div>
+            <div style="margin-bottom: 4px;">✓ <strong>18+ providers</strong> - OpenAI, Anthropic, Ollama, Groq, and more</div>
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 11px;">
+                <strong>Latency:</strong> ~50ms (rule-based) · 2-3s with AI analysis (depends on LLM provider)
+            </div>
         `;
         whySection.appendChild(whyList);
 
@@ -344,13 +358,27 @@ const ProxyPage = {
 
         const revertTitle = document.createElement('div');
         revertTitle.style.cssText = 'font-weight: 600; font-size: 14px; color: var(--text-primary); margin-bottom: 10px;';
-        revertTitle.textContent = 'Uninstall / Revert Proxy';
+        revertTitle.textContent = 'Remove SecureVector Proxy';
         revertCard.appendChild(revertTitle);
 
         const revertDesc = document.createElement('div');
         revertDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px;';
-        revertDesc.textContent = 'To remove the proxy setup and restore OpenClaw to its original state:';
+        revertDesc.innerHTML = '<strong>Optional but recommended</strong> - removes SecureVector traces from pi-ai files.<br>A simple restart of <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">openclaw gateway</code> without OPENAI_BASE_URL will also work.';
         revertCard.appendChild(revertDesc);
+
+        // Revert button
+        const revertBtn = document.createElement('button');
+        revertBtn.className = 'btn btn-danger';
+        revertBtn.style.cssText = 'margin-bottom: 12px;';
+        revertBtn.textContent = 'Remove SecureVector Proxy';
+        revertBtn.addEventListener('click', () => this.revertProxy());
+        revertCard.appendChild(revertBtn);
+
+        // Or use CLI
+        const cliNote = document.createElement('div');
+        cliNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;';
+        cliNote.textContent = 'Or run from terminal:';
+        revertCard.appendChild(cliNote);
 
         const revertCode = document.createElement('code');
         revertCode.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 12px;';
@@ -358,14 +386,92 @@ const ProxyPage = {
         revertCard.appendChild(revertCode);
 
         const revertDetails = document.createElement('div');
-        revertDetails.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.7;';
-        revertDetails.innerHTML = `
-            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">What this does:</div>
-            <div style="margin-bottom: 2px;">1. <strong>Restores all pi-ai provider files</strong> from backups (openai, anthropic, gemini)</div>
-            <div style="margin-bottom: 6px;">2. <strong>Does not remove</strong> API keys, environment variables, or other settings</div>
-            <div style="font-style: italic; color: var(--text-secondary);">After reverting, OpenClaw will talk directly to providers without going through SecureVector.</div>
-        `;
+        revertDetails.style.cssText = 'font-size: 11px; color: var(--text-secondary); line-height: 1.6;';
+        revertDetails.innerHTML = 'After removing, restart OpenClaw: <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">openclaw gateway</code>';
         revertCard.appendChild(revertDetails);
+    },
+
+    async revertProxy() {
+        if (!confirm('Remove SecureVector Proxy?\n\nThis will restore OpenClaw to its original state.\nAPI keys and environment variables will not be modified.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/proxy/revert', { method: 'POST' });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                Toast.success('SecureVector proxy removed successfully');
+                this.showRestartInstructions();
+            } else {
+                Toast.error(data.message || 'Failed to remove proxy');
+            }
+        } catch (e) {
+            Toast.error('Failed to remove proxy: ' + e.message);
+        }
+    },
+
+    showRestartInstructions() {
+        // Show modal with restart instructions
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center;';
+
+        const modal = document.createElement('div');
+        modal.style.cssText = 'background: var(--bg-card); border-radius: 12px; padding: 24px; max-width: 480px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);';
+
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 16px; color: var(--success); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;';
+        title.innerHTML = '✓ SecureVector Proxy Removed';
+        modal.appendChild(title);
+
+        const desc = document.createElement('div');
+        desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6;';
+        desc.textContent = 'To use OpenClaw without SecureVector, simply restart without the OPENAI_BASE_URL:';
+        modal.appendChild(desc);
+
+        // Step 1
+        const step1 = document.createElement('div');
+        step1.style.cssText = 'margin-bottom: 12px;';
+        const step1Label = document.createElement('div');
+        step1Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 4px;';
+        step1Label.textContent = 'Step 1: Stop OpenClaw (if running)';
+        step1.appendChild(step1Label);
+        const step1Code = document.createElement('code');
+        step1Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace;';
+        step1Code.textContent = 'Ctrl+C in the OpenClaw terminal';
+        step1.appendChild(step1Code);
+        modal.appendChild(step1);
+
+        // Step 2
+        const step2 = document.createElement('div');
+        step2.style.cssText = 'margin-bottom: 16px;';
+        const step2Label = document.createElement('div');
+        step2Label.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--accent-primary); margin-bottom: 4px;';
+        step2Label.textContent = 'Step 2: Restart OpenClaw without proxy';
+        step2.appendChild(step2Label);
+        const step2Code = document.createElement('code');
+        step2Code.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace;';
+        step2Code.textContent = 'openclaw gateway';
+        step2.appendChild(step2Code);
+        modal.appendChild(step2);
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 11px; color: var(--text-secondary); padding: 10px; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 16px; line-height: 1.5;';
+        note.innerHTML = 'Without OPENAI_BASE_URL set, OpenClaw connects directly to your LLM provider.<br><br><strong>Optional:</strong> Run <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">securevector-app --revert-proxy</code> to fully remove SecureVector traces from pi-ai files.';
+        modal.appendChild(note);
+
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'width: 100%; padding: 10px; border-radius: 6px; background: var(--accent-primary); color: white; font-weight: 600; font-size: 13px; border: none; cursor: pointer;';
+        closeBtn.textContent = 'Got it';
+        closeBtn.addEventListener('click', () => overlay.remove());
+        modal.appendChild(closeBtn);
+
+        overlay.appendChild(modal);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+        document.body.appendChild(overlay);
     },
 
     updateStatusText(element) {
@@ -414,23 +520,52 @@ const ProxyPage = {
         btn.textContent = '';
 
         if (this.proxyStatus === 'running') {
-            btn.style.background = 'var(--danger)';
-            btn.style.color = 'white';
-            btn.style.border = 'none';
-            btn.textContent = '⏹ Stop Proxy';
-            btn.disabled = false;
+            // If running in-process with openclaw, show different state
+            if (this.inProcessMode && this.openclawMode) {
+                btn.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+                btn.style.color = 'white';
+                btn.style.border = 'none';
+                btn.textContent = '🦎 OpenClaw Proxy ON';
+                btn.disabled = true;
+                btn.title = 'Stop the app with Ctrl+C to stop this proxy';
+            } else if (this.inProcessMode) {
+                btn.style.background = 'var(--bg-tertiary)';
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.border = '1px solid var(--border-default)';
+                btn.textContent = '🟢 Running (CLI)';
+                btn.disabled = true;
+                btn.title = 'Stop the app with Ctrl+C to stop this proxy';
+            } else {
+                btn.style.background = 'var(--danger)';
+                btn.style.color = 'white';
+                btn.style.border = 'none';
+                btn.textContent = '⏹ Stop Proxy';
+                btn.disabled = false;
+                btn.title = '';
+            }
         } else if (this.proxyStatus === 'stopped') {
             btn.style.background = 'var(--success)';
             btn.style.color = 'white';
             btn.style.border = 'none';
             btn.textContent = '▶ Start Proxy';
             btn.disabled = false;
+            btn.title = '';
+        } else if (this.proxyStatus === 'running' && this.currentIntegration && this.currentIntegration !== this.pageIntegration) {
+            // Another integration is using the proxy
+            const integrationName = this.currentIntegration.charAt(0).toUpperCase() + this.currentIntegration.slice(1);
+            btn.style.background = 'var(--bg-tertiary)';
+            btn.style.color = 'var(--text-secondary)';
+            btn.style.border = '1px solid var(--border-default)';
+            btn.textContent = `🔒 ${integrationName} Proxy Active`;
+            btn.disabled = true;
+            btn.title = `Stop the ${integrationName} proxy first to use this integration`;
         } else {
             btn.style.background = 'var(--bg-tertiary)';
             btn.style.color = 'var(--text-secondary)';
             btn.style.border = '1px solid var(--border-default)';
             btn.textContent = '⏳ ' + (this.proxyStatus === 'starting' ? 'Starting...' : 'Stopping...');
             btn.disabled = true;
+            btn.title = '';
         }
     },
 
@@ -444,11 +579,17 @@ const ProxyPage = {
             this.proxyStatus = 'stopping';
             this.updateProxyStatusUI();
             try {
+                const wasOpenclawMode = this.openclawMode;
                 const response = await fetch('/api/proxy/stop', { method: 'POST' });
                 const data = await response.json();
                 if (response.ok && data.status === 'stopped') {
                     this.proxyStatus = 'stopped';
+                    this.openclawMode = false;
                     Toast.success('Proxy stopped');
+                    // Show restart instructions if was running with OpenClaw
+                    if (wasOpenclawMode || data.reverted) {
+                        this.showRestartInstructions();
+                    }
                 } else if (data.status === 'error') {
                     // Proxy running in-process or externally - can't stop from UI
                     Toast.error(data.message || 'Cannot stop proxy from UI');
@@ -465,14 +606,16 @@ const ProxyPage = {
             this.updateProxyStatusUI();
             try {
                 const provider = document.getElementById('proxy-provider-select')?.value || 'openai';
+                const integration = this.pageIntegration || null;
                 const response = await fetch('/api/proxy/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider }),
+                    body: JSON.stringify({ provider, integration }),
                 });
                 if (response.ok) {
                     const data = await response.json();
                     this.proxyStatus = 'running';
+                    this.currentIntegration = data.integration;
                     Toast.success(`Proxy started (${provider}) on port 8742`);
                 } else {
                     throw new Error('Failed to start proxy');
@@ -498,7 +641,7 @@ const ProxyPage = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'color: var(--text-secondary); font-size: 11px;';
-        desc.textContent = 'Block threats (input only)';
+        desc.textContent = 'Block threats on input and output';
         info.appendChild(desc);
 
         row.appendChild(info);
@@ -513,7 +656,7 @@ const ProxyPage = {
         checkbox.addEventListener('change', async (e) => {
             const newState = e.target.checked;
             const message = newState
-                ? 'Enable Block Mode?\n\nINPUT threats will be BLOCKED (not sent to LLM).\nOUTPUT secrets are redacted when stored.\n\nAll threats are logged.'
+                ? 'Enable Block Mode?\n\nINPUT: Threats will be BLOCKED before reaching the LLM.\nOUTPUT: Threats will be BLOCKED before reaching the client.\n\nAll threats are logged.'
                 : 'Disable Block Mode?\n\nAll threats will be logged only.\nNo blocking will occur.';
 
             if (!confirm(message)) {

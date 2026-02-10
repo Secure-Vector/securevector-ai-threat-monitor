@@ -6,6 +6,7 @@
 const Header = {
     serverStatus: 'checking',
     dropdownOpen: false,
+    cloudModeEnabled: false,
 
     // Agent integration instructions
     agents: [
@@ -42,9 +43,17 @@ const Header = {
         left.className = 'header-left';
         container.appendChild(left);
 
-        // Right side - AI Analysis, agent dropdown, cloud mode (rightmost)
+        // Right side - Help, AI Analysis, agent dropdown, cloud mode (rightmost)
         const right = document.createElement('div');
         right.className = 'header-right';
+
+        // Theme toggle button (sun/moon)
+        const themeBtn = this.createThemeToggle();
+        right.appendChild(themeBtn);
+
+        // Help button (question mark)
+        const helpBtn = this.createHelpButton();
+        right.appendChild(helpBtn);
 
         // AI Analysis button (opens modal)
         const llmToggle = this.createLLMToggle();
@@ -92,6 +101,142 @@ const Header = {
         }
     },
 
+    createThemeToggle() {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const btn = document.createElement('button');
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 8px; padding: 0;';
+        btn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+        btn.setAttribute('aria-label', 'Toggle theme');
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.style.cssText = 'width: 14px; height: 14px;';
+
+        if (isDark) {
+            // Sun icon
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', '12');
+            circle.setAttribute('cy', '12');
+            circle.setAttribute('r', '5');
+            svg.appendChild(circle);
+            ['M12 1v2', 'M12 21v2', 'M4.22 4.22l1.42 1.42', 'M18.36 18.36l1.42 1.42', 'M1 12h2', 'M21 12h2', 'M4.22 19.78l1.42-1.42', 'M18.36 5.64l1.42-1.42'].forEach(d => {
+                const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                p.setAttribute('d', d);
+                svg.appendChild(p);
+            });
+        } else {
+            // Moon icon
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z');
+            svg.appendChild(path);
+        }
+
+        btn.appendChild(svg);
+
+        btn.addEventListener('mouseenter', () => {
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.color = 'var(--accent-primary)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.borderColor = 'var(--text-secondary)';
+            btn.style.color = 'var(--text-secondary)';
+        });
+
+        btn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.toggleTheme();
+        });
+
+        return btn;
+    },
+
+    createHelpButton() {
+        const btn = document.createElement('button');
+        btn.className = 'help-btn';
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 50%; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 12px;';
+        btn.textContent = '?';
+        btn.title = 'How to use SecureVector';
+
+        btn.addEventListener('mouseenter', () => {
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.color = 'var(--accent-primary)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.borderColor = 'var(--text-secondary)';
+            btn.style.color = 'var(--text-secondary)';
+        });
+
+        btn.addEventListener('click', () => this.showHelpModal());
+        return btn;
+    },
+
+    showHelpModal() {
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 8px 0;';
+
+        const steps = [
+            { num: '1', title: 'Go to Integrations/Proxy Page', desc: 'Click "Integrations" in the sidebar' },
+            { num: '2', title: 'Select Provider', desc: 'Choose the LLM provider your agent uses (OpenAI, Anthropic, Ollama, etc.)' },
+            { num: '3', title: 'Start Proxy', desc: 'Click Start Proxy - AI Firewall is now active!' },
+        ];
+
+        const stepsList = document.createElement('div');
+        stepsList.className = 'cloud-steps';
+
+        steps.forEach(step => {
+            const stepEl = document.createElement('div');
+            stepEl.className = 'cloud-step';
+
+            const numEl = document.createElement('span');
+            numEl.className = 'step-number';
+            numEl.textContent = step.num;
+            stepEl.appendChild(numEl);
+
+            const textEl = document.createElement('div');
+            textEl.className = 'step-text';
+
+            const titleEl = document.createElement('strong');
+            titleEl.textContent = step.title;
+            textEl.appendChild(titleEl);
+
+            const descEl = document.createElement('p');
+            descEl.textContent = step.desc;
+            textEl.appendChild(descEl);
+
+            stepEl.appendChild(textEl);
+            stepsList.appendChild(stepEl);
+        });
+
+        content.appendChild(stepsList);
+
+        // Note about what happens
+        const note = document.createElement('div');
+        note.style.cssText = 'margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 13px; color: var(--text-secondary);';
+        note.textContent = 'All LLM traffic will be scanned for prompt injection, data leaks, and security threats before reaching the provider.';
+        content.appendChild(note);
+
+        // Link to Docs
+        const docsLink = document.createElement('div');
+        docsLink.style.cssText = 'margin-top: 12px; text-align: center;';
+        const docsBtn = document.createElement('a');
+        docsBtn.style.cssText = 'color: var(--accent-primary); cursor: pointer; font-size: 13px; font-weight: 500;';
+        docsBtn.textContent = 'View Guide \u2192';
+        docsBtn.addEventListener('click', () => {
+            Modal.close();
+            if (window.Sidebar) Sidebar.navigate('guide');
+        });
+        docsLink.appendChild(docsBtn);
+        content.appendChild(docsLink);
+
+        Modal.show({
+            title: 'How to Use SecureVector',
+            content: content,
+            size: 'small',
+        });
+    },
+
     createBlockModeToggle() {
         const wrapper = document.createElement('div');
         wrapper.className = 'block-mode-toggle-wrapper';
@@ -100,7 +245,7 @@ const Header = {
         const btn = document.createElement('button');
         btn.className = 'block-mode-toggle-btn';
         btn.id = 'block-mode-toggle-btn';
-        btn.title = 'Block Mode (INPUT only) - Block threats before reaching LLM. Output secrets are redacted when stored.';
+        btn.title = 'Block Mode - Block threats on both input (before LLM) and output (before client).';
 
         // Block/Stop icon
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -171,7 +316,7 @@ const Header = {
 
             // Show confirmation
             const message = newState
-                ? 'Enable Block Mode?\n\nINPUT: Threats will be BLOCKED before reaching the LLM.\nOUTPUT: Secrets are REDACTED when stored.\n\nAll threats are logged.'
+                ? 'Enable Block Mode?\n\nINPUT: Threats will be BLOCKED before reaching the LLM.\nOUTPUT: Threats will be BLOCKED before reaching the client.\n\nAll threats are logged.'
                 : 'Disable Block Mode?\n\nAll threats will be logged only.\nNo blocking will occur.';
 
             if (!confirm(message)) {
@@ -311,7 +456,13 @@ const Header = {
         text.id = 'llm-toggle-text';
         btn.appendChild(text);
 
-        btn.addEventListener('click', () => this.showLLMConfigModal());
+        btn.addEventListener('click', () => {
+            if (this.cloudModeEnabled) {
+                Toast.info('AI Analysis disabled - Cloud ML analysis is active');
+                return;
+            }
+            this.showLLMConfigModal();
+        });
 
         wrapper.appendChild(btn);
         return wrapper;
@@ -358,6 +509,14 @@ const Header = {
         enableCheckbox.type = 'checkbox';
         enableCheckbox.id = 'llm-enabled-checkbox';
         enableCheckbox.checked = settings.enabled;
+        enableCheckbox.addEventListener('change', (e) => {
+            const saveBtn = document.getElementById('llm-save-btn');
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('disabled');
+            }
+            Toast.info(e.target.checked ? 'AI Analysis enabled - click Save to apply' : 'AI Analysis disabled - click Save to apply');
+        });
         enableToggle.appendChild(enableCheckbox);
 
         const enableSlider = document.createElement('span');
@@ -527,7 +686,15 @@ const Header = {
         content.appendChild(configSection);
 
         // Show/hide fields based on current provider (don't update values on initial load)
-        setTimeout(() => this.updateLLMConfigFields(settings.provider, false), 0);
+        // Populate model dropdown for initial provider (use true to populate)
+        setTimeout(() => {
+            this.updateLLMConfigFields(settings.provider, true);
+            // Set the currently saved model as selected
+            const modelSelect = document.getElementById('llm-config-model-select');
+            if (modelSelect && settings.model) {
+                modelSelect.value = settings.model;
+            }
+        }, 0);
 
         // Actions
         const actions = document.createElement('div');
@@ -596,8 +763,10 @@ const Header = {
         });
         actions.appendChild(saveBtn);
 
-        // If already configured and enabled, enable save button
-        if (settings.enabled && settings.api_key_configured) {
+        // Enable save button if configured (Ollama doesn't need API key)
+        const isOllama = settings.provider === 'ollama';
+        const isConfigured = isOllama || settings.api_key_configured;
+        if (isConfigured) {
             saveBtn.disabled = false;
             saveBtn.classList.remove('disabled');
             testStatus.textContent = '✓ Configured';
@@ -807,20 +976,98 @@ const Header = {
     async checkCloudMode() {
         try {
             const settings = await API.getCloudSettings();
+            this.cloudModeEnabled = settings.cloud_mode_enabled && settings.credentials_configured;
             this.updateCloudToggle(settings.cloud_mode_enabled, settings.credentials_configured);
+            this.updateLLMButtonState();
         } catch (e) {
+            this.cloudModeEnabled = false;
             this.updateCloudToggle(false, false);
+        }
+    },
+
+    updateLLMButtonState() {
+        const btn = document.getElementById('llm-toggle-btn');
+        const text = document.getElementById('llm-toggle-text');
+        if (!btn) return;
+
+        if (this.cloudModeEnabled) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+            btn.classList.remove('flashing-border');
+            btn.className = 'llm-toggle-btn disabled';
+            if (text) text.textContent = 'AI Analysis (Cloud Active)';
+            btn.title = 'Disabled - Cloud ML analysis is active';
+        } else {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.title = '';
         }
     },
 
     updateCloudToggle(enabled, configured) {
         const btn = document.getElementById('cloud-toggle-btn');
         const text = document.getElementById('cloud-toggle-text');
+        const wrapper = document.getElementById('cloud-toggle-wrapper');
         if (!btn) return;
+
+        // Remove existing indicator and tooltip if any
+        const existingIndicator = document.getElementById('cloud-mode-indicator');
+        if (existingIndicator) existingIndicator.remove();
+        const existingTooltip = document.getElementById('cloud-mode-tooltip');
+        if (existingTooltip) existingTooltip.remove();
 
         if (enabled) {
             btn.className = 'cloud-toggle-btn gradient-btn active';
             if (text) text.textContent = 'Connected';
+
+            if (wrapper) {
+                wrapper.style.position = 'relative';
+
+                // Add "ON" badge
+                const indicator = document.createElement('div');
+                indicator.id = 'cloud-mode-indicator';
+                indicator.style.cssText = 'position: absolute; top: -8px; right: -8px; background: linear-gradient(135deg, #10b981, #059669); color: white; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);';
+                indicator.textContent = 'ON';
+                wrapper.appendChild(indicator);
+
+                // Add hover tooltip
+                const tooltip = document.createElement('div');
+                tooltip.id = 'cloud-mode-tooltip';
+                tooltip.style.cssText = 'position: absolute; top: 100%; right: 0; margin-top: 8px; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 10px 14px; border-radius: 8px; font-size: 12px; white-space: nowrap; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2);';
+
+                const titleLine = document.createElement('div');
+                titleLine.style.cssText = 'font-weight: 600; margin-bottom: 4px;';
+                titleLine.textContent = 'CLOUD MODE ON';
+                tooltip.appendChild(titleLine);
+
+                const routeLine = document.createElement('div');
+                routeLine.style.cssText = 'font-size: 11px; opacity: 0.9;';
+                routeLine.textContent = 'Scans routed to scan.securevector.io';
+                tooltip.appendChild(routeLine);
+
+                const linkLine = document.createElement('div');
+                linkLine.style.cssText = 'font-size: 11px; margin-top: 4px;';
+                const link = document.createElement('a');
+                link.href = 'https://app.securevector.io';
+                link.target = '_blank';
+                link.style.cssText = 'color: white; text-decoration: underline;';
+                link.textContent = 'View threat analysis dashboard →';
+                linkLine.appendChild(link);
+                tooltip.appendChild(linkLine);
+
+                wrapper.appendChild(tooltip);
+
+                wrapper.addEventListener('mouseenter', () => {
+                    tooltip.style.opacity = '1';
+                    tooltip.style.visibility = 'visible';
+                });
+                wrapper.addEventListener('mouseleave', () => {
+                    tooltip.style.opacity = '0';
+                    tooltip.style.visibility = 'hidden';
+                });
+            }
         } else {
             btn.className = 'cloud-toggle-btn gradient-btn';
             if (text) text.textContent = 'Cloud Connect';
@@ -866,9 +1113,9 @@ const Header = {
 
         const steps = [
             { num: '1', title: 'Create Account', desc: 'Sign up at app.securevector.io (free tier available)' },
-            { num: '2', title: 'Get API Key', desc: 'Go to Settings > API Keys and create a new key' },
-            { num: '3', title: 'Configure Desktop', desc: 'Add your API key to the desktop app settings' },
-            { num: '4', title: 'Enable Cloud Mode', desc: 'Click Cloud Connect again to activate' },
+            { num: '2', title: 'Get API Key', desc: 'Go to Access Management -> Create a new key' },
+            { num: '3', title: 'Add API Key', desc: 'Go to Settings and add your API key' },
+            { num: '4', title: 'Connect', desc: 'Click Cloud Connect to enable cloud analysis' },
         ];
 
         const stepsList = document.createElement('div');
@@ -1254,7 +1501,7 @@ const Header = {
                     { num: '2', title: 'Start Proxy', desc: 'Go to OpenClaw Proxy page in sidebar and click Start Proxy, or run from terminal:', code: '# Option 1: Use the Proxy page in sidebar\n# Option 2: Run from terminal:\npython -m securevector.integrations.openclaw_proxy' },
                     { num: '3', title: 'Connect Client', desc: 'Use OpenClaw TUI normally - it connects through proxy automatically', code: 'openclaw tui' },
                 ],
-                note: 'Manage proxy from the OpenClaw Proxy page in sidebar. Configure Block Mode (input only) and Output Scanning for leak detection.',
+                note: 'Manage proxy from the OpenClaw Proxy page in sidebar. Configure Block Mode and Output Scanning for threat detection.',
             },
             'langchain': {
                 name: 'LangChain',
@@ -1333,6 +1580,7 @@ graph.add_edge("output_security", END)`,
 
     getPageTitle() {
         const titles = {
+            'guide': 'Guide',
             dashboard: 'Dashboard',
             threats: 'Threat Analytics',
             rules: 'Rules',

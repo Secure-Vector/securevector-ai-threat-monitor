@@ -9,6 +9,8 @@ const ThreatsPage = {
     autoRefreshInterval: null,
     autoRefreshEnabled: false,
     selectedIds: new Set(),
+    sortColumn: 'first_seen',
+    sortDirection: 'desc',
     filters: {
         page: 1,
         page_size: 20,
@@ -19,6 +21,22 @@ const ThreatsPage = {
     async render(container) {
         container.textContent = '';
         this.selectedIds.clear();
+
+        // Page header
+        const header = document.createElement('div');
+        header.className = 'dashboard-header';
+
+        const title = document.createElement('h1');
+        title.className = 'dashboard-title';
+        title.textContent = 'Threat Analytics';
+        header.appendChild(title);
+
+        const subtitle = document.createElement('p');
+        subtitle.className = 'dashboard-subtitle';
+        subtitle.textContent = 'Monitor and analyze detected threats across your AI agents.';
+        header.appendChild(subtitle);
+
+        container.appendChild(header);
 
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
@@ -131,7 +149,6 @@ const ThreatsPage = {
         deleteBtn.textContent = 'Delete Selected (0)';
         const self = this;
         deleteBtn.onclick = function() {
-            console.log('Delete button clicked, selected:', self.selectedIds.size);
             self.confirmDeleteSelected();
         };
         bar.appendChild(deleteBtn);
@@ -371,16 +388,29 @@ const ThreatsPage = {
         recordsStat.innerHTML = '<span style="color:var(--text-secondary)">Records:</span> <strong>' + (this.data.total || threats.length) + '</strong>';
         statsBar.appendChild(recordsStat);
 
-        // Total LLM reviewed
+        // Total AI Analysis reviewed
         const llmReviewed = threats.filter(t => t.llm_reviewed).length;
         const llmStat = document.createElement('div');
-        llmStat.innerHTML = '<span style="color:var(--text-secondary)">LLM Reviewed:</span> <strong>' + llmReviewed + '</strong>';
+        const llmLabel = document.createElement('span');
+        llmLabel.style.color = 'var(--text-secondary)';
+        llmLabel.textContent = 'AI Analysis Reviewed:';
+        llmStat.appendChild(llmLabel);
+        const llmVal = document.createElement('strong');
+        llmVal.textContent = ' ' + llmReviewed;
+        llmStat.appendChild(llmVal);
         statsBar.appendChild(llmStat);
 
-        // Total tokens used
+        // Total AI Analysis tokens used
         const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
         const tokensStat = document.createElement('div');
-        tokensStat.innerHTML = '<span style="color:var(--text-secondary)">Total Tokens:</span> <strong style="color:var(--accent-primary)">' + totalTokens.toLocaleString() + '</strong>';
+        const tokLabel = document.createElement('span');
+        tokLabel.style.color = 'var(--text-secondary)';
+        tokLabel.textContent = 'AI Analysis Tokens:';
+        tokensStat.appendChild(tokLabel);
+        const tokVal = document.createElement('strong');
+        tokVal.style.color = 'var(--accent-primary)';
+        tokVal.textContent = ' ' + totalTokens.toLocaleString();
+        tokensStat.appendChild(tokVal);
         statsBar.appendChild(tokensStat);
 
         // High risk count
@@ -414,10 +444,44 @@ const ThreatsPage = {
         checkboxTh.appendChild(selectAllCb);
         headerRow.appendChild(checkboxTh);
 
-        const headers = ['Indicator', 'Type', 'Risk Score', 'Client', 'First Seen', 'Actions'];
-        headers.forEach(text => {
+        const headers = [
+            { label: 'Content', key: 'indicator', sortable: true },
+            { label: 'Type', key: 'threat_type', sortable: true },
+            { label: 'Risk Score', key: 'risk_score', sortable: true },
+            { label: 'Client', key: 'user_agent', sortable: true },
+            { label: 'Time', key: 'first_seen', sortable: true },
+            { label: 'Actions', key: null, sortable: false },
+        ];
+        headers.forEach(col => {
             const th = document.createElement('th');
-            th.textContent = text;
+            if (col.sortable) {
+                th.style.cursor = 'pointer';
+                th.style.userSelect = 'none';
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = col.label;
+                th.appendChild(labelSpan);
+                const arrow = document.createElement('span');
+                arrow.style.cssText = 'margin-left: 4px; font-size: 10px; opacity: 0.4;';
+                if (this.sortColumn === col.key) {
+                    arrow.textContent = this.sortDirection === 'asc' ? '\u25B2' : '\u25BC';
+                    arrow.style.opacity = '1';
+                    arrow.style.color = 'var(--accent-primary)';
+                } else {
+                    arrow.textContent = '\u25B4';
+                }
+                th.appendChild(arrow);
+                th.addEventListener('click', () => {
+                    if (this.sortColumn === col.key) {
+                        this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        this.sortColumn = col.key;
+                        this.sortDirection = col.key === 'risk_score' ? 'desc' : 'asc';
+                    }
+                    this.renderContent(document.getElementById('threats-content'));
+                });
+            } else {
+                th.textContent = col.label;
+            }
             headerRow.appendChild(th);
         });
 
@@ -427,7 +491,32 @@ const ThreatsPage = {
         // Body
         const tbody = document.createElement('tbody');
 
-        threats.forEach(threat => {
+        // Sort threats
+        const sortedThreats = [...threats].sort((a, b) => {
+            const dir = this.sortDirection === 'asc' ? 1 : -1;
+            const col = this.sortColumn;
+            let valA, valB;
+            if (col === 'indicator') {
+                valA = (a.indicator || a.name || a.text_preview || a.text || '').toLowerCase();
+                valB = (b.indicator || b.name || b.text_preview || b.text || '').toLowerCase();
+            } else if (col === 'risk_score') {
+                valA = a.risk_score || 0;
+                valB = b.risk_score || 0;
+                return (valA - valB) * dir;
+            } else if (col === 'first_seen') {
+                valA = new Date(a.first_seen || a.created_at || 0).getTime();
+                valB = new Date(b.first_seen || b.created_at || 0).getTime();
+                return (valA - valB) * dir;
+            } else {
+                valA = (a[col] || '').toString().toLowerCase();
+                valB = (b[col] || '').toString().toLowerCase();
+            }
+            if (valA < valB) return -1 * dir;
+            if (valA > valB) return 1 * dir;
+            return 0;
+        });
+
+        sortedThreats.forEach(threat => {
             const row = document.createElement('tr');
             row.className = 'clickable-row';
             row.style.cursor = 'pointer';
@@ -452,7 +541,7 @@ const ThreatsPage = {
             checkboxCell.appendChild(checkbox);
             row.appendChild(checkboxCell);
 
-            // Indicator (use text content if available)
+            // Content (use text content if available)
             const indicatorCell = document.createElement('td');
             indicatorCell.className = 'indicator-cell';
             const indicator = document.createElement('code');
@@ -517,7 +606,7 @@ const ThreatsPage = {
             }
             row.appendChild(clientCell);
 
-            // First Seen
+            // Time
             const dateCell = document.createElement('td');
             dateCell.textContent = this.formatDate(threat.first_seen || threat.created_at);
             row.appendChild(dateCell);
@@ -965,14 +1054,17 @@ const ThreatsPage = {
 
         const text = document.createElement('p');
         text.className = 'empty-state-text';
-        text.textContent = 'No threats have been detected yet. Use the Test Analyze feature in Settings to analyze content.';
+        text.textContent = 'No threats have been detected yet. Start the proxy from Integrations and route traffic through SecureVector to begin detecting threats.';
         empty.appendChild(text);
 
         const btn = document.createElement('button');
         btn.className = 'btn btn-primary';
-        btn.textContent = 'Go to Settings';
+        btn.textContent = 'Get Started';
         btn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('settings');
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-getting-started';
+                Sidebar.navigate('guide');
+            }
         });
         empty.appendChild(btn);
 

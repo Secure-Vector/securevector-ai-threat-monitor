@@ -112,7 +112,8 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 analysis_source="disabled",
             )
 
-        if settings.cloud_mode_enabled:
+        skip_cloud = (request.metadata or {}).get("skip_cloud", False)
+        if settings.cloud_mode_enabled and not skip_cloud:
             # Try cloud analysis
             try:
                 from securevector.app.services.cloud_proxy import (
@@ -130,6 +131,10 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 processing_time_ms = int(
                     (time.perf_counter() - start_time) * 1000
                 )
+
+                # Determine action_taken from metadata (sent by LLM proxy)
+                default_action = "blocked" if settings.block_threats else "logged"
+                action_taken = (request.metadata or {}).get("action_taken", default_action)
 
                 # Only store in database if threat detected
                 record = None
@@ -150,6 +155,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                         session_id=request.session_id,
                         metadata=request.metadata,
                         user_agent=user_agent,
+                        action_taken=action_taken,
                     )
 
                 return AnalysisResult(
@@ -162,6 +168,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     processing_time_ms=processing_time_ms,
                     request_id=request.request_id,
                     analysis_source="cloud",
+                    action_taken=action_taken,
                 )
 
             except Exception as e:
@@ -298,7 +305,8 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
         # Determine action_taken from metadata (always, for response)
         # Priority: blocked > redacted > logged
-        action_taken = (request.metadata or {}).get("action_taken", "logged")
+        default_action = "blocked" if settings.block_threats else "logged"
+        action_taken = (request.metadata or {}).get("action_taken", default_action)
         if redaction_count > 0 and action_taken == "logged":
             action_taken = "redacted"
 
