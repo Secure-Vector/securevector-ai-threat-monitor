@@ -2,68 +2,68 @@
 
 ## Quick Installation
 
-```bash
-# Basic installation
-pip install securevector-ai-monitor
+### Option 1: pip
 
-# With MCP server support
-pip install securevector-ai-monitor[mcp]
-
-# With all optional features
-pip install securevector-ai-monitor[all]
-```
-
-## Installation Options
-
-### Available Extras
-
-| Extra | Description | Includes |
-|-------|-------------|----------|
-| `[mcp]` | MCP server support for Claude Desktop | `mcp`, `fastmcp` |
-| `[all]` | All optional features | MCP support + utilities |
-
-### Examples
+**Requires:** Python 3.9+ (MCP requires 3.10+)
 
 ```bash
-# For SDK use only (Python integration)
-pip install securevector-ai-monitor
-
-# For Claude Desktop MCP server
-pip install securevector-ai-monitor[mcp]
-
-# Install everything
-pip install securevector-ai-monitor[all]
+pip install securevector-ai-monitor[app]
+securevector-app --web
 ```
+
+### Option 2: Binary installers
+
+No Python required. Download and run.
+
+| Platform | Download |
+|----------|----------|
+| Windows | [SecureVector-v2.1.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-v2.1.0-Windows-Setup.exe) |
+| macOS | [SecureVector-2.1.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-2.1.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-2.1.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-2.1.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_2.1.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/securevector_2.1.0_amd64.deb) |
+| Linux (RPM) | [securevector-2.1.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/securevector-2.1.0-1.x86_64.rpm) |
+
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SHA256SUMS.txt)
+
+> **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation.
+
+---
+
+## Other install options
+
+| Install | Use Case | Size |
+|---------|----------|------|
+| `pip install securevector-ai-monitor[app]` | **Local app** — dashboard, LLM proxy, self-hosted | ~60MB |
+| `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration | ~18MB |
+| `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
+
+---
 
 ## Verifying Installation
 
-After installation, verify it works:
+### Local app
+
+After installing with `[app]`, launch the dashboard:
+
+```bash
+securevector-app --web
+```
+
+The app opens at `http://localhost:8741` with the dashboard, integrations, and threat analytics.
+
+### SDK only
 
 ```python
 from securevector import SecureVectorClient
 
-# Create a client
 client = SecureVectorClient()
-
-# Analyze a prompt
 result = client.analyze("Hello, how are you?")
 
 print(f"Is threat: {result.is_threat}")
 print(f"Risk score: {result.risk_score}")
 ```
 
-### Verify MCP Installation
-
-If you installed with `[mcp]` extra:
-
-```python
-from securevector import MCP_AVAILABLE, check_mcp_dependencies
-
-print(f"MCP available: {MCP_AVAILABLE}")
-print(f"Dependencies check: {check_mcp_dependencies()}")
-```
-
-Or test the MCP server directly:
+### MCP server
 
 ```bash
 python -m securevector.mcp --health-check
@@ -71,39 +71,46 @@ python -m securevector.mcp --health-check
 
 Expected output:
 ```
-✅ Overall Status: HEALTHY
-   • Analyzer: HEALTHY
-   • Performance: OK
-   • Rules: 15 files loaded with 518 patterns
+Overall Status: HEALTHY
+   Analyzer: HEALTHY
+   Performance: OK
+   Rules: 15 files loaded with 518 patterns
 ```
+
+---
 
 ## System Requirements
 
 - **Python:**
-  - Basic SDK: 3.9 or higher
-  - **MCP Server: 3.10 or higher** (required for `[mcp]` and `[all]` extras)
+  - SDK and Local app: 3.9 or higher
+  - **MCP Server: 3.10 or higher** (required for `[mcp]` extra)
   - Tested on: 3.9, 3.10, 3.11, 3.12
 - **OS:** Linux, macOS, Windows
 - **Memory:** Minimum 512MB RAM (1GB+ recommended for MCP server)
 
-**⚠️ Important:** If you want to use the MCP server features, you must have Python 3.10 or higher. The base SDK works with Python 3.9+.
+---
 
 ## Dependencies
 
 ### Core Dependencies (always installed)
 - `PyYAML>=5.1` - YAML parsing for threat detection rules
 - `requests>=2.25.0` - HTTP client for API mode
-- `aiohttp>=3.8.0` - Async HTTP client
+- `aiohttp>=3.12.14` - Async HTTP client
 - `typing-extensions>=4.0.0` - Type hints support
 
-### Optional Dependencies
+### App Dependencies (`[app]`)
+- `pywebview>=5.0` - Cross-platform webview
+- `FastAPI>=0.100.0` - Local API server
+- `uvicorn>=0.20.0` - ASGI server
+- `SQLAlchemy>=2.0.0` - Database ORM
+- `aiosqlite>=0.19.0` - Async SQLite
+- `httpx>=0.24.0` - Async HTTP client
 
-**MCP Support (`[mcp]`):**
+### MCP Dependencies (`[mcp]`)
 - `mcp>=0.1.0` - Model Context Protocol library
 - `fastmcp>=0.1.0` - FastMCP server framework
 
-**All Features (`[all]`):**
-- Includes all MCP dependencies
+---
 
 ## Troubleshooting
 
@@ -123,7 +130,7 @@ ImportError: No module named 'securevector'
 
 2. Reinstall the package:
    ```bash
-   pip install --force-reinstall securevector-ai-monitor
+   pip install --force-reinstall securevector-ai-monitor[app]
    ```
 
 3. Check Python version:
@@ -139,26 +146,8 @@ ImportError: No module named 'mcp'
 ```
 
 **Solution:**
-Install with MCP extras:
 ```bash
 pip install securevector-ai-monitor[mcp]
-```
-
-### Issue: MCP server won't start
-
-**Symptom:**
-```
-ModuleNotFoundError: No module named 'fastmcp'
-```
-
-**Solution:**
-```bash
-# Uninstall and reinstall with MCP support
-pip uninstall securevector-ai-monitor
-pip install securevector-ai-monitor[mcp]
-
-# Verify
-python -m securevector.mcp --health-check
 ```
 
 ### Issue: Permission errors during installation
@@ -171,35 +160,17 @@ ERROR: Could not install packages due to an OSError: [Errno 13] Permission denie
 **Solutions:**
 ```bash
 # Option 1: Use --user flag
-pip install --user securevector-ai-monitor[mcp]
+pip install --user securevector-ai-monitor[app]
 
 # Option 2: Use virtual environment (recommended)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install securevector-ai-monitor[mcp]
+pip install securevector-ai-monitor[app]
 ```
 
-### Issue: Slow analysis response times
-
-**Solutions:**
-1. **Use local mode** for fastest performance (5-15ms):
-   ```python
-   from securevector import SecureVectorClient
-   from securevector.models.config_models import OperationMode
-
-   client = SecureVectorClient(mode=OperationMode.LOCAL)
-   ```
-
-2. **Enable caching** (enabled by default):
-   ```python
-   client = SecureVectorClient(enable_caching=True)
-   ```
-
-3. **Check rule loading**: Should see "Loaded X rule files with Y total patterns" in logs
+---
 
 ## Virtual Environment Setup (Recommended)
-
-Using a virtual environment isolates your dependencies:
 
 ```bash
 # Create virtual environment
@@ -211,43 +182,46 @@ source securevector-env/bin/activate  # On Linux/macOS
 securevector-env\Scripts\activate  # On Windows
 
 # Install
-pip install securevector-ai-monitor[mcp]
+pip install securevector-ai-monitor[app]
 
-# Verify
-python -c "from securevector import SecureVectorClient; print('✅ Installation successful!')"
+# Launch
+securevector-app --web
 ```
+
+---
 
 ## Upgrading
 
-To upgrade to the latest version:
-
 ```bash
-# Upgrade basic package
-pip install --upgrade securevector-ai-monitor
+# pip
+pip install --upgrade securevector-ai-monitor[app]
 
-# Upgrade with MCP support
-pip install --upgrade securevector-ai-monitor[mcp]
+# Source
+git pull && pip install -e ".[app]"
 ```
 
-## Uninstallation
+For binary installers, download the latest version from [Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and install over the existing version.
 
-To remove the package:
+After updating, restart SecureVector.
+
+---
+
+## Uninstallation
 
 ```bash
 pip uninstall securevector-ai-monitor
 ```
 
+---
+
 ## Next Steps
 
-After installation:
-
-1. **Quick Start:** See [README.md](README.md) for usage examples
-2. **SDK Guide:** See [SDK_USAGE.md](SDK_USAGE.md) for complete Python SDK integration
-3. **MCP Setup:** See [MCP_GUIDE.md](MCP_GUIDE.md) for Claude Desktop MCP server configuration
-4. **Use Cases:** See [USECASES.md](USECASES.md) for real-world integration examples
+1. **Getting Started:** See [GETTING_STARTED.md](GETTING_STARTED.md) for setup and configuration
+2. **Use Cases:** See [USECASES.md](USECASES.md) for LangChain, CrewAI, n8n integration examples
+3. **MCP Setup:** See [MCP_GUIDE.md](MCP_GUIDE.md) for Claude Desktop and Cursor configuration
+4. **API Reference:** See [API_SPECIFICATION.md](API_SPECIFICATION.md) for REST API endpoints
 
 ## Support
 
-- **Installation Issues:** [GitHub Issues](https://github.com/secure-vector/ai-threat-monitor/issues)
-- **Questions:** [GitHub Discussions](https://github.com/secure-vector/ai-threat-monitor/discussions)
+- **Issues:** [GitHub Issues](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues)
 - **Documentation:** [docs.securevector.io](https://docs.securevector.io)
