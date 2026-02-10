@@ -291,12 +291,12 @@ def chat_with_protection(user_input):
         header.style.cssText = 'margin-bottom: 24px;';
 
         const title = document.createElement('h1');
-        title.style.cssText = 'font-size: 24px; font-weight: 600; margin-bottom: 8px;';
+        title.className = 'dashboard-title';
         title.textContent = integration.name + ' Integration';
         header.appendChild(title);
 
         const desc = document.createElement('p');
-        desc.style.cssText = 'color: var(--text-secondary); font-size: 14px;';
+        desc.className = 'dashboard-subtitle';
         desc.textContent = integration.description;
         header.appendChild(desc);
 

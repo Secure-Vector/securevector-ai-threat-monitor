@@ -8,13 +8,13 @@
     --gradient: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
 
     /* Base colors - Dark mode default */
-    --bg-primary: #0a0e1f;
+    --bg-primary: #020617;
     --bg-secondary: #0f172a;
     --bg-tertiary: #1e293b;
     --bg-card: #0f172a;
     --bg-hover: #1e293b;
 
-    --text-primary: #e0f2fe;
+    --text-primary: #ffffff;
     --text-secondary: #cbd5e1;
     --text-muted: #64748b;
 
@@ -62,13 +62,13 @@
 
 /* Light mode */
 [data-theme="light"] {
-    --bg-primary: #f8fafc;
+    --bg-primary: #ffffff;
     --bg-secondary: #f1f5f9;
     --bg-tertiary: #e2e8f0;
     --bg-card: #ffffff;
     --bg-hover: #e2e8f0;
 
-    --text-primary: #1e293b;
+    --text-primary: #020617;
     --text-secondary: #334155;
     --text-muted: #64748b;
 
@@ -163,8 +163,16 @@ html, body {
 .sidebar-logo {
     font-size: 20px;
     font-weight: 700;
-    background: var(--gradient);
+    background: linear-gradient(to right, #22d3ee, #fca5a5, #06b6d4);
     -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+[data-theme="light"] .sidebar-logo {
+    background: linear-gradient(to right, #0891b2, #ef4444, #0891b2);
+    -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
@@ -1312,10 +1320,17 @@ html, body {
 .header-title {
     font-size: 18px;
     font-weight: 600;
-    background: var(--gradient);
+    background: linear-gradient(to right, #22d3ee, #fca5a5, #06b6d4);
     -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
     background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+[data-theme="light"] .header-title {
+    background: linear-gradient(to right, #0891b2, #ef4444, #0891b2);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .header-actions {
@@ -2199,6 +2214,7 @@ html, body {
 .page-title {
     font-size: 24px;
     font-weight: 700;
+    color: var(--text-primary);
     margin-bottom: 24px;
 }
 
@@ -3402,7 +3418,7 @@ html, body {
 .data-table .indicator {
     font-family: 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
-    color: var(--accent-primary);
+    color: var(--text-primary);
 }
 
 .type-badge {

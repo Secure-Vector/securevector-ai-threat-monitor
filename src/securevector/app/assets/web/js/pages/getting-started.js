@@ -30,10 +30,6 @@ const GettingStartedPage = {
             'section-getting-started', () => this.buildProxyContent()
         ));
 
-        container.appendChild(this.createCollapsibleCard(
-            'Architecture', 'How SecureVector protects your AI agents',
-            'section-architecture', () => this.buildArchitectureContent()
-        ));
 
         container.appendChild(this.createCollapsibleCard(
             'How Scanning Works', 'Input and output threat detection',
@@ -198,62 +194,6 @@ const GettingStartedPage = {
         doneNote.style.cssText = 'margin: 12px 0 0 0; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary);';
         doneNote.textContent = 'All LLM traffic is now scanned for prompt injection and data leaks.';
         frag.appendChild(doneNote);
-
-        return frag;
-    },
-
-    buildArchitectureContent() {
-        const frag = document.createElement('div');
-        frag.style.cssText = 'padding-top: 16px;';
-
-        // Zoom controls
-        const controls = document.createElement('div');
-        controls.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
-
-        let zoomLevel = 100;
-        const zoomLabel = document.createElement('span');
-        zoomLabel.style.cssText = 'font-size: 11px; color: var(--text-secondary); min-width: 36px; text-align: center;';
-        zoomLabel.textContent = '100%';
-
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border-color); background: #fafbfc; max-width: 100%;';
-
-        const img = document.createElement('img');
-        img.src = '/images/securevector-architecture.svg';
-        img.alt = 'SecureVector Architecture: AI Agents → SecureVector → LLM Providers';
-        img.style.cssText = 'width: 700px; height: auto; display: block;';
-
-        const createZoomBtn = (label, delta) => {
-            const btn = document.createElement('button');
-            btn.style.cssText = 'width: 28px; height: 28px; border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 4px; cursor: pointer; font-size: 14px; color: var(--text-primary); display: flex; align-items: center; justify-content: center; line-height: 1;';
-            btn.textContent = label;
-            btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--accent-primary)'; });
-            btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--border-color)'; });
-            btn.addEventListener('click', () => {
-                zoomLevel = Math.max(50, Math.min(200, zoomLevel + delta));
-                img.style.width = (700 * zoomLevel / 100) + 'px';
-                zoomLabel.textContent = zoomLevel + '%';
-            });
-            return btn;
-        };
-
-        controls.appendChild(createZoomBtn('\u2212', -25));
-        controls.appendChild(zoomLabel);
-        controls.appendChild(createZoomBtn('+', 25));
-
-        const resetBtn = document.createElement('button');
-        resetBtn.style.cssText = 'border: 1px solid var(--border-color); background: var(--bg-secondary); border-radius: 4px; cursor: pointer; font-size: 10px; color: var(--text-secondary); padding: 4px 8px; margin-left: 4px;';
-        resetBtn.textContent = 'Reset';
-        resetBtn.addEventListener('click', () => {
-            zoomLevel = 100;
-            img.style.width = '700px';
-            zoomLabel.textContent = '100%';
-        });
-        controls.appendChild(resetBtn);
-
-        frag.appendChild(controls);
-        wrapper.appendChild(img);
-        frag.appendChild(wrapper);
 
         return frag;
     },

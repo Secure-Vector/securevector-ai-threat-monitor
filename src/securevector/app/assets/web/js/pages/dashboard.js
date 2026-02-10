@@ -87,6 +87,67 @@ const DashboardPage = {
 
         container.appendChild(valueBanner);
 
+        // First-run onboarding — show when no threats have been analyzed yet
+        if (!this.data.total_threats && (!this.threats || this.threats.length === 0)) {
+            const onboard = document.createElement('div');
+            onboard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 20px; margin-bottom: 16px;';
+
+            const onboardTitle = document.createElement('div');
+            onboardTitle.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+            onboardTitle.textContent = 'Get started in 3 steps';
+            onboard.appendChild(onboardTitle);
+
+            const onboardDesc = document.createElement('div');
+            onboardDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;';
+            onboardDesc.textContent = 'No traffic detected yet. Set up a proxy to start protecting your AI agents.';
+            onboard.appendChild(onboardDesc);
+
+            const steps = [
+                { num: '1', text: 'Go to Integrations and select your framework', action: 'integrations', btn: 'Open Integrations' },
+                { num: '2', text: 'Pick your LLM provider and click Start Proxy', action: null, btn: null },
+                { num: '3', text: 'Point your app at the proxy and send a message', action: null, btn: null },
+            ];
+
+            steps.forEach(step => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 8px;';
+
+                const num = document.createElement('span');
+                num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;';
+                num.textContent = step.num;
+                row.appendChild(num);
+
+                const text = document.createElement('span');
+                text.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+                text.textContent = step.text;
+                row.appendChild(text);
+
+                if (step.action) {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn btn-primary';
+                    btn.style.cssText = 'font-size: 11px; padding: 4px 12px; margin-left: auto;';
+                    btn.textContent = step.btn;
+                    btn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(step.action); });
+                    row.appendChild(btn);
+                }
+
+                onboard.appendChild(row);
+            });
+
+            const guideLink = document.createElement('div');
+            guideLink.style.cssText = 'margin-top: 12px; font-size: 12px; color: var(--text-muted);';
+            const guideText = document.createTextNode('Need more details? ');
+            guideLink.appendChild(guideText);
+            const guideBtn = document.createElement('a');
+            guideBtn.style.cssText = 'color: var(--accent-primary); cursor: pointer; text-decoration: underline;';
+            guideBtn.textContent = 'Read the Guide';
+            guideBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide'); });
+            guideLink.appendChild(guideBtn);
+            onboard.appendChild(guideLink);
+
+            container.appendChild(onboard);
+        }
+
         // Security Controls - immediately visible
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
