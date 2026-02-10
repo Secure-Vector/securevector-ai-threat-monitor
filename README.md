@@ -13,7 +13,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
 
-[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Demo](https://securevector.io/demo)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Local App Screenshots](#screenshots)
 
 </div>
 
