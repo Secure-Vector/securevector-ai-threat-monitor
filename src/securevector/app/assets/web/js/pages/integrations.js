@@ -312,16 +312,16 @@ def chat_with_protection(user_input):
             container.appendChild(this.createOpenClawCard(integration));
             container.appendChild(this.createRevertCard());
         } else if (integration.proxyOnly) {
-            // Ollama: Proxy + Multi-Provider + Example Code
-            container.appendChild(this.createProxyCard(integration, integrationId));
+            // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
             container.appendChild(this.createMultiProviderCard());
+            container.appendChild(this.createProxyCard(integration, integrationId));
             if (integration.exampleCode) {
                 container.appendChild(this.createExampleCodeCard(integration));
             }
         } else {
-            // LangChain, LangGraph, CrewAI: Proxy + Multi-Provider + SDK
-            container.appendChild(this.createProxyCard(integration, integrationId));
+            // LangChain, LangGraph, CrewAI: Multi-Provider (recommended) + Single Proxy + SDK
             container.appendChild(this.createMultiProviderCard());
+            container.appendChild(this.createProxyCard(integration, integrationId));
             container.appendChild(this.createSdkCard(integration));
         }
     },
@@ -345,19 +345,14 @@ def chat_with_protection(user_input):
         const titleDiv = document.createElement('div');
         const titleText = document.createElement('div');
         titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
-        titleText.textContent = 'Option 1: Agent Proxy';
+        titleText.textContent = 'Option 2: Single Provider Proxy';
         titleDiv.appendChild(titleText);
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'For single LLM across multiple agents';
+        subtitleText.textContent = 'Use this if you only use one LLM provider';
         titleDiv.appendChild(subtitleText);
         header.appendChild(titleDiv);
-
-        const badge = document.createElement('span');
-        badge.style.cssText = 'background: var(--accent-primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;';
-        badge.textContent = 'QUICK START';
-        header.appendChild(badge);
 
         card.appendChild(header);
 
@@ -412,17 +407,32 @@ def chat_with_protection(user_input):
 
         // Header
         const header = document.createElement('div');
-        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between;';
 
+        const titleDiv = document.createElement('div');
         const titleText = document.createElement('div');
         titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
-        titleText.textContent = 'Option 2: Multi-Provider Proxy';
-        header.appendChild(titleText);
+        titleText.textContent = 'Option 1: Multi-Provider Proxy';
+        titleDiv.appendChild(titleText);
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'If you are planning to use multiple LLMs across multiple agents';
-        header.appendChild(subtitleText);
+        subtitleText.textContent = 'Works with all providers — no wrong proxy configuration';
+        titleDiv.appendChild(subtitleText);
+        header.appendChild(titleDiv);
+
+        const badge = document.createElement('span');
+        badge.style.cssText = 'background: #f97316; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite;';
+        badge.textContent = 'RECOMMENDED';
+        header.appendChild(badge);
+
+        // Add pulse animation if not already present
+        if (!document.getElementById('pulse-badge-style')) {
+            const style = document.createElement('style');
+            style.id = 'pulse-badge-style';
+            style.textContent = '@keyframes pulse-badge { 0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(249,115,22,0.6); } 50% { opacity: 0.7; box-shadow: 0 0 2px rgba(249,115,22,0.2); } }';
+            document.head.appendChild(style);
+        }
 
         card.appendChild(header);
 
@@ -432,8 +442,8 @@ def chat_with_protection(user_input):
 
         // Description
         const desc = document.createElement('div');
-        desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;';
-        desc.textContent = 'The --multi flag enables path-based routing. Agents often use multiple LLMs (e.g., GPT-4 for reasoning, Claude for coding). One proxy protects all traffic.';
+        desc.style.cssText = 'font-size: 13px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.5; font-weight: 600;';
+        desc.textContent = 'Use this if you work with multiple LLM providers. All 19 providers are available instantly \u2014 no configuration needed.';
         content.appendChild(desc);
 
         // Step 1
@@ -453,7 +463,7 @@ def chat_with_protection(user_input):
         const startBtn = document.createElement('button');
         startBtn.id = 'start-proxy-multi';
         startBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
-        startBtn.textContent = 'Start Proxy';
+        startBtn.textContent = 'Start Multi-Provider Proxy';
         startBtn.onclick = async () => {
             startBtn.disabled = true;
             startBtn.textContent = 'Starting...';
@@ -827,32 +837,13 @@ def chat_with_protection(user_input):
 
         // Start Proxy button row (inside Step 1)
         const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;';
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;';
 
-        // Single provider button
-        const singleBtn = document.createElement('button');
-        singleBtn.id = 'start-proxy-openclaw-single';
-        singleBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
-        singleBtn.textContent = 'Start Single';
-        singleBtn.onclick = async () => {
-            singleBtn.disabled = true;
-            singleBtn.textContent = 'Starting...';
-            const result = await IntegrationPage.startProxy(provider, false);
-            if (result.status === 'started') {
-                await IntegrationPage.updateOpenClawProxyButton();
-            } else {
-                alert(result.message);
-                singleBtn.disabled = false;
-                singleBtn.textContent = 'Start Single';
-            }
-        };
-        btnRow.appendChild(singleBtn);
-
-        // Multi-provider button (recommended)
+        // Multi-provider button (recommended - first)
         const startBtn = document.createElement('button');
         startBtn.id = 'start-proxy-openclaw';
         startBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
-        startBtn.textContent = 'Start Multi (Recommended)';
+        startBtn.textContent = 'Start Multi-Provider Proxy';
         startBtn.onclick = async () => {
             startBtn.disabled = true;
             startBtn.textContent = 'Starting...';
@@ -862,10 +853,29 @@ def chat_with_protection(user_input):
             } else {
                 alert(result.message);
                 startBtn.disabled = false;
-                startBtn.textContent = 'Start Multi (Recommended)';
+                startBtn.textContent = 'Start Multi-Provider Proxy';
             }
         };
         btnRow.appendChild(startBtn);
+
+        // Single provider button
+        const singleBtn = document.createElement('button');
+        singleBtn.id = 'start-proxy-openclaw-single';
+        singleBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
+        singleBtn.textContent = 'Start Single Provider';
+        singleBtn.onclick = async () => {
+            singleBtn.disabled = true;
+            singleBtn.textContent = 'Starting...';
+            const result = await IntegrationPage.startProxy(provider, false);
+            if (result.status === 'started') {
+                await IntegrationPage.updateOpenClawProxyButton();
+            } else {
+                alert(result.message);
+                singleBtn.disabled = false;
+                singleBtn.textContent = 'Start Single Provider';
+            }
+        };
+        btnRow.appendChild(singleBtn);
 
         const stopBtn = document.createElement('button');
         stopBtn.id = 'stop-proxy-openclaw';
@@ -887,10 +897,18 @@ def chat_with_protection(user_input):
 
         container.appendChild(btnRow);
 
-        // Multi-provider explanation
+        // Multi-provider explanation with RECOMMENDED
         const multiNote = document.createElement('div');
-        multiNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; padding: 10px; background: var(--bg-tertiary); border-radius: 6px;';
-        multiNote.textContent = 'Multi-provider mode allows OpenClaw to switch between LLMs (Claude, GPT, Gemini, Ollama) without restarting. Each provider has its own path: /anthropic, /openai/v1, /gemini/v1, etc.';
+        multiNote.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-primary); font-weight: 600; margin-bottom: 16px; padding: 10px 14px; background: rgba(249, 115, 22, 0.06); border: 1px solid rgba(249, 115, 22, 0.2); border-radius: 6px; line-height: 1.5;';
+
+        const noteBadge = document.createElement('span');
+        noteBadge.style.cssText = 'background: #f97316; color: white; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite; flex-shrink: 0; margin-top: 1px;';
+        noteBadge.textContent = 'RECOMMENDED';
+        multiNote.appendChild(noteBadge);
+
+        const noteText = document.createElement('span');
+        noteText.textContent = 'Multi-provider mode allows OpenClaw to switch between LLMs (Claude, GPT, Gemini, Ollama) without restarting. Each provider has its own path: /anthropic, /openai/v1, /gemini/v1, etc.';
+        multiNote.appendChild(noteText);
         container.appendChild(multiNote);
 
         // Step 2

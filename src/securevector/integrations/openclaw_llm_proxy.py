@@ -1082,7 +1082,14 @@ def main():
             verbose=args.verbose,
         )
 
-        providers_list = ", ".join(LLMProxy.PROVIDERS.keys())
+        providers = list(LLMProxy.PROVIDERS.keys())
+        # Format providers in rows of 6
+        provider_lines = []
+        for i in range(0, len(providers), 6):
+            row = ", ".join(providers[i:i+6])
+            provider_lines.append(f"║    {row:<63}║")
+
+        provider_block = "\n".join(provider_lines)
         print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
 ║            SecureVector Multi-Provider LLM Proxy                  ║
@@ -1092,16 +1099,20 @@ def main():
 ║  Block threats:     {str(args.block):<5}                                        ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║  Multi-provider routing enabled!                                  ║
+║  All {len(providers)} providers ready — no configuration needed.              ║
 ║                                                                   ║
-║  LangChain / Any OpenAI-compatible:                               ║
-║    base_url="http://{args.host}:{args.port}/openai/v1"                        ║
-║    base_url="http://{args.host}:{args.port}/ollama/v1"                        ║
-║    base_url="http://{args.host}:{args.port}/groq/v1"                          ║
+║  Usage:                                                           ║
+║    base_url="http://{args.host}:{args.port}/{{provider}}/v1"                    ║
 ║                                                                   ║
-║  Anthropic:                                                       ║
-║    base_url="http://{args.host}:{args.port}/anthropic"                        ║
+║  Examples:                                                        ║
+║    http://{args.host}:{args.port}/openai/v1     (OpenAI, LangChain)             ║
+║    http://{args.host}:{args.port}/anthropic      (Anthropic/Claude)              ║
+║    http://{args.host}:{args.port}/ollama/v1     (Ollama local)                  ║
+║    http://{args.host}:{args.port}/groq/v1       (Groq)                          ║
+║    http://{args.host}:{args.port}/deepseek/v1   (DeepSeek)                      ║
 ║                                                                   ║
-║  Available providers: {providers_list[:45]:<45}║
+║  All supported providers:                                         ║
+{provider_block}
 ╚═══════════════════════════════════════════════════════════════════╝
 """)
     else:
