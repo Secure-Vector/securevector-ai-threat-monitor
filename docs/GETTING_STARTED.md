@@ -1,6 +1,6 @@
 # Getting Started with SecureVector
 
-Runtime AI firewall for agents. Scans inputs for prompt injection, outputs for data leaks. 100% local.
+Runtime AI firewall for agents. Scans inputs for prompt injection, outputs for data leaks. 100% local by default.
 
 ## Prerequisites
 

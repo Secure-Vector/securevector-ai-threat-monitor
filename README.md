@@ -32,13 +32,13 @@ securevector-app --web
 
 Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-v2.1.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-2.1.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/SecureVector-2.1.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/securevector_2.1.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.0/securevector-2.1.0-1.x86_64.rpm)
 
-> **Open-source. 100% local. No API keys. No cloud. No data sharing.**
+> **Open-source. 100% local by default. No API keys required.**
 
 <br>
 
 ## Highlights
 
-- ☑ **100% Local** — No data transmitted externally. Complete privacy.
+- ☑ **100% Local by Default** — No data transmitted externally. Complete privacy.
 - ☑ **Agents Protected** — LangChain, LangGraph, CrewAI, n8n, OpenClaw, and any OpenAI-compatible app.
 - ☑ **Input Scanning** — Block prompt injection, jailbreaks, and manipulation before they reach the LLM.
 - ☑ **Output Scanning** — Detect credential leaks, PII exposure, and system prompt disclosure.
@@ -178,7 +178,7 @@ Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large
 | Apache 2.0 license | Expert-curated rule library |
 | Community detection rules | Multi-stage ML threat analysis |
 | Custom YAML rules | Real-time cloud dashboard |
-| 100% local, zero data sharing | Team collaboration |
+| 100% local by default, no data sharing | Team collaboration |
 | Desktop app + local API | Priority support |
 
 > **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
