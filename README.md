@@ -13,7 +13,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
 
-[Website](https://securevector.io) · [Docs](https://docs.securevector.io) · [Demo](https://securevector.io/demo) · [Getting Started](docs/GETTING_STARTED.md) · [Use Cases](docs/USECASES.md) · [API](docs/API_SPECIFICATION.md) · [Discord](https://discord.gg/securevector)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Demo](https://securevector.io/demo)
 
 </div>
 
@@ -65,24 +65,18 @@ Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-m
 
 ## Install
 
-**Runtime:** Python 3.9+ (MCP requires 3.10+)
+### Option 1: pip
 
-| Install | Use Case | Size |
-|---------|----------|------|
-| `pip install securevector-ai-monitor[app]` | **Local app** — dashboard, LLM proxy, self-hosted | ~60MB |
-| `pip install securevector-ai-monitor` | **Cloud SDK** — lightweight, uses [cloud API](https://scan.securevector.io) | ~18MB |
-| `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
+**Requires:** Python 3.9+ (MCP requires 3.10+)
 
 ```bash
-# Local users (self-hosted, OpenClaw proxy)
 pip install securevector-ai-monitor[app]
-securevector-app
-
-# Cloud users (API integration)
-pip install securevector-ai-monitor
+securevector-app --web
 ```
 
-**Binary installers:**
+### Option 2: Binary installers
+
+No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
@@ -105,6 +99,8 @@ pip install securevector-ai-monitor
 ```bash
 securevector-app --web
 ```
+
+Or launch the binary installer if you downloaded one.
 
 **Step 2:** Go to **Integrations** in the UI, choose your agent framework and LLM provider, then click **Start Proxy**.
 
@@ -155,7 +151,10 @@ Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large
 </tr>
 <tr>
 <td><img src="docs/app-integrations.png" alt="Integrations" width="100%"><br><em>Integrations — LangChain, Ollama, OpenClaw, and more</em></td>
-<td><img src="docs/app-proxy.png" alt="Proxy" width="100%"><br><em>LLM Proxy — provider configuration</em></td>
+<td><img src="docs/app-rules.png" alt="Detection Rules" width="100%"><br><em>Detection Rules — community rules, or create your own for your use case or industry</em></td>
+</tr>
+<tr>
+<td><img src="docs/app-guide.png" alt="Getting Started" width="100%"><br><em>Getting Started — onboarding guide with setup steps</em></td>
 </tr>
 </table>
 
@@ -172,6 +171,15 @@ Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large
 <br>
 
 ## Editions
+
+### Other install options
+
+| Install | Use Case | Size |
+|---------|----------|------|
+| `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration | ~18MB |
+| `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
+
+### Open Source vs Cloud
 
 | Open Source (100% Free) | Cloud (Optional) |
 |-------------------------|------------------|
