@@ -95,16 +95,12 @@ No Python required. Download and run.
 ## Quick Start
 
 **Step 1:** Start SecureVector app
+- **Option 1:** Run `securevector-app --web` then open [http://localhost:8741](http://localhost:8741) in your browser.
+- **Option 2:** Double-click the installed app if using a binary.
 
-```bash
-securevector-app --web
-```
+**Step 2:** In the left navigation, expand **Integrations** and choose your agent framework.
 
-Or launch the binary installer if you downloaded one.
-
-**Step 2:** Go to **Integrations** in the UI, choose your agent framework and LLM provider, then click **Start Proxy**.
-
-**Step 3:** Point your app to the proxy (shown in the UI).
+**Step 3:** Click **Start Multi-Provider Proxy** (recommended). Point your app to the proxy URL shown on the page.
 
 That's it! Every request is scanned for prompt injection. Every response is scanned for data leaks.
 
