@@ -794,7 +794,7 @@ class LocalAnalyzer:
                 info["categories"][rule_name] = {
                     "name": f"Security Rules - {rule_name}",
                     "description": f"Contains {len(rule_data['rules'])} security rules",
-                    "version": "2.1.0",
+                    "version": "2.1.1",
                     "pattern_count": pattern_count,
                     "rule_count": len(rule_data["rules"]),
                 }

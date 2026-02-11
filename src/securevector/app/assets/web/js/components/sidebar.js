@@ -654,6 +654,20 @@ const Sidebar = {
         return svg;
     },
 
+    expandSection(sectionId) {
+        const subNav = document.querySelector(`[data-sub-for="${sectionId}"]`);
+        if (subNav) {
+            subNav.style.display = 'block';
+            localStorage.setItem(`nav-${sectionId}-expanded`, 'true');
+            // Update chevron
+            const navItem = document.querySelector(`.nav-item[data-page="${sectionId}"]`);
+            if (navItem) {
+                const chevron = navItem.querySelector('svg:last-child');
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+    },
+
     navigate(page) {
         this.currentPage = page;
 

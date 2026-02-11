@@ -11,7 +11,6 @@ const App = {
         dashboard: DashboardPage,
         threats: ThreatsPage,
         rules: RulesPage,
-        proxy: ProxyPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
         'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },

@@ -172,7 +172,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         async def serve_page(page: str):
             # Only handle known page routes, let other routes pass through
             valid_pages = [
-                "dashboard", "threats", "rules", "proxy", "settings",
+                "dashboard", "threats", "rules", "settings",
                 "guide",
                 # Integration pages
                 "integrations",

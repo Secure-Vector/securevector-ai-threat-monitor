@@ -5,6 +5,48 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-02-10
+
+### Fixed
+- Removed standalone `/proxy` page — "Open Integrations" on Getting Started now expands the Integrations sidebar section
+- Fixed proxy start failing silently when `integration` field is `null` (Pydantic v2 `Optional[str]` validation)
+- Fixed welcome modal overlay blocking all pointer events on the page
+
+## [2.1.0] - 2026-02-09
+
+### Added
+- **Getting Started Guide** — In-app onboarding page with step-by-step setup instructions, collapsible examples, and copyable code blocks
+- **Multi-Provider Proxy** — Single proxy instance supports all 19 LLM providers simultaneously via lazy initialization (`localhost:8742/{provider}/v1`)
+- **OpenClaw Integration** — Dedicated integration page for OpenClaw/ClawdBot with one-click proxy setup for Anthropic
+- **Cloud Mode** — Optional connection to SecureVector Cloud for ML-powered threat detection with automatic fallback to local analysis
+- **Binary Installers** — Cross-platform installers for Windows (.exe), macOS (.dmg), Linux (AppImage, DEB, RPM)
+- **Auto-Refresh** — Dashboard and threats pages auto-refresh for real-time monitoring
+- **LLM Recommendation** — AI Analysis settings suggest optimal provider/model configurations
+
+### Changed
+- Multi-provider proxy is now the recommended default (Option 1) across all integration pages
+- Integrations UI restructured — multi-provider shown first with RECOMMENDED badge
+- Threat Analytics empty state now links to Getting Started guide
+- Sidebar navigation updated — Getting Started as first item with rocket icon
+- Updated tagline to "100% local by default" for accuracy (cloud mode is optional)
+- Credential storage refactored for improved security
+- Proxy route handling improved with better error logging
+
+### Fixed
+- Fixed navigation routing errors (`getting-started` → `guide`, `integrations` → `proxy`)
+- Fixed "ClawdBot" capitalization across UI
+- Fixed proxy stop functionality for subprocess-started proxies
+- Fixed global variable usage in proxy.py
+
+### Documentation
+- Added `docs/GETTING_STARTED.md` — comprehensive onboarding guide
+- Rewrote `docs/INSTALLATION.md` — added binary installers, `[app]` as primary install
+- Rewrote `docs/API_SPECIFICATION.md` — added full local API reference (30+ endpoints)
+- Updated `docs/USECASES.md` — fixed broken code blocks, updated OpenAI SDK to v1.0+
+- Updated `docs/MCP_GUIDE.md` — fixed Claude Code config paths
+- Updated `SECURITY.md` — added v2.1.0 to supported versions
+- Simplified README — clearer install options, updated screenshots, trimmed navigation
+
 ## [2.0.0] - 2026-01-31
 
 ### Added
