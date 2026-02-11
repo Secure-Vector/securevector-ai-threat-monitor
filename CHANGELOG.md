@@ -5,6 +5,13 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-02-10
+
+### Fixed
+- Removed standalone `/proxy` page — "Open Integrations" on Getting Started now expands the Integrations sidebar section
+- Fixed proxy start failing silently when `integration` field is `null` (Pydantic v2 `Optional[str]` validation)
+- Fixed welcome modal overlay blocking all pointer events on the page
+
 ## [2.1.0] - 2026-02-09
 
 ### Added

@@ -143,7 +143,7 @@ const GettingStartedPage = {
         intBtn.style.cssText = 'font-size: 12px; margin: 0 0 16px 42px; padding: 6px 14px;';
         intBtn.textContent = 'Open Integrations';
         intBtn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('proxy');
+            if (window.Sidebar) Sidebar.expandSection('integrations');
         });
         frag.appendChild(intBtn);
 
