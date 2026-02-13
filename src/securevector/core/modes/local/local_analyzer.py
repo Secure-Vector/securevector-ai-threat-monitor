@@ -588,6 +588,9 @@ class LocalAnalyzer:
 
         self.compiled_patterns[rule_name] = compiled_patterns
 
+    # Zero-width unicode characters used for evasion
+    _ZERO_WIDTH_CHARS = re.compile('[\u200B\u200C\u200D\u2060\uFEFF]')
+
     def analyze_prompt(self, prompt: str) -> List[ThreatDetection]:
         """
         Analyze a prompt against all loaded rules.
@@ -606,6 +609,21 @@ class LocalAnalyzer:
         else:
             # Use runtime pattern matching
             detections = self._analyze_with_runtime_patterns(prompt)
+
+        # If text contains zero-width chars, also analyze the cleaned version
+        # to catch keywords hidden by invisible character insertion
+        if self._ZERO_WIDTH_CHARS.search(prompt):
+            cleaned = self._ZERO_WIDTH_CHARS.sub('', prompt)
+            if cleaned != prompt:
+                if self.config.rule_compilation and self.compiled_patterns:
+                    cleaned_detections = self._analyze_with_compiled_patterns(cleaned)
+                else:
+                    cleaned_detections = self._analyze_with_runtime_patterns(cleaned)
+                # Merge detections, avoiding duplicates by rule_id
+                existing_ids = {d.rule_id for d in detections}
+                for d in cleaned_detections:
+                    if d.rule_id not in existing_ids:
+                        detections.append(d)
 
         return detections
 

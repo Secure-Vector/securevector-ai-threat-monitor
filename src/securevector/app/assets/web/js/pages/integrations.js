@@ -498,9 +498,28 @@ def chat_with_protection(user_input):
         step2Label.textContent = 'Step 2: Set environment variables';
         content.appendChild(step2Label);
 
-        const step2Block = this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic');
-        step2Block.style.marginBottom = '8px';
-        content.appendChild(step2Block);
+        const envRow = document.createElement('div');
+        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+
+        const linuxCard = document.createElement('div');
+        linuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const linuxTitle = document.createElement('div');
+        linuxTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        linuxTitle.textContent = 'Linux / macOS';
+        linuxCard.appendChild(linuxTitle);
+        linuxCard.appendChild(this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic'));
+        envRow.appendChild(linuxCard);
+
+        const winCard = document.createElement('div');
+        winCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const winTitle = document.createElement('div');
+        winTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        winTitle.textContent = 'Windows (PowerShell)';
+        winCard.appendChild(winTitle);
+        winCard.appendChild(this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/openai/v1", "User")\n[System.Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://localhost:8742/anthropic", "User")'));
+        envRow.appendChild(winCard);
+
+        content.appendChild(envRow);
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
@@ -618,11 +637,32 @@ def chat_with_protection(user_input):
         step2Label.textContent = 'Step 2: Configure your client app';
         container.appendChild(step2Label);
 
+        // Two-column layout: Linux/macOS | Windows
+        const singleEnvRow = document.createElement('div');
+        singleEnvRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+
+        const sLinuxCard = document.createElement('div');
+        sLinuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const sLinuxTitle = document.createElement('div');
+        sLinuxTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        sLinuxTitle.textContent = 'Linux / macOS';
+        sLinuxCard.appendChild(sLinuxTitle);
+
+        const sWinCard = document.createElement('div');
+        sWinCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const sWinTitle = document.createElement('div');
+        sWinTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        sWinTitle.textContent = 'Windows (PowerShell)';
+        sWinCard.appendChild(sWinTitle);
+
         // Special handling for Ollama - show both options for Open WebUI
         if (provider === 'ollama') {
-            const ollamaBlock = this.createCodeBlock('# Option A: Ollama API\nexport OLLAMA_HOST=http://localhost:8742/ollama\n\n# Option B: OpenAI API\nexport OPENAI_BASE_URL=http://localhost:8742/ollama/v1');
-            ollamaBlock.style.marginBottom = '12px';
-            container.appendChild(ollamaBlock);
+            sLinuxCard.appendChild(this.createCodeBlock('# Option A: Ollama API\nexport OLLAMA_HOST=http://localhost:8742/ollama\n\n# Option B: OpenAI API\nexport OPENAI_BASE_URL=http://localhost:8742/ollama/v1'));
+            sWinCard.appendChild(this.createCodeBlock('# Option A: Ollama API\n[System.Environment]::SetEnvironmentVariable("OLLAMA_HOST", "http://localhost:8742/ollama", "User")\n\n# Option B: OpenAI API\n[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/ollama/v1", "User")'));
+
+            singleEnvRow.appendChild(sLinuxCard);
+            singleEnvRow.appendChild(sWinCard);
+            container.appendChild(singleEnvRow);
 
             // Open WebUI specific
             const openwebuiLabel = document.createElement('div');
@@ -639,9 +679,12 @@ def chat_with_protection(user_input):
             step2Note.textContent = 'Traffic routes: Open WebUI → SecureVector Proxy → Ollama';
             container.appendChild(step2Note);
         } else {
-            const envBlock = this.createCodeBlock(config.env + '=http://localhost:8742' + config.path);
-            envBlock.style.marginBottom = '8px';
-            container.appendChild(envBlock);
+            sLinuxCard.appendChild(this.createCodeBlock('export ' + config.env + '=http://localhost:8742' + config.path));
+            sWinCard.appendChild(this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("' + config.env + '", "http://localhost:8742' + config.path + '", "User")'));
+
+            singleEnvRow.appendChild(sLinuxCard);
+            singleEnvRow.appendChild(sWinCard);
+            container.appendChild(singleEnvRow);
 
             const step2Note = document.createElement('div');
             step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
@@ -851,10 +894,33 @@ def chat_with_protection(user_input):
         step2Label.textContent = 'Step 2: Set environment variables (in another terminal)';
         container.appendChild(step2Label);
 
-        const envCode = 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic';
-        const step2Block = this.createCodeBlock(envCode);
-        step2Block.style.marginBottom = '8px';
-        container.appendChild(step2Block);
+        // Two-column layout: Linux/macOS | Windows
+        const envRow = document.createElement('div');
+        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+
+        // Linux/macOS card
+        const linuxCard = document.createElement('div');
+        linuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const linuxTitle = document.createElement('div');
+        linuxTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        linuxTitle.textContent = 'Linux / macOS';
+        linuxCard.appendChild(linuxTitle);
+        const linuxCode = this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic');
+        linuxCard.appendChild(linuxCode);
+        envRow.appendChild(linuxCard);
+
+        // Windows card
+        const winCard = document.createElement('div');
+        winCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
+        const winTitle = document.createElement('div');
+        winTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
+        winTitle.textContent = 'Windows (PowerShell)';
+        winCard.appendChild(winTitle);
+        const winCode = this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/openai/v1", "User")\n[System.Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://localhost:8742/anthropic", "User")');
+        winCard.appendChild(winCode);
+        envRow.appendChild(winCard);
+
+        container.appendChild(envRow);
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;';
