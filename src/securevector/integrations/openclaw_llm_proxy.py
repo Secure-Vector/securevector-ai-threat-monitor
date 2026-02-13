@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from typing import Optional
 from urllib.parse import urlparse
@@ -43,7 +44,6 @@ ALLOWED_TARGET_HOSTS = {
     "api.openai.com",
     "api.anthropic.com",
     "api.groq.com",
-    "openrouter.ai",
     "api.cerebras.ai",
     "api.mistral.ai",
     "api.x.ai",
@@ -52,8 +52,6 @@ ALLOWED_TARGET_HOSTS = {
     "api.minimax.chat",
     "api.deepseek.com",
     "api.together.xyz",
-    "api.fireworks.ai",
-    "api.perplexity.ai",
     "api.cohere.ai",
     # Local development
     "localhost",
@@ -100,11 +98,6 @@ def validate_url(url: str, allowed_hosts: set, url_type: str) -> str:
 
     hostname = parsed.hostname.lower()
 
-    # Allow any Azure OpenAI endpoint (*.openai.azure.com)
-    if hostname.endswith(".openai.azure.com"):
-        return url
-
-    # Allow any local network for Ollama/LM Studio (user's choice)
     if hostname in allowed_hosts:
         return url
 
@@ -139,22 +132,15 @@ class LLMProxy:
     PROVIDERS = {
         "openai": "https://api.openai.com",
         "anthropic": "https://api.anthropic.com",
-        "ollama": "http://localhost:11434",
         "groq": "https://api.groq.com/openai",
-        "openrouter": "https://openrouter.ai/api",
         "cerebras": "https://api.cerebras.ai",
         "mistral": "https://api.mistral.ai",
         "xai": "https://api.x.ai",
         "gemini": "https://generativelanguage.googleapis.com",
-        "azure": "https://YOUR-RESOURCE.openai.azure.com",
-        "lmstudio": "http://localhost:1234",
-        "litellm": "http://localhost:4000",
         "moonshot": "https://api.moonshot.ai",
         "minimax": "https://api.minimax.chat",
         "deepseek": "https://api.deepseek.com",
         "together": "https://api.together.xyz",
-        "fireworks": "https://api.fireworks.ai/inference",
-        "perplexity": "https://api.perplexity.ai",
         "cohere": "https://api.cohere.ai",
     }
 
@@ -162,22 +148,15 @@ class LLMProxy:
     API_PREFIXES = {
         "openai": "/v1",
         "anthropic": "",
-        "ollama": "/v1",
         "groq": "/v1",
-        "openrouter": "/v1",
         "cerebras": "/v1",
         "mistral": "/v1",
         "xai": "/v1",
         "gemini": "/v1beta",
-        "azure": "",
-        "lmstudio": "/v1",
-        "litellm": "/v1",
         "moonshot": "/v1",
         "minimax": "/v1",
         "deepseek": "/v1",
         "together": "/v1",
-        "fireworks": "/v1",
-        "perplexity": "/v1",
         "cohere": "/v1",
     }
 
@@ -451,6 +430,100 @@ class LLMProxy:
                         texts.append(part["text"])
         return texts
 
+    # --- Sensitive token patterns for context-aware output scanning ---
+    _SENSITIVE_TOKEN_PATTERNS = re.compile(
+        r'|'.join([
+            r'sk-[a-zA-Z0-9]{20,}',                         # OpenAI keys
+            r'sk_(?:test|live)_[a-zA-Z0-9]{20,}',           # Stripe keys
+            r'pk_(?:test|live)_[a-zA-Z0-9]{20,}',           # Stripe public keys
+            r'rk_(?:test|live)_[a-zA-Z0-9]{20,}',           # Stripe restricted keys
+            r'ghp_[a-zA-Z0-9]{36}',                          # GitHub PAT
+            r'gho_[a-zA-Z0-9]{36}',                          # GitHub OAuth
+            r'github_pat_[a-zA-Z0-9_]{22,}',                 # GitHub fine-grained PAT
+            r'xox[baprs]-[a-zA-Z0-9\-]{10,}',               # Slack tokens
+            r'AKIA[A-Z0-9]{16}',                              # AWS access key
+            r'AIza[a-zA-Z0-9_\-]{35}',                       # Google API key
+            r'eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}',   # JWT tokens
+            r'(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*[\'"]?[a-zA-Z0-9_\-]{20,}',
+            r'(?:password|passwd|pwd)\s*(?:[:=]|\bis\b)[:\s]*[\'"]?[^\s\'"]{8,64}[\'"]?',
+            r'bearer\s+[a-zA-Z0-9_\-\.]{20,}',
+        ]),
+        re.IGNORECASE,
+    )
+
+    def extract_all_context_text(self, body: dict) -> str:
+        """Extract ALL text from the full request body (all messages, system prompt, etc.).
+
+        Used for context-aware output scanning: tokens already present in the
+        conversation input should not trigger output leakage alerts.
+        """
+        texts = []
+
+        # System prompt
+        if "system" in body and isinstance(body["system"], str):
+            texts.append(body["system"])
+
+        # All messages (full conversation history)
+        if "messages" in body:
+            for msg in body["messages"]:
+                if isinstance(msg, dict):
+                    texts.extend(self._extract_content_parts(msg.get("content", "")))
+
+        # OpenAI Responses API
+        elif "input" in body:
+            inp = body["input"]
+            if isinstance(inp, str):
+                texts.append(inp)
+            elif isinstance(inp, list):
+                for item in inp:
+                    if isinstance(item, str):
+                        texts.append(item)
+                    elif isinstance(item, dict):
+                        texts.extend(self._extract_content_parts(item.get("content", "")))
+
+        # Google Gemini
+        elif "contents" in body:
+            for content_item in body["contents"]:
+                if isinstance(content_item, dict):
+                    for part in content_item.get("parts", []):
+                        if isinstance(part, dict) and "text" in part:
+                            texts.append(part["text"])
+
+        # Cohere chat_history
+        if "chat_history" in body:
+            for msg in body["chat_history"]:
+                if isinstance(msg, dict) and "message" in msg:
+                    texts.append(msg["message"])
+
+        # Single message fields
+        for key in ("message", "prompt", "text"):
+            if key in body and isinstance(body[key], str):
+                texts.append(body[key])
+
+        return "\n".join(t for t in texts if t)
+
+    def strip_echoed_sensitive_tokens(self, output_text: str, input_context: str) -> str:
+        """Remove sensitive tokens from output that already exist in the input context.
+
+        This prevents false positives when the LLM echoes back API keys, passwords,
+        or other sensitive patterns that were already present in the conversation
+        history. Only NEW sensitive tokens (not in input) should be flagged.
+        """
+        if not input_context or not output_text:
+            return output_text
+
+        # Find all sensitive tokens in the input context
+        input_tokens = set(self._SENSITIVE_TOKEN_PATTERNS.findall(input_context))
+        if not input_tokens:
+            return output_text
+
+        # Remove those same tokens from output before scanning
+        cleaned = output_text
+        for token in input_tokens:
+            cleaned = cleaned.replace(token, "[CONTEXT]")
+
+        return cleaned
+
     def extract_messages_text(self, body: dict) -> str:
         """Extract the LAST user message from any LLM API request body.
 
@@ -626,9 +699,14 @@ class LLMProxy:
             except json.JSONDecodeError:
                 pass
 
+        # Extract full conversation context for context-aware output scanning
+        input_context = self.extract_all_context_text(body_dict) if body_dict else ""
+
         # Scan input messages
         if body_dict and method == "POST":
             input_text = self.extract_messages_text(body_dict)
+            # Strip client metadata tags (e.g. OpenClaw [message_id: ...]) to avoid false positives
+            input_text = re.sub(r'\[message_id:\s*[^\]]+\]', '', input_text).strip()
             if input_text:
                 self.stats["scanned"] += 1
                 preview = input_text[:80].replace('\n', ' ')
@@ -708,7 +786,8 @@ class LLMProxy:
             if is_streaming:
                 # Handle streaming response
                 return await self.handle_streaming_request(
-                    client, method, target, headers, body_bytes
+                    client, method, target, headers, body_bytes,
+                    input_context=input_context,
                 )
             else:
                 # Handle regular request
@@ -728,9 +807,11 @@ class LLMProxy:
                         if output_text:
                             settings = await self.check_settings()
                             if settings.get("scan_llm_responses"):
+                                # Strip sensitive tokens that are echoed from input context
+                                scan_text = self.strip_echoed_sensitive_tokens(output_text, input_context)
                                 will_block = settings.get("block_threats", False)
                                 action = "blocked" if will_block else "logged"
-                                result = await self.scan_message(output_text, is_llm_response=True, action_taken=action)
+                                result = await self.scan_message(scan_text, is_llm_response=True, action_taken=action)
                                 if result.get("is_threat"):
                                     threat_type = result.get("threat_type", "unknown")
                                     risk_score = result.get("risk_score", 0)
@@ -755,10 +836,18 @@ class LLMProxy:
                     except json.JSONDecodeError:
                         pass
 
+                # Strip encoding headers: httpx auto-decompresses the body
+                # but keeps content-encoding in headers; forwarding both
+                # causes downstream clients to try double-decompression.
+                resp_headers = dict(response.headers)
+                resp_headers.pop("content-encoding", None)
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("transfer-encoding", None)
+
                 return Response(
                     content=response.content,
                     status_code=response.status_code,
-                    headers=dict(response.headers),
+                    headers=resp_headers,
                 )
 
         except httpx.RequestError as e:
@@ -771,7 +860,7 @@ class LLMProxy:
 
     async def handle_streaming_request(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes
+        headers: dict, body: bytes, input_context: str = ""
     ) -> Response:
         """Handle streaming LLM response.
 
@@ -785,14 +874,14 @@ class LLMProxy:
 
         if should_scan:
             # SCAN MODE: Buffer full response, scan, then deliver or block
-            return await self._handle_streaming_buffered(client, method, url, headers, body)
+            return await self._handle_streaming_buffered(client, method, url, headers, body, input_context)
         else:
             # PASSTHROUGH MODE: Stream through without scanning
-            return await self._handle_streaming_passthrough(client, method, url, headers, body)
+            return await self._handle_streaming_passthrough(client, method, url, headers, body, input_context)
 
     async def _handle_streaming_buffered(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes
+        headers: dict, body: bytes, input_context: str = ""
     ) -> Response:
         """Buffer streaming response, scan, then deliver or block."""
         accumulated_text = ""
@@ -817,10 +906,11 @@ class LLMProxy:
                 except:
                     pass
 
-        # Scan accumulated text
+        # Scan accumulated text (strip echoed sensitive tokens from input context)
         if accumulated_text:
+            scan_text = self.strip_echoed_sensitive_tokens(accumulated_text, input_context)
             action = "blocked" if will_block else "logged"
-            result = await self.scan_message(accumulated_text, is_llm_response=True, action_taken=action)
+            result = await self.scan_message(scan_text, is_llm_response=True, action_taken=action)
             if result.get("is_threat"):
                 threat_type = result.get("threat_type", "unknown")
                 risk_score = result.get("risk_score", 0)
@@ -856,7 +946,7 @@ class LLMProxy:
 
     async def _handle_streaming_passthrough(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes
+        headers: dict, body: bytes, input_context: str = ""
     ) -> StreamingResponse:
         """Stream through in real-time, scan at end for logging."""
         accumulated_text = ""
@@ -883,7 +973,8 @@ class LLMProxy:
             if accumulated_text:
                 settings = await self.check_settings()
                 if settings.get("scan_llm_responses"):
-                    result = await self.scan_message(accumulated_text, is_llm_response=True)
+                    scan_text = self.strip_echoed_sensitive_tokens(accumulated_text, input_context)
+                    result = await self.scan_message(scan_text, is_llm_response=True)
                     if result.get("is_threat"):
                         threat_type = result.get("threat_type", "unknown")
                         print(f"[llm-proxy] ⚠️ OUTPUT THREAT (streamed): {threat_type}")

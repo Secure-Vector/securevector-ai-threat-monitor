@@ -448,21 +448,14 @@ _PROVIDER_PATCH_MAP = {
     # All OpenAI-compatible providers go through these 2 files
     "openai": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "groq": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "openrouter": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "cerebras": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "mistral": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "xai": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "deepseek": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "together": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "fireworks": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "perplexity": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "cohere": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "ollama": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "moonshot": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     "minimax": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "lmstudio": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "litellm": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
-    "azure": ["dist/providers/openai-completions.js", "dist/providers/openai-responses.js"],
     # Anthropic has its own file
     "anthropic": ["dist/providers/anthropic.js"],
     # Google has 2 files
@@ -911,7 +904,7 @@ Examples:
     parser.add_argument(
         "--provider",
         type=str,
-        choices=["openai", "anthropic", "ollama", "groq", "openrouter", "cerebras", "mistral", "xai", "gemini", "azure", "lmstudio", "litellm", "moonshot", "minimax", "deepseek", "together", "fireworks", "perplexity", "cohere"],
+        choices=["openai", "anthropic", "groq", "cerebras", "mistral", "xai", "gemini", "moonshot", "minimax", "deepseek", "together", "cohere"],
         default="openai",
         help="Single LLM provider to proxy. Ignored if --multi is set",
     )

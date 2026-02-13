@@ -17,6 +17,7 @@ Then connect your client to ws://localhost:8080 instead of OpenClaw directly.
 import argparse
 import asyncio
 import json
+import re
 import sys
 from typing import Optional
 
@@ -27,6 +28,62 @@ except ImportError:
     print("Missing dependencies. Install with:")
     print("  pip install websockets httpx")
     sys.exit(1)
+
+
+# Compiled regex patterns for sensitive tokens that may be echoed back by LLMs.
+# Matches the same token types as the output leakage rules to prevent false positives
+# when the LLM echoes conversation context containing API keys, passwords, etc.
+_SENSITIVE_TOKEN_PATTERNS = re.compile(
+    r'|'.join([
+        r'sk-[a-zA-Z0-9]{20,}',
+        r'sk_(?:test|live)_[a-zA-Z0-9]{20,}',
+        r'pk_(?:test|live)_[a-zA-Z0-9]{20,}',
+        r'rk_(?:test|live)_[a-zA-Z0-9]{20,}',
+        r'ghp_[a-zA-Z0-9]{36}',
+        r'gho_[a-zA-Z0-9]{36}',
+        r'github_pat_[a-zA-Z0-9_]{22,}',
+        r'xox[baprs]-[a-zA-Z0-9\-]{10,}',
+        r'AKIA[A-Z0-9]{16}',
+        r'AIza[a-zA-Z0-9_\-]{35}',
+        r'eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}',
+        r'(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*[\'"]?[a-zA-Z0-9_\-]{20,}',
+        r'(?:password|passwd|pwd)\s*(?:[:=]|\bis\b)[:\s]*[\'"]?[^\s\'"]{8,64}[\'"]?',
+        r'bearer\s+[a-zA-Z0-9_\-\.]{20,}',
+    ]),
+    re.IGNORECASE,
+)
+
+
+def strip_echoed_sensitive_tokens(output_text: str, input_context: str) -> str:
+    """Remove sensitive tokens from output that already exist in the input context.
+
+    When an LLM echoes back conversation context (common with Claude/Anthropic),
+    API keys, passwords, and other sensitive tokens from the user's input appear
+    in the output, triggering false positive output leakage alerts.
+
+    This function finds all sensitive tokens in the input context and replaces
+    them with [CONTEXT] in the output before scanning, so only genuinely NEW
+    sensitive data in the output triggers alerts.
+    """
+    if not input_context or not output_text:
+        return output_text
+
+    # Find all sensitive tokens present in the input
+    input_tokens = set()
+    for match in _SENSITIVE_TOKEN_PATTERNS.finditer(input_context):
+        token = match.group()
+        if len(token) >= 8:  # Only track meaningful tokens
+            input_tokens.add(token)
+
+    if not input_tokens:
+        return output_text
+
+    # Replace echoed tokens in output with [CONTEXT]
+    result = output_text
+    for token in input_tokens:
+        result = result.replace(token, "[CONTEXT]")
+
+    return result
 
 
 class SecureVectorProxy:
@@ -58,6 +115,7 @@ class SecureVectorProxy:
         self._should_exit = False
         self._output_scan_enabled: Optional[bool] = None
         self._output_scan_checked_at: float = 0
+        self._recent_user_inputs: list = []  # Track recent user inputs for context-aware output scanning
 
     def _truncate(self, text: str, max_len: int = 200) -> str:
         """Truncate text for logging."""
@@ -121,6 +179,10 @@ class SecureVectorProxy:
         This method only detects threats and logs them - messages are always
         forwarded to the client unchanged (preserving streaming UX).
 
+        Uses context-aware scanning: sensitive tokens (API keys, passwords, etc.)
+        that appear in recent user inputs are stripped before scanning to prevent
+        false positives when LLMs echo back conversation context.
+
         Returns:
             True if threat was detected, False otherwise
         """
@@ -132,10 +194,14 @@ class SecureVectorProxy:
         if not output_scan_enabled:
             return False
 
-        print(f"[proxy] 🔍 Scanning complete output ({len(text)} chars): {self._truncate(text, 80)}")
+        # Context-aware scanning: strip echoed sensitive tokens from user input
+        input_context = " ".join(self._recent_user_inputs[-10:])  # Last 10 messages as context
+        scan_text = strip_echoed_sensitive_tokens(text, input_context)
+
+        print(f"[proxy] 🔍 Scanning complete output ({len(text)} chars): {self._truncate(scan_text, 80)}")
 
         # Scan and store - redaction happens at storage layer (analyze.py)
-        result = await self.scan_message(text, is_llm_response=True, store=True, scan_type="output")
+        result = await self.scan_message(scan_text, is_llm_response=True, store=True, scan_type="output")
 
         if result.get("is_threat"):
             threat_type = result.get("threat_type", "unknown")
@@ -267,6 +333,10 @@ class SecureVectorProxy:
 
                         # Scan if we found scannable content
                         if text_to_scan and isinstance(text_to_scan, str) and len(text_to_scan) > 3:
+                            # Track for context-aware output scanning
+                            self._recent_user_inputs.append(text_to_scan)
+                            if len(self._recent_user_inputs) > 20:
+                                self._recent_user_inputs = self._recent_user_inputs[-10:]
                             self.stats["scanned"] += 1
                             # Check block mode first to determine action
                             block_enabled = await self.check_block_mode_enabled()
