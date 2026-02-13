@@ -194,7 +194,18 @@ class LLMProxy:
         self._block_threats_enabled: Optional[bool] = None
         self._cloud_mode_enabled: Optional[bool] = None
         self._cloud_api_key: Optional[str] = None
+        self._tool_permissions_enabled: Optional[bool] = None
         self._settings_checked_at: float = 0
+
+        # Tool permissions engine (lazy-loaded)
+        self._essential_registry: Optional[dict] = None
+        self._tool_overrides: Optional[dict] = None
+        self._tool_overrides_checked_at: float = 0
+        self._custom_tools_registry: Optional[dict] = None
+        self._custom_tools_checked_at: float = 0
+
+        # Rate limiting
+        self._request_counter: int = 0
 
     def _truncate(self, text: str, max_len: int = 100) -> str:
         """Truncate text for logging."""
@@ -221,6 +232,7 @@ class LLMProxy:
                 "block_threats": self._block_threats_enabled or self.block_threats,
                 "cloud_mode_enabled": self._cloud_mode_enabled or False,
                 "cloud_api_key": self._cloud_api_key,
+                "tool_permissions_enabled": self._tool_permissions_enabled or False,
             }
 
         try:
@@ -230,6 +242,7 @@ class LLMProxy:
                 settings = response.json()
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
+                self._tool_permissions_enabled = settings.get("tool_permissions_enabled", False)
                 self._settings_checked_at = now
 
             # Check cloud mode and get API key directly from credentials file
@@ -249,12 +262,13 @@ class LLMProxy:
                 "block_threats": self._block_threats_enabled,
                 "cloud_mode_enabled": self._cloud_mode_enabled or False,
                 "cloud_api_key": self._cloud_api_key,
+                "tool_permissions_enabled": self._tool_permissions_enabled or False,
             }
         except Exception as e:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None}
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": False}
 
     async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
         """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.
@@ -591,6 +605,261 @@ class LLMProxy:
 
         return "\n".join(t for t in texts if t)
 
+    async def _load_tool_overrides(self) -> dict:
+        """Fetch essential tool overrides from SecureVector API (cached for 60s)."""
+        import time
+        now = time.time()
+        if self._tool_overrides is not None and (now - self._tool_overrides_checked_at) < 60:
+            return self._tool_overrides
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/tool-permissions/overrides",
+                timeout=3.0,
+            )
+            if response.status_code == 200:
+                from securevector.core.tool_permissions.engine import get_essential_overrides
+                overrides_list = response.json().get("overrides", [])
+                self._tool_overrides = get_essential_overrides(overrides_list)
+                self._tool_overrides_checked_at = now
+                return self._tool_overrides
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"[llm-proxy] Could not fetch tool overrides: {e}")
+
+        return self._tool_overrides or {}
+
+    def _load_essential_registry(self) -> dict:
+        """Lazy-load the essential tool registry."""
+        if self._essential_registry is None:
+            from securevector.core.tool_permissions.engine import load_essential_registry
+            self._essential_registry = load_essential_registry()
+        return self._essential_registry
+
+    async def _load_custom_tools_registry(self) -> dict:
+        """Fetch custom tools from SecureVector API (cached for 60s)."""
+        import time
+        now = time.time()
+        if self._custom_tools_registry is not None and (now - self._custom_tools_checked_at) < 60:
+            return self._custom_tools_registry
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/tool-permissions/custom",
+                timeout=3.0,
+            )
+            if response.status_code == 200:
+                tools_list = response.json().get("tools", [])
+                self._custom_tools_registry = {
+                    t["tool_id"]: t for t in tools_list if "tool_id" in t
+                }
+                self._custom_tools_checked_at = now
+                return self._custom_tools_registry
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"[llm-proxy] Could not fetch custom tools: {e}")
+
+        return self._custom_tools_registry or {}
+
+    async def _evaluate_tool_permissions(self, response_dict: dict, settings: dict) -> tuple:
+        """Evaluate tool call permissions in an LLM response.
+
+        Returns:
+            Tuple of (modified_response_dict, blocked_tools, decisions).
+            modified_response_dict has blocked tool calls stripped.
+            blocked_tools is a list of blocked tool names.
+            decisions is a list of all PermissionDecision objects.
+        """
+        from securevector.core.tool_permissions.parser import extract_tool_calls
+        from securevector.core.tool_permissions.engine import (
+            evaluate_tool_call, get_risk_score,
+        )
+
+        tool_calls = extract_tool_calls(response_dict)
+        if not tool_calls:
+            return response_dict, [], []
+
+        registry = self._load_essential_registry()
+        overrides = await self._load_tool_overrides()
+        custom_registry = await self._load_custom_tools_registry()
+
+        decisions = []
+        blocked_tools = []
+        blocked_indices_openai = set()  # (choice_idx, tc_idx) for OpenAI
+        blocked_indices_anthropic = set()  # content block indices for Anthropic
+
+        for tc in tool_calls:
+            decision = evaluate_tool_call(tc.function_name, registry, overrides, custom_registry)
+
+            # Rate limit check for allowed tools (essential + custom)
+            if decision.action == "allow":
+                max_calls = None
+                window_secs = None
+                rate_limit_api_prefix = None
+
+                if decision.is_essential:
+                    # Essential tools: rate limits stored in overrides (fetched via API)
+                    rate_limit_api_prefix = f"/api/tool-permissions/overrides/{tc.function_name}"
+                elif custom_registry:
+                    custom_tool = custom_registry.get(tc.function_name)
+                    if custom_tool:
+                        max_calls = custom_tool.get("rate_limit_max_calls")
+                        window_secs = custom_tool.get("rate_limit_window_seconds")
+                        rate_limit_api_prefix = f"/api/tool-permissions/custom/{tc.function_name}"
+
+                # Check rate limit via API (works for both essential and custom)
+                if rate_limit_api_prefix:
+                    try:
+                        client = await self.get_http_client()
+                        count_resp = await client.get(
+                            f"{self.securevector_url}{rate_limit_api_prefix}/rate-limit",
+                            timeout=3.0,
+                        )
+                        if count_resp.status_code == 200:
+                            rl_data = count_resp.json()
+                            # Use API response for authoritative rate limit data
+                            rl_max = rl_data.get("max_calls")
+                            rl_window = rl_data.get("window_seconds")
+                            current_count = rl_data.get("current_count", 0)
+
+                            if rl_max and rl_window and current_count >= rl_max:
+                                if rl_window >= 3600:
+                                    window_display = f"{rl_window // 3600} hour(s)"
+                                elif rl_window >= 60:
+                                    window_display = f"{rl_window // 60} minute(s)"
+                                else:
+                                    window_display = f"{rl_window} seconds"
+
+                                decision.action = "block"
+                                decision.reason = (
+                                    f"Rate limited: {current_count}/{rl_max} calls "
+                                    f"in the last {window_display}"
+                                )
+                    except Exception as e:
+                        if self.verbose:
+                            logger.warning(f"[llm-proxy] Rate limit check failed for {tc.function_name}: {e}")
+
+            decisions.append(decision)
+
+            if decision.action == "block":
+                blocked_tools.append(tc.function_name)
+                if tc.provider_format == "openai":
+                    blocked_indices_openai.add(tc.index)
+                elif tc.provider_format == "anthropic":
+                    blocked_indices_anthropic.add(tc.index)
+
+                print(f"[llm-proxy] 🔒 TOOL BLOCKED: {tc.function_name} ({decision.reason})")
+            else:
+                # Log allowed tool calls for rate limiting (essential + custom)
+                if decision.action == "allow" and decision.tool_name:
+                    log_prefix = (
+                        f"/api/tool-permissions/overrides/{tc.function_name}"
+                        if decision.is_essential
+                        else f"/api/tool-permissions/custom/{tc.function_name}"
+                    )
+                    try:
+                        client = await self.get_http_client()
+                        await client.post(
+                            f"{self.securevector_url}{log_prefix}/log-call",
+                            timeout=3.0,
+                        )
+                    except Exception:
+                        pass  # Logging failure is non-critical
+
+                action_label = "allowed" if decision.action == "allow" else "logged"
+                if decision.is_essential or (decision.tool_name and decision.action == "allow"):
+                    print(f"[llm-proxy] ✓ Tool {action_label}: {tc.function_name}")
+
+        # Log permission decisions to SecureVector
+        for decision in decisions:
+            if decision.is_essential:
+                try:
+                    risk_score = get_risk_score(decision.risk)
+                    action_taken = "blocked" if decision.action == "block" else "logged"
+                    log_payload = {
+                        "text": f"Tool call: {decision.function_name}",
+                        "metadata": {
+                            "source": "llm-proxy",
+                            "target": self.target_url,
+                            "scan_type": "tool_permission",
+                            "action_taken": action_taken,
+                            "tool_name": decision.tool_name,
+                            "tool_action": decision.action,
+                            "tool_risk": decision.risk,
+                        }
+                    }
+                    client = await self.get_http_client()
+                    await client.post(self.analyze_url, json=log_payload, timeout=3.0)
+                except Exception:
+                    pass  # Logging failure is non-critical
+
+        # Periodic cleanup of old call log entries (every 100 requests)
+        self._request_counter += 1
+        if self._request_counter % 100 == 0:
+            try:
+                client = await self.get_http_client()
+                await client.post(
+                    f"{self.securevector_url}/api/tool-permissions/cleanup-call-log",
+                    timeout=3.0,
+                )
+            except Exception:
+                pass
+
+        # If ALL tool calls are blocked, replace with text denial
+        if blocked_tools and len(blocked_tools) == len(tool_calls):
+            # Build denial message — include rate limit details when applicable
+            rate_limited = [d for d in decisions if "Rate limited" in d.reason]
+            if rate_limited:
+                rl = rate_limited[0]
+                denial_msg = (
+                    f"[SecureVector] Tool '{rl.function_name}' rate limited: {rl.reason}. "
+                    f"Retry after the window resets. This limit protects against provider TOS violations."
+                )
+            else:
+                names = ", ".join(blocked_tools)
+                denial_msg = (
+                    f"[SecureVector] The following tool calls were blocked by security policy: "
+                    f"{names}. Please proceed without using these tools."
+                )
+            # Replace response with text-only message
+            if "choices" in response_dict:
+                for choice in response_dict.get("choices", []):
+                    if isinstance(choice, dict) and "message" in choice:
+                        choice["message"] = {
+                            "role": "assistant",
+                            "content": denial_msg,
+                        }
+            elif "content" in response_dict and isinstance(response_dict["content"], list):
+                response_dict["content"] = [
+                    {"type": "text", "text": denial_msg}
+                ]
+            return response_dict, blocked_tools, decisions
+
+        # Strip only blocked tool calls (partial block)
+        if blocked_indices_openai:
+            for choice in response_dict.get("choices", []):
+                if isinstance(choice, dict) and "message" in choice:
+                    msg = choice["message"]
+                    if isinstance(msg, dict) and "tool_calls" in msg:
+                        msg["tool_calls"] = [
+                            tc for i, tc in enumerate(msg["tool_calls"])
+                            if i not in blocked_indices_openai
+                        ]
+                        if not msg["tool_calls"]:
+                            del msg["tool_calls"]
+
+        if blocked_indices_anthropic:
+            content = response_dict.get("content", [])
+            if isinstance(content, list):
+                response_dict["content"] = [
+                    block for i, block in enumerate(content)
+                    if i not in blocked_indices_anthropic
+                ]
+
+        return response_dict, blocked_tools, decisions
+
     def extract_response_text(self, body: dict) -> str:
         """Extract text content from any LLM API response body.
 
@@ -720,7 +989,7 @@ class LLMProxy:
             input_text = re.sub(r'\[message_id:\s*[^\]]+\]', '', input_text).strip()
             if input_text:
                 self.stats["scanned"] += 1
-                preview = input_text[:80].replace('\n', ' ')
+                preview = input_text[:200].replace('\n', ' ')
                 print(f"[llm-proxy] 🔍 Scanning input ({len(input_text)} chars): {preview}...")
 
                 # Check block mode first to record correct action
@@ -775,6 +1044,13 @@ class LLMProxy:
         headers = dict(request.headers)
         headers.pop("host", None)
         headers.pop("content-length", None)
+
+        # Debug: log auth headers (masked)
+        auth_keys = [k for k in headers if k.lower() in ("x-api-key", "authorization")]
+        for k in auth_keys:
+            val = headers[k]
+            masked = val[:12] + "..." + val[-4:] if len(val) > 20 else "(short/empty)"
+            print(f"[llm-proxy] Auth header: {k}={masked}")
 
         # Auto-prepend API version prefix if missing from path
         # e.g. /responses → /v1/responses for OpenAI
@@ -870,6 +1146,20 @@ class LLMProxy:
                                             status_code=400,
                                             media_type="application/json",
                                         )
+                        # Tool permission enforcement (after output scan)
+                        settings = await self.check_settings()
+                        if settings.get("tool_permissions_enabled"):
+                            response_dict, blocked, _ = await self._evaluate_tool_permissions(
+                                response_dict, settings
+                            )
+                            if blocked:
+                                # Return modified response with blocked tools stripped
+                                modified_content = json.dumps(response_dict)
+                                return Response(
+                                    content=modified_content.encode(),
+                                    status_code=response.status_code,
+                                    headers=dict(response.headers),
+                                )
                     except json.JSONDecodeError:
                         pass
 
@@ -970,6 +1260,40 @@ class LLMProxy:
                     )
             else:
                 print("[llm-proxy] ✓ Output clean")
+
+        # Tool permission enforcement on buffered stream
+        if settings.get("tool_permissions_enabled"):
+            # Reconstruct full response from last chunk that has complete data
+            full_response = None
+            for chunk in reversed(all_chunks):
+                try:
+                    chunk_str = chunk.decode("utf-8")
+                    for line in chunk_str.split("\n"):
+                        if line.startswith("data: ") and line != "data: [DONE]":
+                            data = json.loads(line[6:])
+                            # Look for chunks with tool_calls (OpenAI) or tool_use (Anthropic)
+                            from securevector.core.tool_permissions.parser import extract_tool_calls
+                            if extract_tool_calls(data):
+                                full_response = data
+                                break
+                    if full_response:
+                        break
+                except:
+                    continue
+
+            if full_response:
+                modified, blocked, _ = await self._evaluate_tool_permissions(
+                    full_response, settings
+                )
+                if blocked:
+                    # For streaming, return the denial as a non-streaming response
+                    # since we can't modify SSE chunks retroactively
+                    denial = json.dumps(modified)
+                    return Response(
+                        content=denial.encode(),
+                        status_code=200,
+                        media_type="application/json",
+                    )
 
         # Deliver buffered stream
         async def replay_chunks():

@@ -76,6 +76,38 @@ const SettingsPage = {
         llmSection.appendChild(llmCard);
         container.appendChild(llmSection);
 
+        // Tool Permissions shortcut
+        const toolSection = this.createSection('Tool Permissions', 'Control which tool calls AI agents can execute through the proxy');
+        const toolCard = Card.create({ gradient: true });
+        const toolBody = toolCard.querySelector('.card-body');
+
+        const toolRow = document.createElement('div');
+        toolRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 16px;';
+
+        const toolInfo = document.createElement('div');
+        const toolLabel = document.createElement('div');
+        toolLabel.style.cssText = 'font-weight: 600;';
+        toolLabel.textContent = 'Manage essential tool permissions, block high-risk tool calls.';
+        toolInfo.appendChild(toolLabel);
+
+        const toolNote = document.createElement('div');
+        toolNote.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        toolNote.textContent = '27 high-risk tools are blocked by default when enforcement is enabled.';
+        toolInfo.appendChild(toolNote);
+        toolRow.appendChild(toolInfo);
+
+        const toolBtn = document.createElement('button');
+        toolBtn.className = 'btn btn-primary';
+        toolBtn.textContent = 'Manage';
+        toolBtn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.navigate('tool-permissions');
+        });
+        toolRow.appendChild(toolBtn);
+
+        toolBody.appendChild(toolRow);
+        toolSection.appendChild(toolCard);
+        container.appendChild(toolSection);
+
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
         const themeCard = Card.create({ gradient: true });

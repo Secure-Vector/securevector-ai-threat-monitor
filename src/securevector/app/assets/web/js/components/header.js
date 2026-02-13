@@ -1584,6 +1584,7 @@ graph.add_edge("output_security", END)`,
             dashboard: 'Dashboard',
             threats: 'Threat Analytics',
             rules: 'Rules',
+            'tool-permissions': 'Tool Permissions',
             proxy: 'Security',
             settings: 'Settings',
         };

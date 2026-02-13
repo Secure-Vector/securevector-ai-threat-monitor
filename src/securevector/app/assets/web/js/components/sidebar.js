@@ -8,6 +8,7 @@ const Sidebar = {
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
+        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
@@ -90,6 +91,14 @@ const Sidebar = {
                 badge.id = 'rules-count-badge';
                 badge.textContent = '...';
                 navItem.appendChild(badge);
+            }
+
+            // NEW badge for tool permissions
+            if (item.id === 'tool-permissions') {
+                const newBadge = document.createElement('span');
+                newBadge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: #06b6d4; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                newBadge.textContent = 'NEW';
+                navItem.appendChild(newBadge);
             }
 
             // Chevron for collapsible items
@@ -637,6 +646,10 @@ const Sidebar = {
             book: [
                 { tag: 'path', attrs: { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' } },
                 { tag: 'path', attrs: { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' } },
+            ],
+            lock: [
+                { tag: 'rect', attrs: { x: '3', y: '11', width: '18', height: '11', rx: '2', ry: '2' } },
+                { tag: 'path', attrs: { d: 'M7 11V7a5 5 0 0 1 10 0v4' } },
             ],
             uninstall: [
                 { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },

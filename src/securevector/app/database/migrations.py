@@ -144,6 +144,9 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         6: migrate_to_v6,
         7: migrate_to_v7,
         8: migrate_to_v8,
+        9: migrate_to_v9,
+        10: migrate_to_v10,
+        11: migrate_to_v11,
     }
 
     if version in migrations:
@@ -315,6 +318,120 @@ async def migrate_to_v8(db: DatabaseConnection) -> None:
     )
 
     logger.info("Applied migration v8: action_taken column")
+
+
+async def migrate_to_v9(db: DatabaseConnection) -> None:
+    """Migration v8 -> v9: Add tool permissions support."""
+    conn = await db.connect()
+
+    # Create tool_essential_overrides table
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tool_essential_overrides (
+            tool_id TEXT PRIMARY KEY,
+            action TEXT NOT NULL CHECK (action IN ('block', 'allow')),
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    # Add tool_permissions_enabled to app_settings
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    if "tool_permissions_enabled" not in existing_columns:
+        await conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN tool_permissions_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (9, CURRENT_TIMESTAMP, 'Add tool permissions support')"
+    )
+
+    logger.info("Applied migration v9: tool permissions support")
+
+
+async def migrate_to_v10(db: DatabaseConnection) -> None:
+    """Migration v9 -> v10: Add custom tools table."""
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS custom_tools (
+            tool_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'custom',
+            risk TEXT NOT NULL DEFAULT 'write' CHECK (risk IN ('read','write','delete','admin')),
+            default_permission TEXT NOT NULL DEFAULT 'block' CHECK (default_permission IN ('block','allow')),
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (10, CURRENT_TIMESTAMP, 'Add custom tools support')"
+    )
+
+    logger.info("Applied migration v10: custom tools table")
+
+
+async def migrate_to_v11(db: DatabaseConnection) -> None:
+    """Migration v10 -> v11: Add tool rate limiting."""
+    conn = await db.connect()
+
+    # Add rate limit columns to custom_tools (nullable = no limit)
+    cursor = await conn.execute("PRAGMA table_info(custom_tools)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    rate_limit_columns = [
+        ("rate_limit_max_calls", "INTEGER DEFAULT NULL"),
+        ("rate_limit_window_seconds", "INTEGER DEFAULT NULL"),
+    ]
+
+    for col_name, col_def in rate_limit_columns:
+        if col_name not in existing_columns:
+            await conn.execute(
+                f"ALTER TABLE custom_tools ADD COLUMN {col_name} {col_def}"
+            )
+
+    # Add rate limit columns to tool_essential_overrides too
+    cursor = await conn.execute("PRAGMA table_info(tool_essential_overrides)")
+    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+    for col_name, col_def in rate_limit_columns:
+        if col_name not in existing_columns:
+            await conn.execute(
+                f"ALTER TABLE tool_essential_overrides ADD COLUMN {col_name} {col_def}"
+            )
+
+    # Create tool_call_log table for tracking calls
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tool_call_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_id TEXT NOT NULL,
+            called_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    # Index for fast window queries
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tool_call_log_lookup
+        ON tool_call_log (tool_id, called_at)
+        """
+    )
+
+    # Record migration
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) VALUES (11, CURRENT_TIMESTAMP, 'Add tool rate limiting')"
+    )
+
+    logger.info("Applied migration v11: tool rate limiting")
 
 
 # Future migration functions would be defined here:

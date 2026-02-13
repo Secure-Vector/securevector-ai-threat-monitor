@@ -18,6 +18,7 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
+        'tool-permissions': ToolPermissionsPage,
     },
 
     /**

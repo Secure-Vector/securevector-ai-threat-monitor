@@ -281,8 +281,8 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 8
-SCHEMA_DESCRIPTION = "Add action_taken column to track blocked vs logged threats"
+CURRENT_SCHEMA_VERSION = 11
+SCHEMA_DESCRIPTION = "Add tool rate limiting"
 
 # Migration SQL for v2
 MIGRATION_V2_SQL = """

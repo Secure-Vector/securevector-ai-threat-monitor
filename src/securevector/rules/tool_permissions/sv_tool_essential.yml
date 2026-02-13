@@ -1,0 +1,363 @@
+# SecureVector Essential Tool Permission Registry
+#
+# ~27 high-risk tool definitions bundled with the open source package.
+# These tool calls are blocked by default when tool permission scanning is enabled.
+# Users can toggle individual tools between "block" and "allow" via the app UI.
+#
+# Rate limits are researched from official provider documentation and TOS.
+# Values are set at ~10-25% of provider limits to prevent account bans,
+# throttling, and TOS violations when AI agents loop.
+#
+# TRADEMARK NOTICE: Tool and provider names (Gmail, Slack, GitHub, AWS, Stripe, etc.)
+# referenced in this registry are trademarks or registered trademarks of their
+# respective owners. SecureVector AI Threat Monitor is an independent security product
+# and is not affiliated with, endorsed by, or sponsored by any referenced provider.
+# Names are used solely for functional security identification and interoperability
+# purposes, consistent with nominative fair use.
+#
+# Categories: communication, code_devops, file_system, database, cloud_infra, payment, social_media, security
+
+essential_tools:
+  # ── Communication (4) ──────────────────────────────────────────
+  - id: gmail.send_email
+    provider: Gmail
+    category: communication
+    name: Send Email
+    description: Send an email via Gmail API
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 86400
+      note: "Gmail personal: 500/day, Workspace: 2000/day. 20/day keeps well under personal cap and avoids spam flags."
+
+  - id: slack.send_message
+    provider: Slack
+    category: communication
+    name: Send Message
+    description: Send a message to a Slack channel or user
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 900
+      note: "Slack chat.postMessage: 1 msg/sec/channel (Special tier). 30/15min = ~2/min, safe margin. Non-Marketplace apps face stricter limits in 2026."
+
+  - id: twilio.send_sms
+    provider: Twilio
+    category: communication
+    name: Send SMS
+    description: Send an SMS message via Twilio
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 60
+      window_seconds: 3600
+      note: "Twilio 10DLC: 3-75 MPS depending on trust score. 60/hr = 1/min, prevents carrier filtering and keeps costs controlled."
+
+  - id: sendgrid.send_email
+    provider: SendGrid
+    category: communication
+    name: Send Email
+    description: Send an email via SendGrid API
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 86400
+      note: "SendGrid trial: 100/day. Essentials: 50k/month (~1667/day). 50/day is safe for agents on any tier."
+
+  # ── Code & DevOps (4) ──────────────────────────────────────────
+  - id: github.push_code
+    provider: GitHub
+    category: code_devops
+    name: Push Code
+    description: Push code to a GitHub repository
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "GitHub: 5000 REST req/hr, but git push recommended max ~6/min/repo. 30/hr is safe for automated workflows."
+
+  - id: github.delete_repo
+    provider: GitHub
+    category: code_devops
+    name: Delete Repository
+    description: Delete an entire GitHub repository
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Destructive and irreversible. Extremely low limit as safety net against agent loops."
+
+  - id: github.manage_workflows
+    provider: GitHub
+    category: code_devops
+    name: Manage Workflows
+    description: Create or modify GitHub Actions workflows
+    risk: admin
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Each workflow change can trigger CI/CD runs consuming Actions minutes and compute."
+
+  - id: gitlab.push_code
+    provider: GitLab
+    category: code_devops
+    name: Push Code
+    description: Push code to a GitLab repository
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "GitLab API: 7200 req/hr (120/min authenticated). 30/hr is conservative for push ops."
+
+  # ── File System (3) ────────────────────────────────────────────
+  - id: fs.delete_file
+    provider: Local Filesystem
+    category: file_system
+    name: Delete File
+    description: Delete a file from the local filesystem
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "No API limit, but agent loops can wipe directories. Safety cap prevents mass deletion."
+
+  - id: fs.execute_command
+    provider: Local Filesystem
+    category: file_system
+    name: Execute Command
+    description: Execute a shell command on the local system
+    risk: admin
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Shell execution is highest risk. Low limit prevents runaway agents from spawning processes."
+
+  - id: gdrive.delete
+    provider: Google Drive
+    category: file_system
+    name: Delete File
+    description: Delete a file from Google Drive
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Google Drive: 20k req/100sec, 3 writes/sec sustained. 20/hr for deletes as safety net."
+
+  # ── Database (5) ───────────────────────────────────────────────
+  - id: postgres.drop_table
+    provider: PostgreSQL
+    category: database
+    name: Drop Table
+    description: Drop a PostgreSQL database table
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "DROP TABLE is destructive DDL. No legitimate reason to drop 3+ tables/hr via an agent."
+
+  - id: mysql.drop_table
+    provider: MySQL
+    category: database
+    name: Drop Table
+    description: Drop a MySQL database table
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Same as PostgreSQL — destructive DDL should be rare and intentional."
+
+  - id: mongodb.drop_collection
+    provider: MongoDB
+    category: database
+    name: Drop Collection
+    description: Drop a MongoDB collection
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Dropping collections is irreversible. MongoDB Atlas has additional per-project quotas."
+
+  - id: redis.flushdb
+    provider: Redis
+    category: database
+    name: Flush Database
+    description: Delete all keys from the current Redis database
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 2
+      window_seconds: 3600
+      note: "FLUSHDB wipes the entire keyspace. Essentially never needed more than once."
+
+  - id: sqlite.drop
+    provider: SQLite
+    category: database
+    name: Drop Table
+    description: Drop a SQLite database table
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Local DB but still destructive. Safety cap for agent-driven schema changes."
+
+  # ── Cloud & Infrastructure (4) ─────────────────────────────────
+  - id: aws.iam_create_user
+    provider: AWS
+    category: cloud_infra
+    name: Create IAM User
+    description: Create a new IAM user in AWS
+    risk: admin
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "AWS IAM: ~500 req/sec (token bucket). Creating users is rare. Low cap for security."
+
+  - id: aws.iam_manage_policy
+    provider: AWS
+    category: cloud_infra
+    name: Manage IAM Policy
+    description: Create, modify, or attach IAM policies in AWS
+    risk: admin
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "IAM policy changes affect access globally. Each policy has a 5-version limit."
+
+  - id: terraform.destroy
+    provider: Terraform
+    category: cloud_infra
+    name: Destroy Infrastructure
+    description: Destroy Terraform-managed infrastructure
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 2
+      window_seconds: 3600
+      note: "Infrastructure destruction is catastrophic and irreversible. Near-zero tolerance."
+
+  - id: k8s.exec
+    provider: Kubernetes
+    category: cloud_infra
+    name: Execute in Pod
+    description: Execute a command inside a Kubernetes pod
+    risk: admin
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Pod exec is powerful but needed for debugging. Moderate cap prevents abuse."
+
+  # ── Payment (2) ────────────────────────────────────────────────
+  - id: stripe.create_charge
+    provider: Stripe
+    category: payment
+    name: Create Charge
+    description: Create a payment charge via Stripe
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 25
+      window_seconds: 3600
+      note: "Stripe: 100 ops/sec (live), 25/sec (test). Each charge moves real money. Agent loops are financially dangerous."
+
+  - id: paypal.create_payment
+    provider: PayPal
+    category: payment
+    name: Create Payment
+    description: Create a payment via PayPal
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "PayPal uses dynamic throttling (~100 req/min reported). Each call creates a real transaction."
+
+  # ── Social Media (3) ───────────────────────────────────────────
+  - id: twitter.post_tweet
+    provider: Twitter/X
+    category: social_media
+    name: Post Tweet
+    description: Post a tweet on Twitter/X
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 86400
+      note: "X free tier: 500 posts/month (~17/day). 5/day is safe for any tier and avoids spam suspension."
+
+  - id: linkedin.create_post
+    provider: LinkedIn
+    category: social_media
+    name: Create Post
+    description: Create a post on LinkedIn
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 86400
+      note: "LinkedIn: unpublished limits (~100-500/day). Posting >3-5x/day triggers aggressive spam heuristics."
+
+  - id: facebook.create_post
+    provider: Facebook
+    category: social_media
+    name: Create Post
+    description: Create a post on Facebook
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 86400
+      note: "Facebook Graph API: 200 calls/user/hr. Excessive posting triggers spam detection. ~5/day is safe per page."
+
+  # ── Security (3) ───────────────────────────────────────────────
+  - id: vault.write_secret
+    provider: HashiCorp Vault
+    category: security
+    name: Write Secret
+    description: Write a secret to HashiCorp Vault
+    risk: write
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "HCP Vault Dev: 60 req/sec. Self-hosted: configurable. Secret churn creates audit noise and versioning bloat."
+
+  - id: vault.delete_secret
+    provider: HashiCorp Vault
+    category: security
+    name: Delete Secret
+    description: Delete a secret from HashiCorp Vault
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Deleting secrets can break dependent services. Low cap for safety."
+
+  - id: onepassword.delete_item
+    provider: 1Password
+    category: security
+    name: Delete Item
+    description: Delete an item from 1Password
+    risk: delete
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "1Password Business: 1000 writes/hr. Teams: 100 writes/hr. Deleted items are hard to recover."

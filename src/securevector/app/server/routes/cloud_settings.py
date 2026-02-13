@@ -35,6 +35,7 @@ class GeneralSettingsResponse(BaseModel):
     store_text_content: bool = True
     retention_days: int = 30
     block_threats: bool = False
+    tool_permissions_enabled: bool = False
 
 
 class GeneralSettingsUpdate(BaseModel):
@@ -44,6 +45,7 @@ class GeneralSettingsUpdate(BaseModel):
     store_text_content: Optional[bool] = None
     retention_days: Optional[int] = None
     block_threats: Optional[bool] = None
+    tool_permissions_enabled: Optional[bool] = None
 
 
 class CloudSettingsResponse(BaseModel):
@@ -108,6 +110,7 @@ async def get_general_settings() -> GeneralSettingsResponse:
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
+            tool_permissions_enabled=settings.tool_permissions_enabled,
         )
 
     except Exception as e:
@@ -134,6 +137,8 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             updates["retention_days"] = request.retention_days
         if request.block_threats is not None:
             updates["block_threats"] = request.block_threats
+        if request.tool_permissions_enabled is not None:
+            updates["tool_permissions_enabled"] = request.tool_permissions_enabled
 
         if updates:
             await settings_repo.update(**updates)
@@ -145,6 +150,7 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
+            tool_permissions_enabled=settings.tool_permissions_enabled,
         )
 
     except Exception as e:

@@ -13,10 +13,12 @@ from . import analyze
 from . import rules
 from . import cloud_settings
 from . import threat_analytics
+from . import tool_permissions
 
 __all__ = [
     "analyze",
     "rules",
     "cloud_settings",
     "threat_analytics",
+    "tool_permissions",
 ]

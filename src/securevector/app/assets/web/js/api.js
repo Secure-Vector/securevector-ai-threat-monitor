@@ -215,6 +215,84 @@ const API = {
         });
     },
 
+    // ==================== Tool Permissions ====================
+
+    async getEssentialTools() {
+        return this.request('/api/tool-permissions/essential').catch(() => ({
+            tools: [],
+            total: 0,
+        }));
+    },
+
+    async getToolOverrides() {
+        return this.request('/api/tool-permissions/overrides').catch(() => ({
+            overrides: [],
+            total: 0,
+        }));
+    },
+
+    async setToolOverride(toolId, action) {
+        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ action }),
+        });
+    },
+
+    async updateEssentialToolRateLimit(toolId, maxCalls, windowSeconds) {
+        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}/rate-limit`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                max_calls: maxCalls || null,
+                window_seconds: windowSeconds || null,
+            }),
+        });
+    },
+
+    async deleteToolOverride(toolId) {
+        return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
+            method: 'DELETE',
+        });
+    },
+
+    // ==================== Custom Tools ====================
+
+    async getCustomTools() {
+        return this.request('/api/tool-permissions/custom').catch(() => ({
+            tools: [],
+            total: 0,
+        }));
+    },
+
+    async createCustomTool(toolData) {
+        return this.request('/api/tool-permissions/custom', {
+            method: 'POST',
+            body: JSON.stringify(toolData),
+        });
+    },
+
+    async updateCustomToolPermission(toolId, defaultPermission) {
+        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ default_permission: defaultPermission }),
+        });
+    },
+
+    async updateCustomToolRateLimit(toolId, maxCalls, windowSeconds) {
+        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}/rate-limit`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                max_calls: maxCalls || null,
+                window_seconds: windowSeconds || null,
+            }),
+        });
+    },
+
+    async deleteCustomTool(toolId) {
+        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
+            method: 'DELETE',
+        });
+    },
+
     // ==================== LLM Settings ====================
 
     async getLLMSettings() {
