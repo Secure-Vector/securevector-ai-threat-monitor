@@ -42,7 +42,7 @@ Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-m
 - ☑ **Agents Protected** — LangChain, LangGraph, CrewAI, n8n, OpenClaw, and any OpenAI-compatible app.
 - ☑ **Input Scanning** — Block prompt injection, jailbreaks, and manipulation before they reach the LLM.
 - ☑ **Output Scanning** — Detect credential leaks, PII exposure, and system prompt disclosure.
-- ☑ **18+ Providers** — OpenAI, Anthropic, Gemini, Ollama, Groq, Azure, and more.
+- ☑ **13 Providers** — OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Mistral, xAI, Together, Cohere, Cerebras, and more.
 - ☑ **Full Visibility** — Real-time dashboard shows every threat, who sent it, and what was blocked.
 - ☑ **Protect Your API Account** — Block abuse before it triggers ToS violations or key suspension.
 - ☑ **One Command** — `securevector-app --web` and follow the UI to start protecting.
@@ -104,7 +104,7 @@ No Python required. Download and run.
 
 That's it! Every request is scanned for prompt injection. Every response is scanned for data leaks.
 
-**Supported providers:** `openai` `anthropic` `gemini` `ollama` `groq` `openrouter` `deepseek` `mistral` `xai` `azure` `together` `fireworks` `perplexity` `cohere` `cerebras` `lmstudio` `litellm`
+**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
 
 <br>
 
@@ -115,7 +115,7 @@ That's it! Every request is scanned for prompt injection. Every response is scan
 | **LangChain** | LLM Proxy or [SDK Callback](docs/USECASES.md#langchain) |
 | **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
 | **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
-| **Ollama / Open WebUI** | LLM Proxy — see Integrations in UI |
+| **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
 | **OpenClaw / ClaudBot** | LLM Proxy — see Integrations in UI |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
 | **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |

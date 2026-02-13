@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from typing import Optional
 from urllib.parse import urlparse
@@ -43,7 +44,6 @@ ALLOWED_TARGET_HOSTS = {
     "api.openai.com",
     "api.anthropic.com",
     "api.groq.com",
-    "openrouter.ai",
     "api.cerebras.ai",
     "api.mistral.ai",
     "api.x.ai",
@@ -52,8 +52,6 @@ ALLOWED_TARGET_HOSTS = {
     "api.minimax.chat",
     "api.deepseek.com",
     "api.together.xyz",
-    "api.fireworks.ai",
-    "api.perplexity.ai",
     "api.cohere.ai",
     # Local development
     "localhost",
@@ -100,11 +98,6 @@ def validate_url(url: str, allowed_hosts: set, url_type: str) -> str:
 
     hostname = parsed.hostname.lower()
 
-    # Allow any Azure OpenAI endpoint (*.openai.azure.com)
-    if hostname.endswith(".openai.azure.com"):
-        return url
-
-    # Allow any local network for Ollama/LM Studio (user's choice)
     if hostname in allowed_hosts:
         return url
 
@@ -139,22 +132,15 @@ class LLMProxy:
     PROVIDERS = {
         "openai": "https://api.openai.com",
         "anthropic": "https://api.anthropic.com",
-        "ollama": "http://localhost:11434",
         "groq": "https://api.groq.com/openai",
-        "openrouter": "https://openrouter.ai/api",
         "cerebras": "https://api.cerebras.ai",
         "mistral": "https://api.mistral.ai",
         "xai": "https://api.x.ai",
         "gemini": "https://generativelanguage.googleapis.com",
-        "azure": "https://YOUR-RESOURCE.openai.azure.com",
-        "lmstudio": "http://localhost:1234",
-        "litellm": "http://localhost:4000",
         "moonshot": "https://api.moonshot.ai",
         "minimax": "https://api.minimax.chat",
         "deepseek": "https://api.deepseek.com",
         "together": "https://api.together.xyz",
-        "fireworks": "https://api.fireworks.ai/inference",
-        "perplexity": "https://api.perplexity.ai",
         "cohere": "https://api.cohere.ai",
     }
 
@@ -162,22 +148,15 @@ class LLMProxy:
     API_PREFIXES = {
         "openai": "/v1",
         "anthropic": "",
-        "ollama": "/v1",
         "groq": "/v1",
-        "openrouter": "/v1",
         "cerebras": "/v1",
         "mistral": "/v1",
         "xai": "/v1",
         "gemini": "/v1beta",
-        "azure": "",
-        "lmstudio": "/v1",
-        "litellm": "/v1",
         "moonshot": "/v1",
         "minimax": "/v1",
         "deepseek": "/v1",
         "together": "/v1",
-        "fireworks": "/v1",
-        "perplexity": "/v1",
         "cohere": "/v1",
     }
 
@@ -629,6 +608,8 @@ class LLMProxy:
         # Scan input messages
         if body_dict and method == "POST":
             input_text = self.extract_messages_text(body_dict)
+            # Strip client metadata tags (e.g. OpenClaw [message_id: ...]) to avoid false positives
+            input_text = re.sub(r'\[message_id:\s*[^\]]+\]', '', input_text).strip()
             if input_text:
                 self.stats["scanned"] += 1
                 preview = input_text[:80].replace('\n', ' ')
@@ -755,10 +736,18 @@ class LLMProxy:
                     except json.JSONDecodeError:
                         pass
 
+                # Strip encoding headers: httpx auto-decompresses the body
+                # but keeps content-encoding in headers; forwarding both
+                # causes downstream clients to try double-decompression.
+                resp_headers = dict(response.headers)
+                resp_headers.pop("content-encoding", None)
+                resp_headers.pop("content-length", None)
+                resp_headers.pop("transfer-encoding", None)
+
                 return Response(
                     content=response.content,
                     status_code=response.status_code,
-                    headers=dict(response.headers),
+                    headers=resp_headers,
                 )
 
         except httpx.RequestError as e:

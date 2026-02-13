@@ -135,7 +135,7 @@
 
 <rect x="740" y="284" width="160" height="32" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
 <circle cx="758" cy="300" r="4" fill="#94a3b8"/>
-<text x="772" y="304" class="item">18+ more</text>
+<text x="772" y="304" class="item">8+ more</text>
 
 <!-- ==================== DIVIDER ==================== -->
 <line x1="100" y1="360" x2="860" y2="360" stroke="#e5e7eb" stroke-width="1"/>

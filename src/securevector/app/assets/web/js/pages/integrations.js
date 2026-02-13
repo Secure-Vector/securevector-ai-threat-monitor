@@ -105,20 +105,14 @@ const IntegrationPage = {
         ollama: { label: 'Ollama', env: 'OPENAI_BASE_URL', path: '/ollama/v1' },
         groq: { label: 'Groq', env: 'OPENAI_BASE_URL', path: '/groq/v1' },
         gemini: { label: 'Google Gemini', env: 'OPENAI_BASE_URL', path: '/gemini/v1beta' },
-        azure: { label: 'Azure OpenAI', env: 'AZURE_OPENAI_BASE_URL', path: '/azure' },
         mistral: { label: 'Mistral', env: 'OPENAI_BASE_URL', path: '/mistral/v1' },
         deepseek: { label: 'DeepSeek', env: 'OPENAI_BASE_URL', path: '/deepseek/v1' },
-        openrouter: { label: 'OpenRouter', env: 'OPENAI_BASE_URL', path: '/openrouter/v1' },
         together: { label: 'Together AI', env: 'OPENAI_BASE_URL', path: '/together/v1' },
-        fireworks: { label: 'Fireworks AI', env: 'OPENAI_BASE_URL', path: '/fireworks/v1' },
-        perplexity: { label: 'Perplexity', env: 'OPENAI_BASE_URL', path: '/perplexity/v1' },
         cohere: { label: 'Cohere', env: 'OPENAI_BASE_URL', path: '/cohere/v1' },
         xai: { label: 'xAI (Grok)', env: 'OPENAI_BASE_URL', path: '/xai/v1' },
         cerebras: { label: 'Cerebras', env: 'OPENAI_BASE_URL', path: '/cerebras/v1' },
         moonshot: { label: 'Moonshot', env: 'OPENAI_BASE_URL', path: '/moonshot/v1' },
         minimax: { label: 'MiniMax', env: 'OPENAI_BASE_URL', path: '/minimax/v1' },
-        lmstudio: { label: 'LM Studio', env: 'OPENAI_BASE_URL', path: '/lmstudio/v1' },
-        litellm: { label: 'LiteLLM', env: 'OPENAI_BASE_URL', path: '/litellm/v1' },
     },
 
     integrations: {
@@ -443,7 +437,7 @@ def chat_with_protection(user_input):
         // Description
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 13px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.5; font-weight: 600;';
-        desc.textContent = 'Use this if you work with multiple LLM providers. All 19 providers are available instantly \u2014 no configuration needed.';
+        desc.textContent = 'Use this if you work with multiple LLM providers. All 12 providers are available instantly \u2014 no configuration needed.';
         content.appendChild(desc);
 
         // Step 1
@@ -519,7 +513,7 @@ def chat_with_protection(user_input):
         pathsLabel.textContent = 'Available Endpoints';
         content.appendChild(pathsLabel);
 
-        content.appendChild(this.createCodeBlock('OpenAI:    http://localhost:8742/openai/v1\nAnthropic: http://localhost:8742/anthropic\nGoogle:    http://localhost:8742/gemini/v1\nOllama:    http://localhost:8742/ollama/v1\nGroq:      http://localhost:8742/groq/v1\nAzure:     http://localhost:8742/azure/v1\nMistral:   http://localhost:8742/mistral/v1\nDeepSeek:  http://localhost:8742/deepseek/v1'));
+        content.appendChild(this.createCodeBlock('OpenAI:    http://localhost:8742/openai/v1\nAnthropic: http://localhost:8742/anthropic\nOllama:    http://localhost:8742/ollama/v1\nGoogle:    http://localhost:8742/gemini/v1beta\nGroq:      http://localhost:8742/groq/v1\nMistral:   http://localhost:8742/mistral/v1\nDeepSeek:  http://localhost:8742/deepseek/v1\nxAI:       http://localhost:8742/xai/v1\nTogether:  http://localhost:8742/together/v1\nCohere:    http://localhost:8742/cohere/v1\nCerebras:  http://localhost:8742/cerebras/v1\nMoonshot:  http://localhost:8742/moonshot/v1\nMiniMax:   http://localhost:8742/minimax/v1'));
 
         card.appendChild(content);
         return card;
@@ -632,7 +626,7 @@ def chat_with_protection(user_input):
 
             // Open WebUI specific
             const openwebuiLabel = document.createElement('div');
-            openwebuiLabel.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;';
+            openwebuiLabel.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;';
             openwebuiLabel.textContent = 'For Open WebUI:';
             container.appendChild(openwebuiLabel);
 
@@ -651,7 +645,7 @@ def chat_with_protection(user_input):
 
             const step2Note = document.createElement('div');
             step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
-            step2Note.textContent = 'Set this in your client app (Open WebUI, scripts, etc). Traffic routes: Client → SecureVector → ' + config.label + '.';
+            step2Note.textContent = 'Set this in your client app. Traffic routes: Client → SecureVector → ' + config.label + '.';
             container.appendChild(step2Note);
         }
 
@@ -660,26 +654,20 @@ def chat_with_protection(user_input):
     },
 
     // OpenClaw provider configs with env vars (pi-ai supported)
+    // configOnly: true means no env var override exists — needs openclaw.json custom provider config
     openclawProviders: {
         openai: { label: 'OpenAI', env: 'OPENAI_BASE_URL', path: '/openai/v1' },
         anthropic: { label: 'Anthropic', env: 'ANTHROPIC_BASE_URL', path: '/anthropic' },
-        ollama: { label: 'Ollama', env: 'OPENAI_BASE_URL', path: '/ollama/v1' },
+        gemini: { label: 'Google Gemini', env: null, path: '/gemini/v1beta', configOnly: true },
         groq: { label: 'Groq', env: 'OPENAI_BASE_URL', path: '/groq/v1' },
-        gemini: { label: 'Google Gemini', env: 'OPENAI_BASE_URL', path: '/gemini/v1beta' },
-        azure: { label: 'Azure OpenAI', env: 'AZURE_OPENAI_BASE_URL', path: '/azure' },
         mistral: { label: 'Mistral', env: 'OPENAI_BASE_URL', path: '/mistral/v1' },
         deepseek: { label: 'DeepSeek', env: 'OPENAI_BASE_URL', path: '/deepseek/v1' },
-        openrouter: { label: 'OpenRouter', env: 'OPENAI_BASE_URL', path: '/openrouter/v1' },
         together: { label: 'Together AI', env: 'OPENAI_BASE_URL', path: '/together/v1' },
-        fireworks: { label: 'Fireworks AI', env: 'OPENAI_BASE_URL', path: '/fireworks/v1' },
-        perplexity: { label: 'Perplexity', env: 'OPENAI_BASE_URL', path: '/perplexity/v1' },
         cohere: { label: 'Cohere', env: 'OPENAI_BASE_URL', path: '/cohere/v1' },
         xai: { label: 'xAI (Grok)', env: 'OPENAI_BASE_URL', path: '/xai/v1' },
         cerebras: { label: 'Cerebras', env: 'OPENAI_BASE_URL', path: '/cerebras/v1' },
         moonshot: { label: 'Moonshot', env: 'OPENAI_BASE_URL', path: '/moonshot/v1' },
         minimax: { label: 'MiniMax', env: 'OPENAI_BASE_URL', path: '/minimax/v1' },
-        lmstudio: { label: 'LM Studio', env: 'OPENAI_BASE_URL', path: '/lmstudio/v1' },
-        litellm: { label: 'LiteLLM', env: 'OPENAI_BASE_URL', path: '/litellm/v1' },
     },
 
     createOpenClawCard(integration) {
@@ -707,31 +695,6 @@ def chat_with_protection(user_input):
         // Content
         const content = document.createElement('div');
         content.style.cssText = 'padding: 16px;';
-
-        // Provider dropdown
-        const providerRow = document.createElement('div');
-        providerRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-default);';
-
-        const providerLabel = document.createElement('span');
-        providerLabel.style.cssText = 'font-weight: 500; font-size: 13px; color: var(--text-secondary);';
-        providerLabel.textContent = 'Select your LLM provider for your agent that you want to protect:';
-        providerRow.appendChild(providerLabel);
-
-        const providerSelect = document.createElement('select');
-        providerSelect.id = 'openclaw-provider-select';
-        providerSelect.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 2px solid var(--accent-primary); background: var(--bg-tertiary); color: var(--text-primary); font-size: 13px; cursor: pointer; font-weight: 600;';
-
-        Object.entries(this.openclawProviders).forEach(([key, config]) => {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.textContent = config.label;
-            if (key === 'anthropic') opt.selected = true;
-            providerSelect.appendChild(opt);
-        });
-
-        providerSelect.addEventListener('change', () => this.updateOpenClawSteps());
-        providerRow.appendChild(providerSelect);
-        content.appendChild(providerRow);
 
         // Steps container
         const stepsContainer = document.createElement('div');
@@ -779,8 +742,17 @@ def chat_with_protection(user_input):
         content.appendChild(desc);
 
         const revertBlock = this.createCodeBlock('securevector-app --revert-proxy');
-        revertBlock.style.marginBottom = '16px';
+        revertBlock.style.marginBottom = '12px';
         content.appendChild(revertBlock);
+
+        // Gemini revert note
+        const geminiNote = document.createElement('div');
+        geminiNote.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 6px; line-height: 1.6;';
+        const geminiStrong = document.createElement('strong');
+        geminiStrong.textContent = 'Google Gemini: ';
+        geminiNote.appendChild(geminiStrong);
+        geminiNote.appendChild(document.createTextNode('If you added a custom provider (gemini-sv) in ~/.openclaw/openclaw.json, also remove it from models.providers and switch back to the built-in google/gemini-2.0-flash model.'));
+        content.appendChild(geminiNote);
 
         // Revert button
         const revertBtn = document.createElement('button');
@@ -808,12 +780,8 @@ def chat_with_protection(user_input):
     },
 
     updateOpenClawSteps() {
-        const select = document.getElementById('openclaw-provider-select');
         const container = document.getElementById('openclaw-steps');
-        if (!select || !container) return;
-
-        const provider = select.value;
-        const config = this.openclawProviders[provider];
+        if (!container) return;
 
         // Clear container
         while (container.firstChild) {
@@ -826,20 +794,19 @@ def chat_with_protection(user_input):
         step1Label.textContent = 'Step 1: Start SecureVector with OpenClaw flag';
         container.appendChild(step1Label);
 
-        const step1Block = this.createCodeBlock('securevector-app --proxy --provider ' + provider + ' --web --openclaw');
+        const step1Block = this.createCodeBlock('securevector-app --proxy --multi --web --openclaw');
         step1Block.style.marginBottom = '8px';
         container.appendChild(step1Block);
 
         const step1Note = document.createElement('div');
         step1Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;';
-        step1Note.textContent = 'The --openclaw flag auto-patches pi-ai provider files to route through SecureVector.';
+        step1Note.textContent = 'The --openclaw flag auto-patches pi-ai provider files. The --multi flag enables all providers at once.';
         container.appendChild(step1Note);
 
-        // Start Proxy button row (inside Step 1)
+        // Start Proxy button row
         const btnRow = document.createElement('div');
         btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;';
 
-        // Multi-provider button (recommended - first)
         const startBtn = document.createElement('button');
         startBtn.id = 'start-proxy-openclaw';
         startBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
@@ -857,25 +824,6 @@ def chat_with_protection(user_input):
             }
         };
         btnRow.appendChild(startBtn);
-
-        // Single provider button
-        const singleBtn = document.createElement('button');
-        singleBtn.id = 'start-proxy-openclaw-single';
-        singleBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;';
-        singleBtn.textContent = 'Start Single Provider';
-        singleBtn.onclick = async () => {
-            singleBtn.disabled = true;
-            singleBtn.textContent = 'Starting...';
-            const result = await IntegrationPage.startProxy(provider, false);
-            if (result.status === 'started') {
-                await IntegrationPage.updateOpenClawProxyButton();
-            } else {
-                alert(result.message);
-                singleBtn.disabled = false;
-                singleBtn.textContent = 'Start Single Provider';
-            }
-        };
-        btnRow.appendChild(singleBtn);
 
         const stopBtn = document.createElement('button');
         stopBtn.id = 'stop-proxy-openclaw';
@@ -897,34 +845,80 @@ def chat_with_protection(user_input):
 
         container.appendChild(btnRow);
 
-        // Multi-provider explanation with RECOMMENDED
-        const multiNote = document.createElement('div');
-        multiNote.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-primary); font-weight: 600; margin-bottom: 16px; padding: 10px 14px; background: rgba(249, 115, 22, 0.06); border: 1px solid rgba(249, 115, 22, 0.2); border-radius: 6px; line-height: 1.5;';
-
-        const noteBadge = document.createElement('span');
-        noteBadge.style.cssText = 'background: #f97316; color: white; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite; flex-shrink: 0; margin-top: 1px;';
-        noteBadge.textContent = 'RECOMMENDED';
-        multiNote.appendChild(noteBadge);
-
-        const noteText = document.createElement('span');
-        noteText.textContent = 'Multi-provider mode allows OpenClaw to switch between LLMs (Claude, GPT, Gemini, Ollama) without restarting. Each provider has its own path: /anthropic, /openai/v1, /gemini/v1, etc.';
-        multiNote.appendChild(noteText);
-        container.appendChild(multiNote);
-
-        // Step 2
+        // Step 2: Set environment variables
         const step2Label = document.createElement('div');
         step2Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
-        step2Label.textContent = 'Step 2: Start OpenClaw (in another terminal)';
+        step2Label.textContent = 'Step 2: Set environment variables (in another terminal)';
         container.appendChild(step2Label);
 
-        const step2Block = this.createCodeBlock(config.env + '=http://localhost:8742' + config.path + ' openclaw gateway');
+        const envCode = 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic';
+        const step2Block = this.createCodeBlock(envCode);
         step2Block.style.marginBottom = '8px';
         container.appendChild(step2Block);
 
         const step2Note = document.createElement('div');
-        step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
-        step2Note.textContent = 'Traffic now routes through SecureVector proxy for threat detection.';
+        step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;';
+        step2Note.textContent = 'Your API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) should already be set in your environment.';
         container.appendChild(step2Note);
+
+        const otherNote = document.createElement('div');
+        otherNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 6px; line-height: 1.6;';
+        const otherStrong = document.createElement('strong');
+        otherStrong.textContent = 'Other providers (Groq, Mistral, DeepSeek, xAI, etc.): ';
+        otherNote.appendChild(otherStrong);
+        otherNote.appendChild(document.createTextNode('These all share OPENAI_BASE_URL, so only one can be set via env vars at a time. The --openclaw flag in Step 1 patches each pi-ai provider file individually, routing all of them through the proxy automatically.'));
+        container.appendChild(otherNote);
+
+        // Step 3: Gemini config (Gemini needs openclaw.json custom provider — must be configured before starting OpenClaw)
+        const geminiConfig = this.openclawProviders.gemini;
+        const step3Label = document.createElement('div');
+        step3Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        step3Label.textContent = 'Step 3: Configure Gemini (optional)';
+        container.appendChild(step3Label);
+
+        const geminiSection = document.createElement('div');
+        geminiSection.style.cssText = 'padding: 14px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 16px;';
+
+        const geminiDesc = document.createElement('div');
+        geminiDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+        geminiDesc.textContent = 'To use Gemini through the proxy, add a custom provider to ~/.openclaw/openclaw.json under "models.providers":';
+        geminiSection.appendChild(geminiDesc);
+
+        const geminiJson = '"gemini-sv": {\n  "baseUrl": "http://localhost:8742' + geminiConfig.path + '",\n  "apiKey": "YOUR_GEMINI_API_KEY",\n  "api": "google-generative-ai",\n  "models": [\n    {\n      "id": "gemini-2.0-flash",\n      "name": "Gemini 2.0 Flash",\n      "contextWindow": 200000,\n      "maxTokens": 8192\n    }\n  ]\n}';
+        const geminiBlock = this.createCodeBlock(geminiJson);
+        geminiBlock.style.marginBottom = '8px';
+        geminiSection.appendChild(geminiBlock);
+
+        const geminiUsage = document.createElement('div');
+        geminiUsage.style.cssText = 'font-size: 11px; color: var(--text-secondary); line-height: 1.5;';
+        geminiUsage.textContent = 'Then use gemini-sv/gemini-2.0-flash as your model in OpenClaw.';
+        geminiSection.appendChild(geminiUsage);
+
+        container.appendChild(geminiSection);
+
+        // Step 4: Start OpenClaw
+        const step4Label = document.createElement('div');
+        step4Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        step4Label.textContent = 'Step 4: Start OpenClaw';
+        container.appendChild(step4Label);
+
+        const step4Block = this.createCodeBlock('openclaw gateway');
+        step4Block.style.marginBottom = '8px';
+        container.appendChild(step4Block);
+
+        const step4Note = document.createElement('div');
+        step4Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;';
+        step4Note.textContent = 'All LLM traffic from OpenClaw now routes through SecureVector for threat detection.';
+        container.appendChild(step4Note);
+
+        // Not proxyable note
+        const notProxyableNote = document.createElement('div');
+        notProxyableNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 12px; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 6px; line-height: 1.5;';
+        const noteStrong = document.createElement('strong');
+        noteStrong.textContent = 'Note: ';
+        notProxyableNote.appendChild(noteStrong);
+        notProxyableNote.appendChild(document.createTextNode('Google Vertex AI and Amazon Bedrock use cloud SDK auth (GCP IAM / AWS SigV4) and are not proxyable. OpenAI Codex uses OAuth, not standard API keys.'));
+        container.appendChild(notProxyableNote);
 
         // Update button states
         IntegrationPage.updateOpenClawProxyButton();

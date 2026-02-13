@@ -25,7 +25,7 @@ _proxy_running_in_process: bool = False  # Set when proxy runs via --proxy --web
 _started_with_openclaw: bool = False  # Set when proxy is started with --openclaw flag
 
 # Supported providers
-PROVIDERS = ["openai", "anthropic", "ollama", "groq", "openrouter", "deepseek", "mistral", "azure", "gemini", "together", "fireworks", "perplexity", "cohere"]
+PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemini", "together", "cohere", "cerebras", "moonshot", "minimax"]
 
 
 def _is_port_in_use(port: int) -> bool:
