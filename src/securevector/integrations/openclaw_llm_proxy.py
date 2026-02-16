@@ -37,6 +37,10 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Completely disable httpx logging to prevent API keys from appearing in logs
+logging.getLogger("httpx").setLevel(logging.CRITICAL)
+logging.getLogger("httpx").propagate = False
+
 
 # Security: Allowed hosts for target URLs (prevents SSRF to internal services)
 ALLOWED_TARGET_HOSTS = {
@@ -332,6 +336,13 @@ class LLMProxy:
 
         # Strip metadata prefix to avoid false positives (user IDs trigger PII detection)
         scan_text = self._strip_metadata_prefix(text)
+
+        # Truncate if text exceeds analyzer's limit (102,400 chars)
+        MAX_SCAN_LENGTH = 102400
+        if len(scan_text) > MAX_SCAN_LENGTH:
+            if self.verbose:
+                logger.info(f"[llm-proxy] Text too long ({len(scan_text)} chars), truncating to {MAX_SCAN_LENGTH} for scan")
+            scan_text = scan_text[:MAX_SCAN_LENGTH]
 
         # When cloud mode is on, scan directly via cloud API (no localhost hop)
         settings = await self.check_settings()
@@ -687,7 +698,7 @@ class LLMProxy:
 
         # Read request body
         body_bytes = await request.body()
-        body_text = body_bytes.decode("utf-8") if body_bytes else ""
+        body_text = body_bytes.decode("utf-8", errors="replace") if body_bytes else ""
 
         print(f"[llm-proxy] → {method} {path}")
 
@@ -774,7 +785,33 @@ class LLMProxy:
 
         # Forward request to LLM provider
         target = f"{self.target_url}{path}"
-        if request.url.query:
+
+        # Special handling for Gemini: API key must be in query parameter, not header
+        if self.provider == "gemini":
+            api_key = None
+
+            # Try to get API key from Authorization header first
+            auth_header = headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                api_key = auth_header[7:]  # Remove "Bearer " prefix
+            elif auth_header.startswith("bearer "):
+                api_key = auth_header[7:]  # Handle lowercase
+
+            # Fall back to environment variables
+            if not api_key:
+                api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+            # Append API key as query parameter (required by Gemini)
+            if api_key:
+                separator = "&" if "?" in target or request.url.query else "?"
+                target += f"{separator}key={api_key}"
+                # Remove Authorization header - Gemini doesn't use it
+                headers.pop("authorization", None)
+            else:
+                logger.warning("[llm-proxy] No Gemini API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY environment variable, or pass via Authorization header.")
+
+        # Add original query string for non-Gemini providers
+        if request.url.query and self.provider != "gemini":
             target += f"?{request.url.query}"
 
         try:
@@ -1112,6 +1149,32 @@ class MultiProviderProxy:
             await proxy.cleanup()
 
 
+def print_logo():
+    """Print the SecureVector ASCII art logo."""
+    logo = r"""
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║   ███████╗ ███████╗  ██████╗ ██╗   ██╗ ██████╗  ███████╗          ║
+║   ██╔════╝ ██╔════╝ ██╔════╝ ██║   ██║ ██╔══██╗ ██╔════╝          ║
+║   ███████╗ █████╗   ██║      ██║   ██║ ██████╔╝ █████╗            ║
+║   ╚════██║ ██╔══╝   ██║      ██║   ██║ ██╔══██╗ ██╔══╝            ║
+║   ███████║ ███████╗ ╚██████╗ ╚██████╔╝ ██║  ██║ ███████╗          ║
+║   ╚══════╝ ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚══════╝          ║
+║                                                                   ║
+║      ██╗   ██╗ ███████╗  ██████╗ ████████╗  ██████╗  ██████╗      ║
+║      ██║   ██║ ██╔════╝ ██╔════╝ ╚══██╔══╝ ██╔═══██╗ ██╔══██╗     ║
+║      ██║   ██║ █████╗   ██║         ██║    ██║   ██║ ██████╔╝     ║
+║      ╚██╗ ██╔╝ ██╔══╝   ██║         ██║    ██║   ██║ ██╔══██╗     ║
+║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║     ║
+║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝     ║
+║                                                                   ║
+║              Runtime Firewall for AI Agents & LLMs                ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    print(logo)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="SecureVector LLM API Proxy - scans all LLM traffic for threats"
@@ -1181,6 +1244,7 @@ def main():
             provider_lines.append(f"║    {row:<63}║")
 
         provider_block = "\n".join(provider_lines)
+        print_logo()
         print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
 ║            SecureVector Multi-Provider LLM Proxy                  ║
@@ -1227,6 +1291,7 @@ def main():
             print("Known LLM providers are automatically allowed.")
             sys.exit(1)
 
+        print_logo()
         print(f"""
 ╔═══════════════════════════════════════════════════════════════╗
 ║                 SecureVector LLM Proxy                        ║
