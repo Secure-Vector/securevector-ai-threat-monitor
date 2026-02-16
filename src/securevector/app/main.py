@@ -188,10 +188,16 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
         print("\n[llm-proxy] Shutting down...")
     finally:
         # Revert pi-ai files if --openclaw was used
-        if openclaw and not multi:
-            print(f"\n  Reverting {provider} proxy patches...")
-            revert_provider_proxy(provider, quiet=False)
-            print("  ✓ Proxy patches reverted")
+        if openclaw:
+            if multi:
+                print(f"\n  Reverting all provider proxy patches...")
+                for provider_name in _PROVIDER_PATCH_MAP.keys():
+                    revert_provider_proxy(provider_name, quiet=True)
+                print("  ✓ All proxy patches reverted")
+            else:
+                print(f"\n  Reverting {provider} proxy patches...")
+                revert_provider_proxy(provider, quiet=False)
+                print("  ✓ Proxy patches reverted")
 
         # Always show reminder for OpenClaw users
         print("\n  ════════════════════════════════════════════════════════════")
@@ -341,10 +347,16 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
     finally:
         set_proxy_running_in_process(False)
         # Revert pi-ai files if --openclaw was used
-        if openclaw and not multi:
-            print(f"\n  Reverting {provider} proxy patches...")
-            revert_provider_proxy(provider, quiet=False)
-            print("  ✓ Proxy patches reverted")
+        if openclaw:
+            if multi:
+                print(f"\n  Reverting all provider proxy patches...")
+                for provider_name in _PROVIDER_PATCH_MAP.keys():
+                    revert_provider_proxy(provider_name, quiet=True)
+                print("  ✓ All proxy patches reverted")
+            else:
+                print(f"\n  Reverting {provider} proxy patches...")
+                revert_provider_proxy(provider, quiet=False)
+                print("  ✓ Proxy patches reverted")
 
         # Always show reminder for OpenClaw users
         print("\n  ════════════════════════════════════════════════════════════")
@@ -373,14 +385,17 @@ def _find_pi_ai_path() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Method 2: which openclaw -> trace back
+    # Method 2: which/where openclaw -> trace back
     try:
+        # Use 'where' on Windows, 'which' on Unix
+        which_cmd = "where" if sys.platform == "win32" else "which"
         result = subprocess.run(
-            ["which", "openclaw"],
-            capture_output=True, text=True, timeout=10
+            [which_cmd, "openclaw"],
+            capture_output=True, text=True, timeout=10, shell=(sys.platform == "win32")
         )
         if result.returncode == 0:
-            openclaw_bin = result.stdout.strip()
+            # On Windows, 'where' returns multiple lines; take the first
+            openclaw_bin = result.stdout.strip().split('\n')[0].strip()
             openclaw_real = os.path.realpath(openclaw_bin)
             parts = openclaw_real.split(os.sep)
             for i, part in enumerate(parts):
@@ -391,8 +406,16 @@ def _find_pi_ai_path() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Method 3: Common nvm paths
+    # Method 3: Common paths (Windows npm global, Unix nvm)
     home = os.path.expanduser("~")
+
+    # Windows: %APPDATA%\npm\node_modules
+    if sys.platform == "win32":
+        appdata = os.getenv("APPDATA")
+        if appdata:
+            search_paths.append(os.path.join(appdata, "npm", "node_modules", "openclaw", "node_modules", "@mariozechner", "pi-ai"))
+
+    # Unix: nvm paths
     nvm_base = os.path.join(home, ".nvm", "versions", "node")
     if os.path.isdir(nvm_base):
         for node_ver in os.listdir(nvm_base):
@@ -953,10 +976,64 @@ Examples:
     if args.proxy:
         # If --openclaw flag, auto-patch pi-ai files
         if args.openclaw:
-            # Check if provider files exist before proceeding
-            if not _check_provider_files_exist(args.provider):
-                return
-            _auto_setup_proxy_if_needed(args.provider)
+            if args.multi:
+                # Multi-provider mode: patch all unique files (not per-provider to avoid duplicates)
+                print("[proxy] Multi-provider mode: patching all provider files...")
+                print(f"[proxy] Providers to patch: {', '.join(_PROVIDER_PATCH_MAP.keys())}")
+
+                # Collect all unique files across all providers
+                all_files = set()
+                for files in _PROVIDER_PATCH_MAP.values():
+                    all_files.update(files)
+
+                # Get patches for all unique files
+                patches_to_apply = [p for p in _ALL_PATCHES if p["file"] in all_files]
+
+                # Apply patches once per unique file
+                try:
+                    pi_ai_path = _find_pi_ai_path()
+                    import shutil
+
+                    for patch in patches_to_apply:
+                        try:
+                            filepath = _secure_path_join(pi_ai_path, patch["file"])
+                        except ValueError:
+                            continue
+
+                        if not os.path.isfile(filepath):
+                            continue
+
+                        with open(filepath, "r") as f:
+                            content = f.read()
+
+                        # Only patch if needed (not already patched)
+                        if patch["replace"] in content:
+                            print(f"  ✓ Already patched: {patch['desc']}")
+                            continue
+
+                        if patch["search"] not in content:
+                            print(f"  ⚠ Pattern not found: {patch['desc']}")
+                            continue
+
+                        # Create backup
+                        backup_path = filepath + ".securevector.bak"
+                        if not os.path.exists(backup_path):
+                            shutil.copy2(filepath, backup_path)
+
+                        # Apply patch
+                        new_content = content.replace(patch["search"], patch["replace"])
+                        with open(filepath, "w") as f:
+                            f.write(new_content)
+                        print(f"  ✓ Patched: {patch['desc']}")
+
+                except SystemExit:
+                    print("  ✗ Could not find pi-ai installation.")
+                    return
+            else:
+                # Single-provider mode: patch only specified provider
+                if not _check_provider_files_exist(args.provider):
+                    return
+                _auto_setup_proxy_if_needed(args.provider)
 
         if args.web:
             # Run both web server and LLM proxy together

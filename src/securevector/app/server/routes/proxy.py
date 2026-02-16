@@ -111,18 +111,31 @@ async def start_proxy(request: StartProxyRequest = None):
         return {"status": "already_running", "message": "Proxy already running on port 8742 (started externally)"}
 
     try:
-        # Build command
-        cmd = [
-            sys.executable,
-            "-m",
-            "securevector.integrations.openclaw_llm_proxy",
-            "--port", "8742",
-            "-v",  # verbose mode
-        ]
-        if multi:
-            cmd.append("--multi")
+        # Build command - use securevector-app for OpenClaw to enable patching
+        if integration == 'openclaw':
+            # Use securevector-app command for OpenClaw to trigger patching logic
+            cmd = [
+                "securevector-app",
+                "--proxy",
+                "--openclaw",
+            ]
+            if multi:
+                cmd.append("--multi")
+            else:
+                cmd.extend(["--provider", provider])
         else:
-            cmd.extend(["--provider", provider])
+            # Use direct module call for other integrations
+            cmd = [
+                sys.executable,
+                "-m",
+                "securevector.integrations.openclaw_llm_proxy",
+                "--port", "8742",
+                "-v",  # verbose mode
+            ]
+            if multi:
+                cmd.append("--multi")
+            else:
+                cmd.extend(["--provider", provider])
 
         # Start LLM proxy
         _llm_proxy_process = subprocess.Popen(cmd)

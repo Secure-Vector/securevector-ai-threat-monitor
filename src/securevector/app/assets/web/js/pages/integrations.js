@@ -104,7 +104,7 @@ const IntegrationPage = {
         anthropic: { label: 'Anthropic', env: 'ANTHROPIC_BASE_URL', path: '/anthropic' },
         ollama: { label: 'Ollama', env: 'OPENAI_BASE_URL', path: '/ollama/v1' },
         groq: { label: 'Groq', env: 'OPENAI_BASE_URL', path: '/groq/v1' },
-        gemini: { label: 'Google Gemini', env: 'OPENAI_BASE_URL', path: '/gemini/v1beta' },
+        gemini: { label: 'Google Gemini', env: 'GEMINI_API_KEY', path: '/gemini/v1beta' },
         mistral: { label: 'Mistral', env: 'OPENAI_BASE_URL', path: '/mistral/v1' },
         deepseek: { label: 'DeepSeek', env: 'OPENAI_BASE_URL', path: '/deepseek/v1' },
         together: { label: 'Together AI', env: 'OPENAI_BASE_URL', path: '/together/v1' },
@@ -303,7 +303,7 @@ def chat_with_protection(user_input):
             container.appendChild(this.createApiCard(integration));
         } else if (integration.isOpenClaw) {
             // OpenClaw: Special proxy setup with --openclaw flag
-            container.appendChild(this.createOpenClawCard(integration));
+            container.appendChild(this.createOpenClawCard());
             container.appendChild(this.createRevertCard());
         } else if (integration.proxyOnly) {
             // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
@@ -516,7 +516,11 @@ def chat_with_protection(user_input):
         winTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
         winTitle.textContent = 'Windows (PowerShell)';
         winCard.appendChild(winTitle);
-        winCard.appendChild(this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/openai/v1", "User")\n[System.Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://localhost:8742/anthropic", "User")'));
+        const winSessionNote = document.createElement('div');
+        winSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
+        winSessionNote.textContent = 'Session-only (only affects this PowerShell window):';
+        winCard.appendChild(winSessionNote);
+        winCard.appendChild(this.createCodeBlock('$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"'));
         envRow.appendChild(winCard);
 
         content.appendChild(envRow);
@@ -572,7 +576,6 @@ def chat_with_protection(user_input):
 
         const provider = select.value;
         const config = this.providers[provider];
-        const integration = this.integrations[integrationId];
 
         // Clear container
         while (container.firstChild) {
@@ -658,7 +661,11 @@ def chat_with_protection(user_input):
         // Special handling for Ollama - show both options for Open WebUI
         if (provider === 'ollama') {
             sLinuxCard.appendChild(this.createCodeBlock('# Option A: Ollama API\nexport OLLAMA_HOST=http://localhost:8742/ollama\n\n# Option B: OpenAI API\nexport OPENAI_BASE_URL=http://localhost:8742/ollama/v1'));
-            sWinCard.appendChild(this.createCodeBlock('# Option A: Ollama API\n[System.Environment]::SetEnvironmentVariable("OLLAMA_HOST", "http://localhost:8742/ollama", "User")\n\n# Option B: OpenAI API\n[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/ollama/v1", "User")'));
+            const sWinSessionNote = document.createElement('div');
+            sWinSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
+            sWinSessionNote.textContent = 'Session-only:';
+            sWinCard.appendChild(sWinSessionNote);
+            sWinCard.appendChild(this.createCodeBlock('# Option A: Ollama API\n$env:OLLAMA_HOST="http://127.0.0.1:8742/ollama"\n\n# Option B: OpenAI API\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/ollama/v1"'));
 
             singleEnvRow.appendChild(sLinuxCard);
             singleEnvRow.appendChild(sWinCard);
@@ -678,9 +685,39 @@ def chat_with_protection(user_input):
             step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
             step2Note.textContent = 'Traffic routes: Open WebUI → SecureVector Proxy → Ollama';
             container.appendChild(step2Note);
+        } else if (provider === 'gemini') {
+            // Special handling for Gemini - needs API key as env var
+            sLinuxCard.appendChild(this.createCodeBlock('export GEMINI_API_KEY="your-gemini-api-key"'));
+            const sWinSessionNote = document.createElement('div');
+            sWinSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
+            sWinSessionNote.textContent = 'Session-only:';
+            sWinCard.appendChild(sWinSessionNote);
+            sWinCard.appendChild(this.createCodeBlock('$env:GEMINI_API_KEY="your-gemini-api-key"'));
+
+            singleEnvRow.appendChild(sLinuxCard);
+            singleEnvRow.appendChild(sWinCard);
+            container.appendChild(singleEnvRow);
+
+            const geminiNote = document.createElement('div');
+            geminiNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px; padding: 10px 12px; background: rgba(0, 188, 212, 0.1); border-left: 3px solid var(--accent-primary); border-radius: 4px; line-height: 1.6;';
+            const geminiStrong = document.createElement('strong');
+            geminiStrong.style.color = 'var(--accent-primary)';
+            geminiStrong.textContent = 'Gemini Authentication: ';
+            geminiNote.appendChild(geminiStrong);
+            geminiNote.appendChild(document.createTextNode('Set the API key as an environment variable. The proxy will automatically append it as '));
+            const queryParam = document.createElement('code');
+            queryParam.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 11px;';
+            queryParam.textContent = '?key=...';
+            geminiNote.appendChild(queryParam);
+            geminiNote.appendChild(document.createTextNode(' when forwarding to Google.'));
+            container.appendChild(geminiNote);
         } else {
             sLinuxCard.appendChild(this.createCodeBlock('export ' + config.env + '=http://localhost:8742' + config.path));
-            sWinCard.appendChild(this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("' + config.env + '", "http://localhost:8742' + config.path + '", "User")'));
+            const sWinSessionNote = document.createElement('div');
+            sWinSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
+            sWinSessionNote.textContent = 'Session-only:';
+            sWinCard.appendChild(sWinSessionNote);
+            sWinCard.appendChild(this.createCodeBlock('$env:' + config.env + '="http://127.0.0.1:8742' + config.path + '"'));
 
             singleEnvRow.appendChild(sLinuxCard);
             singleEnvRow.appendChild(sWinCard);
@@ -713,7 +750,7 @@ def chat_with_protection(user_input):
         minimax: { label: 'MiniMax', env: 'OPENAI_BASE_URL', path: '/minimax/v1' },
     },
 
-    createOpenClawCard(integration) {
+    createOpenClawCard() {
         const card = document.createElement('div');
         card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden; animation: pulse-border 2s ease-in-out 3;';
 
@@ -781,7 +818,7 @@ def chat_with_protection(user_input):
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;';
-        desc.textContent = 'Run this command to restore the original pi-ai provider files and remove SecureVector proxy routing:';
+        desc.textContent = 'Run this command to restore the original pi-ai provider files and remove SecureVector proxy routing. Note: Manual cleanup of custom provider configs may be required (see below):';
         content.appendChild(desc);
 
         const revertBlock = this.createCodeBlock('securevector-app --revert-proxy');
@@ -905,7 +942,7 @@ def chat_with_protection(user_input):
         linuxTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
         linuxTitle.textContent = 'Linux / macOS';
         linuxCard.appendChild(linuxTitle);
-        const linuxCode = this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic');
+        const linuxCode = this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic\nexport GEMINI_API_KEY="your-gemini-api-key"\nexport GOOGLE_GENAI_BASE_URL=http://localhost:8742/gemini/v1beta');
         linuxCard.appendChild(linuxCode);
         envRow.appendChild(linuxCard);
 
@@ -916,7 +953,11 @@ def chat_with_protection(user_input):
         winTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
         winTitle.textContent = 'Windows (PowerShell)';
         winCard.appendChild(winTitle);
-        const winCode = this.createCodeBlock('[System.Environment]::SetEnvironmentVariable("OPENAI_BASE_URL", "http://localhost:8742/openai/v1", "User")\n[System.Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://localhost:8742/anthropic", "User")');
+        const winCodeSessionNote = document.createElement('div');
+        winCodeSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
+        winCodeSessionNote.textContent = 'Session-only (only affects this PowerShell window):';
+        winCard.appendChild(winCodeSessionNote);
+        const winCode = this.createCodeBlock('$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"\n$env:GEMINI_API_KEY="your-gemini-api-key"\n$env:GOOGLE_GENAI_BASE_URL="http://127.0.0.1:8742/gemini/v1beta"');
         winCard.appendChild(winCode);
         envRow.appendChild(winCard);
 
@@ -924,8 +965,52 @@ def chat_with_protection(user_input):
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;';
-        step2Note.textContent = 'Your API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) should already be set in your environment.';
+        step2Note.textContent = 'Your API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) should already be set in your environment. These can be set in a different terminal session.';
         container.appendChild(step2Note);
+
+        // Gemini-specific warning
+        const geminiWarning = document.createElement('div');
+        geminiWarning.style.cssText = 'font-size: 12px; color: var(--text-primary); margin-bottom: 12px; padding: 12px 14px; background: rgba(255, 152, 0, 0.15); border-left: 4px solid var(--warning); border-radius: 6px; line-height: 1.6;';
+        const warningIcon = document.createElement('strong');
+        warningIcon.style.color = 'var(--warning)';
+        warningIcon.textContent = '⚠️ GEMINI USERS ONLY: ';
+        geminiWarning.appendChild(warningIcon);
+        geminiWarning.appendChild(document.createTextNode('If using Google Gemini, set '));
+        const geminiKeyCode = document.createElement('code');
+        geminiKeyCode.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 11px;';
+        geminiKeyCode.textContent = 'GEMINI_API_KEY';
+        geminiWarning.appendChild(geminiKeyCode);
+        geminiWarning.appendChild(document.createTextNode(' and '));
+        const geminiUrlCode = document.createElement('code');
+        geminiUrlCode.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 11px;';
+        geminiUrlCode.textContent = 'GOOGLE_GENAI_BASE_URL';
+        geminiWarning.appendChild(geminiUrlCode);
+        geminiWarning.appendChild(document.createTextNode(' in the '));
+        const sameSessionStrong = document.createElement('strong');
+        sameSessionStrong.textContent = 'SAME session';
+        geminiWarning.appendChild(sameSessionStrong);
+        geminiWarning.appendChild(document.createTextNode(' BEFORE starting '));
+        const codeEl = document.createElement('code');
+        codeEl.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 11px;';
+        codeEl.textContent = 'securevector-app --web';
+        geminiWarning.appendChild(codeEl);
+        geminiWarning.appendChild(document.createTextNode('. The proxy needs to read these to inject your API key.'));
+        container.appendChild(geminiWarning);
+
+        // How to set Gemini env vars before starting
+        const geminiHowTo = document.createElement('div');
+        geminiHowTo.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 12px; padding: 10px 12px; background: rgba(0, 188, 212, 0.1); border-left: 3px solid var(--accent-primary); border-radius: 4px; line-height: 1.6;';
+        const geminiStrong = document.createElement('strong');
+        geminiStrong.style.color = 'var(--accent-primary)';
+        geminiStrong.textContent = 'How to set Gemini env vars: ';
+        geminiHowTo.appendChild(geminiStrong);
+        geminiHowTo.appendChild(document.createTextNode('In the same terminal, run the export/set commands from Step 2 above, then immediately run '));
+        const startCmd = document.createElement('code');
+        startCmd.style.cssText = 'background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 11px;';
+        startCmd.textContent = 'securevector-app --proxy --multi --web --openclaw';
+        geminiHowTo.appendChild(startCmd);
+        geminiHowTo.appendChild(document.createTextNode(' in that same session.'));
+        container.appendChild(geminiHowTo);
 
         const otherNote = document.createElement('div');
         otherNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 6px; line-height: 1.6;';
@@ -965,7 +1050,7 @@ def chat_with_protection(user_input):
         // Step 4: Start OpenClaw
         const step4Label = document.createElement('div');
         step4Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
-        step4Label.textContent = 'Step 4: Start OpenClaw';
+        step4Label.textContent = 'Step 4: Start OpenClaw (in a different terminal)';
         container.appendChild(step4Label);
 
         const step4Block = this.createCodeBlock('openclaw gateway');
@@ -973,9 +1058,17 @@ def chat_with_protection(user_input):
         container.appendChild(step4Block);
 
         const step4Note = document.createElement('div');
-        step4Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;';
+        step4Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.5;';
         step4Note.textContent = 'All LLM traffic from OpenClaw now routes through SecureVector for threat detection.';
         container.appendChild(step4Note);
+
+        const step4GeminiNote = document.createElement('div');
+        step4GeminiNote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: 4px; line-height: 1.5;';
+        const step4Strong = document.createElement('strong');
+        step4Strong.textContent = 'For apps using Gemini: ';
+        step4GeminiNote.appendChild(step4Strong);
+        step4GeminiNote.appendChild(document.createTextNode('The app (OpenClaw) can run in any terminal session. Only the SecureVector proxy needs the Gemini env vars set in its session (from Step 1).'));
+        container.appendChild(step4GeminiNote);
 
         // Not proxyable note
         const notProxyableNote = document.createElement('div');
