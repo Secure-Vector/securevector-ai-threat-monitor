@@ -1149,6 +1149,32 @@ class MultiProviderProxy:
             await proxy.cleanup()
 
 
+def print_logo():
+    """Print the SecureVector ASCII art logo."""
+    logo = r"""
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║   ███████╗ ███████╗  ██████╗ ██╗   ██╗ ██████╗  ███████╗        ║
+║   ██╔════╝ ██╔════╝ ██╔════╝ ██║   ██║ ██╔══██╗ ██╔════╝        ║
+║   ███████╗ █████╗   ██║      ██║   ██║ ██████╔╝ █████╗          ║
+║   ╚════██║ ██╔══╝   ██║      ██║   ██║ ██╔══██╗ ██╔══╝          ║
+║   ███████║ ███████╗ ╚██████╗ ╚██████╔╝ ██║  ██║ ███████╗        ║
+║   ╚══════╝ ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚══════╝        ║
+║                                                                   ║
+║      ██╗   ██╗ ███████╗  ██████╗ ████████╗  ██████╗  ██████╗    ║
+║      ██║   ██║ ██╔════╝ ██╔════╝ ╚══██╔══╝ ██╔═══██╗ ██╔══██╗   ║
+║      ██║   ██║ █████╗   ██║         ██║    ██║   ██║ ██████╔╝   ║
+║      ╚██╗ ██╔╝ ██╔══╝   ██║         ██║    ██║   ██║ ██╔══██╗   ║
+║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║   ║
+║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝   ║
+║                                                                   ║
+║              Runtime Firewall for AI Agents & LLMs               ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    print(logo)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="SecureVector LLM API Proxy - scans all LLM traffic for threats"
@@ -1218,6 +1244,7 @@ def main():
             provider_lines.append(f"║    {row:<63}║")
 
         provider_block = "\n".join(provider_lines)
+        print_logo()
         print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
 ║            SecureVector Multi-Provider LLM Proxy                  ║
@@ -1264,6 +1291,7 @@ def main():
             print("Known LLM providers are automatically allowed.")
             sys.exit(1)
 
+        print_logo()
         print(f"""
 ╔═══════════════════════════════════════════════════════════════╗
 ║                 SecureVector LLM Proxy                        ║

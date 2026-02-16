@@ -48,6 +48,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def print_logo():
+    """Print the SecureVector ASCII art logo."""
+    logo = r"""
+╔═══════════════════════════════════════════════════════════════════╗
+║                                                                   ║
+║   ███████╗ ███████╗  ██████╗ ██╗   ██╗ ██████╗  ███████╗        ║
+║   ██╔════╝ ██╔════╝ ██╔════╝ ██║   ██║ ██╔══██╗ ██╔════╝        ║
+║   ███████╗ █████╗   ██║      ██║   ██║ ██████╔╝ █████╗          ║
+║   ╚════██║ ██╔══╝   ██║      ██║   ██║ ██╔══██╗ ██╔══╝          ║
+║   ███████║ ███████╗ ╚██████╗ ╚██████╔╝ ██║  ██║ ███████╗        ║
+║   ╚══════╝ ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚══════╝        ║
+║                                                                   ║
+║      ██╗   ██╗ ███████╗  ██████╗ ████████╗  ██████╗  ██████╗    ║
+║      ██║   ██║ ██╔════╝ ██╔════╝ ╚══██╔══╝ ██╔═══██╗ ██╔══██╗   ║
+║      ██║   ██║ █████╗   ██║         ██║    ██║   ██║ ██████╔╝   ║
+║      ╚██╗ ██╔╝ ██╔══╝   ██║         ██║    ██║   ██║ ██╔══██╗   ║
+║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║   ║
+║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝   ║
+║                                                                   ║
+║              Runtime Firewall for AI Agents & LLMs               ║
+║                                                                   ║
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    print(logo)
+
+
 def get_assets_path() -> Path:
     """Get the path to the assets directory."""
     return Path(__file__).parent / "assets"
@@ -121,7 +147,8 @@ def run_web(host: str, port: int) -> None:
     import uvicorn
     from securevector.app.server.app import create_app
 
-    print(f"\n  SecureVector Local Threat Monitor v{__version__}")
+    print_logo()
+    print(f"  SecureVector Local Threat Monitor v{__version__}")
     print(f"  ─────────────────────────────────────────")
     print(f"  Web UI:  http://{host}:{port}")
     print(f"  API:     http://{host}:{port}/docs")
@@ -142,6 +169,8 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
 
     block_threats = (mode == "block")
 
+    print_logo()
+
     if multi:
         # Multi-provider mode with path-based routing
         proxy = MultiProviderProxy(
@@ -150,7 +179,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
             verbose=verbose,
         )
 
-        print(f"\n  SecureVector Multi-Provider LLM Proxy")
+        print(f"  SecureVector Multi-Provider LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
         print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
@@ -172,7 +201,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
             provider=provider,
         )
 
-        print(f"\n  SecureVector LLM Proxy")
+        print(f"  SecureVector LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
         print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
         print(f"  Provider:   {provider} → {target_url}")
@@ -223,7 +252,8 @@ def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, tar
         print("Error: Missing dependencies. Install with: pip install websockets httpx")
         sys.exit(1)
 
-    print(f"\n  SecureVector Local Threat Monitor v{__version__}")
+    print_logo()
+    print(f"  SecureVector Local Threat Monitor v{__version__}")
     print(f"  ─────────────────────────────────────────")
     print(f"  Web UI:     http://{host}:{port}")
     print(f"  API:        http://{host}:{port}/docs")
@@ -279,7 +309,8 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
 
     block_threats = (mode == "block")
 
-    print(f"\n  SecureVector Local Threat Monitor v{__version__}")
+    print_logo()
+    print(f"  SecureVector Local Threat Monitor v{__version__}")
     print(f"  ─────────────────────────────────────────")
     print(f"  Web UI:     http://{host}:{port}")
     print(f"  API:        http://{host}:{port}/docs")
