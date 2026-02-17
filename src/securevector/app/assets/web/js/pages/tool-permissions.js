@@ -24,8 +24,28 @@ const ToolPermissionsPage = {
         postgres: '\uD83D\uDDC4\uFE0F', mysql: '\uD83D\uDDC4\uFE0F', mongodb: '\uD83C\uDF43', redis: '\u26A1', sqlite: '\uD83D\uDDC3\uFE0F',
         aws: '\u2601\uFE0F', terraform: '\uD83C\uDFD7\uFE0F', k8s: '\u2699\uFE0F',
         stripe: '\uD83D\uDCB3', paypal: '\uD83D\uDCB0',
+        aws: '\u2601\uFE0F', 'aws iam': '\uD83D\uDD11', 'aws iam': '\uD83D\uDD11', awsiam: '\uD83D\uDD11',
+        atlassian: '\uD83D\uDCCB', notion: '\uD83D\uDCDD', linear: '\uD83D\uDFE3',
+        salesforce: '\u2601\uFE0F',
         twitter: '\uD83D\uDC26', linkedin: '\uD83D\uDCBC', facebook: '\uD83D\uDC4D',
         vault: '\uD83D\uDD10', onepassword: '\uD83D\uDD11',
+        // Aliases for provider field values (mixed case, spaces, special chars)
+        'local filesystem': '\uD83D\uDCC4', localfilesystem: '\uD83D\uDCC4',
+        'google drive': '\uD83D\uDCC1', googledrive: '\uD83D\uDCC1',
+        'google calendar': '\uD83D\uDCC5', googlecalendar: '\uD83D\uDCC5',
+        'google chat': '\uD83D\uDCAC', googlechat: '\uD83D\uDCAC',
+        postgresql: '\uD83D\uDDC4\uFE0F',
+        kubernetes: '\u2699\uFE0F',
+        'twitter/x': '\uD83D\uDC26', twitterx: '\uD83D\uDC26',
+        'hashicorp vault': '\uD83D\uDD10', hashicorpvault: '\uD83D\uDD10',
+        '1password': '\uD83D\uDD11',
+    },
+
+    SOURCE_META: {
+        official:     { label: 'Official MCP',  bg: 'rgba(6,182,212,0.12)',  text: '#06b6d4', border: 'rgba(6,182,212,0.3)',  icon: '\u2713' },
+        openclaw:     { label: 'Google Workspace MCP', bg: 'rgba(168,85,247,0.12)', text: '#a855f7', border: 'rgba(168,85,247,0.3)', icon: '\uD83D\uDCE7' },
+        community:    { label: 'Community MCP',  bg: 'rgba(16,185,129,0.12)', text: '#10b981', border: 'rgba(16,185,129,0.3)', icon: '\u2665' },
+        conventional: { label: 'Conventional',   bg: 'rgba(100,116,139,0.1)', text: '#94a3b8', border: 'rgba(100,116,139,0.2)', icon: '~' },
     },
 
     // ==================== Shared Helpers ====================
@@ -70,177 +90,20 @@ const ToolPermissionsPage = {
         return badge;
     },
 
-    _formatRateLimit(maxCalls, windowSeconds) {
-        if (!maxCalls || !windowSeconds) return null;
-        if (windowSeconds >= 86400) return maxCalls + '/day';
-        if (windowSeconds >= 3600) return maxCalls + '/hr';
-        if (windowSeconds >= 60) return maxCalls + '/' + (windowSeconds / 60) + 'min';
-        return maxCalls + '/' + windowSeconds + 's';
-    },
-
-    _createRateLimitBadge(tool) {
-        const label = this._formatRateLimit(tool.rate_limit_max_calls, tool.rate_limit_window_seconds);
-        if (!label) return null;
-
+    _createSourceBadge(source) {
+        const sm = this.SOURCE_META[source] || this.SOURCE_META.conventional;
         const badge = document.createElement('span');
-        badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600; flex-shrink: 0; letter-spacing: 0.3px; border: 1px solid rgba(6,182,212,0.3); background: rgba(6,182,212,0.12); color: #06b6d4; cursor: pointer; transition: all 0.15s;';
-        badge.textContent = '\u23F1 ' + label;
-        badge.title = 'Click to edit rate limit';
-
-        badge.addEventListener('mouseenter', () => {
-            badge.style.background = 'rgba(6,182,212,0.2)';
-        });
-        badge.addEventListener('mouseleave', () => {
-            badge.style.background = 'rgba(6,182,212,0.12)';
-        });
-
+        badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500; flex-shrink: 0; border: 1px solid ' + sm.border + '; background: ' + sm.bg + '; color: ' + sm.text + '; cursor: default;';
+        badge.textContent = sm.icon + ' ' + sm.label;
         return badge;
     },
 
-    _showRateLimitEditorInline(tool, badge, metaRow, saveCallback, reopenCallback) {
-        // Save original values so cancel can restore them
-        const origMaxCalls = tool.rate_limit_max_calls;
-        const origWindowSecs = tool.rate_limit_window_seconds;
-
-        // Use recommended values for initial display if no user override
-        const displayMax = tool.rate_limit_max_calls || tool.recommended_max_calls || '';
-        const displayWindow = tool.rate_limit_window_seconds || tool.recommended_window_seconds || '';
-
-        const editor = document.createElement('span');
-        editor.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; font-size: 11px;';
-
-        const maxInput = document.createElement('input');
-        maxInput.type = 'number';
-        maxInput.min = '1';
-        maxInput.max = '10000';
-        maxInput.value = displayMax;
-        maxInput.placeholder = '#';
-        maxInput.style.cssText = 'width: 50px; padding: 2px 4px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--text-primary); font-size: 11px; text-align: center;';
-
-        const sep = document.createElement('span');
-        sep.style.cssText = 'color: var(--text-muted); font-size: 10px;';
-        sep.textContent = '/';
-
-        const windowSel = document.createElement('select');
-        windowSel.style.cssText = 'padding: 2px 4px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--text-primary); font-size: 11px;';
-        [
-            { value: '', label: 'None' },
-            { value: '60', label: '1m' },
-            { value: '300', label: '5m' },
-            { value: '900', label: '15m' },
-            { value: '3600', label: '1h' },
-            { value: '86400', label: '24h' },
-        ].forEach(w => {
-            const opt = document.createElement('option');
-            opt.value = w.value;
-            opt.textContent = w.label;
-            if (String(displayWindow) === w.value) opt.selected = true;
-            windowSel.appendChild(opt);
-        });
-
-        const saveIcon = document.createElement('span');
-        saveIcon.textContent = '\u2714';
-        saveIcon.style.cssText = 'cursor: pointer; color: #10b981; font-size: 12px; padding: 0 2px;';
-        saveIcon.title = 'Save';
-
-        const cancelIcon = document.createElement('span');
-        cancelIcon.textContent = '\u2716';
-        cancelIcon.style.cssText = 'cursor: pointer; color: #ef4444; font-size: 12px; padding: 0 2px;';
-        cancelIcon.title = 'Cancel';
-
-        editor.appendChild(maxInput);
-        editor.appendChild(sep);
-        editor.appendChild(windowSel);
-        editor.appendChild(saveIcon);
-        editor.appendChild(cancelIcon);
-
-        badge.replaceWith(editor);
-        maxInput.focus();
-
-        const restoreBadge = () => {
-            const newBadge = this._createRateLimitBadge(tool);
-            if (newBadge) {
-                newBadge.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    reopenCallback(tool, newBadge, metaRow);
-                });
-                editor.replaceWith(newBadge);
-            } else if (tool.recommended_max_calls && tool.recommended_window_seconds) {
-                // Restore recommended badge (dashed style)
-                const recLabel = this._formatRateLimit(tool.recommended_max_calls, tool.recommended_window_seconds);
-                const recBadge = document.createElement('span');
-                recBadge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500; flex-shrink: 0; letter-spacing: 0.3px; border: 1px dashed rgba(6,182,212,0.25); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;';
-                recBadge.textContent = '\u23F1 ' + recLabel;
-                recBadge.title = 'Recommended limit (click to apply): ' + (tool.rate_limit_note || '');
-                recBadge.addEventListener('mouseenter', () => {
-                    recBadge.style.borderColor = 'rgba(6,182,212,0.4)';
-                    recBadge.style.color = '#06b6d4';
-                    recBadge.style.background = 'rgba(6,182,212,0.08)';
-                });
-                recBadge.addEventListener('mouseleave', () => {
-                    recBadge.style.borderColor = 'rgba(6,182,212,0.25)';
-                    recBadge.style.color = 'var(--text-muted)';
-                    recBadge.style.background = 'transparent';
-                });
-                recBadge.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    reopenCallback(tool, recBadge, metaRow);
-                });
-                editor.replaceWith(recBadge);
-            } else {
-                // No rate limit at all — show "+ rate limit" link
-                const addRlLink = document.createElement('span');
-                addRlLink.style.cssText = 'font-size: 10px; color: var(--text-muted); cursor: pointer; transition: color 0.15s; flex-shrink: 0;';
-                addRlLink.textContent = '+ rate limit';
-                addRlLink.addEventListener('mouseenter', () => { addRlLink.style.color = '#06b6d4'; });
-                addRlLink.addEventListener('mouseleave', () => { addRlLink.style.color = 'var(--text-muted)'; });
-                addRlLink.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    reopenCallback(tool, addRlLink, metaRow);
-                });
-                editor.replaceWith(addRlLink);
-            }
-        };
-
-        cancelIcon.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // Restore original values (undo any pre-population)
-            tool.rate_limit_max_calls = origMaxCalls;
-            tool.rate_limit_window_seconds = origWindowSecs;
-            restoreBadge();
-        });
-
-        saveIcon.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const maxCalls = parseInt(maxInput.value) || null;
-            const windowSecs = parseInt(windowSel.value) || null;
-
-            try {
-                await saveCallback(tool.tool_id, maxCalls, windowSecs);
-                tool.rate_limit_max_calls = maxCalls;
-                tool.rate_limit_window_seconds = windowSecs;
-                restoreBadge();
-                if (window.Toast) Toast.show('Rate limit updated', 'success');
-            } catch (err) {
-                if (window.Toast) Toast.show(err.message || 'Failed to update rate limit', 'error');
-            }
-        });
-    },
-
-    _showRateLimitEditor(tool, badge, metaRow) {
-        this._showRateLimitEditorInline(
-            tool, badge, metaRow,
-            (toolId, maxCalls, windowSecs) => API.updateCustomToolRateLimit(toolId, maxCalls, windowSecs),
-            (t, b, m) => this._showRateLimitEditor(t, b, m),
-        );
-    },
-
-    _showEssentialRateLimitEditor(tool, badge, metaRow) {
-        this._showRateLimitEditorInline(
-            tool, badge, metaRow,
-            (toolId, maxCalls, windowSecs) => API.updateEssentialToolRateLimit(toolId, maxCalls, windowSecs),
-            (t, b, m) => this._showEssentialRateLimitEditor(t, b, m),
-        );
+    _getProviderIcon(tool) {
+        const key = (tool.provider || '').toLowerCase();
+        return this.PROVIDER_ICONS[key]
+            || this.PROVIDER_ICONS[key.replace(/[^a-z0-9]/g, '')]
+            || this.PROVIDER_ICONS[tool.tool_id.split('.')[0]]
+            || '\uD83D\uDD27';
     },
 
     // ==================== Render ====================
@@ -265,8 +128,24 @@ const ToolPermissionsPage = {
         titleWrap.appendChild(title);
 
         const subtitle = document.createElement('p');
-        subtitle.style.cssText = 'margin: 2px 0 0 0; font-size: 12px; color: var(--text-secondary); line-height: 1.3;';
-        subtitle.textContent = 'Control which tools AI agents can use. Block or allow essential and custom tools to enforce security policies at the proxy level.';
+        subtitle.style.cssText = 'margin: 2px 0 0 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+
+        const subtitleParts = [
+            { text: 'Block or allow tool calls intercepted by the proxy. ', bold: false },
+            { text: 'Google Workspace MCP tools', bold: true },
+            { text: ' are listed automatically \u2014 toggle them as needed. If your agent uses ', bold: false },
+            { text: 'custom tool calls', bold: true },
+            { text: ', add them below so the proxy can enforce permissions on those too.', bold: false },
+        ];
+        subtitleParts.forEach(part => {
+            if (part.bold) {
+                const b = document.createElement('strong');
+                b.textContent = part.text;
+                subtitle.appendChild(b);
+            } else {
+                subtitle.appendChild(document.createTextNode(part.text));
+            }
+        });
         titleWrap.appendChild(subtitle);
 
         toolbar.appendChild(titleWrap);
@@ -427,6 +306,7 @@ const ToolPermissionsPage = {
             database: 'Database',
             cloud_infra: 'Cloud & Infrastructure',
             payment: 'Payment',
+            project_management: 'Project Management',
             social_media: 'Social Media',
             security: 'Security',
         };
@@ -439,118 +319,135 @@ const ToolPermissionsPage = {
             database: { color: '#22d3ee', bg: 'rgba(34,211,238,0.12)' },
             cloud_infra: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
             payment: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+            project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             social_media: { color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
             security: { color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' },
         };
 
-        // ==================== Custom Tools Section (top) ====================
-        this.renderCustomToolsSection(container);
+        // ==================== Categories as columns ====================
+        const columnsWrap = document.createElement('div');
+        columnsWrap.style.cssText = 'display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;';
 
         Object.entries(categories).forEach(([catKey, tools]) => {
             const accent = categoryAccents[catKey] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
 
-            const section = document.createElement('div');
-            section.style.cssText = 'margin-bottom: 32px;';
+            const col = document.createElement('div');
+            col.style.cssText = 'flex: 1; min-width: 260px; max-width: 380px;';
 
-            // Category header with accent bar
+            // Column header
             const catHeader = document.createElement('div');
-            catHeader.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border-default);';
+            catHeader.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 2px solid ' + accent.color + ';';
 
-            // Colored dot indicator
             const catDot = document.createElement('span');
-            catDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: ' + accent.color + ';';
+            catDot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: ' + accent.color + ';';
             catHeader.appendChild(catDot);
 
             const catTitle = document.createElement('span');
-            catTitle.style.cssText = 'font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary);';
+            catTitle.style.cssText = 'font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary);';
             catTitle.textContent = categoryLabels[catKey] || catKey;
             catHeader.appendChild(catTitle);
 
             const catCount = document.createElement('span');
-            catCount.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto; padding: 2px 8px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
+            catCount.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-left: auto; padding: 1px 6px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
             catCount.textContent = tools.length;
             catHeader.appendChild(catCount);
 
-            section.appendChild(catHeader);
+            col.appendChild(catHeader);
 
-            // Tools grid
-            const grid = document.createElement('div');
-            grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px;';
+            // Tool rows (compact list)
+            const list = document.createElement('div');
+            list.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
 
             tools.forEach(tool => {
-                grid.appendChild(this.createToolCard(tool, accent));
+                list.appendChild(this.createToolCard(tool, accent));
             });
 
-            section.appendChild(grid);
-            container.appendChild(section);
+            col.appendChild(list);
+            columnsWrap.appendChild(col);
         });
+
+        // Custom Tools column (last)
+        this.renderCustomToolsSection(columnsWrap);
+
+        container.appendChild(columnsWrap);
 
         // Attribution footer
         const attribution = document.createElement('div');
         attribution.style.cssText = 'margin-top: 40px; padding: 16px 20px; text-align: center; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-default);';
-        attribution.textContent = 'Tool names are trademarks of their respective owners. SecureVector is not affiliated with or endorsed by these providers.';
+        attribution.textContent = 'Essential tools are sourced from official MCP servers and verified OpenClaw integrations. Tool names are trademarks of their respective owners. SecureVector is not affiliated with or endorsed by these providers.';
         container.appendChild(attribution);
     },
 
     createToolCard(tool, accent) {
-        const card = document.createElement('div');
-        card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-lg); overflow: hidden; transition: all 0.2s ease; cursor: default; border-left: 3px solid ' + accent.color + ';';
-        this._applyCardHover(card, accent);
+        // Card layout:
+        //   [icon] [name  [risk]  [★ popular?]]  [action btn]
+        //          [tool_id monospace           ]
+        //          [mcp_server label            ]
+        const isPopular = tool.popular === true;
+        const sm = this.SOURCE_META[tool.source] || this.SOURCE_META.conventional;
 
-        // Top row: icon + name + action button
-        const topRow = document.createElement('div');
-        topRow.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 12px 14px 0 14px;';
+        const row = document.createElement('div');
+        row.title = [sm.label, tool.mcp_server, tool.description].filter(Boolean).join(' · ');
+        // Popular tools get a subtle gold tint on the left border
+        const leftBorder = isPopular ? '#f59e0b' : accent.color;
+        row.style.cssText = 'display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); border-left: 3px solid ' + leftBorder + '; transition: all 0.15s ease; cursor: default;';
+        row.addEventListener('mouseenter', () => {
+            row.style.borderColor = isPopular ? '#f59e0b' : accent.color;
+            row.style.background = 'var(--bg-secondary)';
+        });
+        row.addEventListener('mouseleave', () => {
+            row.style.borderColor = 'var(--border-default)';
+            row.style.borderLeftColor = leftBorder;
+            row.style.background = 'var(--bg-card)';
+        });
 
-        // Provider icon circle
-        const provider = tool.tool_id.split('.')[0];
-        const iconCircle = document.createElement('div');
-        iconCircle.style.cssText = 'width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; background: ' + accent.bg + ';';
-        iconCircle.textContent = this.PROVIDER_ICONS[provider] || '\uD83D\uDD27';
-        topRow.appendChild(iconCircle);
+        // Icon (slightly larger for new 3-line card)
+        const icon = document.createElement('div');
+        icon.style.cssText = 'width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; margin-top: 1px; background: ' + accent.bg + ';';
+        icon.textContent = this._getProviderIcon(tool);
+        row.appendChild(icon);
 
-        // Name + description block
+        // Info block: 3 lines
         const info = document.createElement('div');
         info.style.cssText = 'flex: 1; min-width: 0;';
 
-        const nameRow = document.createElement('div');
-        nameRow.style.cssText = 'display: flex; align-items: center; gap: 5px;';
+        // Line 1: name + risk badge + popular star
+        const nameLine = document.createElement('div');
+        nameLine.style.cssText = 'display: flex; align-items: center; gap: 4px; flex-wrap: wrap;';
 
-        const parts = tool.tool_id.split('.');
-        if (parts.length === 2) {
-            const providerName = document.createElement('span');
-            providerName.style.cssText = 'font-size: 11px; color: var(--text-muted); font-weight: 500;';
-            providerName.textContent = tool.provider || parts[0];
-            nameRow.appendChild(providerName);
+        const nameEl = document.createElement('span');
+        nameEl.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); line-height: 1.3;';
+        nameEl.textContent = tool.name || tool.tool_id;
+        nameLine.appendChild(nameEl);
+        nameLine.appendChild(this._createRiskBadge(tool.risk));
+        if (isPopular) {
+            const star = document.createElement('span');
+            star.style.cssText = 'font-size: 10px; color: #f59e0b; font-weight: 700; flex-shrink: 0;';
+            star.title = 'Commonly used by agents';
+            star.textContent = '\u2605';
+            nameLine.appendChild(star);
+        }
+        info.appendChild(nameLine);
 
-            const dot = document.createElement('span');
-            dot.style.cssText = 'font-size: 8px; color: var(--text-muted);';
-            dot.textContent = '\u2022';
-            nameRow.appendChild(dot);
+        // Line 2: tool_id in monospace
+        const idEl = document.createElement('div');
+        idEl.style.cssText = 'font-family: monospace; font-size: 10px; color: var(--text-muted); margin-top: 2px; word-break: break-all; line-height: 1.2;';
+        idEl.textContent = tool.tool_id;
+        info.appendChild(idEl);
 
-            const funcName = document.createElement('span');
-            funcName.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary);';
-            funcName.textContent = tool.name || parts[1];
-            nameRow.appendChild(funcName);
-        } else {
-            const funcName = document.createElement('span');
-            funcName.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary);';
-            funcName.textContent = tool.name || tool.tool_id;
-            nameRow.appendChild(funcName);
+        // Line 3: MCP server package name
+        if (tool.mcp_server) {
+            const serverEl = document.createElement('div');
+            serverEl.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; line-height: 1.2; opacity: 0.7;';
+            serverEl.textContent = tool.mcp_server;
+            info.appendChild(serverEl);
         }
 
-        info.appendChild(nameRow);
+        row.appendChild(info);
 
-        const desc = document.createElement('div');
-        desc.style.cssText = 'font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;';
-        desc.textContent = tool.description || '';
-        desc.title = tool.description || '';
-        info.appendChild(desc);
-
-        topRow.appendChild(info);
-
-        // Action button
+        // Action button + reset
         const actionContainer = document.createElement('div');
-        actionContainer.style.cssText = 'flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;';
+        actionContainer.style.cssText = 'flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px;';
 
         let isBlocked = tool.effective_action === 'block';
         const actionBtn = document.createElement('button');
@@ -594,73 +491,9 @@ const ToolPermissionsPage = {
             }
         });
         actionContainer.appendChild(resetBtn);
-        topRow.appendChild(actionContainer);
+        row.appendChild(actionContainer);
 
-        card.appendChild(topRow);
-
-        // Bottom row: badges + rate limit
-        const badgeRow = document.createElement('div');
-        badgeRow.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 8px 14px 10px 14px; flex-wrap: wrap;';
-
-        badgeRow.appendChild(this._createRiskBadge(tool.risk));
-
-        // Rate limit: show user override if set, else show recommended from YAML
-        const hasUserRl = tool.rate_limit_max_calls && tool.rate_limit_window_seconds;
-        const hasRecommended = tool.recommended_max_calls && tool.recommended_window_seconds;
-
-        if (hasUserRl) {
-            const rlBadge = this._createRateLimitBadge(tool);
-            rlBadge.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._showEssentialRateLimitEditor(tool, rlBadge, badgeRow);
-            });
-            badgeRow.appendChild(rlBadge);
-        } else if (hasRecommended) {
-            // Show recommended as a muted badge users can click to apply
-            const recLabel = this._formatRateLimit(tool.recommended_max_calls, tool.recommended_window_seconds);
-            const recBadge = document.createElement('span');
-            recBadge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500; flex-shrink: 0; letter-spacing: 0.3px; border: 1px dashed rgba(6,182,212,0.25); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;';
-            recBadge.textContent = '\u23F1 ' + recLabel;
-            recBadge.title = 'Recommended limit (click to apply): ' + (tool.rate_limit_note || '');
-            recBadge.addEventListener('mouseenter', () => {
-                recBadge.style.borderColor = 'rgba(6,182,212,0.4)';
-                recBadge.style.color = '#06b6d4';
-                recBadge.style.background = 'rgba(6,182,212,0.08)';
-            });
-            recBadge.addEventListener('mouseleave', () => {
-                recBadge.style.borderColor = 'rgba(6,182,212,0.25)';
-                recBadge.style.color = 'var(--text-muted)';
-                recBadge.style.background = 'transparent';
-            });
-            recBadge.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._showEssentialRateLimitEditor(tool, recBadge, badgeRow);
-            });
-            badgeRow.appendChild(recBadge);
-        } else {
-            const addRlLink = document.createElement('span');
-            addRlLink.style.cssText = 'font-size: 10px; color: var(--text-muted); cursor: pointer; transition: color 0.15s; flex-shrink: 0;';
-            addRlLink.textContent = '+ rate limit';
-            addRlLink.addEventListener('mouseenter', () => { addRlLink.style.color = '#06b6d4'; });
-            addRlLink.addEventListener('mouseleave', () => { addRlLink.style.color = 'var(--text-muted)'; });
-            addRlLink.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._showEssentialRateLimitEditor(tool, addRlLink, badgeRow);
-            });
-            badgeRow.appendChild(addRlLink);
-        }
-
-        // Rate limit note (if available from YAML)
-        if (tool.rate_limit_note) {
-            const noteSpan = document.createElement('span');
-            noteSpan.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-left: auto; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-            noteSpan.textContent = tool.rate_limit_note;
-            noteSpan.title = tool.rate_limit_note;
-            badgeRow.appendChild(noteSpan);
-        }
-
-        card.appendChild(badgeRow);
-        return card;
+        return row;
     },
 
     // ==================== Custom Tools ====================
@@ -668,35 +501,32 @@ const ToolPermissionsPage = {
     renderCustomToolsSection(container) {
         const customAccent = { color: '#a855f7', bg: 'rgba(168,85,247,0.12)' };
 
+        // Column wrapper — same flex sizing as category columns
         const section = document.createElement('div');
-        section.style.cssText = 'margin-bottom: 32px;';
+        section.style.cssText = 'flex: 1; min-width: 280px; max-width: 420px;';
 
-        // Section header
+        // Column header — matches category column header style
         const catHeader = document.createElement('div');
-        catHeader.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border-default);';
+        catHeader.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 2px solid ' + customAccent.color + ';';
 
         const catDot = document.createElement('span');
-        catDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: ' + customAccent.color + ';';
+        catDot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: ' + customAccent.color + ';';
         catHeader.appendChild(catDot);
 
         const catTitle = document.createElement('span');
-        catTitle.style.cssText = 'font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary);';
+        catTitle.style.cssText = 'font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary);';
         catTitle.textContent = 'Custom Tools';
         catHeader.appendChild(catTitle);
 
         const catCount = document.createElement('span');
-        catCount.style.cssText = 'font-size: 11px; color: var(--text-muted); padding: 2px 8px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
+        catCount.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-left: auto; padding: 1px 6px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
         catCount.textContent = this.customTools.length;
         catHeader.appendChild(catCount);
 
-        const headerSpacer = document.createElement('div');
-        headerSpacer.style.cssText = 'flex: 1;';
-        catHeader.appendChild(headerSpacer);
-
-        // Add Tool button
+        // Add Tool button — compact to fit column header
         const addBtn = document.createElement('button');
-        addBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: 1px solid ' + customAccent.color + '; background: transparent; color: ' + customAccent.color + '; cursor: pointer; transition: all 0.15s;';
-        addBtn.textContent = '+ Add Tool';
+        addBtn.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; border: 1px solid ' + customAccent.color + '; background: transparent; color: ' + customAccent.color + '; cursor: pointer; transition: all 0.15s; flex-shrink: 0;';
+        addBtn.textContent = '+ Add';
         addBtn.addEventListener('mouseenter', () => {
             addBtn.style.background = customAccent.bg;
         });
@@ -765,31 +595,6 @@ const ToolPermissionsPage = {
         });
         formRow.appendChild(permField.wrap);
 
-        // Rate Limit: Max Calls
-        const maxCallsField = makeField('Max Calls', 'text', 'e.g. 10', '80px');
-        maxCallsField.input.type = 'number';
-        maxCallsField.input.min = '1';
-        maxCallsField.input.max = '10000';
-        formRow.appendChild(maxCallsField.wrap);
-
-        // Rate Limit: Window
-        const windowField = makeField('Window', 'select', '', '90px');
-        const windowOptions = [
-            { value: '', label: 'No limit' },
-            { value: '60', label: '1 min' },
-            { value: '300', label: '5 min' },
-            { value: '900', label: '15 min' },
-            { value: '3600', label: '1 hour' },
-            { value: '86400', label: '24 hours' },
-        ];
-        windowOptions.forEach(w => {
-            const opt = document.createElement('option');
-            opt.value = w.value;
-            opt.textContent = w.label;
-            windowField.input.appendChild(opt);
-        });
-        formRow.appendChild(windowField.wrap);
-
         // Description
         const descField = makeField('Description', 'text', 'What does this tool do?', '160px');
         formRow.appendChild(descField.wrap);
@@ -816,13 +621,13 @@ const ToolPermissionsPage = {
 
         // Tools grid
         const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px;';
+        grid.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
 
         if (this.customTools.length === 0) {
             const empty = document.createElement('div');
             empty.setAttribute('data-empty-state', '1');
-            empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; border: 1px dashed var(--border-default); border-radius: var(--radius-lg);';
-            empty.textContent = 'No custom tools. Add your agent\'s tools to control their permissions.';
+            empty.style.cssText = 'text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; border: 1px dashed var(--border-default); border-radius: var(--radius-lg);';
+            empty.textContent = 'No custom tools yet. If your agent uses tool calls not listed above (e.g. your own MCP server or custom functions), add them here to control their permissions.';
             grid.appendChild(empty);
         } else {
             this.customTools.forEach(tool => {
@@ -842,8 +647,6 @@ const ToolPermissionsPage = {
             descField.input.value = '';
             riskField.input.value = 'write';
             permField.input.value = 'block';
-            maxCallsField.input.value = '';
-            windowField.input.value = '';
         };
 
         // Toggle form visibility
@@ -877,14 +680,6 @@ const ToolPermissionsPage = {
                     default_permission: permField.input.value,
                     description: descField.input.value.trim(),
                 };
-
-                // Add rate limit if both fields are set
-                const maxCalls = parseInt(maxCallsField.input.value);
-                const windowSecs = parseInt(windowField.input.value);
-                if (maxCalls > 0 && windowSecs > 0) {
-                    payload.rate_limit_max_calls = maxCalls;
-                    payload.rate_limit_window_seconds = windowSecs;
-                }
 
                 const tool = await API.createCustomTool(payload);
 
@@ -1003,8 +798,8 @@ const ToolPermissionsPage = {
                 if (this.customTools.length === 0) {
                     const empty = document.createElement('div');
                     empty.setAttribute('data-empty-state', '1');
-                    empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; border: 1px dashed var(--border-default); border-radius: var(--radius-lg);';
-                    empty.textContent = 'No custom tools. Add your agent\'s tools to control their permissions.';
+                    empty.style.cssText = 'text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; border: 1px dashed var(--border-default); border-radius: var(--radius-lg);';
+                    empty.textContent = 'No custom tools yet. If your agent uses tool calls not listed above (e.g. your own MCP server or custom functions), add them here to control their permissions.';
                     grid.appendChild(empty);
                 }
                 if (window.Toast) Toast.show('Custom tool deleted', 'success');
@@ -1017,31 +812,11 @@ const ToolPermissionsPage = {
 
         card.appendChild(topRow);
 
-        // Bottom row: badges + rate limit
+        // Bottom row: badges
         const badgeRow = document.createElement('div');
         badgeRow.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 8px 14px 10px 14px; flex-wrap: wrap;';
 
         badgeRow.appendChild(this._createRiskBadge(tool.risk));
-
-        const rlBadge = this._createRateLimitBadge(tool);
-        if (rlBadge) {
-            rlBadge.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._showRateLimitEditor(tool, rlBadge, badgeRow);
-            });
-            badgeRow.appendChild(rlBadge);
-        } else {
-            const addRlLink = document.createElement('span');
-            addRlLink.style.cssText = 'font-size: 10px; color: var(--text-muted); cursor: pointer; transition: color 0.15s; flex-shrink: 0;';
-            addRlLink.textContent = '+ rate limit';
-            addRlLink.addEventListener('mouseenter', () => { addRlLink.style.color = '#06b6d4'; });
-            addRlLink.addEventListener('mouseleave', () => { addRlLink.style.color = 'var(--text-muted)'; });
-            addRlLink.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._showRateLimitEditor(tool, addRlLink, badgeRow);
-            });
-            badgeRow.appendChild(addRlLink);
-        }
 
         card.appendChild(badgeRow);
         return card;

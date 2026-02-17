@@ -750,7 +750,12 @@ class LLMProxy:
                 elif tc.provider_format == "anthropic":
                     blocked_indices_anthropic.add(tc.index)
 
-                print(f"[llm-proxy] 🔒 TOOL BLOCKED: {tc.function_name} ({decision.reason})")
+                args_preview = (tc.arguments or "")[:200]
+                print(f"[llm-proxy] ┌─ 🔒 BLOCKED ──────────────────────────────────────")
+                print(f"[llm-proxy] │  tool   : {tc.function_name}")
+                print(f"[llm-proxy] │  reason : {decision.reason}")
+                print(f"[llm-proxy] │  args   : {args_preview}")
+                print(f"[llm-proxy] └────────────────────────────────────────────────────")
             else:
                 # Log allowed tool calls for rate limiting (essential + custom)
                 if decision.action == "allow" and decision.tool_name:
@@ -770,7 +775,11 @@ class LLMProxy:
 
                 action_label = "allowed" if decision.action == "allow" else "logged"
                 if decision.is_essential or (decision.tool_name and decision.action == "allow"):
-                    print(f"[llm-proxy] ✓ Tool {action_label}: {tc.function_name}")
+                    args_preview = (tc.arguments or "")[:200]
+                    print(f"[llm-proxy] ┌─ ✓ {action_label.upper()} ──────────────────────────────────────")
+                    print(f"[llm-proxy] │  tool   : {tc.function_name}")
+                    print(f"[llm-proxy] │  args   : {args_preview}")
+                    print(f"[llm-proxy] └────────────────────────────────────────────────────")
 
         # Log permission decisions to SecureVector
         for decision in decisions:

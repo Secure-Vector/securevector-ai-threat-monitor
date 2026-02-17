@@ -68,13 +68,6 @@ class EssentialToolResponse(BaseModel):
     has_override: bool
 
 
-class UpdateRateLimitRequest(BaseModel):
-    """Request to update a tool's rate limit."""
-
-    max_calls: Optional[int] = Field(default=None, ge=1, le=10000)
-    window_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
-
-
 @router.get("/tool-permissions/essential")
 async def list_essential_tools():
     """List all essential tools with their effective permissions."""
@@ -106,11 +99,9 @@ async def list_essential_tools():
                 "description": tool.get("description", ""),
                 "effective_action": effective,
                 "has_override": override_action is not None,
-                "rate_limit_max_calls": override.get("rate_limit_max_calls") if override else None,
-                "rate_limit_window_seconds": override.get("rate_limit_window_seconds") if override else None,
-                "recommended_max_calls": yaml_rl.get("max_calls"),
-                "recommended_window_seconds": yaml_rl.get("window_seconds"),
-                "rate_limit_note": yaml_rl.get("note", ""),
+                "source": tool.get("source", "official"),
+                "mcp_server": tool.get("mcp_server", ""),
+                "popular": tool.get("popular", False),
             })
 
         # Sort by category, then by name
@@ -176,86 +167,6 @@ async def delete_override(tool_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/tool-permissions/overrides/{tool_id}/rate-limit")
-async def update_essential_tool_rate_limit(
-    tool_id: str, request: UpdateRateLimitRequest
-):
-    """Update rate limit for an essential tool. Set both to null to remove."""
-    try:
-        registry = _get_registry()
-        if tool_id not in registry:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Unknown essential tool: {tool_id}",
-            )
-
-        db = get_database()
-        repo = ToolPermissionsRepository(db)
-        result = await repo.upsert_rate_limit(
-            tool_id, request.max_calls, request.window_seconds
-        )
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update essential tool rate limit: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/tool-permissions/overrides/{tool_id}/rate-limit")
-async def get_essential_tool_rate_limit_status(tool_id: str):
-    """Get current rate limit status for an essential tool."""
-    try:
-        db = get_database()
-        repo = ToolPermissionsRepository(db)
-        override = await repo.get_override(tool_id)
-
-        max_calls = override.get("rate_limit_max_calls") if override else None
-        window_secs = override.get("rate_limit_window_seconds") if override else None
-
-        if not max_calls or not window_secs:
-            return {
-                "tool_id": tool_id,
-                "rate_limited": False,
-                "current_count": 0,
-                "max_calls": None,
-                "window_seconds": None,
-            }
-
-        # Reuse custom tools repo for call log (same table)
-        custom_repo = CustomToolsRepository(db)
-        current_count = await custom_repo.count_recent_calls(tool_id, window_secs)
-
-        return {
-            "tool_id": tool_id,
-            "rate_limited": current_count >= max_calls,
-            "current_count": current_count,
-            "max_calls": max_calls,
-            "window_seconds": window_secs,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get essential tool rate limit status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/tool-permissions/overrides/{tool_id}/log-call")
-async def log_essential_tool_call(tool_id: str):
-    """Log an essential tool call for rate limiting (called by proxy)."""
-    try:
-        db = get_database()
-        repo = CustomToolsRepository(db)
-        await repo.log_tool_call(tool_id)
-        return {"logged": True}
-
-    except Exception as e:
-        logger.error(f"Failed to log essential tool call: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # ==================== Custom Tools ====================
 
 
@@ -267,8 +178,6 @@ class CreateCustomToolRequest(BaseModel):
     risk: str = Field(default="write", pattern="^(read|write|delete|admin)$")
     default_permission: str = Field(default="block", pattern="^(block|allow)$")
     description: str = Field(default="", max_length=200)
-    rate_limit_max_calls: Optional[int] = Field(default=None, ge=1, le=10000)
-    rate_limit_window_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
 
 
 
@@ -326,8 +235,6 @@ async def create_custom_tool(request: CreateCustomToolRequest):
             risk=request.risk,
             default_permission=request.default_permission,
             description=request.description,
-            rate_limit_max_calls=request.rate_limit_max_calls,
-            rate_limit_window_seconds=request.rate_limit_window_seconds,
         )
 
         tool["risk_score"] = get_risk_score(tool.get("risk"))
@@ -393,104 +300,3 @@ async def delete_custom_tool(tool_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== Rate Limiting ====================
-
-
-@router.put("/tool-permissions/custom/{tool_id}/rate-limit")
-async def update_custom_tool_rate_limit(
-    tool_id: str, request: UpdateRateLimitRequest
-):
-    """Update rate limit config for a custom tool. Set both to null to remove."""
-    try:
-        db = get_database()
-        repo = CustomToolsRepository(db)
-
-        existing = await repo.get_custom_tool(tool_id)
-        if not existing:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Custom tool '{tool_id}' not found",
-            )
-
-        tool = await repo.update_custom_tool_rate_limit(
-            tool_id, request.max_calls, request.window_seconds
-        )
-        tool["risk_score"] = get_risk_score(tool.get("risk"))
-        return tool
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update rate limit: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/tool-permissions/custom/{tool_id}/rate-limit")
-async def get_custom_tool_rate_limit_status(tool_id: str):
-    """Get current rate limit status (call count within window) for a custom tool."""
-    try:
-        db = get_database()
-        repo = CustomToolsRepository(db)
-
-        tool = await repo.get_custom_tool(tool_id)
-        if not tool:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Custom tool '{tool_id}' not found",
-            )
-
-        max_calls = tool.get("rate_limit_max_calls")
-        window_secs = tool.get("rate_limit_window_seconds")
-
-        if not max_calls or not window_secs:
-            return {
-                "tool_id": tool_id,
-                "rate_limited": False,
-                "current_count": 0,
-                "max_calls": None,
-                "window_seconds": None,
-            }
-
-        current_count = await repo.count_recent_calls(tool_id, window_secs)
-
-        return {
-            "tool_id": tool_id,
-            "rate_limited": current_count >= max_calls,
-            "current_count": current_count,
-            "max_calls": max_calls,
-            "window_seconds": window_secs,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get rate limit status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/tool-permissions/custom/{tool_id}/log-call")
-async def log_tool_call(tool_id: str):
-    """Log a tool call for rate limiting purposes (called by proxy)."""
-    try:
-        db = get_database()
-        repo = CustomToolsRepository(db)
-        await repo.log_tool_call(tool_id)
-        return {"logged": True}
-
-    except Exception as e:
-        logger.error(f"Failed to log tool call: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/tool-permissions/cleanup-call-log")
-async def cleanup_call_log():
-    """Clean up old tool call log entries (housekeeping)."""
-    try:
-        db = get_database()
-        repo = CustomToolsRepository(db)
-        await repo.cleanup_old_calls()
-        return {"cleaned": True}
-
-    except Exception as e:
-        logger.error(f"Failed to cleanup call log: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

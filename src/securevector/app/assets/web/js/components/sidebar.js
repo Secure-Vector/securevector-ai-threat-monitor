@@ -91,6 +91,11 @@ const Sidebar = {
                 badge.id = 'rules-count-badge';
                 badge.textContent = '...';
                 navItem.appendChild(badge);
+
+                const newBadge = document.createElement('span');
+                newBadge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: #b45309; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                newBadge.textContent = 'NEW';
+                navItem.appendChild(newBadge);
             }
 
             // NEW badge for tool permissions

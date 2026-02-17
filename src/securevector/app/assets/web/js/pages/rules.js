@@ -8,6 +8,9 @@ const RulesPage = {
     rules: [],
     expandedRows: new Set(),
     LOCAL_RULE_LIMIT: 100,
+    bannerDismissed: false,
+    sortField: 'created_at',
+    sortDir: 'desc',
     filters: {
         category: '',
         severity: '',
@@ -224,6 +227,47 @@ const RulesPage = {
             }
             return true;
         });
+        // Sort by current sort state
+        const field = this.sortField;
+        const dir = this.sortDir === 'asc' ? 1 : -1;
+        this.rules.sort((a, b) => {
+            let av, bv;
+            if (field === 'created_at') {
+                av = a.created_at ? new Date(a.created_at) : new Date(0);
+                bv = b.created_at ? new Date(b.created_at) : new Date(0);
+                return dir * (av - bv);
+            } else if (field === 'patterns') {
+                av = (a.patterns || []).length;
+                bv = (b.patterns || []).length;
+            } else if (field === 'enabled') {
+                av = a.enabled ? 1 : 0;
+                bv = b.enabled ? 1 : 0;
+            } else if (field === 'severity') {
+                const order = { critical: 4, high: 3, medium: 2, low: 1 };
+                av = order[a.severity] || 0;
+                bv = order[b.severity] || 0;
+            } else {
+                av = (a[field] || '').toLowerCase();
+                bv = (b[field] || '').toLowerCase();
+            }
+            if (av < bv) return -1 * dir;
+            if (av > bv) return 1 * dir;
+            return 0;
+        });
+    },
+
+    _isNewRule(rule) {
+        if (!rule.created_at) return false;
+        const added = new Date(rule.created_at);
+        const now = new Date();
+        return (now - added) < 30 * 24 * 60 * 60 * 1000; // within 30 days
+    },
+
+    _formatDate(isoStr) {
+        if (!isoStr) return '—';
+        const d = new Date(isoStr);
+        if (isNaN(d)) return '—';
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     },
 
     getPaginatedRules() {
@@ -270,6 +314,48 @@ const RulesPage = {
             return;
         }
 
+        // ── New-rules protection banner ─────────────────────────────────
+        const newRules = this.rules.filter(r => this._isNewRule(r));
+        if (newRules.length > 0 && !this.bannerDismissed) {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'margin-bottom: 16px; padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(180,83,9,0.3); background: rgba(245,158,11,0.08); display: flex; gap: 12px; align-items: flex-start; position: relative;';
+
+            const bannerBody = document.createElement('div');
+            bannerBody.style.cssText = 'flex: 1; min-width: 0; padding-right: 24px;';
+
+            const bannerTitle = document.createElement('div');
+            bannerTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: #b45309; margin-bottom: 4px;';
+            bannerTitle.textContent = newRules.length + ' new detection rule' + (newRules.length > 1 ? 's' : '') + ' added — AI Agent Attack Protection';
+            bannerBody.appendChild(bannerTitle);
+
+            const bannerDesc = document.createElement('div');
+            bannerDesc.style.cssText = 'font-size: 12px; color: var(--text-color, #4b5563); line-height: 1.5;';
+            bannerDesc.textContent = 'SecureVector now detects the latest AI agent attack patterns: injected instructions inside tool results, multi-agent authority spoofing, and permission scope escalation. These cover real attack chains used against OpenClaw, GitHub MCP, and other agent frameworks in 2025\u20132026. Expand any highlighted rule below to see how it protects your agents.';
+            bannerBody.appendChild(bannerDesc);
+
+            const bannerList = document.createElement('div');
+            bannerList.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;';
+            newRules.forEach(r => {
+                const chip = document.createElement('span');
+                chip.style.cssText = 'font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(180,83,9,0.1); color: #92400e; border: 1px solid rgba(180,83,9,0.25); font-weight: 500;';
+                chip.textContent = r.name;
+                bannerList.appendChild(chip);
+            });
+            bannerBody.appendChild(bannerList);
+
+            banner.appendChild(bannerBody);
+
+            // Close button
+            const closeBtn = document.createElement('button');
+            closeBtn.style.cssText = 'position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; color: #92400e; font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0.6;';
+            closeBtn.textContent = '\u00D7';
+            closeBtn.title = 'Dismiss';
+            closeBtn.addEventListener('click', () => { this.bannerDismissed = true; banner.remove(); });
+            banner.appendChild(closeBtn);
+
+            container.appendChild(banner);
+        }
+
         // Table
         const tableWrapper = document.createElement('div');
         tableWrapper.className = 'table-wrapper';
@@ -281,13 +367,40 @@ const RulesPage = {
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
 
-        const headers = ['', 'Name', 'Category', 'Severity', 'Patterns', 'Status'];
-        headers.forEach((text, idx) => {
+        const colDefs = [
+            { label: '', field: null },
+            { label: 'Name', field: 'name' },
+            { label: 'Category', field: 'category' },
+            { label: 'Severity', field: 'severity' },
+            { label: 'Patterns', field: 'patterns' },
+            { label: 'Added', field: 'created_at' },
+            { label: 'Status', field: 'enabled' },
+        ];
+        colDefs.forEach((col, idx) => {
             const th = document.createElement('th');
-            if (idx === 0) {
-                th.style.width = '40px';
+            if (idx === 0) { th.style.width = '40px'; headerRow.appendChild(th); return; }
+            th.style.whiteSpace = 'nowrap';
+            if (col.field) {
+                th.style.cursor = 'pointer';
+                th.style.userSelect = 'none';
+                const indicator = this.sortField === col.field
+                    ? (this.sortDir === 'asc' ? ' \u25B2' : ' \u25BC')
+                    : ' \u25B7';
+                th.textContent = col.label + indicator;
+                th.addEventListener('click', () => {
+                    if (this.sortField === col.field) {
+                        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        this.sortField = col.field;
+                        this.sortDir = col.field === 'created_at' ? 'desc' : 'asc';
+                    }
+                    this.filters.page = 1;
+                    this.applyFilters();
+                    this.renderContent();
+                });
+            } else {
+                th.textContent = col.label;
             }
-            th.textContent = text;
             headerRow.appendChild(th);
         });
 
@@ -339,10 +452,21 @@ const RulesPage = {
         // Name
         const nameCell = document.createElement('td');
         nameCell.className = 'rule-name-cell';
-        const nameText = document.createElement('div');
+
+        const nameLine = document.createElement('div');
+        nameLine.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+        const nameText = document.createElement('span');
         nameText.className = 'rule-name';
         nameText.textContent = rule.name || 'Unnamed Rule';
-        nameCell.appendChild(nameText);
+        nameLine.appendChild(nameText);
+        if (this._isNewRule(rule)) {
+            const newBadge = document.createElement('span');
+            newBadge.style.cssText = 'font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: rgba(245,158,11,0.15); color: #b45309; border: 1px solid rgba(245,158,11,0.3); letter-spacing: 0.3px; flex-shrink: 0;';
+            newBadge.textContent = 'NEW';
+            nameLine.appendChild(newBadge);
+        }
+        nameCell.appendChild(nameLine);
+
         if (rule.description) {
             const descText = document.createElement('div');
             descText.className = 'rule-desc';
@@ -377,6 +501,12 @@ const RulesPage = {
         patternsCell.appendChild(patternCount);
         row.appendChild(patternsCell);
 
+        // Date added
+        const dateCell = document.createElement('td');
+        dateCell.style.cssText = 'white-space: nowrap; font-size: 12px; color: var(--text-muted);';
+        dateCell.textContent = this._formatDate(rule.created_at);
+        row.appendChild(dateCell);
+
         // Status toggle
         const statusCell = document.createElement('td');
         statusCell.className = 'status-cell';
@@ -400,12 +530,40 @@ const RulesPage = {
         row.style.display = this.expandedRows.has(rule.id) ? 'table-row' : 'none';
 
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'patterns-expand-cell';
+
+        // Protection rationale for new/agent-attack rules
+        const agentRuleIds = ['sv_community_020_github_mcp_injection', 'sv_community_021_tool_result_injection', 'sv_community_022_multiagent_authority_spoof', 'sv_community_023_permission_scope_escalation'];
+        if (agentRuleIds.includes(rule.id) && rule.description) {
+            const rationale = document.createElement('div');
+            rationale.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; border-radius: 6px; border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.06);';
+
+            const rationaleHeader = document.createElement('div');
+            rationaleHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 6px;';
+            const shieldIcon = document.createElement('span');
+            shieldIcon.textContent = '\uD83D\uDEE1\uFE0F';
+            shieldIcon.style.fontSize = '13px';
+            rationaleHeader.appendChild(shieldIcon);
+            const rationaleTitle = document.createElement('span');
+            rationaleTitle.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #b45309;';
+            rationaleTitle.textContent = 'How SecureVector Protects';
+            rationaleHeader.appendChild(rationaleTitle);
+            rationale.appendChild(rationaleHeader);
+
+            const rationaleText = document.createElement('p');
+            rationaleText.style.cssText = 'font-size: 12px; color: var(--text-color, #4b5563); line-height: 1.6; margin: 0;';
+            rationaleText.textContent = rule.description.replace(/\s+/g, ' ').trim();
+            rationale.appendChild(rationaleText);
+            cell.appendChild(rationale);
+        }
 
         const patterns = rule.patterns || [];
         if (patterns.length === 0) {
-            cell.textContent = 'No patterns defined';
+            const noPatterns = document.createElement('span');
+            noPatterns.style.cssText = 'color: var(--text-muted); font-size: 12px;';
+            noPatterns.textContent = 'No patterns defined';
+            cell.appendChild(noPatterns);
         } else {
             const list = document.createElement('div');
             list.className = 'patterns-list';

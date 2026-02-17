@@ -21,6 +21,7 @@ class ToolCall:
     function_name: str
     arguments_hash: str
     provider_format: str  # "openai" or "anthropic"
+    arguments: Optional[str] = None
     tool_call_id: Optional[str] = None
     index: Optional[int] = None
 
@@ -103,6 +104,7 @@ def _extract_openai_tool_calls(body: dict) -> list[ToolCall]:
                 ToolCall(
                     function_name=name,
                     arguments_hash=_hash_arguments(arguments),
+                    arguments=arguments if isinstance(arguments, str) else json.dumps(arguments),
                     provider_format="openai",
                     tool_call_id=tc.get("id"),
                     index=tc_idx,
@@ -140,6 +142,7 @@ def _extract_anthropic_tool_calls(body: dict) -> list[ToolCall]:
             ToolCall(
                 function_name=name,
                 arguments_hash=_hash_arguments(arguments),
+                arguments=json.dumps(arguments) if isinstance(arguments, dict) else str(arguments),
                 provider_format="anthropic",
                 tool_call_id=block.get("id"),
                 index=idx,

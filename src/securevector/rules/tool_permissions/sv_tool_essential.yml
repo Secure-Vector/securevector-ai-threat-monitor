@@ -1,363 +1,527 @@
 # SecureVector Essential Tool Permission Registry
 #
-# ~27 high-risk tool definitions bundled with the open source package.
+# High-risk tool definitions from official MCP servers and OpenClaw integrations only.
 # These tool calls are blocked by default when tool permission scanning is enabled.
 # Users can toggle individual tools between "block" and "allow" via the app UI.
+#
+# source field:
+#   official  - verified from official provider MCP server
+#   openclaw  - verified from google-workspace-mcp integration
+#
+# mcp_server: short package/server identifier for display in the UI
+# popular: true = commonly deployed by real-world agents (shown with highlight in UI)
 #
 # Rate limits are researched from official provider documentation and TOS.
 # Values are set at ~10-25% of provider limits to prevent account bans,
 # throttling, and TOS violations when AI agents loop.
 #
-# TRADEMARK NOTICE: Tool and provider names (Gmail, Slack, GitHub, AWS, Stripe, etc.)
+# TRADEMARK NOTICE: Tool and provider names (Gmail, Slack, GitHub, Google, etc.)
 # referenced in this registry are trademarks or registered trademarks of their
 # respective owners. SecureVector AI Threat Monitor is an independent security product
 # and is not affiliated with, endorsed by, or sponsored by any referenced provider.
 # Names are used solely for functional security identification and interoperability
 # purposes, consistent with nominative fair use.
 #
-# Categories: communication, code_devops, file_system, database, cloud_infra, payment, social_media, security
+# Categories: communication, code_devops, payment, cloud_infra, project_management
 
 essential_tools:
-  # ── Communication (4) ──────────────────────────────────────────
-  - id: gmail.send_email
+  # ── Gmail (google-workspace-mcp) ───────────────────────────────
+  - id: gmail.send
     provider: Gmail
     category: communication
     name: Send Email
-    description: Send an email via Gmail API
+    description: Send an email via Gmail
     risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    popular: true
     default_permission: block
     rate_limit:
       max_calls: 20
       window_seconds: 86400
       note: "Gmail personal: 500/day, Workspace: 2000/day. 20/day keeps well under personal cap and avoids spam flags."
 
-  - id: slack.send_message
-    provider: Slack
+  - id: gmail.sendDraft
+    provider: Gmail
+    category: communication
+    name: Send Draft
+    description: Send a saved draft via Gmail
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 86400
+      note: "Same risk as gmail.send — results in outbound email."
+
+  # ── Calendar (google-workspace-mcp) ────────────────────────────
+  - id: calendar.createEvent
+    provider: Google Calendar
+    category: communication
+    name: Create Event
+    description: Create a calendar event and send invites
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Event creation sends invites to attendees. Agent loops can spam calendars."
+
+  - id: calendar.deleteEvent
+    provider: Google Calendar
+    category: communication
+    name: Delete Event
+    description: Delete a calendar event
+    risk: delete
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Irreversible deletion. Low cap prevents agent loops from wiping calendars."
+
+  # ── Google Chat (google-workspace-mcp) ─────────────────────────
+  - id: chat.sendMessage
+    provider: Google Chat
     category: communication
     name: Send Message
-    description: Send a message to a Slack channel or user
+    description: Send a message to a Google Chat space
     risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
     default_permission: block
     rate_limit:
       max_calls: 30
       window_seconds: 900
-      note: "Slack chat.postMessage: 1 msg/sec/channel (Special tier). 30/15min = ~2/min, safe margin. Non-Marketplace apps face stricter limits in 2026."
+      note: "Workspace Chat: rate limits vary by plan. 30/15min prevents spam."
 
-  - id: twilio.send_sms
-    provider: Twilio
+  - id: chat.sendDm
+    provider: Google Chat
     category: communication
-    name: Send SMS
-    description: Send an SMS message via Twilio
+    name: Send Direct Message
+    description: Send a direct message to a user via Google Chat
     risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
     default_permission: block
     rate_limit:
-      max_calls: 60
-      window_seconds: 3600
-      note: "Twilio 10DLC: 3-75 MPS depending on trust score. 60/hr = 1/min, prevents carrier filtering and keeps costs controlled."
+      max_calls: 20
+      window_seconds: 900
+      note: "DMs are personal and hard to unsend. Low cap for safety."
 
-  - id: sendgrid.send_email
-    provider: SendGrid
+  # ── Slack (Official: @modelcontextprotocol/server-slack) ────────
+  - id: slack_post_message
+    provider: Slack
     category: communication
-    name: Send Email
-    description: Send an email via SendGrid API
+    name: Post Message
+    description: Send a message to a Slack channel or user
     risk: write
+    source: official
+    mcp_server: server-slack
+    popular: true
     default_permission: block
     rate_limit:
-      max_calls: 50
-      window_seconds: 86400
-      note: "SendGrid trial: 100/day. Essentials: 50k/month (~1667/day). 50/day is safe for agents on any tier."
+      max_calls: 30
+      window_seconds: 900
+      note: "Slack chat.postMessage: 1 msg/sec/channel (Special tier). 30/15min = ~2/min, safe margin."
 
-  # ── Code & DevOps (4) ──────────────────────────────────────────
-  - id: github.push_code
+  # ── GitHub (Official: github/github-mcp-server) ─────────────────
+  - id: push_files
     provider: GitHub
     category: code_devops
-    name: Push Code
-    description: Push code to a GitHub repository
+    name: Push Files
+    description: Push files to a GitHub repository
     risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
     default_permission: block
     rate_limit:
       max_calls: 30
       window_seconds: 3600
       note: "GitHub: 5000 REST req/hr, but git push recommended max ~6/min/repo. 30/hr is safe for automated workflows."
 
-  - id: github.delete_repo
+  - id: create_or_update_file
     provider: GitHub
     category: code_devops
-    name: Delete Repository
-    description: Delete an entire GitHub repository
-    risk: delete
+    name: Create or Update File
+    description: Create or overwrite a file in a GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
     default_permission: block
     rate_limit:
-      max_calls: 3
+      max_calls: 30
       window_seconds: 3600
-      note: "Destructive and irreversible. Extremely low limit as safety net against agent loops."
+      note: "Can silently overwrite existing files. Same rate as push_files."
 
-  - id: github.manage_workflows
+  - id: delete_file
     provider: GitHub
     category: code_devops
-    name: Manage Workflows
-    description: Create or modify GitHub Actions workflows
-    risk: admin
+    name: Delete File
+    description: Delete a file from a GitHub repository
+    risk: delete
+    source: official
+    mcp_server: github-mcp-server
     default_permission: block
     rate_limit:
       max_calls: 10
       window_seconds: 3600
-      note: "Each workflow change can trigger CI/CD runs consuming Actions minutes and compute."
+      note: "Destructive and tracked via git history, but still dangerous in agent loops."
 
-  - id: gitlab.push_code
-    provider: GitLab
+  - id: create_pull_request
+    provider: GitHub
     category: code_devops
-    name: Push Code
-    description: Push code to a GitLab repository
+    name: Create Pull Request
+    description: Open a pull request on a GitHub repository
     risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
     default_permission: block
     rate_limit:
-      max_calls: 30
+      max_calls: 10
       window_seconds: 3600
-      note: "GitLab API: 7200 req/hr (120/min authenticated). 30/hr is conservative for push ops."
+      note: "PRs can trigger CI/CD and code review workflows. Moderate cap."
 
-  # ── File System (3) ────────────────────────────────────────────
-  - id: fs.delete_file
-    provider: Local Filesystem
-    category: file_system
-    name: Delete File
-    description: Delete a file from the local filesystem
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 30
-      window_seconds: 3600
-      note: "No API limit, but agent loops can wipe directories. Safety cap prevents mass deletion."
-
-  - id: fs.execute_command
-    provider: Local Filesystem
-    category: file_system
-    name: Execute Command
-    description: Execute a shell command on the local system
+  - id: merge_pull_request
+    provider: GitHub
+    category: code_devops
+    name: Merge Pull Request
+    description: Merge a pull request into a branch
     risk: admin
-    default_permission: block
-    rate_limit:
-      max_calls: 20
-      window_seconds: 3600
-      note: "Shell execution is highest risk. Low limit prevents runaway agents from spawning processes."
-
-  - id: gdrive.delete
-    provider: Google Drive
-    category: file_system
-    name: Delete File
-    description: Delete a file from Google Drive
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 20
-      window_seconds: 3600
-      note: "Google Drive: 20k req/100sec, 3 writes/sec sustained. 20/hr for deletes as safety net."
-
-  # ── Database (5) ───────────────────────────────────────────────
-  - id: postgres.drop_table
-    provider: PostgreSQL
-    category: database
-    name: Drop Table
-    description: Drop a PostgreSQL database table
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 3
-      window_seconds: 3600
-      note: "DROP TABLE is destructive DDL. No legitimate reason to drop 3+ tables/hr via an agent."
-
-  - id: mysql.drop_table
-    provider: MySQL
-    category: database
-    name: Drop Table
-    description: Drop a MySQL database table
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 3
-      window_seconds: 3600
-      note: "Same as PostgreSQL — destructive DDL should be rare and intentional."
-
-  - id: mongodb.drop_collection
-    provider: MongoDB
-    category: database
-    name: Drop Collection
-    description: Drop a MongoDB collection
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 3
-      window_seconds: 3600
-      note: "Dropping collections is irreversible. MongoDB Atlas has additional per-project quotas."
-
-  - id: redis.flushdb
-    provider: Redis
-    category: database
-    name: Flush Database
-    description: Delete all keys from the current Redis database
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 2
-      window_seconds: 3600
-      note: "FLUSHDB wipes the entire keyspace. Essentially never needed more than once."
-
-  - id: sqlite.drop
-    provider: SQLite
-    category: database
-    name: Drop Table
-    description: Drop a SQLite database table
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 3
-      window_seconds: 3600
-      note: "Local DB but still destructive. Safety cap for agent-driven schema changes."
-
-  # ── Cloud & Infrastructure (4) ─────────────────────────────────
-  - id: aws.iam_create_user
-    provider: AWS
-    category: cloud_infra
-    name: Create IAM User
-    description: Create a new IAM user in AWS
-    risk: admin
+    source: official
+    mcp_server: github-mcp-server
     default_permission: block
     rate_limit:
       max_calls: 5
       window_seconds: 3600
-      note: "AWS IAM: ~500 req/sec (token bucket). Creating users is rare. Low cap for security."
+      note: "Irreversible without a revert commit. Very low cap — merges should be intentional."
 
-  - id: aws.iam_manage_policy
-    provider: AWS
-    category: cloud_infra
-    name: Manage IAM Policy
-    description: Create, modify, or attach IAM policies in AWS
-    risk: admin
+  - id: create_repository
+    provider: GitHub
+    category: code_devops
+    name: Create Repository
+    description: Create a new GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
     default_permission: block
     rate_limit:
-      max_calls: 10
+      max_calls: 5
       window_seconds: 3600
-      note: "IAM policy changes affect access globally. Each policy has a 5-version limit."
+      note: "Creates new repos under the user/org account. Low cap to prevent accidental proliferation."
 
-  - id: terraform.destroy
-    provider: Terraform
-    category: cloud_infra
-    name: Destroy Infrastructure
-    description: Destroy Terraform-managed infrastructure
-    risk: delete
-    default_permission: block
-    rate_limit:
-      max_calls: 2
-      window_seconds: 3600
-      note: "Infrastructure destruction is catastrophic and irreversible. Near-zero tolerance."
-
-  - id: k8s.exec
-    provider: Kubernetes
-    category: cloud_infra
-    name: Execute in Pod
-    description: Execute a command inside a Kubernetes pod
-    risk: admin
+  - id: add_issue_comment
+    provider: GitHub
+    category: code_devops
+    name: Add Issue Comment
+    description: Post a comment on a GitHub issue
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
     default_permission: block
     rate_limit:
       max_calls: 20
       window_seconds: 3600
-      note: "Pod exec is powerful but needed for debugging. Moderate cap prevents abuse."
+      note: "Used in real prompt injection attacks (May 2025) to exfiltrate private repo data via public issue comments. Block unless needed."
 
-  # ── Payment (2) ────────────────────────────────────────────────
-  - id: stripe.create_charge
+  - id: get_file_contents
+    provider: GitHub
+    category: code_devops
+    name: Get File Contents
+    description: Read file contents from a GitHub repository
+    risk: read
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only but used in 2025 GitHub prompt injection attacks to access private repos after token hijack. Monitor usage."
+
+  # ── Stripe (Official: @stripe/mcp) ─────────────────────────────
+  - id: create_payment_link
     provider: Stripe
     category: payment
-    name: Create Charge
-    description: Create a payment charge via Stripe
+    name: Create Payment Link
+    description: Create a shareable Stripe payment link
     risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
     default_permission: block
     rate_limit:
-      max_calls: 25
+      max_calls: 10
       window_seconds: 3600
-      note: "Stripe: 100 ops/sec (live), 25/sec (test). Each charge moves real money. Agent loops are financially dangerous."
+      note: "Payment links can be shared and charged; each creates a live billing instrument."
 
-  - id: paypal.create_payment
+  - id: finalize_invoice
+    provider: Stripe
+    category: payment
+    name: Finalize Invoice
+    description: Finalize and charge a Stripe invoice
+    risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Finalizing an invoice triggers an immediate charge attempt on the customer."
+
+  - id: create_refund
+    provider: Stripe
+    category: payment
+    name: Create Refund
+    description: Refund a Stripe payment
+    risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Each refund moves real money. Agent loops can exhaust refundable amounts."
+
+  - id: cancel_subscription
+    provider: Stripe
+    category: payment
+    name: Cancel Subscription
+    description: Cancel a Stripe subscription
+    risk: delete
+    source: official
+    mcp_server: "@stripe/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Cancellation is hard to reverse and immediately affects customer billing."
+
+  # ── PayPal (Official: paypal/paypal-mcp-server) ─────────────────
+  - id: create_order
     provider: PayPal
     category: payment
-    name: Create Payment
-    description: Create a payment via PayPal
+    name: Create Order
+    description: Create a PayPal payment order
     risk: write
-    default_permission: block
-    rate_limit:
-      max_calls: 20
-      window_seconds: 3600
-      note: "PayPal uses dynamic throttling (~100 req/min reported). Each call creates a real transaction."
-
-  # ── Social Media (3) ───────────────────────────────────────────
-  - id: twitter.post_tweet
-    provider: Twitter/X
-    category: social_media
-    name: Post Tweet
-    description: Post a tweet on Twitter/X
-    risk: write
-    default_permission: block
-    rate_limit:
-      max_calls: 5
-      window_seconds: 86400
-      note: "X free tier: 500 posts/month (~17/day). 5/day is safe for any tier and avoids spam suspension."
-
-  - id: linkedin.create_post
-    provider: LinkedIn
-    category: social_media
-    name: Create Post
-    description: Create a post on LinkedIn
-    risk: write
-    default_permission: block
-    rate_limit:
-      max_calls: 5
-      window_seconds: 86400
-      note: "LinkedIn: unpublished limits (~100-500/day). Posting >3-5x/day triggers aggressive spam heuristics."
-
-  - id: facebook.create_post
-    provider: Facebook
-    category: social_media
-    name: Create Post
-    description: Create a post on Facebook
-    risk: write
-    default_permission: block
-    rate_limit:
-      max_calls: 5
-      window_seconds: 86400
-      note: "Facebook Graph API: 200 calls/user/hr. Excessive posting triggers spam detection. ~5/day is safe per page."
-
-  # ── Security (3) ───────────────────────────────────────────────
-  - id: vault.write_secret
-    provider: HashiCorp Vault
-    category: security
-    name: Write Secret
-    description: Write a secret to HashiCorp Vault
-    risk: write
-    default_permission: block
-    rate_limit:
-      max_calls: 20
-      window_seconds: 3600
-      note: "HCP Vault Dev: 60 req/sec. Self-hosted: configurable. Secret churn creates audit noise and versioning bloat."
-
-  - id: vault.delete_secret
-    provider: HashiCorp Vault
-    category: security
-    name: Delete Secret
-    description: Delete a secret from HashiCorp Vault
-    risk: delete
+    source: official
+    mcp_server: paypal-mcp-server
     default_permission: block
     rate_limit:
       max_calls: 10
       window_seconds: 3600
-      note: "Deleting secrets can break dependent services. Low cap for safety."
+      note: "Initiates a real payment transaction. Agent loops can create many pending orders."
 
-  - id: onepassword.delete_item
-    provider: 1Password
-    category: security
-    name: Delete Item
-    description: Delete an item from 1Password
-    risk: delete
+  - id: capture_order
+    provider: PayPal
+    category: payment
+    name: Capture Order
+    description: Capture (charge) a PayPal order
+    risk: write
+    source: official
+    mcp_server: paypal-mcp-server
     default_permission: block
     rate_limit:
       max_calls: 10
       window_seconds: 3600
-      note: "1Password Business: 1000 writes/hr. Teams: 100 writes/hr. Deleted items are hard to recover."
+      note: "Captures real money from a buyer. Must not be triggered by agent loops."
+
+  - id: cancel_sent_invoice
+    provider: PayPal
+    category: payment
+    name: Cancel Invoice
+    description: Cancel a sent PayPal invoice
+    risk: delete
+    source: official
+    mcp_server: paypal-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Cancels live invoices — irreversible and affects revenue collection."
+
+  # ── AWS IAM (Official: awslabs/mcp iam-mcp-server) ──────────────
+  - id: create_access_key
+    provider: AWS IAM
+    category: cloud_infra
+    name: Create Access Key
+    description: Create an IAM user access key (credential)
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Creates long-lived AWS credentials. Extremely dangerous if exploited by a compromised agent."
+
+  - id: attach_user_policy
+    provider: AWS IAM
+    category: cloud_infra
+    name: Attach User Policy
+    description: Attach an IAM policy to a user
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Can grant privilege escalation. A compromised agent could attach AdministratorAccess."
+
+  - id: attach_role_policy
+    provider: AWS IAM
+    category: cloud_infra
+    name: Attach Role Policy
+    description: Attach an IAM policy to a role
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Role policy changes affect all principals assuming that role. Critical blast radius."
+
+  - id: delete_user
+    provider: AWS IAM
+    category: cloud_infra
+    name: Delete IAM User
+    description: Delete an IAM user account
+    risk: delete
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Permanent account deletion. Low cap to prevent agent-driven account wipeout."
+
+  # ── AWS API (Official: awslabs/mcp aws-api-mcp-server) ──────────
+  - id: use_aws_cli
+    provider: AWS
+    category: cloud_infra
+    name: Use AWS CLI
+    description: Execute arbitrary AWS CLI commands
+    risk: admin
+    source: official
+    mcp_server: awslabs/aws-api-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Executes any AWS CLI command — effectively unrestricted AWS access. Treat as admin-level."
+
+  # ── Atlassian (Official: atlassian-labs/mcp-atlassian) ──────────
+  - id: delete_issue
+    provider: Atlassian
+    category: project_management
+    name: Delete Issue
+    description: Delete a Jira issue permanently
+    risk: delete
+    source: official
+    mcp_server: mcp-atlassian
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion of Jira issues. Cannot be undone without backup."
+
+  - id: delete_page
+    provider: Atlassian
+    category: project_management
+    name: Delete Page
+    description: Delete a Confluence page
+    risk: delete
+    source: official
+    mcp_server: mcp-atlassian
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion of Confluence pages including nested content."
+
+  - id: create_issue
+    provider: Atlassian
+    category: project_management
+    name: Create Issue
+    description: Create a Jira issue
+    risk: write
+    source: official
+    mcp_server: mcp-atlassian
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Agent loops can flood a project with spurious issues. Moderate cap."
+
+  # ── Notion (Official: makenotion/notion-mcp-server) ─────────────
+  - id: notion-delete-block
+    provider: Notion
+    category: project_management
+    name: Delete Block
+    description: Delete a Notion block (page, database, or content block)
+    risk: delete
+    source: official
+    mcp_server: notion-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Deleting blocks in Notion can remove entire pages or databases. Irreversible."
+
+  - id: notion-update-page
+    provider: Notion
+    category: project_management
+    name: Update Page
+    description: Update a Notion page properties or content
+    risk: write
+    source: official
+    mcp_server: notion-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Can overwrite page content silently. Agent loops can corrupt workspace data."
+
+  # ── Linear (Official: linear-app/linear-mcp-server) ─────────────
+  - id: createIssue
+    provider: Linear
+    category: project_management
+    name: Create Issue
+    description: Create a Linear issue
+    risk: write
+    source: official
+    mcp_server: linear-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Agent loops can flood Linear projects with duplicate issues."
+
+  - id: deleteIssue
+    provider: Linear
+    category: project_management
+    name: Delete Issue
+    description: Delete a Linear issue permanently
+    risk: delete
+    source: official
+    mcp_server: linear-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion. Low cap to prevent agent-driven issue wipeout."
