@@ -38,9 +38,24 @@ const Header = {
         mobileMenuBtn.addEventListener('click', () => this.toggleMobileMenu());
         container.appendChild(mobileMenuBtn);
 
-        // Left side
+        // Left side — page title + subtitle stacked vertically
         const left = document.createElement('div');
         left.className = 'header-left';
+
+        const titleGroup = document.createElement('div');
+        titleGroup.style.cssText = 'display: flex; flex-direction: column; justify-content: center;';
+
+        const headerTitleEl = document.createElement('div');
+        headerTitleEl.id = 'header-page-title';
+        headerTitleEl.style.cssText = 'font-size: 21px; font-weight: 700; color: var(--text-primary); line-height: 1.2; white-space: nowrap;';
+        titleGroup.appendChild(headerTitleEl);
+
+        const headerSubtitleEl = document.createElement('div');
+        headerSubtitleEl.id = 'header-page-subtitle';
+        headerSubtitleEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 620px;';
+        titleGroup.appendChild(headerSubtitleEl);
+
+        left.appendChild(titleGroup);
         container.appendChild(left);
 
         // Right side - Help, AI Analysis, agent dropdown, cloud mode (rightmost)
@@ -432,7 +447,7 @@ const Header = {
         wrapper.id = 'llm-toggle-wrapper';
 
         const btn = document.createElement('button');
-        btn.className = 'llm-toggle-btn flashing-border';
+        btn.className = 'llm-toggle-btn';
         btn.id = 'llm-toggle-btn';
 
         // AI/Brain icon
@@ -912,7 +927,7 @@ const Header = {
                 indicator.textContent = '';
             }
         } else {
-            btn.className = 'llm-toggle-btn flashing-border';
+            btn.className = 'llm-toggle-btn';
             if (text) text.textContent = 'AI Analysis';
             if (indicator) {
                 indicator.className = 'llm-toggle-indicator';
@@ -1671,11 +1686,38 @@ graph.add_edge("output_security", END)`,
         }
     },
 
+    PAGE_INFO: {
+        dashboard:         { title: 'Dashboard',           subtitle: 'Scanned requests, active threats, cost trends, and recent activity' },
+        threats:           { title: 'Threat Analytics',    subtitle: 'Monitor and analyze detected threats across your AI agents' },
+        rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
+        'tool-permissions':{ title: 'Agent Tool Permissions', subtitle: 'Control which tools your agent is allowed to call' },
+        costs:             { title: 'Agent Cost Intelligence', subtitle: 'Track and optimize your AI agent token spend' },
+        integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
+        guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
+        settings:          { title: 'Settings',            subtitle: 'Configure SecureVector for your environment' },
+        'proxy-langchain': { title: 'LangChain Proxy',     subtitle: 'Proxy setup for LangChain agents' },
+        'proxy-langgraph': { title: 'LangGraph Proxy',     subtitle: 'Proxy setup for LangGraph agents' },
+        'proxy-crewai':    { title: 'CrewAI Proxy',        subtitle: 'Proxy setup for CrewAI agents' },
+        'proxy-ollama':    { title: 'Ollama Proxy',        subtitle: 'Proxy setup for Ollama agents' },
+        'proxy-openclaw':  { title: 'OpenClaw Proxy',      subtitle: 'Proxy setup for OpenClaw agents' },
+        'proxy-n8n':       { title: 'n8n Proxy',           subtitle: 'Proxy setup for n8n workflows' },
+    },
+
     updateTitle() {
-        const title = document.querySelector('.header-title');
-        if (title) {
-            title.textContent = this.getPageTitle();
-        }
+        const currentPage = window.Sidebar ? Sidebar.currentPage : 'dashboard';
+        const info = this.PAGE_INFO[currentPage] || { title: this.getPageTitle(), subtitle: '' };
+
+        const hpt = document.getElementById('header-page-title');
+        if (hpt) hpt.textContent = info.title;
+        const hps = document.getElementById('header-page-subtitle');
+        if (hps) hps.textContent = info.subtitle;
+    },
+
+    setPageInfo(title, subtitle) {
+        const hpt = document.getElementById('header-page-title');
+        if (hpt) hpt.textContent = title || '';
+        const hps = document.getElementById('header-page-subtitle');
+        if (hps) hps.textContent = subtitle !== undefined ? subtitle : '';
     },
 };
 

@@ -25,6 +25,361 @@
 # Categories: communication, code_devops, payment, cloud_infra, project_management
 
 essential_tools:
+  # ── OpenClaw built-in browser (CDP-based, action dispatch) ──────
+  - id: browser
+    provider: OpenClaw
+    category: openclaw
+    name: Browser Control
+    description: OpenClaw built-in browser — controls Chrome via CDP with actions like navigate, click, type, snapshot, open, close, pdf, upload
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Single tool covers all browser actions. Navigate/click/type can exfiltrate data or submit forms; block unless explicitly needed."
+
+  # ── OpenClaw shell execution ─────────────────────────────────────
+  - id: exec
+    provider: OpenClaw
+    category: openclaw
+    name: Execute Command
+    description: Execute shell commands with optional background execution, timeout, and elevation
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Unrestricted shell access — can exfiltrate data, install software, or destroy files. Treat as admin-level."
+
+  - id: bash
+    provider: OpenClaw
+    category: openclaw
+    name: Bash Shell
+    description: Direct bash shell access for running commands
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Equivalent to exec — unrestricted shell. Block unless the agent is explicitly trusted with system access."
+
+  - id: process
+    provider: OpenClaw
+    category: openclaw
+    name: Process Manager
+    description: Manage background exec sessions — list, poll, log, write, kill, clear, remove
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Can interact with running background processes. Kill/write actions can disrupt running services."
+
+  # ── OpenClaw filesystem ──────────────────────────────────────────
+  - id: write
+    provider: OpenClaw
+    category: openclaw
+    name: Write File
+    description: Create or overwrite files with automatic parent directory creation
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can silently overwrite existing files. Agent loops can fill disk or corrupt workspace."
+
+  - id: edit
+    provider: OpenClaw
+    category: openclaw
+    name: Edit File
+    description: Perform targeted search-and-replace edits on files
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can modify any file the agent has access to. Agent loops can corrupt source code or config files."
+
+  - id: apply_patch
+    provider: OpenClaw
+    category: openclaw
+    name: Apply Patch
+    description: Apply structured multi-file patches across the workspace
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Batch file modification — higher blast radius than single-file edit."
+
+  - id: read
+    provider: OpenClaw
+    category: openclaw
+    name: Read File
+    description: Read file contents or directory listings with optional offset and limit
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 500
+      window_seconds: 3600
+      note: "Read-only but can expose secrets, credentials, and private data. Monitor usage."
+
+  # ── OpenClaw web ─────────────────────────────────────────────────
+  - id: web_search
+    provider: OpenClaw
+    category: openclaw
+    name: Web Search
+    description: Query the web via Brave Search API
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Search results can contain hidden prompt injection instructions (OWASP LLM01:2025). Allow by default but monitor for excessive queries or suspicious domain patterns. 30%+ of MCP deployments have unrestricted search as an attack vector."
+
+  - id: web_fetch
+    provider: OpenClaw
+    category: openclaw
+    name: Web Fetch
+    description: Fetch and extract readable content from a URL
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Primary prompt injection vector — attacker-controlled pages can embed malicious instructions that hijack the agent. Block unless the agent's fetch targets are trusted and controlled."
+
+  # ── OpenClaw messaging ───────────────────────────────────────────
+  - id: message
+    provider: OpenClaw
+    category: openclaw
+    name: Send Message
+    description: Send, edit, react, or delete messages across Discord, Slack, Teams, WhatsApp, Telegram, Signal, iMessage
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 900
+      note: "Covers multiple messaging platforms. Agent loops can spam channels. Low cap to prevent TOS violations."
+
+  # ── OpenClaw sessions ────────────────────────────────────────────
+  - id: sessions_spawn
+    provider: OpenClaw
+    category: openclaw
+    name: Spawn Sub-Agent
+    description: Start a new sub-agent session with non-blocking execution
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Each spawned session can take independent actions. Agent loops can spawn many sub-agents, each incurring costs and taking actions."
+
+  - id: sessions_send
+    provider: OpenClaw
+    category: openclaw
+    name: Send to Session
+    description: Send a message to another active agent session, optionally waiting for completion
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Can direct other running agents to take actions. Risk depends on what the target session can do."
+
+  # ── OpenClaw automation ──────────────────────────────────────────
+  - id: cron
+    provider: OpenClaw
+    category: openclaw
+    name: Cron Jobs
+    description: Manage Gateway cron jobs — add, update, remove, run scheduled tasks
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Persistent scheduled execution. A compromised agent could add cron jobs that survive session end."
+
+  - id: gateway
+    provider: OpenClaw
+    category: openclaw
+    name: Gateway Control
+    description: Control the OpenClaw Gateway process — restart, config get/apply/patch, update
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Controls the OpenClaw runtime itself. Can change configuration or restart the gateway."
+
+  # ── OpenClaw nodes ───────────────────────────────────────────────
+  - id: nodes
+    provider: OpenClaw
+    category: openclaw
+    name: Device Control
+    description: Discover paired nodes and control hardware — camera, screen recording, location, notifications
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Access to physical hardware including cameras, microphones, and location. High privacy risk."
+
+  # ── OpenClaw canvas & image ─────────────────────────────────────
+  - id: canvas
+    provider: OpenClaw
+    category: openclaw
+    name: Canvas Control
+    description: Drive node Canvas presentations — present, hide, navigate, eval, snapshot, push/reset UI
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "eval action can execute arbitrary code in the Canvas context. Block by default."
+
+  - id: image
+    provider: OpenClaw
+    category: openclaw
+    name: Image Analysis
+    description: Analyze images using the configured image model
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only. Can process images visible to the agent but does not transmit data externally on its own."
+
+  # ── OpenClaw read-only session & memory tools ────────────────────
+  - id: sessions_list
+    provider: OpenClaw
+    category: openclaw
+    name: List Sessions
+    description: List active agent sessions with optional message history
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only. Reveals which sessions are active — low risk on its own but useful in reconnaissance for multi-agent attacks."
+
+  - id: sessions_history
+    provider: OpenClaw
+    category: openclaw
+    name: Session History
+    description: Fetch conversation transcript for a specific session
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Can expose conversation history including sensitive data discussed in other sessions. Monitor usage."
+
+  - id: session_status
+    provider: OpenClaw
+    category: openclaw
+    name: Session Status
+    description: Get or update current session status and model override
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Mostly read-only. The update/model-override action could be abused to switch to a less-restricted model."
+
+  - id: agents_list
+    provider: OpenClaw
+    category: openclaw
+    name: List Agents
+    description: List available agents for spawning or targeting
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Read-only reconnaissance tool. Low risk alone; concerning if combined with sessions_spawn."
+
+  - id: memory_search
+    provider: OpenClaw
+    category: openclaw
+    name: Memory Search
+    description: Hybrid vector + BM25 semantic search over workspace memory
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can surface sensitive data stored in agent memory. Part of the 'Lethal Trifecta' if combined with write + external comms."
+
+  - id: memory_get
+    provider: OpenClaw
+    category: openclaw
+    name: Memory Get
+    description: Retrieve specific memory documents by ID
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Targeted memory retrieval. Same risk profile as memory_search."
+
   # ── Gmail (google-workspace-mcp) ───────────────────────────────
   - id: gmail.send
     provider: Gmail
@@ -525,3 +880,120 @@ essential_tools:
       max_calls: 10
       window_seconds: 3600
       note: "Permanent deletion. Low cap to prevent agent-driven issue wipeout."
+
+  # ── Playwright (Official: microsoft/playwright-mcp) ─────────────
+  - id: browser_navigate
+    provider: Playwright
+    category: browser_automation
+    name: Navigate
+    description: Navigate the browser to a URL
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can navigate to arbitrary URLs. Agent loops can exfiltrate data via URL params or trigger SSRF-like behavior from the agent host."
+
+  - id: browser_click
+    provider: Playwright
+    category: browser_automation
+    name: Click Element
+    description: Click on a web page element (button, link, etc.)
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 200
+      window_seconds: 3600
+      note: "Can submit forms, trigger purchases, or click destructive UI actions. Agent loops can spam button presses."
+
+  - id: browser_type
+    provider: Playwright
+    category: browser_automation
+    name: Type Text
+    description: Type text into a focused input field
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 200
+      window_seconds: 3600
+      note: "Can inject credentials, malicious input, or exfiltrate data via form fields if combined with browser_navigate."
+
+  - id: browser_evaluate
+    provider: Playwright
+    category: browser_automation
+    name: Execute JavaScript
+    description: Execute arbitrary JavaScript code in the browser context
+    risk: admin
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Executes arbitrary JS in the page context — can exfiltrate cookies, localStorage, session tokens, and perform DOM manipulation. Treat as admin-level."
+
+  - id: browser_screenshot
+    provider: Playwright
+    category: browser_automation
+    name: Take Screenshot
+    description: Capture a screenshot of the current browser page
+    risk: read
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: allow
+    rate_limit:
+      max_calls: 60
+      window_seconds: 3600
+      note: "Read-only but can capture sensitive on-screen data (passwords, PII, private content). Allowed by default — restrict if handling sensitive UI."
+
+  - id: browser_pdf_save
+    provider: Playwright
+    category: browser_automation
+    name: Save Page as PDF
+    description: Save the current page as a PDF file
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Writes files to disk. Can exfiltrate full page content including authenticated views."
+
+  - id: browser_tab_new
+    provider: Playwright
+    category: browser_automation
+    name: Open New Tab
+    description: Open a new browser tab optionally navigating to a URL
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Agent loops can open many tabs and navigate to arbitrary URLs, consuming resources and exfiltrating data."
+
+  - id: browser_close
+    provider: Playwright
+    category: browser_automation
+    name: Close Browser
+    description: Close the browser or current page
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Low risk on its own. Allowed by default for cleanup in automation workflows."

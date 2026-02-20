@@ -180,10 +180,17 @@ const API = {
     },
 
     async updateSettings(settings) {
-        return this.request('/api/settings', {
+        const result = await this.request('/api/settings', {
             method: 'PUT',
             body: JSON.stringify(settings),
         });
+        if (result && result.config_updated && result.config_file) {
+            const fileName = result.config_file.split('/').pop().split('\\').pop();
+            const msg = `${fileName} updated`;
+            if (window.Toast) Toast.info(msg);
+            else if (window.UI && UI.showNotification) UI.showNotification(msg, 'info');
+        }
+        return result;
     },
 
     // ==================== Cloud Settings ====================
@@ -326,6 +333,100 @@ const API = {
                 { id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com', models: ['claude-3-5-sonnet-20241022'], requires_api_key: true },
             ],
         }));
+    },
+
+    // ==================== Costs ====================
+
+    async getCostSummary(params = {}) {
+        const qs = new URLSearchParams();
+        if (params.start) qs.set('start', params.start);
+        if (params.end) qs.set('end', params.end);
+        if (params.limit) qs.set('limit', params.limit);
+        const query = qs.toString() ? `?${qs}` : '';
+        return this.request(`/api/costs/summary${query}`);
+    },
+
+    async getDashboardCostSummary() {
+        return this.request('/api/costs/dashboard-summary').catch(() => ({
+            today_cost_usd: 0,
+            today_requests: 0,
+            top_agent: null,
+            top_model: null,
+            cost_tracking_enabled: true,
+            has_unknown_pricing: false,
+        }));
+    },
+
+    async getCostRecords(params = {}) {
+        const qs = new URLSearchParams();
+        if (params.agent_id) qs.set('agent_id', params.agent_id);
+        if (params.provider) qs.set('provider', params.provider);
+        if (params.start) qs.set('start', params.start);
+        if (params.end) qs.set('end', params.end);
+        if (params.page) qs.set('page', params.page);
+        if (params.page_size) qs.set('page_size', params.page_size);
+        const query = qs.toString() ? `?${qs}` : '';
+        return this.request(`/api/costs/records${query}`);
+    },
+
+    async getModelPricing(provider) {
+        const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+        return this.request(`/api/costs/pricing${query}`);
+    },
+
+    async updateModelPricing(provider, modelId, data) {
+        return this.request(`/api/costs/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async syncPricing() {
+        return this.request('/api/costs/pricing/sync', { method: 'POST' });
+    },
+
+    getCostExportUrl(params = {}) {
+        const qs = new URLSearchParams();
+        if (params.agent_id) qs.set('agent_id', params.agent_id);
+        if (params.provider) qs.set('provider', params.provider);
+        if (params.start) qs.set('start', params.start);
+        if (params.end) qs.set('end', params.end);
+        const query = qs.toString() ? `?${qs}` : '';
+        return `/api/costs/export${query}`;
+    },
+
+    // Budget API
+    async getGlobalBudget() {
+        return this.request('/api/costs/budget');
+    },
+    async setGlobalBudget(data) {
+        const result = await this.request('/api/costs/budget', { method: 'PUT', body: JSON.stringify(data) });
+        if (window.Toast) Toast.info('securevector.yml updated');
+        else if (window.UI && UI.showNotification) UI.showNotification('securevector.yml updated', 'info');
+        return result;
+    },
+    async listAgentBudgets() {
+        return this.request('/api/costs/budget/agents');
+    },
+    async setAgentBudget(agentId, data) {
+        return this.request(`/api/costs/budget/agents/${encodeURIComponent(agentId)}`, {
+            method: 'PUT', body: JSON.stringify(data),
+        });
+    },
+    async deleteAgentBudget(agentId) {
+        return this.request(`/api/costs/budget/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+    },
+    async deleteCostRecords(agentId = null, ids = null) {
+        const query = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+        const options = { method: 'DELETE' };
+        if (ids && ids.length > 0) {
+            options.body = JSON.stringify({ ids });
+        }
+        return this.request(`/api/costs/records${query}`, options);
+    },
+
+    async getBudgetGuardian() {
+        return this.request('/api/costs/budget/guardian').catch(() => null);
     },
 };
 

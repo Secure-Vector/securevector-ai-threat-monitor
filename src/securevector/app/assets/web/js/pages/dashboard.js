@@ -39,53 +39,74 @@ const DashboardPage = {
     async renderContent(container) {
         container.textContent = '';
 
-        // Dashboard header with title
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
+        // Budget guardian alerts — rendered first so they're impossible to miss
+        try {
+            const gd = await API.getBudgetGuardian();
+            if (gd) {
+                const hasGlobalAlert = gd.global_budget_usd != null && (gd.global_over_budget || gd.global_warning);
+                const hasAgentAlerts = gd.agent_alerts && gd.agent_alerts.some(a => a.over_budget || a.warning);
+                if (hasGlobalAlert || hasAgentAlerts) {
+                    const alertsBox = document.createElement('div');
+                    alertsBox.style.cssText = 'margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px;';
 
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Threat Monitor';
-        header.appendChild(title);
+                    const buildBudgetBar = (label, today, budget, pct, over, action) => {
+                        const overColor = 'rgba(220,38,38,0.75)';
+                        const warnColor = 'rgba(180,130,0,0.75)';
+                        const color = over ? overColor : warnColor;
+                        const bar = document.createElement('div');
+                        bar.style.cssText = `padding: 10px 14px; border-radius: 8px; border: 1px solid ${color}; background: ${over ? 'rgba(220,38,38,0.06)' : 'rgba(180,130,0,0.06)'}; display: flex; align-items: center; gap: 12px;`;
 
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Real-time AI threat detection and analysis';
-        header.appendChild(subtitle);
+                        const info = document.createElement('div');
+                        info.style.cssText = 'flex: 1; min-width: 0;';
 
-        // Auto-refresh button
-        const refreshBtn = document.createElement('button');
-        refreshBtn.className = 'btn btn-secondary auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
-        refreshBtn.textContent = '↻ Auto Refresh';
-        refreshBtn.title = 'Auto refresh every 30 seconds';
-        refreshBtn.style.marginLeft = 'auto';
-        refreshBtn.addEventListener('click', () => {
-            this.toggleAutoRefresh();
-            refreshBtn.classList.toggle('active', this.autoRefreshEnabled);
-        });
-        header.appendChild(refreshBtn);
+                        const infoTop = document.createElement('div');
+                        infoTop.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;';
+                        infoTop.textContent = `${label}: $${today.toFixed(4)} of $${budget.toFixed(2)} today (${Math.round(pct * 100)}%)`;
+                        info.appendChild(infoTop);
 
-        container.appendChild(header);
+                        const track = document.createElement('div');
+                        track.style.cssText = 'height: 5px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden;';
+                        const fill = document.createElement('div');
+                        fill.style.cssText = `height: 100%; border-radius: 3px; background: ${color}; width: ${Math.min(pct * 100, 100)}%;`;
+                        track.appendChild(fill);
+                        info.appendChild(track);
+                        bar.appendChild(info);
 
-        // Value proposition banner (compact)
-        const valueBanner = document.createElement('div');
-        valueBanner.style.cssText = 'background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: white; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;';
+                        const badge = document.createElement('span');
+                        badge.className = over && action === 'block' ? 'badge badge-error' : 'badge badge-warning';
+                        badge.textContent = over && action === 'block' ? 'Blocked' : over ? 'Over limit' : '80%+ used';
+                        bar.appendChild(badge);
 
-        const valueTitle = document.createElement('span');
-        valueTitle.style.cssText = 'font-size: 14px; font-weight: 600;';
-        valueTitle.textContent = '100% Local Security for Your AI Agents';
-        valueBanner.appendChild(valueTitle);
+                        const goBtn = document.createElement('button');
+                        goBtn.className = 'btn btn-secondary btn-sm';
+                        goBtn.textContent = 'View →';
+                        goBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
+                        bar.appendChild(goBtn);
 
-        const valuePoints = document.createElement('div');
-        valuePoints.style.cssText = 'display: flex; gap: 16px; font-size: 12px; opacity: 0.95;';
-        ['100% Local', 'Block input threats', 'Real-time monitoring'].forEach(point => {
-            const item = document.createElement('span');
-            item.textContent = point;
-            valuePoints.appendChild(item);
-        });
-        valueBanner.appendChild(valuePoints);
+                        return bar;
+                    };
 
-        container.appendChild(valueBanner);
+                    if (hasGlobalAlert) {
+                        alertsBox.appendChild(buildBudgetBar(
+                            'Global budget', gd.global_today_spend_usd,
+                            gd.global_budget_usd, gd.global_pct_used,
+                            gd.global_over_budget, gd.global_budget_action
+                        ));
+                    }
+                    if (hasAgentAlerts) {
+                        gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
+                            alertsBox.appendChild(buildBudgetBar(
+                                a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
+                                a.today_spend_usd, a.budget_usd, a.pct_used,
+                                a.over_budget, a.budget_action
+                            ));
+                        });
+                    }
+                    container.appendChild(alertsBox);
+                }
+            }
+        } catch (e) { /* budget alerts are non-critical */ }
+
 
         // First-run onboarding — show when no threats have been analyzed yet
         if (!this.data.total_threats && (!this.threats || this.threats.length === 0)) {
@@ -93,46 +114,69 @@ const DashboardPage = {
             onboard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--accent-primary); border-radius: 8px; padding: 20px; margin-bottom: 16px;';
 
             const onboardTitle = document.createElement('div');
-            onboardTitle.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
-            onboardTitle.textContent = 'Get started in 3 steps';
+            onboardTitle.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;';
+            onboardTitle.textContent = 'No traffic detected yet';
             onboard.appendChild(onboardTitle);
 
             const onboardDesc = document.createElement('div');
-            onboardDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;';
-            onboardDesc.textContent = 'No traffic detected yet. Set up a proxy to start protecting your AI agents.';
+            onboardDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;';
+            onboardDesc.textContent = 'By default, SecureVector starts the OpenClaw proxy. Choose the path that matches your setup:';
             onboard.appendChild(onboardDesc);
 
-            const steps = [
-                { num: '1', text: 'Go to Integrations and select your framework', action: 'integrations', btn: 'Open Integrations' },
-                { num: '2', text: 'Pick your LLM provider and click Start Proxy', action: null, btn: null },
-                { num: '3', text: 'Point your app at the proxy and send a message', action: null, btn: null },
-            ];
+            // Two-path layout
+            const pathsRow = document.createElement('div');
+            pathsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
 
-            steps.forEach(step => {
-                const row = document.createElement('div');
-                row.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 8px;';
+            // Path 1 — OpenClaw (default)
+            const pathA = document.createElement('div');
+            pathA.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 6px; padding: 14px;';
 
-                const num = document.createElement('span');
-                num.style.cssText = 'width: 22px; height: 22px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0;';
-                num.textContent = step.num;
-                row.appendChild(num);
+            const pathABadge = document.createElement('div');
+            pathABadge.style.cssText = 'display: inline-block; font-size: 10px; font-weight: 700; background: var(--accent-primary); color: white; border-radius: 4px; padding: 2px 7px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
+            pathABadge.textContent = 'Default';
+            pathA.appendChild(pathABadge);
 
-                const text = document.createElement('span');
-                text.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-                text.textContent = step.text;
-                row.appendChild(text);
+            const pathATitle = document.createElement('div');
+            pathATitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;';
+            pathATitle.textContent = 'Using OpenClaw / ClawdBot?';
+            pathA.appendChild(pathATitle);
 
-                if (step.action) {
-                    const btn = document.createElement('button');
-                    btn.className = 'btn btn-primary';
-                    btn.style.cssText = 'font-size: 11px; padding: 4px 12px; margin-left: auto;';
-                    btn.textContent = step.btn;
-                    btn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(step.action); });
-                    row.appendChild(btn);
-                }
+            const pathADesc = document.createElement('div');
+            pathADesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            pathADesc.textContent = 'The OpenClaw proxy is already running. Go to the OpenClaw integration and follow step 2 onwards.';
+            pathA.appendChild(pathADesc);
 
-                onboard.appendChild(row);
-            });
+            const pathABtn = document.createElement('button');
+            pathABtn.className = 'btn btn-primary';
+            pathABtn.style.cssText = 'font-size: 11px; padding: 5px 12px; width: 100%;';
+            pathABtn.textContent = 'OpenClaw Integration →';
+            pathABtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-openclaw'); });
+            pathA.appendChild(pathABtn);
+
+            // Path 2 — Other frameworks
+            const pathB = document.createElement('div');
+            pathB.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 6px; padding: 14px;';
+
+            const pathBTitle = document.createElement('div');
+            pathBTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; margin-top: 22px;';
+            pathBTitle.textContent = 'Using another framework?';
+            pathB.appendChild(pathBTitle);
+
+            const pathBDesc = document.createElement('div');
+            pathBDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            pathBDesc.textContent = 'LangChain, LangGraph, CrewAI, n8n, or Ollama — go to Integrations and follow all steps for your framework.';
+            pathB.appendChild(pathBDesc);
+
+            const pathBBtn = document.createElement('button');
+            pathBBtn.className = 'btn btn-secondary';
+            pathBBtn.style.cssText = 'font-size: 11px; padding: 5px 12px; width: 100%;';
+            pathBBtn.textContent = 'View All Integrations →';
+            pathBBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('integrations'); });
+            pathB.appendChild(pathBBtn);
+
+            pathsRow.appendChild(pathA);
+            pathsRow.appendChild(pathB);
+            onboard.appendChild(pathsRow);
 
             const guideLink = document.createElement('div');
             guideLink.style.cssText = 'margin-top: 12px; font-size: 12px; color: var(--text-muted);';
@@ -148,77 +192,54 @@ const DashboardPage = {
             container.appendChild(onboard);
         }
 
-        // Security Controls - immediately visible
+        // 1. Security Controls — most actionable, show first
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
 
-        // Stats grid
+        // 2. Stats row — Analyzed Requests, Critical, Today's Cost
         const statsGrid = document.createElement('div');
         statsGrid.className = 'stats-grid';
 
+        let todayCostStr = '—';
+        let totalCostStr = '—';
+        try {
+            const [summary, costSummary] = await Promise.all([
+                API.getDashboardCostSummary(),
+                API.getCostSummary().catch(() => null),
+            ]);
+            todayCostStr = '$' + (summary.today_cost_usd || 0).toFixed(4);
+            if (costSummary && costSummary.totals && costSummary.totals.total_cost_usd != null) {
+                totalCostStr = '$' + Number(costSummary.totals.total_cost_usd).toFixed(4);
+            }
+        } catch (e) {}
+
         const stats = [
-            {
-                value: this.data.total_threats || 0,
-                label: 'Analyzed Requests',
-                icon: 'shield',
-                color: 'primary',
-            },
-            {
-                value: this.data.critical_count || 0,
-                label: 'Critical',
-                icon: 'alert',
-                color: 'danger',
-            },
-            {
-                value: this.getAverageRiskScore(),
-                label: 'Avg Risk Score',
-                icon: 'gauge',
-                color: this.getRiskColor(this.getAverageRiskScore()),
-                suffix: '%',
-            },
-            {
-                value: this.getAverageLatency(),
-                label: 'Avg Latency',
-                icon: 'clock',
-                color: 'latency',
-                suffix: 'ms',
-                highlight: true,
-            },
+            { value: this.data.total_threats || 0, label: 'Analyzed Requests', icon: 'shield', color: 'primary', tooltip: 'Total number of LLM requests intercepted and scanned by SecureVector since installation.' },
+            { value: this.data.critical_count || 0, label: 'Critical', icon: 'alert', color: 'danger', tooltip: 'Requests flagged as high-risk (risk score ≥ 75). These may indicate prompt injection, jailbreak attempts, or data exfiltration.' },
+            { value: todayCostStr, label: "Today's Cost", icon: 'clock', color: 'primary', raw: true, tooltip: "Estimated LLM provider cost (USD) for today's requests, based on token usage and model pricing." },
+            { value: totalCostStr, label: 'Total Cost', icon: 'gauge', color: 'primary', raw: true, tooltip: 'Cumulative estimated LLM provider cost (USD) across all intercepted requests since installation.' },
         ];
 
-        stats.forEach(stat => {
-            statsGrid.appendChild(this.createStatCard(stat));
-        });
-
+        statsGrid.style.marginBottom = '16px';
+        stats.forEach(stat => statsGrid.appendChild(this.createStatCard(stat)));
         container.appendChild(statsGrid);
 
-        // Charts row
+        // 3. Charts row — threat trend + cost trend side by side
         const chartsRow = document.createElement('div');
-        chartsRow.className = 'dashboard-charts-row';
+        chartsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;';
 
-        // Risk Distribution Chart
-        const riskCard = Card.create({
-            title: 'Risk Distribution',
-            gradient: true,
-        });
-        this.renderRiskDistribution(riskCard.querySelector('.card-body'));
-        chartsRow.appendChild(riskCard);
+        const trendCard = Card.create({ title: 'LLM Requests — Last 7 Days', gradient: true });
+        this.renderTrendChart(trendCard.querySelector('.card-body'));
+        chartsRow.appendChild(trendCard);
 
-        // Threat Types Chart
-        const typesCard = Card.create({
-            title: 'Threat Categories',
-            gradient: true,
-        });
-        this.renderThreatTypes(typesCard.querySelector('.card-body'));
-        chartsRow.appendChild(typesCard);
+        const costTrendCard = Card.create({ title: 'Provider Cost — Last 7 Days', gradient: true });
+        await this.renderCostTrendChart(costTrendCard.querySelector('.card-body'));
+        chartsRow.appendChild(costTrendCard);
 
         container.appendChild(chartsRow);
 
-        // Recent activity
-        const activityCard = Card.create({
-            title: 'Recent Threat Activity',
-            gradient: true,
-        });
+        // 4. Recent activity
+        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
         container.appendChild(activityCard);
     },
@@ -226,6 +247,10 @@ const DashboardPage = {
     createStatCard(stat) {
         const card = document.createElement('div');
         card.className = 'stat-card stat-' + (stat.color || 'primary');
+        if (stat.tooltip) {
+            card.style.cursor = 'help';
+            card.title = stat.tooltip;
+        }
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'stat-icon';
@@ -237,14 +262,25 @@ const DashboardPage = {
 
         const value = document.createElement('div');
         value.className = 'stat-value';
-        value.textContent = stat.value + (stat.suffix || '');
+        value.textContent = stat.raw ? stat.value : stat.value + (stat.suffix || '');
         content.appendChild(value);
+
+        const labelRow = document.createElement('div');
+        labelRow.style.cssText = 'display: flex; align-items: center; gap: 4px;';
 
         const label = document.createElement('div');
         label.className = 'stat-label';
         label.textContent = stat.label;
-        content.appendChild(label);
+        labelRow.appendChild(label);
 
+        if (stat.tooltip) {
+            const hint = document.createElement('span');
+            hint.style.cssText = 'font-size: 10px; color: var(--text-muted); line-height: 1; flex-shrink: 0;';
+            hint.textContent = 'ⓘ';
+            labelRow.appendChild(hint);
+        }
+
+        content.appendChild(labelRow);
         card.appendChild(content);
         return card;
     },
@@ -456,6 +492,163 @@ const DashboardPage = {
         container.appendChild(chart);
     },
 
+    renderTrendChart(container) {
+        // Build last-7-days buckets from loaded threats
+        const days = 7;
+        const buckets = [];
+        const now = new Date();
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            buckets.push({
+                label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'),
+                dateStr: d.toISOString().slice(0, 10),
+                total: 0,
+                threats: 0,
+            });
+        }
+
+        (this.threats || []).forEach(t => {
+            const dateStr = (t.created_at || '').slice(0, 10);
+            const bucket = buckets.find(b => b.dateStr === dateStr);
+            if (bucket) {
+                bucket.total++;
+                if ((t.risk_score || 0) >= 60) bucket.threats++;
+            }
+        });
+
+        const maxVal = Math.max(...buckets.map(b => b.total), 1);
+
+        // Fixed-height chart: value(12px) + bar(flex) + day label(16px)
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display: flex; align-items: stretch; gap: 5px; height: 110px;';
+
+        buckets.forEach(bucket => {
+            const col = document.createElement('div');
+            col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
+
+            // Value label (top, fixed height)
+            const valLbl = document.createElement('div');
+            valLbl.style.cssText = 'height: 14px; font-size: 9px; color: var(--text-secondary); text-align: center; line-height: 14px; white-space: nowrap;';
+            valLbl.textContent = bucket.total > 0 ? bucket.total : '';
+            col.appendChild(valLbl);
+
+            // Bar area (grows to fill)
+            const barArea = document.createElement('div');
+            barArea.style.cssText = 'flex: 1; width: 100%; position: relative;';
+            barArea.title = `${bucket.dateStr}: ${bucket.total} requests, ${bucket.threats} threats`;
+
+            const pct = (bucket.total / maxVal) * 100;
+            const barTotal = document.createElement('div');
+            barTotal.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${pct}%; background: var(--accent-primary); opacity: 0.3; border-radius: 3px 3px 0 0; min-height: ${bucket.total > 0 ? 3 : 0}px;`;
+            barArea.appendChild(barTotal);
+
+            if (bucket.threats > 0) {
+                const threatPct = (bucket.threats / maxVal) * 100;
+                const barThreat = document.createElement('div');
+                barThreat.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${threatPct}%; background: #ef4444; opacity: 0.7; border-radius: 3px 3px 0 0; min-height: 3px;`;
+                barArea.appendChild(barThreat);
+            }
+            col.appendChild(barArea);
+
+            // Day label (bottom, fixed height)
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px; white-space: nowrap;';
+            lbl.textContent = bucket.label;
+            col.appendChild(lbl);
+
+            wrap.appendChild(col);
+        });
+
+        container.appendChild(wrap);
+
+        // Legend
+        const legend = document.createElement('div');
+        legend.style.cssText = 'display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--text-secondary);';
+        [['var(--accent-primary)', 'Requests'], ['#ef4444', 'Threats (risk ≥60%)']]
+            .forEach(([color, label]) => {
+                const item = document.createElement('span');
+                item.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+                const dot = document.createElement('span');
+                dot.style.cssText = `width: 8px; height: 8px; border-radius: 2px; background: ${color}; opacity: 0.75; flex-shrink: 0;`;
+                item.appendChild(dot);
+                item.appendChild(document.createTextNode(label));
+                legend.appendChild(item);
+            });
+        container.appendChild(legend);
+    },
+
+    async renderCostTrendChart(container) {
+        // Fetch last 7 days of cost records
+        const days = 7;
+        const buckets = [];
+        const now = new Date();
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), dateStr: d.toISOString().slice(0, 10), cost: 0 });
+        }
+
+        try {
+            const start = new Date(now);
+            start.setDate(start.getDate() - 7);
+            const records = await API.getCostRecords({ start: start.toISOString(), page_size: 200 });
+            (records.items || []).forEach(r => {
+                const dateStr = (r.recorded_at || '').slice(0, 10);
+                const bucket = buckets.find(b => b.dateStr === dateStr);
+                if (bucket) bucket.cost += r.total_cost_usd || 0;
+            });
+        } catch (e) {}
+
+        const maxVal = Math.max(...buckets.map(b => b.cost), 0.000001);
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display: flex; align-items: stretch; gap: 5px; height: 110px;';
+
+        buckets.forEach(bucket => {
+            const col = document.createElement('div');
+            col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
+
+            // Value label (top, fixed height)
+            const valLbl = document.createElement('div');
+            valLbl.style.cssText = 'height: 14px; font-size: 9px; color: var(--text-secondary); text-align: center; line-height: 14px; white-space: nowrap;';
+            valLbl.textContent = bucket.cost > 0 ? '$' + bucket.cost.toFixed(2) : '';
+            col.appendChild(valLbl);
+
+            // Bar area (grows)
+            const barArea = document.createElement('div');
+            barArea.style.cssText = 'flex: 1; width: 100%; position: relative;';
+            barArea.title = `${bucket.dateStr}: $${bucket.cost.toFixed(4)}`;
+
+            const pct = (bucket.cost / maxVal) * 100;
+            const bar = document.createElement('div');
+            bar.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${pct}%; background: #10b981; opacity: 0.6; border-radius: 3px 3px 0 0; min-height: ${bucket.cost > 0 ? 3 : 0}px;`;
+            barArea.appendChild(bar);
+            col.appendChild(barArea);
+
+            // Day label (bottom, fixed height)
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px; white-space: nowrap;';
+            lbl.textContent = bucket.label;
+            col.appendChild(lbl);
+
+            wrap.appendChild(col);
+        });
+
+        container.appendChild(wrap);
+
+        const legend = document.createElement('div');
+        legend.style.cssText = 'display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--text-secondary);';
+        const item = document.createElement('span');
+        item.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'width: 8px; height: 8px; border-radius: 2px; background: #10b981; opacity: 0.75; flex-shrink: 0;';
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode('Daily spend (USD)'));
+        legend.appendChild(item);
+        container.appendChild(legend);
+    },
+
     renderRecentActivity(container) {
         const threats = this.threats.slice(0, 8);
 
@@ -587,6 +780,73 @@ const DashboardPage = {
             }
             if (window.Toast) Toast.info('Auto refresh disabled');
         }
+    },
+
+    async renderCostWidget() {
+        const widget = document.createElement('div');
+        widget.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 20px; cursor: pointer;';
+        widget.title = 'Click to open Cost Intelligence';
+        widget.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;';
+
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-primary);';
+        titleEl.textContent = '💰 Cost Intelligence';
+        header.appendChild(titleEl);
+
+        const viewLink = document.createElement('span');
+        viewLink.style.cssText = 'font-size: 12px; color: var(--accent-primary); cursor: pointer;';
+        viewLink.textContent = 'View all →';
+        header.appendChild(viewLink);
+
+        widget.appendChild(header);
+
+        try {
+            const summary = await API.getDashboardCostSummary();
+
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;';
+
+            const items = [
+                { label: "Today's Cost", value: `$${(summary.today_cost_usd || 0).toFixed(4)}` },
+                { label: "Today's Requests", value: (summary.today_requests || 0).toLocaleString() },
+                { label: 'Top Agent', value: summary.top_agent || '—' },
+                { label: 'Top Model', value: summary.top_model || '—' },
+            ];
+
+            items.forEach(({ label, value }) => {
+                const cell = document.createElement('div');
+                cell.style.cssText = 'text-align: center;';
+                const v = document.createElement('div');
+                v.style.cssText = 'font-size: 18px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                v.textContent = value;
+                v.title = value;
+                const l = document.createElement('div');
+                l.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+                l.textContent = label;
+                cell.appendChild(v);
+                cell.appendChild(l);
+                grid.appendChild(cell);
+            });
+
+            widget.appendChild(grid);
+
+            if (summary.has_unknown_pricing) {
+                const warn = document.createElement('div');
+                warn.style.cssText = 'margin-top: 10px; font-size: 11px; color: var(--color-warning, #f59e0b);';
+                warn.textContent = '⚠ Some models have unknown pricing — costs may be understated.';
+                widget.appendChild(warn);
+            }
+        } catch (e) {
+            const err = document.createElement('div');
+            err.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+            err.textContent = 'Cost data unavailable.';
+            widget.appendChild(err);
+        }
+
+        return widget;
     },
 
     async renderSecurityControls() {

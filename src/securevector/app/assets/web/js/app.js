@@ -19,6 +19,7 @@ const App = {
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
         'tool-permissions': ToolPermissionsPage,
+        costs: CostsPage,
     },
 
     /**
@@ -306,6 +307,60 @@ const App = {
 
 // Make App globally available
 window.App = App;
+
+/**
+ * makeTableSortable — attach click-to-sort to all <th> in a .data-table.
+ *
+ * Columns with data-no-sort attribute are skipped.
+ * Detects numeric values (including $-prefix, K/M suffixes) for numeric sort.
+ * Falls back to locale string comparison.
+ */
+function makeTableSortable(table) {
+    const ths = Array.from(table.querySelectorAll('thead th'));
+    const state = { col: -1, dir: 'asc' };
+
+    function parseCell(text) {
+        const t = text.trim().replace(/^\$/, '');
+        const m = t.match(/^([\d.]+)\s*([KkMm]?)$/);
+        if (m) {
+            const n = parseFloat(m[1]);
+            const s = m[2].toUpperCase();
+            if (s === 'K') return n * 1_000;
+            if (s === 'M') return n * 1_000_000;
+            if (!isNaN(n)) return n;
+        }
+        return t.toLowerCase();
+    }
+
+    ths.forEach((th, idx) => {
+        if (th.hasAttribute('data-no-sort')) return;
+        th.classList.add('sortable');
+        th.addEventListener('click', () => {
+            if (state.col === idx) {
+                state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.col = idx;
+                state.dir = 'asc';
+            }
+            ths.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+            th.classList.add(state.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const va = parseCell(a.cells[idx]?.textContent ?? '');
+                const vb = parseCell(b.cells[idx]?.textContent ?? '');
+                if (typeof va === 'number' && typeof vb === 'number') {
+                    return state.dir === 'asc' ? va - vb : vb - va;
+                }
+                const sa = String(va), sb = String(vb);
+                return state.dir === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+        });
+    });
+}
+window.makeTableSortable = makeTableSortable;
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {

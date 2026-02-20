@@ -280,22 +280,6 @@ def chat_with_protection(user_input):
 
         container.textContent = '';
 
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = 'margin-bottom: 24px;';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = integration.name + ' Integration';
-        header.appendChild(title);
-
-        const desc = document.createElement('p');
-        desc.className = 'dashboard-subtitle';
-        desc.textContent = integration.description;
-        header.appendChild(desc);
-
-        container.appendChild(header);
-
         // Render based on integration type
         if (integration.isNodeBased) {
             // n8n: Node + API options

@@ -71,36 +71,40 @@
 
 <line x1="366" y1="102" x2="594" y2="102" stroke="#e0f2fe" stroke-width="1"/>
 
-<!-- Feature items -->
-<rect x="366" y="112" width="228" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-<text x="384" y="130" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
-<text x="400" y="130" class="item" fill="#15803d">Prompt Injection Block</text>
+<!-- Feature items (6 rows, 28px gap) -->
+<rect x="366" y="112" width="228" height="26" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+<text x="384" y="129" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="129" class="item" fill="#15803d">Prompt Injection Block</text>
 
-<rect x="366" y="146" width="228" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-<text x="384" y="164" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
-<text x="400" y="164" class="item" fill="#15803d">Jailbreak Detection</text>
+<rect x="366" y="142" width="228" height="26" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+<text x="384" y="159" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="159" class="item" fill="#15803d">Jailbreak Detection</text>
 
-<rect x="366" y="180" width="228" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-<text x="384" y="198" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
-<text x="400" y="198" class="item" fill="#15803d">Data Leak Prevention</text>
+<rect x="366" y="172" width="228" height="26" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+<text x="384" y="189" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="189" class="item" fill="#15803d">Data Leak Prevention</text>
 
-<rect x="366" y="214" width="228" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-<text x="384" y="232" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
-<text x="400" y="232" class="item" fill="#15803d">PII / Credential Redaction</text>
+<rect x="366" y="202" width="228" height="26" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+<text x="384" y="219" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="219" class="item" fill="#15803d">PII / Credential Redaction</text>
 
-<rect x="366" y="248" width="228" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-<text x="384" y="266" fill="#16a34a" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
-<text x="400" y="266" class="item" fill="#15803d">+ more</text>
+<rect x="366" y="232" width="228" height="26" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1"/>
+<text x="384" y="249" fill="#2563eb" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="249" class="item" fill="#1d4ed8">Tool Permissions</text>
+
+<rect x="366" y="262" width="228" height="26" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+<text x="384" y="279" fill="#d97706" font-size="14" font-family="-apple-system, sans-serif">&#10003;</text>
+<text x="400" y="279" class="item" fill="#b45309">Cost Intelligence</text>
 
 <!-- Badges centered in row -->
-<rect x="366" y="286" width="72" height="24" rx="12" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1"/>
-<text x="402" y="302" class="badge" fill="#059669" text-anchor="middle">100% Local</text>
+<rect x="366" y="296" width="72" height="22" rx="11" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1"/>
+<text x="402" y="311" class="badge" fill="#059669" text-anchor="middle">100% Local</text>
 
-<rect x="446" y="286" width="64" height="24" rx="12" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
-<text x="478" y="302" class="badge" fill="#ca8a04" text-anchor="middle">&lt; 50ms</text>
+<rect x="446" y="296" width="64" height="22" rx="11" fill="#fefce8" stroke="#fde68a" stroke-width="1"/>
+<text x="478" y="311" class="badge" fill="#ca8a04" text-anchor="middle">&lt; 50ms</text>
 
-<rect x="518" y="286" width="76" height="24" rx="12" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
-<text x="556" y="302" class="badge" fill="#dc2626" text-anchor="middle">Open Source</text>
+<rect x="518" y="296" width="76" height="22" rx="11" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+<text x="556" y="311" class="badge" fill="#dc2626" text-anchor="middle">Open Source</text>
 
 <!-- ==================== ARROWS: Center to Right ==================== -->
 <line x1="624" y1="175" x2="704" y2="175" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>

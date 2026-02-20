@@ -23,23 +23,6 @@ const RulesPage = {
         container.textContent = '';
         this.expandedRows.clear();
 
-        // Page header with title and create button
-        const pageHeader = document.createElement('div');
-        pageHeader.className = 'page-title-bar';
-
-        const title = document.createElement('h2');
-        title.className = 'page-title';
-        title.textContent = 'Detection Rules';
-        pageHeader.appendChild(title);
-
-        const createBtn = document.createElement('button');
-        createBtn.className = 'btn btn-primary';
-        createBtn.textContent = '+ Create Rule';
-        createBtn.addEventListener('click', () => this.showCreateRuleModal());
-        pageHeader.appendChild(createBtn);
-
-        container.appendChild(pageHeader);
-
         // Filters bar
         const filtersBar = document.createElement('div');
         filtersBar.className = 'filters-bar';
@@ -324,12 +307,12 @@ const RulesPage = {
             bannerBody.style.cssText = 'flex: 1; min-width: 0; padding-right: 24px;';
 
             const bannerTitle = document.createElement('div');
-            bannerTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: #b45309; margin-bottom: 4px;';
+            bannerTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--warning-text); margin-bottom: 4px;';
             bannerTitle.textContent = newRules.length + ' new detection rule' + (newRules.length > 1 ? 's' : '') + ' added — AI Agent Attack Protection';
             bannerBody.appendChild(bannerTitle);
 
             const bannerDesc = document.createElement('div');
-            bannerDesc.style.cssText = 'font-size: 12px; color: var(--text-color, #4b5563); line-height: 1.5;';
+            bannerDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
             bannerDesc.textContent = 'SecureVector now detects the latest AI agent attack patterns: injected instructions inside tool results, multi-agent authority spoofing, and permission scope escalation. These cover real attack chains used against OpenClaw, GitHub MCP, and other agent frameworks in 2025\u20132026. Expand any highlighted rule below to see how it protects your agents.';
             bannerBody.appendChild(bannerDesc);
 
@@ -337,7 +320,7 @@ const RulesPage = {
             bannerList.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;';
             newRules.forEach(r => {
                 const chip = document.createElement('span');
-                chip.style.cssText = 'font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(180,83,9,0.1); color: #92400e; border: 1px solid rgba(180,83,9,0.25); font-weight: 500;';
+                chip.style.cssText = 'font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--warning-chip-bg); color: var(--warning-text-muted); border: 1px solid var(--warning-chip-border); font-weight: 500;';
                 chip.textContent = r.name;
                 bannerList.appendChild(chip);
             });
@@ -347,7 +330,7 @@ const RulesPage = {
 
             // Close button
             const closeBtn = document.createElement('button');
-            closeBtn.style.cssText = 'position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; color: #92400e; font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0.6;';
+            closeBtn.style.cssText = 'position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; color: var(--warning-text-muted); font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0.6;';
             closeBtn.textContent = '\u00D7';
             closeBtn.title = 'Dismiss';
             closeBtn.addEventListener('click', () => { this.bannerDismissed = true; banner.remove(); });
@@ -461,7 +444,7 @@ const RulesPage = {
         nameLine.appendChild(nameText);
         if (this._isNewRule(rule)) {
             const newBadge = document.createElement('span');
-            newBadge.style.cssText = 'font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: rgba(245,158,11,0.15); color: #b45309; border: 1px solid rgba(245,158,11,0.3); letter-spacing: 0.3px; flex-shrink: 0;';
+            newBadge.style.cssText = 'font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: var(--warning-chip-bg); color: var(--warning-text); border: 1px solid var(--warning-chip-border); letter-spacing: 0.3px; flex-shrink: 0;';
             newBadge.textContent = 'NEW';
             nameLine.appendChild(newBadge);
         }
@@ -546,7 +529,7 @@ const RulesPage = {
             shieldIcon.style.fontSize = '13px';
             rationaleHeader.appendChild(shieldIcon);
             const rationaleTitle = document.createElement('span');
-            rationaleTitle.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #b45309;';
+            rationaleTitle.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--warning-text);';
             rationaleTitle.textContent = 'How SecureVector Protects';
             rationaleHeader.appendChild(rationaleTitle);
             rationale.appendChild(rationaleHeader);

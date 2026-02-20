@@ -22,22 +22,6 @@ const ThreatsPage = {
         container.textContent = '';
         this.selectedIds.clear();
 
-        // Page header
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Threat Analytics';
-        header.appendChild(title);
-
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Monitor and analyze detected threats across your AI agents.';
-        header.appendChild(subtitle);
-
-        container.appendChild(header);
-
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
         filtersBar.className = 'filters-bar';

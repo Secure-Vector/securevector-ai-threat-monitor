@@ -9,6 +9,7 @@ const Sidebar = {
         { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
+        { id: 'costs', label: 'Cost Intelligence', icon: 'costs' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
@@ -82,6 +83,7 @@ const Sidebar = {
             // Add label
             const label = document.createElement('span');
             label.textContent = item.label;
+            label.style.cssText = 'white-space: nowrap; font-size: 12.5px;';
             navItem.appendChild(label);
 
             // Add badge for rules count
@@ -91,19 +93,31 @@ const Sidebar = {
                 badge.id = 'rules-count-badge';
                 badge.textContent = '...';
                 navItem.appendChild(badge);
-
-                const newBadge = document.createElement('span');
-                newBadge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: #b45309; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
-                newBadge.textContent = 'NEW';
-                navItem.appendChild(newBadge);
             }
 
-            // NEW badge for tool permissions
-            if (item.id === 'tool-permissions') {
+            // NEW badge (dismissible) for Rules, Tool Permissions, Cost Intelligence and Guide
+            const newBadgeItems = ['rules', 'tool-permissions', 'costs', 'guide'];
+            if (newBadgeItems.includes(item.id) && !localStorage.getItem('sv-new-dismissed-' + item.id)) {
                 const newBadge = document.createElement('span');
-                newBadge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: #06b6d4; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
-                newBadge.textContent = 'NEW';
+                newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: #b45309; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                const newText = document.createTextNode('NEW');
+                newBadge.appendChild(newText);
+                const closeX = document.createElement('span');
+                closeX.textContent = '×';
+                closeX.title = 'Dismiss';
+                closeX.style.cssText = 'font-size: 10px; line-height: 1; cursor: pointer; opacity: 0.85; margin-left: 1px;';
+                const dismissBadge = () => {
+                    localStorage.setItem('sv-new-dismissed-' + item.id, '1');
+                    newBadge.remove();
+                };
+                closeX.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dismissBadge();
+                });
+                newBadge.appendChild(closeX);
                 navItem.appendChild(newBadge);
+                // Auto-dismiss after 30 seconds
+                setTimeout(dismissBadge, 30000);
             }
 
             // Chevron for collapsible items
@@ -123,11 +137,10 @@ const Sidebar = {
                 navItem.appendChild(chevron);
             }
 
-            // Click handler
-            navItem.addEventListener('click', () => {
-                this.navigate(item.id);
-                // Toggle collapsible sub-items
-                if (item.collapsible && hasSubItems) {
+            // Click handler — navigate only; chevron handles expand/collapse
+            navItem.addEventListener('click', (e) => {
+                if (e.target.closest('svg') && item.collapsible && hasSubItems) {
+                    // Chevron click — toggle only, don't navigate
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
                     if (subNav) {
                         const isVisible = subNav.style.display !== 'none';
@@ -135,7 +148,9 @@ const Sidebar = {
                         localStorage.setItem(`nav-${item.id}-expanded`, String(!isVisible));
                         if (chevron) chevron.style.transform = isVisible ? 'rotate(-90deg)' : 'rotate(0deg)';
                     }
+                    return;
                 }
+                this.navigate(item.id);
             });
 
             nav.appendChild(navItem);
@@ -237,6 +252,7 @@ const Sidebar = {
 
         // Try SecureVector button (gradient)
         const tryBtn = document.createElement('button');
+        tryBtn.id = 'try-sv-btn';
         tryBtn.style.cssText = 'display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.2s;';
         tryBtn.setAttribute('aria-label', 'Try SecureVector');
 
@@ -248,11 +264,13 @@ const Sidebar = {
         tryBtn.appendChild(tryIcon);
 
         const tryLabel = document.createElement('span');
+        tryLabel.id = 'try-sv-label';
         tryLabel.textContent = 'Try SecureVector';
         tryBtn.appendChild(tryLabel);
 
         tryBtn.addEventListener('click', () => FloatingChat.toggle());
         const tryRow = document.createElement('div');
+        tryRow.id = 'try-sv-row';
         tryRow.style.cssText = 'padding: 0 12px 8px 12px;';
         tryRow.appendChild(tryBtn);
         bottomSection.appendChild(tryRow);
@@ -515,7 +533,7 @@ const Sidebar = {
         langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
         crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
         n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
-        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #3b82f6, #2563eb)', page: 'integrations' },
+        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #00bcd4, #f44336)', page: 'integrations' },
     },
 
     async checkProxyStatus() {
@@ -660,6 +678,10 @@ const Sidebar = {
                 { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
                 { tag: 'line', attrs: { x1: '10', y1: '11', x2: '10', y2: '17' } },
                 { tag: 'line', attrs: { x1: '14', y1: '11', x2: '14', y2: '17' } },
+            ],
+            costs: [
+                { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
+                { tag: 'path', attrs: { d: 'M12 6v2m0 8v2M8.5 9.5a3.5 3.5 0 0 1 7 0c0 2-3.5 3-3.5 5m0 1h.01' } },
             ],
         };
 

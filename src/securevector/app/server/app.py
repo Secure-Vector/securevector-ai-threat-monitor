@@ -46,6 +46,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_database_schema(db)
     logger.info("Database initialized")
 
+    # Apply svconfig.yml config (creates default if missing)
+    from securevector.app.utils.config_file import apply_config_to_db, load_config
+    await apply_config_to_db(db)
+
+    # Auto-start proxy if configured in svconfig.yml
+    try:
+        _cfg = load_config()
+        _proxy_cfg = _cfg.get("proxy", {})
+        _proxy_mode = _proxy_cfg.get("mode", "")
+        if _proxy_mode in ("multi-provider", "single"):
+            from securevector.app.server.routes.proxy import auto_start_from_config
+            auto_start_from_config(
+                integration=_proxy_cfg.get("integration", "openclaw"),
+                mode=_proxy_mode,
+                host=_proxy_cfg.get("host", "127.0.0.1"),
+                port=int(_proxy_cfg.get("port", 8742)),
+                provider=_proxy_cfg.get("provider") or None,
+            )
+    except Exception as _e:
+        logger.warning(f"Could not auto-start proxy from svconfig.yml: {_e}")
+
     yield
     logger.info("API server shutting down...")
 
@@ -128,6 +149,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         llm,
         proxy,
         tool_permissions,
+        costs,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -141,6 +163,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(llm.router, prefix="/api", tags=["LLM Review"])
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
+    app.include_router(costs.router, prefix="/api", tags=["Costs"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():
@@ -175,7 +198,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
             # Only handle known page routes, let other routes pass through
             valid_pages = [
                 "dashboard", "threats", "rules", "settings",
-                "guide", "tool-permissions",
+                "guide", "tool-permissions", "costs",
                 # Integration pages
                 "integrations",
                 "proxy-langchain", "proxy-langgraph", "proxy-crewai",

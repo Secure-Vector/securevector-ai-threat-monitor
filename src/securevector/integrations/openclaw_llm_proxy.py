@@ -207,11 +207,180 @@ class LLMProxy:
         # Rate limiting
         self._request_counter: int = 0
 
+        # Cost recording (lazy-init)
+        self._cost_recorder_instance = None
+        self._cost_db = None
+
+        # Budget check cache: agent_id → (status_dict, checked_at)
+        self._budget_cache: dict = {}
+        self._budget_cache_ttl: float = 10.0  # Short TTL; cache is also invalidated after each recorded cost
+
     def _truncate(self, text: str, max_len: int = 100) -> str:
         """Truncate text for logging."""
         if len(text) <= max_len:
             return text
         return text[:max_len] + f"... ({len(text)} chars)"
+
+    def _extract_agent_id(self, request: Request) -> str:
+        """Extract agent ID from X-Agent-ID header, or auto-generate one."""
+        agent_id = request.headers.get("x-agent-id", "").strip()
+        if agent_id:
+            return agent_id[:128]  # Cap length
+        # Fall back to client IP (not port — port is ephemeral per-connection)
+        client = getattr(request, "client", None)
+        if client:
+            return f"client:{client.host}"
+        return "unknown-agent"
+
+    async def _get_cost_recorder(self):
+        """Lazy-init CostRecorder using local SecureVector database."""
+        if self._cost_recorder_instance is not None:
+            return self._cost_recorder_instance
+        try:
+            from securevector.app.database.connection import get_database
+            from securevector.app.services.cost_recorder import CostRecorder
+            db = get_database()
+            if db._connection is None:
+                await db.connect()
+            self._cost_db = db
+            self._cost_recorder_instance = CostRecorder(db)
+            logger.info("[llm-proxy] CostRecorder initialized")
+        except Exception as e:
+            logger.warning(f"[llm-proxy] CostRecorder init failed: {e}")
+            return None
+        return self._cost_recorder_instance
+
+    async def _record_cost(self, provider: str, agent_id: str, response_body: bytes) -> None:
+        """Fire-and-forget cost recording. Never raises.
+
+        For SSE streaming bodies, scans chunks in reverse to find the last
+        data line that contains token usage fields.
+        """
+        try:
+            recorder = await self._get_cost_recorder()
+            if not recorder:
+                logger.debug("[llm-proxy] cost recording skipped: no recorder")
+                return
+
+            # Detect SSE format: bodies starting with "data:" or "event:" (e.g. Responses API)
+            body_bytes = response_body
+            stripped = body_bytes.lstrip() if body_bytes else b""
+            if body_bytes and (stripped.startswith(b"data:") or stripped.startswith(b"event:")):
+                body_bytes = self._extract_sse_usage_chunk(response_body, provider=provider)
+                if not body_bytes:
+                    logger.debug("[llm-proxy] cost recording skipped: no usage in SSE stream")
+                    return
+
+            await recorder.record(provider=provider, agent_id=agent_id, response_body=body_bytes)
+            logger.info(f"[llm-proxy] cost recorded for agent={agent_id} provider={provider}")
+            # Invalidate budget cache so the next request re-checks against updated spend
+            self._budget_cache.pop(agent_id, None)
+        except Exception as e:
+            logger.warning(f"[llm-proxy] cost recording failed: {e}")
+
+    async def _check_budget(self, agent_id: str) -> dict:
+        """Check if agent is within its daily budget. Returns budget status dict.
+
+        Cached for 30s to avoid DB hit on every request.
+        Never raises — returns permissive defaults on error.
+        """
+        import time
+        now = time.monotonic()
+        cached = self._budget_cache.get(agent_id)
+        if cached:
+            status, checked_at = cached
+            if (now - checked_at) < self._budget_cache_ttl:
+                return status
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/costs/budget-status",
+                params={"agent_id": agent_id},
+                timeout=2.0,
+            )
+            if response.status_code == 200:
+                status = response.json()
+                logger.info(
+                    f"[llm-proxy] Budget check: agent={agent_id} "
+                    f"spend=${status.get('today_spend_usd', 0):.6f} "
+                    f"limit=${status.get('effective_budget_usd')} "
+                    f"over={status.get('over_budget')}"
+                )
+                self._budget_cache[agent_id] = (status, now)
+                return status
+            else:
+                logger.warning(f"[llm-proxy] Budget check returned HTTP {response.status_code}: {response.text[:200]}")
+        except Exception as e:
+            logger.warning(f"[llm-proxy] Budget check failed: {e}")
+
+        # Default: no budget limits
+        return {"over_budget": False, "effective_budget_usd": None, "budget_action": "warn"}
+
+    def _extract_sse_usage_chunk(self, sse_body: bytes, provider: str = "") -> Optional[bytes]:
+        """Extract token usage from an SSE response body.
+
+        For Anthropic: merges input tokens (message_start) + output tokens (message_delta)
+        since they arrive in separate events.
+
+        For all others: reverse-scans for the last data line with usage fields
+        (OpenAI's final chunk or response.completed event contains full usage).
+        Returns synthesised JSON bytes, or None if no usage found.
+        """
+        import json as _json
+        try:
+            text = sse_body.decode("utf-8", errors="replace")
+            lines = text.splitlines()
+
+            if provider == "anthropic":
+                # Anthropic SSE splits usage across two events:
+                #   message_start → input_tokens, cache_read_input_tokens, model
+                #   message_delta → output_tokens
+                # Scan all lines and merge.
+                input_tokens = 0
+                output_tokens = 0
+                cached_tokens = 0
+                model_id = ""
+                for line in lines:
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        chunk = _json.loads(line[6:])
+                        t = chunk.get("type", "")
+                        if t == "message_start":
+                            msg = chunk.get("message", {})
+                            model_id = msg.get("model", model_id)
+                            usage = msg.get("usage", {})
+                            input_tokens = usage.get("input_tokens", input_tokens)
+                            cached_tokens = usage.get("cache_read_input_tokens", cached_tokens)
+                        elif t == "message_delta":
+                            usage = chunk.get("usage", {})
+                            output_tokens = usage.get("output_tokens", output_tokens)
+                    except Exception:
+                        pass
+                if input_tokens or output_tokens:
+                    return _json.dumps({
+                        "model": model_id,
+                        "usage": {
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "cache_read_input_tokens": cached_tokens,
+                        },
+                    }).encode()
+                return None
+
+            # Default: reverse-scan for last data line with usage fields.
+            # Works for OpenAI Chat (final chunk), OpenAI Responses API
+            # (response.completed event), Gemini, Groq, Mistral, Cohere, Ollama.
+            usage_keys = ("prompt_tokens", "input_tokens", "output_tokens", "usageMetadata", "prompt_eval_count", "response.completed")
+            for line in reversed(lines):
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    json_str = line[6:]
+                    if any(k in json_str for k in usage_keys):
+                        return json_str.encode("utf-8")
+        except Exception:
+            pass
+        return None
 
     async def get_http_client(self) -> httpx.AsyncClient:
         """Get or create shared HTTP client."""
@@ -606,10 +775,10 @@ class LLMProxy:
         return "\n".join(t for t in texts if t)
 
     async def _load_tool_overrides(self) -> dict:
-        """Fetch essential tool overrides from SecureVector API (cached for 60s)."""
+        """Fetch essential tool overrides from SecureVector API (cached for 5s)."""
         import time
         now = time.time()
-        if self._tool_overrides is not None and (now - self._tool_overrides_checked_at) < 60:
+        if self._tool_overrides is not None and (now - self._tool_overrides_checked_at) < 5:
             return self._tool_overrides
 
         try:
@@ -638,10 +807,10 @@ class LLMProxy:
         return self._essential_registry
 
     async def _load_custom_tools_registry(self) -> dict:
-        """Fetch custom tools from SecureVector API (cached for 60s)."""
+        """Fetch custom tools from SecureVector API (cached for 5s)."""
         import time
         now = time.time()
-        if self._custom_tools_registry is not None and (now - self._custom_tools_checked_at) < 60:
+        if self._custom_tools_registry is not None and (now - self._custom_tools_checked_at) < 5:
             return self._custom_tools_registry
 
         try:
@@ -829,8 +998,9 @@ class LLMProxy:
             else:
                 names = ", ".join(blocked_tools)
                 denial_msg = (
-                    f"[SecureVector] The following tool calls were blocked by security policy: "
-                    f"{names}. Please proceed without using these tools."
+                    f"[SecureVector] Tool call blocked by policy: {names}. "
+                    f"This is a security policy decision — not a capability limitation. "
+                    f"The tool can be enabled in SecureVector settings."
                 )
             # Replace response with text-only message
             if "choices" in response_dict:
@@ -956,6 +1126,7 @@ class LLMProxy:
 
     async def handle_request(self, request: Request) -> Response:
         """Handle incoming request, scan, and forward to LLM provider."""
+        agent_id = self._extract_agent_id(request)
         path = request.url.path
         method = request.method
 
@@ -978,7 +1149,48 @@ class LLMProxy:
         body_bytes = await request.body()
         body_text = body_bytes.decode("utf-8", errors="replace") if body_bytes else ""
 
+        # Refine agent_id if no explicit x-agent-id was provided (still an IP fallback)
+        if agent_id.startswith("client:"):
+            ua = request.headers.get("user-agent", "").lower()
+            if "openclaw" in ua or "clawdbot" in ua:
+                agent_id = "openclaw"
+            elif body_bytes:
+                try:
+                    model = json.loads(body_bytes).get("model", "")
+                    if model:
+                        agent_id = model
+                except Exception:
+                    pass
+            if agent_id.startswith("client:"):
+                agent_id = "local-agent"
+
         print(f"[llm-proxy] → {method} {path}")
+
+        # Budget check (only for POST to LLM endpoints)
+        if method == "POST":
+            budget_status = await self._check_budget(agent_id)
+            if budget_status.get("over_budget") and budget_status.get("effective_budget_usd") is not None:
+                budget_action = budget_status.get("budget_action", "warn")
+                spend = budget_status.get("today_spend_usd", 0)
+                limit = budget_status.get("effective_budget_usd", 0)
+                msg = f"Daily budget of ${limit:.4f} exceeded (spent ${spend:.4f} today)"
+                if budget_action == "block":
+                    print(f"[llm-proxy] 💸 BUDGET EXCEEDED — blocking: {msg}")
+                    # Invalidate cache so next check re-evaluates
+                    self._budget_cache.pop(agent_id, None)
+                    return Response(
+                        content=json.dumps({
+                            "error": {
+                                "message": f"[SecureVector] {msg}. Request blocked.",
+                                "type": "budget_exceeded",
+                                "code": "budget_exceeded",
+                            }
+                        }),
+                        status_code=429,
+                        media_type="application/json",
+                    )
+                else:
+                    print(f"[llm-proxy] ⚠️  BUDGET WARNING: {msg}")
 
         # Parse body for scanning
         body_dict = {}
@@ -1110,6 +1322,7 @@ class LLMProxy:
                 return await self.handle_streaming_request(
                     client, method, target, headers, body_bytes,
                     input_context=input_context,
+                    agent_id=agent_id,
                 )
             else:
                 # Handle regular request
@@ -1172,6 +1385,12 @@ class LLMProxy:
                     except json.JSONDecodeError:
                         pass
 
+                # Record cost (fire-and-forget, never blocks the response)
+                if response.status_code == 200 and response.content:
+                    asyncio.create_task(
+                        self._record_cost(self.provider, agent_id, response.content)
+                    )
+
                 # Strip encoding headers: httpx auto-decompresses the body
                 # but keeps content-encoding in headers; forwarding both
                 # causes downstream clients to try double-decompression.
@@ -1196,7 +1415,7 @@ class LLMProxy:
 
     async def handle_streaming_request(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "", agent_id: str = "unknown-agent"
     ) -> Response:
         """Handle streaming LLM response.
 
@@ -1207,17 +1426,18 @@ class LLMProxy:
         """
         settings = await self.check_settings()
         should_scan = settings.get("scan_llm_responses")
+        should_check_tools = settings.get("tool_permissions_enabled")
 
-        if should_scan:
-            # SCAN MODE: Buffer full response, scan, then deliver or block
-            return await self._handle_streaming_buffered(client, method, url, headers, body, input_context)
+        if should_scan or should_check_tools:
+            # Buffer full response to scan output and/or enforce tool permissions
+            return await self._handle_streaming_buffered(client, method, url, headers, body, input_context, agent_id)
         else:
-            # PASSTHROUGH MODE: Stream through without scanning
-            return await self._handle_streaming_passthrough(client, method, url, headers, body, input_context)
+            # PASSTHROUGH MODE: Stream through without buffering
+            return await self._handle_streaming_passthrough(client, method, url, headers, body, input_context, agent_id)
 
     async def _handle_streaming_buffered(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "", agent_id: str = "unknown-agent"
     ) -> Response:
         """Buffer streaming response, scan, then deliver or block."""
         accumulated_text = ""
@@ -1272,37 +1492,76 @@ class LLMProxy:
 
         # Tool permission enforcement on buffered stream
         if settings.get("tool_permissions_enabled"):
-            # Reconstruct full response from last chunk that has complete data
-            full_response = None
-            for chunk in reversed(all_chunks):
+            from securevector.core.tool_permissions.parser import extract_tool_calls
+
+            # Join ALL chunks before parsing — httpx may split a single SSE event
+            # across multiple byte chunks, causing json.loads to fail on fragments
+            full_stream = b"".join(all_chunks).decode("utf-8", errors="replace")
+            found_tool_calls = []
+            for line in full_stream.split("\n"):
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
                 try:
-                    chunk_str = chunk.decode("utf-8")
-                    for line in chunk_str.split("\n"):
-                        if line.startswith("data: ") and line != "data: [DONE]":
-                            data = json.loads(line[6:])
-                            # Look for chunks with tool_calls (OpenAI) or tool_use (Anthropic)
-                            from securevector.core.tool_permissions.parser import extract_tool_calls
-                            if extract_tool_calls(data):
-                                full_response = data
-                                break
-                    if full_response:
-                        break
-                except:
+                    data = json.loads(line[6:])
+                    found_tool_calls.extend(extract_tool_calls(data))
+                except Exception:
                     continue
 
-            if full_response:
-                modified, blocked, _ = await self._evaluate_tool_permissions(
-                    full_response, settings
-                )
+            if found_tool_calls:
+                # Build a synthetic complete-format response so _evaluate_tool_permissions
+                # can apply its full logic (rate limiting, logging, denial construction).
+                # Streaming tool_use inputs may be empty ({}) since the full input arrives
+                # via content_block_delta — the tool name alone is enough to block.
+                is_anthropic = any(tc.provider_format == "anthropic" for tc in found_tool_calls)
+                if is_anthropic:
+                    synthetic = {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tc.tool_call_id or f"toolu_{i}",
+                                "name": tc.function_name,
+                                "input": json.loads(tc.arguments) if tc.arguments and tc.arguments != "{}" else {},
+                            }
+                            for i, tc in enumerate(found_tool_calls)
+                        ],
+                    }
+                else:
+                    synthetic = {
+                        "choices": [{
+                            "message": {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "id": tc.tool_call_id or f"call_{i}",
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function_name,
+                                            "arguments": tc.arguments or "{}",
+                                        },
+                                    }
+                                    for i, tc in enumerate(found_tool_calls)
+                                ],
+                            }
+                        }]
+                    }
+
+                modified, blocked, _ = await self._evaluate_tool_permissions(synthetic, settings)
                 if blocked:
-                    # For streaming, return the denial as a non-streaming response
-                    # since we can't modify SSE chunks retroactively
-                    denial = json.dumps(modified)
+                    # Return denial as non-streaming response — stream is already buffered
                     return Response(
-                        content=denial.encode(),
+                        content=json.dumps(modified).encode(),
                         status_code=200,
                         media_type="application/json",
                     )
+
+        # Record cost from buffered stream (use last non-empty chunk that has usage data)
+        if all_chunks:
+            full_body = b"".join(all_chunks)
+            asyncio.create_task(
+                self._record_cost(self.provider, agent_id, full_body)
+            )
 
         # Deliver buffered stream
         async def replay_chunks():
@@ -1316,16 +1575,19 @@ class LLMProxy:
 
     async def _handle_streaming_passthrough(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "",
+        agent_id: str = "unknown-agent",
     ) -> StreamingResponse:
-        """Stream through in real-time, scan at end for logging."""
+        """Stream through in real-time; record cost and scan after stream exhausts."""
         accumulated_text = ""
+        all_chunks: list[bytes] = []
 
         async def stream_generator():
             nonlocal accumulated_text
 
             async with client.stream(method, url, headers=headers, content=body) as response:
                 async for chunk in response.aiter_bytes():
+                    all_chunks.append(chunk)
                     try:
                         chunk_str = chunk.decode("utf-8")
                         for line in chunk_str.split("\n"):
@@ -1338,6 +1600,13 @@ class LLMProxy:
                         pass
 
                     yield chunk
+
+            # After stream is fully consumed — record cost then scan
+            if all_chunks:
+                full_body = b"".join(all_chunks)
+                asyncio.create_task(
+                    self._record_cost(self.provider, agent_id, full_body)
+                )
 
             # Scan accumulated text after stream completes (logging only)
             if accumulated_text:

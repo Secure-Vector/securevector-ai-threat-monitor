@@ -7,21 +7,7 @@ const GettingStartedPage = {
     async render(container) {
         container.textContent = '';
 
-        // Page header
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Guide';
-        header.appendChild(title);
-
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Everything you need to protect your AI agents.';
-        header.appendChild(subtitle);
-
-        container.appendChild(header);
+        if (window.Header) Header.setPageInfo('Guide', 'Everything you need to protect your AI agents.');
 
         // === SECTIONS (all collapsible, collapsed by default) ===
 
@@ -52,6 +38,16 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'Tool Permissions', 'Control which tools agents are allowed to call',
+            'section-tool-permissions', () => this.buildToolPermissionsContent(), true
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
+            'Cost Intelligence', 'Track LLM token spend and set daily budget limits',
+            'section-costs', () => this.buildCostIntelligenceContent(), true
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'API Reference', 'REST API and interactive documentation',
             'section-api', () => this.buildAPIContent()
         ));
@@ -78,11 +74,11 @@ const GettingStartedPage = {
 
     // === Collapsible card wrapper ===
 
-    createCollapsibleCard(title, subtitle, sectionId, contentBuilder) {
+    createCollapsibleCard(title, subtitle, sectionId, contentBuilder, isNew = false) {
         const card = document.createElement('div');
         card.className = 'card';
         card.id = sectionId;
-        card.style.cssText = 'padding: 0; overflow: hidden; margin-bottom: 12px;';
+        card.style.cssText = 'padding: 0; overflow: hidden; margin-bottom: 12px;' + (isNew ? ' border-color: rgba(6,182,212,0.35);' : '');
 
         // Clickable header
         const header = document.createElement('div');
@@ -91,10 +87,19 @@ const GettingStartedPage = {
         header.addEventListener('mouseleave', () => { header.style.background = ''; });
 
         const headerLeft = document.createElement('div');
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
         const headerTitle = document.createElement('div');
         headerTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary);';
         headerTitle.textContent = title;
-        headerLeft.appendChild(headerTitle);
+        titleRow.appendChild(headerTitle);
+        if (isNew) {
+            const badge = document.createElement('span');
+            badge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: linear-gradient(135deg,#06b6d4,#0ea5e9); color:#fff; letter-spacing:0.5px; line-height:1.6; box-shadow:0 1px 4px rgba(6,182,212,0.4);';
+            badge.textContent = 'NEW';
+            titleRow.appendChild(badge);
+        }
+        headerLeft.appendChild(titleRow);
 
         const headerDesc = document.createElement('div');
         headerDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 2px;';
@@ -135,37 +140,108 @@ const GettingStartedPage = {
         const frag = document.createElement('div');
         frag.style.cssText = 'padding-top: 16px;';
 
-        // Step 1
-        frag.appendChild(this.createMiniStep('1', 'Go to Integrations', 'Open the Integrations page in the sidebar.'));
+        // Default state note
+        const defaultNote = document.createElement('div');
+        defaultNote.style.cssText = 'padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 13px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary); margin-bottom: 20px; line-height: 1.5;';
+        const defaultStrong = document.createElement('strong');
+        defaultStrong.style.color = 'var(--text-primary)';
+        defaultStrong.textContent = 'The OpenClaw proxy runs by default ';
+        defaultNote.appendChild(defaultStrong);
+        defaultNote.appendChild(document.createTextNode('when SecureVector starts. Choose your path below:'));
+        frag.appendChild(defaultNote);
+
+        // Two-path layout
+        const paths = document.createElement('div');
+        paths.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px;';
+
+        // Path A: Using OpenClaw
+        const pathA = document.createElement('div');
+        pathA.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-primary); display: flex; flex-direction: column; gap: 10px;';
+
+        const pathATitle = document.createElement('div');
+        pathATitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary);';
+        pathATitle.textContent = 'Using OpenClaw or ClawdBot';
+        pathA.appendChild(pathATitle);
+
+        const pathADesc = document.createElement('div');
+        pathADesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+        pathADesc.textContent = 'The SecureVector proxy is already running for OpenClaw. Now start the OpenClaw gateway and point it at SecureVector.';
+        pathA.appendChild(pathADesc);
+
+        const pathASteps = document.createElement('ol');
+        pathASteps.style.cssText = 'margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; display: flex; flex-direction: column; gap: 2px;';
+        [
+            'Open the OpenClaw integration page below',
+            'Follow from Step\u00a02 (Set environment variables) in another terminal to configure and start the OpenClaw gateway',
+            'Your traffic will route: OpenClaw \u2192 SecureVector (scans) \u2192 Claude',
+        ].forEach(text => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            pathASteps.appendChild(li);
+        });
+        pathA.appendChild(pathASteps);
+
+        const openClawBtn = document.createElement('button');
+        openClawBtn.className = 'btn btn-primary';
+        openClawBtn.style.cssText = 'font-size: 12px; padding: 6px 14px; align-self: flex-start; margin-top: 4px;';
+        openClawBtn.textContent = 'Open OpenClaw Integration \u2192';
+        openClawBtn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.expandSection('integrations');
+            setTimeout(() => {
+                const el = document.querySelector('[data-integration="openclaw"]');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 200);
+        });
+        pathA.appendChild(openClawBtn);
+        paths.appendChild(pathA);
+
+        // Path B: Different framework
+        const pathB = document.createElement('div');
+        pathB.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;';
+
+        const pathBTitle = document.createElement('div');
+        pathBTitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary);';
+        pathBTitle.textContent = 'Using Another Framework';
+        pathB.appendChild(pathBTitle);
+
+        const pathBDesc = document.createElement('div');
+        pathBDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+        pathBDesc.textContent = 'Go to Integrations, select your framework (LangChain, CrewAI, Ollama, n8n…), and start its proxy. If a proxy is already running, stop it first.';
+        pathB.appendChild(pathBDesc);
+
+        const pathBSteps = document.createElement('ol');
+        pathBSteps.style.cssText = 'margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; display: flex; flex-direction: column; gap: 2px;';
+        [
+            'Open Integrations \u2192 stop any running proxy',
+            'Select your agent framework and LLM provider',
+            'Click Start Proxy and follow the on-screen env var instructions',
+        ].forEach(text => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            pathBSteps.appendChild(li);
+        });
+        pathB.appendChild(pathBSteps);
 
         const intBtn = document.createElement('button');
-        intBtn.className = 'btn btn-primary';
-        intBtn.style.cssText = 'font-size: 12px; margin: 0 0 16px 42px; padding: 6px 14px;';
-        intBtn.textContent = 'Open Integrations';
+        intBtn.className = 'btn btn-secondary';
+        intBtn.style.cssText = 'font-size: 12px; padding: 6px 14px; align-self: flex-start; margin-top: 4px;';
+        intBtn.textContent = 'Open Integrations \u2192';
         intBtn.addEventListener('click', () => {
             if (window.Sidebar) Sidebar.expandSection('integrations');
         });
-        frag.appendChild(intBtn);
+        pathB.appendChild(intBtn);
+        paths.appendChild(pathB);
 
-        // Step 2
-        frag.appendChild(this.createMiniStep('2', 'Select Your Integration', 'Choose your AI agent framework (LangChain, CrewAI, Ollama, OpenClaw) and select your LLM provider.'));
-
-        // Step 3
-        frag.appendChild(this.createMiniStep('3', 'Start Proxy', 'Click "Start Proxy" on the integration page. The proxy launches on port 8742. Then follow the on-screen instructions to configure your client app.'));
-
-        const cmdBlock = document.createElement('div');
-        cmdBlock.style.cssText = 'margin: 8px 0 12px 42px;';
-        cmdBlock.appendChild(this.createCodeBlock('# Example env var shown on integration page:\nexport OPENAI_BASE_URL=http://localhost:8742/openai/v1'));
-        frag.appendChild(cmdBlock);
+        frag.appendChild(paths);
 
         const doneNote = document.createElement('div');
-        doneNote.style.cssText = 'margin: 8px 0 0 0; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary);';
-        doneNote.textContent = 'All LLM traffic is now scanned for prompt injection and data leaks.';
+        doneNote.style.cssText = 'padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary); margin-bottom: 20px;';
+        doneNote.textContent = 'Once your proxy is running and your agent is connected, all LLM traffic is scanned for prompt injection and data leaks automatically.';
         frag.appendChild(doneNote);
 
         // Examples
         const examplesTitle = document.createElement('div');
-        examplesTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); margin: 16px 0 10px 0;';
+        examplesTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 10px;';
         examplesTitle.textContent = 'Examples';
         frag.appendChild(examplesTitle);
 
@@ -173,10 +249,9 @@ const GettingStartedPage = {
             'OpenClaw + Telegram',
             'You run OpenClaw as a Claude-powered gateway agent. Users chat with your bot on Telegram. SecureVector sits between OpenClaw and Claude, scanning every message for prompt injection before it reaches the LLM.',
             [
-                'Go to Integrations \u2192 OpenClaw in the sidebar',
-                'Select Anthropic as the provider',
-                'Click Start Proxy',
-                ['Start OpenClaw with the flag ', { copy: '--securevector' }],
+                'OpenClaw integration page \u2192 SecureVector proxy is already running',
+                'Follow Step\u00a02 onwards: set environment variables in a new terminal',
+                ['Start OpenClaw pointing to SecureVector: ', { copy: 'ANTHROPIC_BASE_URL=http://localhost:8742' }],
                 'Send a message from Telegram to test',
             ],
             'Telegram \u2192 OpenClaw gateway \u2192 SecureVector (scans) \u2192 Claude'
@@ -188,7 +263,7 @@ const GettingStartedPage = {
             [
                 'Go to Integrations \u2192 Ollama in the sidebar',
                 'Select Ollama as the provider',
-                'Click Start Proxy',
+                'Stop any running proxy, then click Start Proxy',
                 ['In Open WebUI: Settings \u2192 Connections \u2192 set Ollama URL to ', { copy: 'http://localhost:8742/ollama' }],
                 'Send a chat message to test',
             ],
@@ -426,28 +501,194 @@ const GettingStartedPage = {
         return frag;
     },
 
-    buildAPIContent() {
+    buildToolPermissionsContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const desc = document.createElement('p');
+        desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px 0; font-size: 13px; line-height: 1.5;';
+        desc.textContent = 'Tool Permissions lets you control exactly which tools (function calls) your AI agents are allowed to invoke. Set allow or deny rules per tool, per agent \u2014 so agents can only call what they need.';
+        frag.appendChild(desc);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px;';
+
+        const allowBox = document.createElement('div');
+        allowBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid #10b981;';
+        const allowTitle = document.createElement('div');
+        allowTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 6px;';
+        allowTitle.textContent = 'Allowlist Mode';
+        allowBox.appendChild(allowTitle);
+        allowBox.appendChild(this.createBulletList([
+            'Only explicitly listed tools can be called',
+            'Everything else is blocked by default',
+            'Best for production agents with known tool sets',
+            'Prevents agents calling unexpected APIs',
+        ]));
+        grid.appendChild(allowBox);
+
+        const denyBox = document.createElement('div');
+        denyBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid #f59e0b;';
+        const denyTitle = document.createElement('div');
+        denyTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 6px;';
+        denyTitle.textContent = 'Denylist Mode';
+        denyBox.appendChild(denyTitle);
+        denyBox.appendChild(this.createBulletList([
+            'All tools allowed except explicitly listed ones',
+            'Useful for blocking dangerous tools (shell exec, file write)',
+            'Lower friction during development',
+            'Easy to add exceptions without listing all tools',
+        ]));
+        grid.appendChild(denyBox);
+
+        frag.appendChild(grid);
+
+        const stepsTitle = document.createElement('div');
+        stepsTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 10px;';
+        stepsTitle.textContent = 'How to configure';
+        frag.appendChild(stepsTitle);
+
+        frag.appendChild(this.createMiniStep('1', 'Open Tool Permissions', 'Navigate to Tool Permissions in the sidebar.'));
+        frag.appendChild(this.createMiniStep('2', 'Add rules', 'Click "\u002b Add Rule" and enter the tool name (e.g. run_python, search_web). Set the action to Allow or Deny.'));
+        frag.appendChild(this.createMiniStep('3', 'Set default', 'Choose the default action for tools not in your list \u2014 "Allow all" or "Block all".'));
+
+        const tpBtn = document.createElement('button');
+        tpBtn.className = 'btn btn-primary';
+        tpBtn.style.cssText = 'font-size: 12px; margin: 12px 0 0 42px; padding: 6px 14px;';
+        tpBtn.textContent = 'Open Tool Permissions';
+        tpBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); });
+        frag.appendChild(tpBtn);
+
+        return frag;
+    },
+
+    buildCostIntelligenceContent() {
         const frag = document.createElement('div');
         frag.style.cssText = 'padding-top: 16px;';
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'SecureVector exposes a full REST API with interactive documentation.';
+        desc.textContent = 'Cost Intelligence tracks every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
         frag.appendChild(desc);
 
+        const featureGrid = document.createElement('div');
+        featureGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px;';
+
+        [
+            { title: 'Cost Summary', body: 'Total spend, per-provider breakdown, and cost trend across all agents \u2014 updated per request.' },
+            { title: 'Request History', body: 'Per-request log: model, input/output tokens, cached token savings, and exact USD cost.' },
+            { title: 'Budget Limits', body: 'Set a daily wallet cap (all agents combined) or per-agent limits. Action: warn or block the request.' },
+            { title: 'Pricing Reference', body: 'Live pricing for all supported providers and models, with input/output rates per million tokens.' },
+        ].forEach(({ title, body }) => {
+            const box = document.createElement('div');
+            box.style.cssText = 'padding: 12px 14px; background: var(--bg-secondary); border-radius: 8px;';
+            const ttl = document.createElement('div');
+            ttl.style.cssText = 'font-weight: 700; font-size: 12px; color: var(--text-primary); margin-bottom: 4px;';
+            ttl.textContent = title;
+            box.appendChild(ttl);
+            const bdy = document.createElement('div');
+            bdy.style.cssText = 'font-size: 11px; color: var(--text-secondary); line-height: 1.4;';
+            bdy.textContent = body;
+            box.appendChild(bdy);
+            featureGrid.appendChild(box);
+        });
+
+        frag.appendChild(featureGrid);
+
+        const providersTitle = document.createElement('div');
+        providersTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 6px;';
+        providersTitle.textContent = 'Supported providers';
+        frag.appendChild(providersTitle);
+
+        frag.appendChild(this.createBulletList([
+            'OpenAI (GPT-4o, o1, o3, GPT-3.5 \u2014 Chat & Responses API)',
+            'Anthropic (Claude 3.5/4, Haiku, Sonnet, Opus)',
+            'Google (Gemini 1.5/2.0 Flash, Pro, Ultra)',
+            'Groq, Mistral, xAI (Grok), DeepSeek, Cerebras',
+            'Ollama (local models \u2014 free, $0.00 cost tracked)',
+        ]));
+
+        const budgetNote = document.createElement('div');
+        budgetNote.style.cssText = 'margin-top: 14px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--accent-primary); line-height: 1.5;';
+        const noteLabel = document.createElement('strong');
+        noteLabel.style.cssText = 'color: var(--text-primary);';
+        noteLabel.textContent = 'Budget check timing: ';
+        budgetNote.appendChild(noteLabel);
+        budgetNote.appendChild(document.createTextNode('The proxy checks your daily budget before each request using today\u2019s recorded spend (UTC day). The \u201cTotal Cost\u201d card includes all historical costs \u2014 your daily budget limit is compared against today\u2019s spend only.'));
+        frag.appendChild(budgetNote);
+
+        const costsBtn = document.createElement('button');
+        costsBtn.className = 'btn btn-primary';
+        costsBtn.style.cssText = 'font-size: 12px; margin: 14px 0 0 0; padding: 6px 14px;';
+        costsBtn.textContent = 'Open Cost Intelligence';
+        costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
+        frag.appendChild(costsBtn);
+
+        return frag;
+    },
+
+    buildAPIContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        // ── OpenAPI docs — highlighted hero card ─────────────────────────
+        const docsCard = document.createElement('div');
+        docsCard.style.cssText = 'padding: 16px 20px; background: var(--bg-secondary); border: 1px solid var(--accent-primary); border-radius: 10px; margin-bottom: 14px; cursor: pointer; transition: background 0.15s;';
+        docsCard.addEventListener('mouseenter', () => { docsCard.style.background = 'rgba(0,188,212,0.06)'; });
+        docsCard.addEventListener('mouseleave', () => { docsCard.style.background = 'var(--bg-secondary)'; });
+        docsCard.addEventListener('click', () => { window.open('/docs', '_blank'); });
+
+        const docsTop = document.createElement('div');
+        docsTop.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;';
+
+        const docsTitleWrap = document.createElement('div');
+        docsTitleWrap.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+
+        const docsTitle = document.createElement('div');
+        docsTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--accent-primary);';
+        docsTitle.textContent = 'OpenAPI Interactive Docs';
+        docsTitleWrap.appendChild(docsTitle);
+
+        const docsBadge = document.createElement('span');
+        docsBadge.className = 'badge badge-success';
+        docsBadge.textContent = 'Live';
+        docsTitleWrap.appendChild(docsBadge);
+
+        docsTop.appendChild(docsTitleWrap);
+
+        const docsArrow = document.createElement('span');
+        docsArrow.style.cssText = 'font-size: 16px; color: var(--accent-primary); opacity: 0.7;';
+        docsArrow.textContent = '↗';
+        docsTop.appendChild(docsArrow);
+
+        docsCard.appendChild(docsTop);
+
+        const docsDesc = document.createElement('div');
+        docsDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;';
+        docsDesc.textContent = 'Browse and test every REST endpoint directly in your browser. No extra tools needed — authentication, request bodies, and live responses all in one place.';
+        docsCard.appendChild(docsDesc);
+
+        const docsBtn = document.createElement('button');
+        docsBtn.className = 'btn btn-primary';
+        docsBtn.style.cssText = 'font-size: 12px; padding: 6px 16px; pointer-events: none;';
+        docsBtn.textContent = 'Open API Docs';
+        docsCard.appendChild(docsBtn);
+
+        frag.appendChild(docsCard);
+
+        // ── Secondary links ──────────────────────────────────────────────
         const linksGrid = document.createElement('div');
         linksGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;';
 
         [
-            { title: 'API Docs (OpenAPI)', desc: 'Interactive API explorer with all endpoints', href: '/docs' },
             { title: 'Integrations', desc: 'Framework-specific setup guides', page: 'integrations' },
             { title: 'Settings', desc: 'Configure scanning, modes, and providers', page: 'settings' },
         ].forEach(link => {
             const item = document.createElement('div');
             item.style.cssText = 'padding: 12px 14px; background: var(--bg-secondary); border-radius: 8px; cursor: pointer; transition: border-color 0.15s; border: 1px solid var(--border-color);';
-
             item.addEventListener('mouseenter', () => { item.style.borderColor = 'var(--accent-primary)'; });
             item.addEventListener('mouseleave', () => { item.style.borderColor = 'var(--border-color)'; });
+            item.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(link.page); });
 
             const titleEl = document.createElement('div');
             titleEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 2px;';
@@ -458,12 +699,6 @@ const GettingStartedPage = {
             descEl.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
             descEl.textContent = link.desc;
             item.appendChild(descEl);
-
-            if (link.page) {
-                item.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(link.page); });
-            } else if (link.href) {
-                item.addEventListener('click', () => { window.open(link.href, '_blank'); });
-            }
 
             linksGrid.appendChild(item);
         });

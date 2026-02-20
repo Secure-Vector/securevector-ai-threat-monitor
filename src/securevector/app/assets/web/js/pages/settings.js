@@ -40,22 +40,6 @@ const SettingsPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Page header
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Settings';
-        header.appendChild(title);
-
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Configure cloud mode, AI analysis, and test your security setup.';
-        header.appendChild(subtitle);
-
-        container.appendChild(header);
-
         // Cloud Mode Section
         const cloudSection = this.createSection('Cloud Mode', 'Connect to SecureVector cloud for enhanced threat intelligence');
         const cloudCard = Card.create({ gradient: true });

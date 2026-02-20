@@ -1095,6 +1095,23 @@ Examples:
     db = asyncio.run(init_database())
     asyncio.run(init_database_schema(db))
 
+    # Read svconfig.yml — auto-start proxy if configured
+    try:
+        from securevector.app.utils.config_file import load_config, VALID_INTEGRATIONS, VALID_PROXY_MODES
+        _cfg = load_config()
+        _proxy_cfg = _cfg.get("proxy", {})
+        _proxy_mode = _proxy_cfg.get("mode", "")
+        _proxy_integration = _proxy_cfg.get("integration", "openclaw")
+        _proxy_host = _proxy_cfg.get("host", "127.0.0.1")
+        _proxy_port = int(_proxy_cfg.get("port", 8742))
+        _config_wants_proxy = _proxy_mode in ("multi-provider", "single")
+    except Exception:
+        _config_wants_proxy = False
+        _proxy_mode = ""
+        _proxy_integration = "openclaw"
+        _proxy_host = "127.0.0.1"
+        _proxy_port = 8742
+
     logger.info(f"Starting SecureVector on {args.host}:{args.port}")
 
     if args.web:

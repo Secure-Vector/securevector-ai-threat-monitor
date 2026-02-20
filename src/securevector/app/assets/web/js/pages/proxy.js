@@ -680,9 +680,9 @@ const ProxyPage = {
                 btn.style.background = 'var(--bg-tertiary)';
                 btn.style.color = 'var(--text-secondary)';
                 btn.style.border = '1px solid var(--border-default)';
-                btn.textContent = '🟢 Running (CLI)';
+                btn.textContent = '🟢 Running (CLI — use Ctrl+C to stop)';
                 btn.disabled = true;
-                btn.title = 'Stop the app with Ctrl+C to stop this proxy';
+                btn.title = 'Started via --proxy --web CLI flag. Stop the whole app with Ctrl+C.';
             } else {
                 btn.style.background = 'var(--danger)';
                 btn.style.color = 'white';

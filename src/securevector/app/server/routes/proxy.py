@@ -47,6 +47,63 @@ def set_proxy_running_in_process(running: bool, provider: str = "openai", integr
         _current_integration = integration
 
 
+def auto_start_from_config(integration: str, mode: str, host: str, port: int, provider: Optional[str] = None) -> bool:
+    """
+    Auto-start the proxy as a subprocess from svconfig.yml settings.
+    Sets all globals so status/stop work correctly from the UI.
+    Returns True if started successfully.
+    """
+    global _llm_proxy_process, _current_provider, _current_integration, _multi_mode, _started_with_openclaw
+
+    if _llm_proxy_process is not None and _llm_proxy_process.poll() is None:
+        return True  # Already running
+    if _is_port_in_use(port):
+        return True  # Already running externally
+
+    multi = (mode == "multi-provider")
+
+    # Validate: single mode requires a provider
+    if not multi and not provider:
+        raise ValueError(
+            "svconfig.yml: 'proxy.provider' is required when mode is 'single'.\n"
+            "Example:\n"
+            "  proxy:\n"
+            "    mode: single\n"
+            "    provider: openai\n"
+            "Valid options: openai, anthropic, gemini, groq, mistral, grok, ollama"
+        )
+
+    effective_provider = provider or "openai"
+
+    if integration == "openclaw":
+        cmd = ["securevector-app", "--proxy", "--openclaw"]
+        if multi:
+            cmd.append("--multi")
+        else:
+            cmd.extend(["--provider", effective_provider])
+    else:
+        cmd = [sys.executable, "-m", "securevector.integrations.openclaw_llm_proxy",
+               "--port", str(port)]
+        if multi:
+            cmd.append("--multi")
+        else:
+            cmd.extend(["--provider", effective_provider])
+
+    try:
+        _llm_proxy_process = subprocess.Popen(cmd)
+        import time; time.sleep(0.5)
+        if _llm_proxy_process.poll() is None:
+            _current_provider = "multi" if multi else effective_provider
+            _current_integration = integration
+            _multi_mode = multi
+            _started_with_openclaw = (integration == "openclaw")
+            logger.info(f"[svconfig] Proxy auto-started: integration={integration}, mode={mode}, provider={effective_provider}, port={port}")
+            return True
+    except Exception as e:
+        logger.warning(f"[svconfig] Could not auto-start proxy: {e}")
+    return False
+
+
 class StartProxyRequest(BaseModel):
     provider: str = "openai"
     multi: bool = False
@@ -181,9 +238,9 @@ async def stop_proxy():
     if _llm_proxy_process is None and not _proxy_running_in_process:
         return {"status": "not_running", "message": "LLM proxy is not running"}
 
-    # If running in-process (via --proxy --web), can't stop from UI
+    # If running in-process (via --proxy --web CLI flag), can't stop from UI
     if _proxy_running_in_process:
-        return {"status": "error", "message": "Proxy running in-process. Stop the app with Ctrl+C."}
+        return {"status": "error", "message": "Proxy was started via CLI (--proxy --web). Use Ctrl+C to stop the app, or start via the UI instead."}
 
     try:
         _llm_proxy_process.terminate()
