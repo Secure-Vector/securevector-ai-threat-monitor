@@ -15,10 +15,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from securevector.app import __version__, __app_name__
 
@@ -111,6 +111,16 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         allow_headers=["Content-Type", "X-Api-Key"],
     )
 
+    # SPA fallback — serve index.html for any 404 on a GET request that isn't an API call
+    @app.exception_handler(404)
+    async def spa_fallback(request: Request, exc):
+        path = request.url.path
+        if request.method == "GET" and not path.startswith("/api") and not path.startswith("/docs") and not path.startswith("/redoc"):
+            index_path = WEB_ASSETS_PATH / "index.html"
+            if index_path.exists():
+                return FileResponse(str(index_path))
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
     # Health check endpoint
     @app.get("/health", tags=["System"])
     async def health_check():
@@ -192,23 +202,14 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
                 return FileResponse(str(index_path))
             return {"error": "Web UI not found"}
 
-        # Client-side routing - serve index.html for all page routes
-        @app.get("/{page}", include_in_schema=False)
-        async def serve_page(page: str):
-            # Only handle known page routes, let other routes pass through
-            valid_pages = [
-                "dashboard", "threats", "rules", "settings",
-                "guide", "tool-permissions", "costs",
-                # Integration pages
-                "integrations",
-                "proxy-langchain", "proxy-langgraph", "proxy-crewai",
-                "proxy-n8n", "proxy-ollama", "proxy-openclaw"
-            ]
-            if page in valid_pages:
-                index_path = WEB_ASSETS_PATH / "index.html"
-                if index_path.exists():
-                    return FileResponse(str(index_path))
-            return {"error": "Page not found"}
+        # Client-side routing catch-all — serve index.html for any unmatched path
+        # FastAPI matches registered API routes first; this only fires for SPA page routes
+        @app.get("/{path:path}", include_in_schema=False)
+        async def serve_spa(path: str):
+            index_path = WEB_ASSETS_PATH / "index.html"
+            if index_path.exists():
+                return FileResponse(str(index_path))
+            return {"error": "Web UI not found"}
 
         logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")
 

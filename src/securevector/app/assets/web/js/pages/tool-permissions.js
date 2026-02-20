@@ -246,20 +246,28 @@ const ToolPermissionsPage = {
     async render(container) {
         container.textContent = '';
 
-        if (window.Header) Header.setPageInfo('Agent Tool Permissions', 'Control which tools your agent is allowed to call');
+        if (this.activeTab === 'activity') {
+            if (window.Header) Header.setPageInfo('Tool Activity', 'Log of every tool call made by your agents');
+        } else {
+            if (window.Header) Header.setPageInfo('Tool Permissions', 'Control which tools your agent is allowed to call');
+        }
 
-        // Tab bar
-        const tabs = document.createElement('div');
-        tabs.className = 'tab-bar';
-        tabs.id = 'tp-tabs';
-        container.appendChild(tabs);
+        if (!this.hideTabBar) {
+            // Tab bar
+            const tabs = document.createElement('div');
+            tabs.className = 'tab-bar';
+            tabs.id = 'tp-tabs';
+            container.appendChild(tabs);
+        }
 
         // Tab content area
         const content = document.createElement('div');
         content.id = 'tp-content';
         container.appendChild(content);
 
-        this._renderTabBar();
+        if (!this.hideTabBar) {
+            this._renderTabBar();
+        }
         await this._renderActiveTab();
     },
 
@@ -275,7 +283,10 @@ const ToolPermissionsPage = {
 
         defs.forEach(({ id, label }) => {
             const btn = document.createElement('button');
-            btn.className = `tab-btn${this.activeTab === id ? ' active' : ''}`;
+            const isActive = this.activeTab === id;
+            const isSeen = !!localStorage.getItem('sv-tab-seen-tp-' + id);
+            if (isActive) localStorage.setItem('sv-tab-seen-tp-' + id, '1');
+            btn.className = `tab-btn${isActive ? ' active' : ''}`;
             btn.textContent = label;
             btn.addEventListener('click', async () => {
                 this.activeTab = id;
@@ -493,12 +504,12 @@ const ToolPermissionsPage = {
         const categoryLabels = {
             openclaw: 'OpenClaw',
             communication: 'Communication',
+            project_management: 'Project Management',
             code_devops: 'Code & DevOps',
             file_system: 'File System',
             database: 'Database',
             cloud_infra: 'Cloud & Infrastructure',
             payment: 'Payment',
-            project_management: 'Project Management',
             social_media: 'Social Media',
             security: 'Security',
             browser_automation: 'Browser Automation',
@@ -508,33 +519,42 @@ const ToolPermissionsPage = {
         const categoryAccents = {
             openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
             communication: { color: '#00bcd4', bg: 'rgba(0,188,212,0.12)' },
+            project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
             file_system: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             database: { color: '#22d3ee', bg: 'rgba(34,211,238,0.12)' },
             cloud_infra: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
             payment: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-            project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             social_media: { color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
             security: { color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' },
             browser_automation: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
         };
 
-        // Render in defined order so OpenClaw always appears first
+        // Pairs: child stacks directly below parent in same grid slot
+        const STACKED_UNDER = {
+            project_management: 'communication',
+            payment: 'cloud_infra',
+        };
+        const STACKED_CHILDREN = { communication: 'project_management', cloud_infra: 'payment' };
+
         const CATEGORY_ORDER = [
-            'openclaw', 'browser_automation', 'communication', 'code_devops', 'project_management', 'file_system', 'database',
-            'cloud_infra', 'payment', 'social_media', 'security',
+            'openclaw', 'browser_automation',
+            'communication',   // project_management renders inside its slot
+            'cloud_infra',     // payment renders inside its slot
+            'code_devops', 'file_system', 'database', 'social_media', 'security',
         ];
         const sortedCategories = [
             ...CATEGORY_ORDER.filter(k => categories[k]),
-            ...Object.keys(categories).filter(k => !CATEGORY_ORDER.includes(k)),
+            ...Object.keys(categories).filter(k => !CATEGORY_ORDER.includes(k) && !STACKED_UNDER[k]),
         ];
 
         // ==================== Categories as columns ====================
         const columnsWrap = document.createElement('div');
         columnsWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; align-items: start;';
 
-        sortedCategories.forEach(catKey => {
+        const buildCategoryCol = (catKey) => {
             const tools = categories[catKey];
+            if (!tools) return null;
             const accent = categoryAccents[catKey] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
             const isOpenClaw = catKey === 'openclaw';
             const isCodeDevops = catKey === 'code_devops';
@@ -609,7 +629,24 @@ const ToolPermissionsPage = {
                 this.renderCustomToolsSection(col);
             }
 
-            columnsWrap.appendChild(col);
+            return col;
+        };
+
+        sortedCategories.forEach(catKey => {
+            const col = buildCategoryCol(catKey);
+            if (!col) return;
+
+            // If this category has a child stacked below it, wrap both in a vertical stack
+            const childKey = STACKED_CHILDREN[catKey];
+            if (childKey && categories[childKey]) {
+                const stack = document.createElement('div');
+                stack.style.cssText = 'display: flex; flex-direction: column; gap: 14px; min-width: 0;';
+                stack.appendChild(col);
+                stack.appendChild(buildCategoryCol(childKey));
+                columnsWrap.appendChild(stack);
+            } else {
+                columnsWrap.appendChild(col);
+            }
         });
 
         // If code_devops column didn't exist, render custom tools as last column
@@ -651,12 +688,12 @@ const ToolPermissionsPage = {
         API.getToolCallAuditDaily(7).then(data => {
             const rows = data.days || [];
 
-            // Build full 7-day buckets (fill gaps with zeros)
+            // Build full 7-day buckets using local dates (matches SQL 'localtime' grouping)
             const buckets = [];
             for (let i = 6; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
-                const dateStr = d.toISOString().slice(0, 10);
+                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
                 const match = rows.find(r => r.day === dateStr) || {};
                 buckets.push({
                     label: (d.getMonth() + 1) + '/' + d.getDate(),
@@ -969,13 +1006,126 @@ const ToolPermissionsPage = {
             log_only: { icon: '~',  label: 'Logged',  color: '#94a3b8', bg: 'rgba(148,163,184,0.1)'  },
         };
 
+        // Build detail drawer content for a single audit entry
+        const buildDrawerContent = (entry) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
+
+            const cfg = ACTION_CFG[entry.action] || { icon: '?', label: entry.action, color: '#94a3b8', bg: 'transparent' };
+
+            // ── Decision banner ─────────────────────────────────────────
+            const banner = document.createElement('div');
+            banner.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 8px; background: ' + cfg.bg + '; border: 1px solid ' + cfg.color + '44;';
+            const bannerIcon = document.createElement('span');
+            bannerIcon.style.cssText = 'font-size: 20px;';
+            bannerIcon.textContent = cfg.icon;
+            const bannerText = document.createElement('div');
+            const bannerTitle = document.createElement('div');
+            bannerTitle.style.cssText = 'font-size: 16px; font-weight: 700; color: ' + cfg.color + ';';
+            bannerTitle.textContent = cfg.label;
+            bannerText.appendChild(bannerTitle);
+            if (entry.reason) {
+                const bannerReason = document.createElement('div');
+                bannerReason.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 2px;';
+                bannerReason.textContent = entry.reason;
+                bannerText.appendChild(bannerReason);
+            }
+            banner.appendChild(bannerIcon);
+            banner.appendChild(bannerText);
+            wrap.appendChild(banner);
+
+            // ── Tool info ────────────────────────────────────────────────
+            const section = (label, node) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+                const lbl = document.createElement('div');
+                lbl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px;';
+                lbl.textContent = label;
+                row.appendChild(lbl);
+                if (typeof node === 'string') {
+                    const val = document.createElement('div');
+                    val.style.cssText = 'font-size: 13px; color: var(--text-primary);';
+                    val.textContent = node;
+                    row.appendChild(val);
+                } else {
+                    row.appendChild(node);
+                }
+                return row;
+            };
+
+            // Tool name
+            const toolNameEl = document.createElement('div');
+            toolNameEl.style.cssText = 'font-family: monospace; font-size: 14px; font-weight: 700; color: var(--text-primary); word-break: break-all;';
+            toolNameEl.textContent = entry.function_name;
+            wrap.appendChild(section('Tool', toolNameEl));
+
+            // Resolved tool_id (if different)
+            if (entry.tool_id && entry.tool_id !== entry.function_name) {
+                const tidEl = document.createElement('div');
+                tidEl.style.cssText = 'font-family: monospace; font-size: 12px; color: var(--text-secondary);';
+                tidEl.textContent = entry.tool_id;
+                wrap.appendChild(section('Resolved Tool ID', tidEl));
+            }
+
+            // Timestamp
+            const ts = new Date(entry.called_at.endsWith('Z') ? entry.called_at : entry.called_at + 'Z');
+            const tsStr = ts.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+                + ' at ' + ts.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            wrap.appendChild(section('Time', tsStr));
+
+            // Risk + Type row
+            const metaRow = document.createElement('div');
+            metaRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
+
+            if (entry.risk) {
+                const rc = RISK_COLORS[entry.risk] || RISK_COLORS.write;
+                const riskEl = document.createElement('span');
+                riskEl.style.cssText = 'display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: var(--radius-full); font-weight: 700; text-transform: uppercase; border: 1px solid ' + rc.border + '; background: ' + rc.bg + '; color: ' + rc.text + ';';
+                riskEl.textContent = entry.risk;
+                metaRow.appendChild(section('Risk Level', riskEl));
+            }
+
+            const typeColor = entry.is_essential ? '#06b6d4' : 'var(--text-secondary)';
+            const typeText = entry.is_essential ? 'Essential' : (entry.action !== 'log_only' ? 'Custom' : 'Unknown');
+            const typeEl = document.createElement('span');
+            typeEl.style.cssText = 'font-size: 13px; font-weight: 600; color: ' + typeColor + ';';
+            typeEl.textContent = typeText;
+            metaRow.appendChild(section('Type', typeEl));
+            wrap.appendChild(metaRow);
+
+            // Args preview
+            if (entry.args_preview) {
+                const codeWrap = document.createElement('div');
+                codeWrap.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 12px; overflow-x: auto;';
+                const code = document.createElement('pre');
+                code.style.cssText = 'margin: 0; font-family: monospace; font-size: 12px; color: var(--accent-primary); white-space: pre-wrap; word-break: break-all;';
+                // Try to pretty-print JSON
+                try {
+                    const parsed = JSON.parse(entry.args_preview);
+                    code.textContent = JSON.stringify(parsed, null, 2);
+                } catch (_) {
+                    code.textContent = entry.args_preview;
+                }
+                codeWrap.appendChild(code);
+                wrap.appendChild(section('Arguments', codeWrap));
+            } else {
+                wrap.appendChild(section('Arguments', 'No arguments recorded'));
+            }
+
+            return wrap;
+        };
+
         const makeRow = (entry, idx) => {
             const tr = document.createElement('tr');
             tr.dataset.auditRow = '1';
+            tr.title = 'Click to view details';
             const rowBg = idx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent';
-            tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + ';';
+            tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + '; cursor: pointer;';
             tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--bg-tertiary)'; });
             tr.addEventListener('mouseleave', () => { tr.style.background = rowBg; });
+            tr.addEventListener('click', () => {
+                SideDrawer.show({ title: 'Tool Call Detail', content: buildDrawerContent(entry) });
+            });
 
             // Decision badge
             const tdAction = document.createElement('td');

@@ -22,6 +22,8 @@ const ThreatsPage = {
         container.textContent = '';
         this.selectedIds.clear();
 
+        if (window.Header) Header.setPageInfo('Threat Monitor', 'All LLM requests analyzed for threats');
+
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
         filtersBar.className = 'filters-bar';
@@ -250,8 +252,9 @@ const ThreatsPage = {
         if (this.autoRefreshEnabled) {
             this.autoRefreshInterval = setInterval(() => {
                 this.loadData();
-            }, 30000);
-            if (window.Toast) Toast.info('Auto refresh enabled (30s)');
+            }, getPollInterval());
+            const _sec = Math.round(getPollInterval() / 1000);
+            if (window.Toast) Toast.info(`Auto refresh enabled (${_sec}s)`);
         } else {
             if (this.autoRefreshInterval) {
                 clearInterval(this.autoRefreshInterval);

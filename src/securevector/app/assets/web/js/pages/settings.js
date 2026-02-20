@@ -100,6 +100,14 @@ const SettingsPage = {
         themeSection.appendChild(themeCard);
         container.appendChild(themeSection);
 
+        // Data Refresh Section
+        const refreshSection = this.createSection('Data Refresh', 'How often the dashboard, threats, and cost pages poll for new data');
+        const refreshCard = Card.create({ gradient: true });
+        const refreshBody = refreshCard.querySelector('.card-body');
+        this.renderRefreshSettings(refreshBody);
+        refreshSection.appendChild(refreshCard);
+        container.appendChild(refreshSection);
+
         // Uninstall Section
         const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
         const uninstallCard = Card.create({ gradient: true });
@@ -1006,6 +1014,54 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         }
 
         Toast.success('Theme updated');
+    },
+
+    renderRefreshSettings(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+
+        const info = document.createElement('div');
+        info.className = 'setting-info';
+
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.textContent = 'Polling Interval';
+        info.appendChild(label);
+
+        const desc = document.createElement('span');
+        desc.className = 'setting-description';
+        desc.textContent = 'How frequently the UI fetches new data from the backend';
+        info.appendChild(desc);
+
+        row.appendChild(info);
+
+        const select = document.createElement('select');
+        select.className = 'form-select';
+        select.style.cssText = 'padding: 8px 12px; font-size: 13px; width: 140px;';
+
+        const options = [
+            { value: '3000', label: '3 seconds' },
+            { value: '5000', label: '5 seconds (default)' },
+            { value: '10000', label: '10 seconds' },
+            { value: '30000', label: '30 seconds' },
+        ];
+
+        const current = localStorage.getItem('sv-poll-interval') || '5000';
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            if (opt.value === current) option.selected = true;
+            select.appendChild(option);
+        });
+
+        select.addEventListener('change', (e) => {
+            localStorage.setItem('sv-poll-interval', e.target.value);
+            Toast.success('Polling interval updated — takes effect on next page visit');
+        });
+
+        row.appendChild(select);
+        container.appendChild(row);
     },
 
     createSection(title, description) {

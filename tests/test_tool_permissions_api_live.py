@@ -17,6 +17,7 @@ Run: cd src && pytest ../tests/test_tool_permissions_api_live.py -v
 
 import json
 import time
+from typing import Optional
 import pytest
 import requests
 
@@ -708,7 +709,7 @@ class TestProxyToolEnforcement:
 
     SCAN_URL = f"{API}/scan/response"
 
-    def _scan(self, payload: dict) -> dict | None:
+    def _scan(self, payload: dict) -> Optional[dict]:
         """POST a fake LLM response body to the scan endpoint."""
         try:
             r = requests.post(self.SCAN_URL, json={"response": payload}, timeout=10)

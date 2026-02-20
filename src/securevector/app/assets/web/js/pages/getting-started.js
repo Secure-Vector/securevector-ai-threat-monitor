@@ -14,10 +14,16 @@ const GettingStartedPage = {
 
         // === SECTIONS (all collapsible, collapsed by default) ===
 
-        container.appendChild(this.createCollapsibleCard(
+        const gettingStartedCard = this.createCollapsibleCard(
             'Getting Started', 'No code changes — just set an environment variable',
             'section-getting-started', () => this.buildProxyContent()
-        ));
+        );
+        // Expand by default so new users see it immediately
+        const _gsBody = gettingStartedCard.querySelector('.gs-card-body');
+        const _gsInd = gettingStartedCard.querySelector('.gs-toggle-indicator');
+        if (_gsBody) _gsBody.style.display = 'block';
+        if (_gsInd) _gsInd.textContent = '\u2212';
+        container.appendChild(gettingStartedCard);
 
 
         container.appendChild(this.createCollapsibleCard(
@@ -46,7 +52,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Cost Intelligence', 'Track LLM token spend and set daily budget limits',
+            'Cost Tracking', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
         ));
 
@@ -97,22 +103,22 @@ const GettingStartedPage = {
         const stepData = [
             {
                 num: '1',
-                title: 'Go to Integrations',
-                desc: 'Click "Integrations" in the sidebar to open the proxy and framework setup page',
-                action: () => { if (window.Sidebar) Sidebar.navigate('integrations'); },
-            },
-            {
-                num: '2',
-                title: 'Select Your Agent',
-                desc: 'Pick your agent framework and point it to the SecureVector proxy endpoint',
+                title: 'Proxy Already Running',
+                badge: 'Active',
+                desc: 'Your AI Firewall is live. Point your agent\'s LLM calls to the proxy by setting one environment variable: OPENAI_BASE_URL=http://localhost:8742/openai/v1',
                 action: null,
             },
             {
+                num: '2',
+                title: 'Configure in the Sidebar',
+                desc: 'Go to Configure → Tool Permissions to block risky agent actions, and Cost Settings to set daily budgets.',
+                action: () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); },
+            },
+            {
                 num: '3',
-                title: 'Proxy is Active — Point Your Agent',
-                badge: 'Running',
-                desc: 'AI Firewall is already running. Point your agent\'s base URL to http://localhost:8742/{provider}/v1 — done.',
-                action: () => { if (window.Sidebar) Sidebar.navigate('integrations'); },
+                title: "That's It — Start Monitoring",
+                desc: 'Run your agent and watch threats, tool calls, and costs appear live in the Monitor section.',
+                action: () => { if (window.Sidebar) Sidebar.navigate('threats'); },
             },
         ];
 
@@ -322,7 +328,7 @@ const GettingStartedPage = {
         intBtn.style.cssText = 'font-size: 12px; padding: 6px 14px; align-self: flex-start; margin-top: 4px;';
         intBtn.textContent = 'Open Integrations \u2192';
         intBtn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.expandSection('integrations');
+            if (window.Sidebar) Sidebar.navigate('proxy-openclaw');
         });
         pathB.appendChild(intBtn);
         paths.appendChild(pathB);
@@ -663,7 +669,7 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'Cost Intelligence tracks every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
+        desc.textContent = 'Cost Tracking records every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
         frag.appendChild(desc);
 
         const featureGrid = document.createElement('div');
@@ -715,7 +721,7 @@ const GettingStartedPage = {
         const costsBtn = document.createElement('button');
         costsBtn.className = 'btn btn-primary';
         costsBtn.style.cssText = 'font-size: 12px; margin: 14px 0 0 0; padding: 6px 14px;';
-        costsBtn.textContent = 'Open Cost Intelligence';
+        costsBtn.textContent = 'Open Cost Tracking';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
 

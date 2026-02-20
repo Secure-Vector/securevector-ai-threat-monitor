@@ -191,46 +191,105 @@ const Header = {
         const content = document.createElement('div');
         content.style.cssText = 'padding: 8px 0;';
 
-        const steps = [
-            { num: '1', title: 'Go to Integrations/Proxy Page', desc: 'Click "Integrations" in the sidebar' },
-            { num: '2', title: 'Select Provider', desc: 'Choose the LLM provider your agent uses (OpenAI, Anthropic, Ollama, etc.)' },
-            { num: '3', title: 'Start Proxy', desc: 'Click Start Proxy - AI Firewall is now active!' },
-        ];
-
         const stepsList = document.createElement('div');
         stepsList.className = 'cloud-steps';
 
-        steps.forEach(step => {
-            const stepEl = document.createElement('div');
-            stepEl.className = 'cloud-step';
+        // Step 1 — Proxy already running
+        const step1El = document.createElement('div');
+        step1El.className = 'cloud-step';
+        const step1Num = document.createElement('span');
+        step1Num.className = 'step-number';
+        step1Num.textContent = '1';
+        step1El.appendChild(step1Num);
+        const step1Text = document.createElement('div');
+        step1Text.className = 'step-text';
+        const step1Title = document.createElement('div');
+        step1Title.style.cssText = 'font-weight: 600; display: flex; align-items: center; gap: 6px;';
+        step1Title.appendChild(document.createTextNode('Proxy Already Running'));
+        const step1Badge = document.createElement('span');
+        step1Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step1Badge.textContent = '\u25CF Active';
+        step1Title.appendChild(step1Badge);
+        step1Text.appendChild(step1Title);
+        const step1Desc = document.createElement('p');
+        step1Desc.textContent = "Your AI Firewall is live. Point your agent's LLM calls to the proxy by setting one environment variable:";
+        step1Text.appendChild(step1Desc);
+        const step1Code = document.createElement('div');
+        step1Code.style.cssText = 'font-size: 11px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 3px 8px; border-radius: 4px; display: inline-block; margin-top: 2px;';
+        step1Code.textContent = 'OPENAI_BASE_URL=http://localhost:8742/openai/v1';
+        step1Text.appendChild(step1Code);
+        step1El.appendChild(step1Text);
+        stepsList.appendChild(step1El);
 
-            const numEl = document.createElement('span');
-            numEl.className = 'step-number';
-            numEl.textContent = step.num;
-            stepEl.appendChild(numEl);
+        // Step 2 — Rules already enabled
+        const step2El = document.createElement('div');
+        step2El.className = 'cloud-step';
+        const step2Num = document.createElement('span');
+        step2Num.className = 'step-number';
+        step2Num.textContent = '2';
+        step2El.appendChild(step2Num);
+        const step2Text = document.createElement('div');
+        step2Text.className = 'step-text';
+        const step2Title = document.createElement('div');
+        step2Title.style.cssText = 'font-weight: 600; display: flex; align-items: center; gap: 6px;';
+        step2Title.appendChild(document.createTextNode('Threat Detection Rules Enabled'));
+        const step2Badge = document.createElement('span');
+        step2Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step2Badge.textContent = '\u25CF Ready';
+        step2Title.appendChild(step2Badge);
+        step2Text.appendChild(step2Title);
+        const step2Desc = document.createElement('p');
+        step2Desc.textContent = 'Prompt injection, jailbreak, data exfiltration, and 300+ other threat patterns are pre-loaded and scanning every request automatically.';
+        step2Text.appendChild(step2Desc);
+        step2El.appendChild(step2Text);
+        stepsList.appendChild(step2El);
 
-            const textEl = document.createElement('div');
-            textEl.className = 'step-text';
+        // Step 3 — Tool Permissions & Budgets
+        const step3El = document.createElement('div');
+        step3El.className = 'cloud-step';
+        const step3Num = document.createElement('span');
+        step3Num.className = 'step-number';
+        step3Num.textContent = '3';
+        step3El.appendChild(step3Num);
+        const step3Text = document.createElement('div');
+        step3Text.className = 'step-text';
+        const step3Title = document.createElement('strong');
+        step3Title.textContent = 'Configure Tool Permissions & Budgets';
+        step3Text.appendChild(step3Title);
+        const step3Desc = document.createElement('p');
+        const step3b1 = document.createElement('strong'); step3b1.textContent = 'Tool Permissions';
+        const step3b2 = document.createElement('strong'); step3b2.textContent = 'Cost Settings';
+        step3Desc.appendChild(document.createTextNode('Go to '));
+        step3Desc.appendChild(step3b1);
+        step3Desc.appendChild(document.createTextNode(' to block risky agent actions, and '));
+        step3Desc.appendChild(step3b2);
+        step3Desc.appendChild(document.createTextNode(' to set daily spend limits.'));
+        step3Text.appendChild(step3Desc);
+        step3El.appendChild(step3Text);
+        stepsList.appendChild(step3El);
 
-            const titleEl = document.createElement('strong');
-            titleEl.textContent = step.title;
-            textEl.appendChild(titleEl);
-
-            const descEl = document.createElement('p');
-            descEl.textContent = step.desc;
-            textEl.appendChild(descEl);
-
-            stepEl.appendChild(textEl);
-            stepsList.appendChild(stepEl);
-        });
+        // Step 4 — Monitor
+        const step4El = document.createElement('div');
+        step4El.className = 'cloud-step';
+        const step4Num = document.createElement('span');
+        step4Num.className = 'step-number';
+        step4Num.textContent = '4';
+        step4El.appendChild(step4Num);
+        const step4Text = document.createElement('div');
+        step4Text.className = 'step-text';
+        const step4Title = document.createElement('strong');
+        step4Title.textContent = "Run Your Agent \u2014 Watch It Live";
+        step4Text.appendChild(step4Title);
+        const step4Desc = document.createElement('p');
+        const step4b1 = document.createElement('strong'); step4b1.textContent = 'Monitor';
+        step4Desc.appendChild(document.createTextNode('Threats, tool calls, and costs appear in real time in the '));
+        step4Desc.appendChild(step4b1);
+        step4Desc.appendChild(document.createTextNode(' section as your agent runs.'));
+        step4Text.appendChild(step4Desc);
+        step4El.appendChild(step4Text);
+        stepsList.appendChild(step4El);
 
         content.appendChild(stepsList);
-
-        // Note about what happens
-        const note = document.createElement('div');
-        note.style.cssText = 'margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; font-size: 13px; color: var(--text-secondary);';
-        note.textContent = 'All LLM traffic will be scanned for prompt injection, data leaks, and security threats before reaching the provider.';
-        content.appendChild(note);
 
         // Link to Docs
         const docsLink = document.createElement('div');
@@ -246,7 +305,7 @@ const Header = {
         content.appendChild(docsLink);
 
         Modal.show({
-            title: 'How to Use SecureVector',
+            title: 'Welcome to SecureVector',
             content: content,
             size: 'small',
         });
@@ -1688,10 +1747,10 @@ graph.add_edge("output_security", END)`,
 
     PAGE_INFO: {
         dashboard:         { title: 'Dashboard',           subtitle: 'Scanned requests, active threats, cost trends, and recent activity' },
-        threats:           { title: 'Threat Analytics',    subtitle: 'Monitor and analyze detected threats across your AI agents' },
+        threats:           { title: 'Threat Monitor',      subtitle: 'All LLM requests analyzed for threats' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
-        'tool-permissions':{ title: 'Agent Tool Permissions', subtitle: 'Control which tools your agent is allowed to call' },
-        costs:             { title: 'Agent Cost Intelligence', subtitle: 'Track and optimize your AI agent token spend' },
+        'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
+        costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
         settings:          { title: 'Settings',            subtitle: 'Configure SecureVector for your environment' },

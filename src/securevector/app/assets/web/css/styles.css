@@ -881,6 +881,15 @@ html, body {
     font-size: 22px;
 }
 
+/* Proxy banner: very light cyan border pulse */
+@keyframes proxy-border-pulse {
+    0%, 100% { border-color: rgba(0, 188, 212, 0.25); }
+    50%       { border-color: rgba(0, 188, 212, 0.55); }
+}
+.proxy-banner-pulse {
+    animation: proxy-border-pulse 3s ease-in-out infinite;
+}
+
 .sidebar-nav {
     flex: 1;
     min-height: 0;
@@ -906,7 +915,7 @@ html, body {
     text-transform: uppercase;
     letter-spacing: 0.9px;
     color: var(--text-muted);
-    padding: 12px 16px 4px;
+    padding: 8px 16px 2px;
     opacity: 0.6;
 }
 
@@ -917,7 +926,7 @@ html, body {
 .nav-section-divider {
     height: 1px;
     background: var(--border-default);
-    margin: 8px 12px;
+    margin: 4px 12px;
     opacity: 0.5;
 }
 
@@ -956,8 +965,8 @@ html, body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px 16px;
-    margin-bottom: 4px;
+    padding: 7px 16px;
+    margin-bottom: 2px;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
     text-decoration: none;
@@ -5015,36 +5024,63 @@ html, body {
 
 .tab-bar {
     display: flex;
-    gap: 3px;
+    gap: 0;
     margin-bottom: 24px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 4px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid var(--border-color);
+    border-radius: 0;
+    padding: 0;
 }
 
 .tab-btn {
     background: transparent;
     border: none;
-    border-radius: 6px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    border-radius: 0;
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    padding: 7px 16px;
-    transition: background 0.15s, color 0.15s;
+    padding: 8px 18px;
+    transition: color 0.15s, border-color 0.15s;
     white-space: nowrap;
 }
 
 .tab-btn:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
     color: var(--text-primary);
+    border-bottom-color: var(--border-color);
+    background: transparent;
 }
 
 .tab-btn.active {
-    background: var(--accent-primary);
-    color: #fff;
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
     font-weight: 600;
+    background: transparent;
+}
+
+@keyframes tab-dot-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.6; }
+}
+
+.tab-btn-unseen {
+    position: relative;
+}
+
+.tab-btn-unseen::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f59e0b;
+    pointer-events: none;
+    animation: tab-dot-pulse 1.2s ease-in-out 3;
 }
 
 /* Badge variants used in costs page */

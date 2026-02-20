@@ -27,6 +27,7 @@ Run: cd src && pytest ../tests/test_tool_audit_log_live.py -v
 
 import json
 import time
+from typing import Optional
 import pytest
 import requests
 
@@ -76,7 +77,7 @@ def _audit_entry(
         "args_preview":  args_preview,
     }
 
-def _find_in_audit(function_name: str, action: str, entries: list) -> dict | None:
+def _find_in_audit(function_name: str, action: str, entries: list) -> Optional[dict]:
     """Return first entry matching function_name + action, or None."""
     return next(
         (e for e in entries if e["function_name"] == function_name and e["action"] == action),

@@ -80,7 +80,7 @@ const DashboardPage = {
                         const goBtn = document.createElement('button');
                         goBtn.className = 'btn btn-secondary btn-sm';
                         goBtn.textContent = 'View →';
-                        goBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
+                        goBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('cost-settings'); });
                         bar.appendChild(goBtn);
 
                         return bar;
@@ -120,7 +120,7 @@ const DashboardPage = {
 
             const onboardDesc = document.createElement('div');
             onboardDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;';
-            onboardDesc.textContent = 'By default, SecureVector starts the OpenClaw proxy. Choose the path that matches your setup:';
+            onboardDesc.textContent = 'The SecureVector proxy is running. Choose the path that matches your setup:';
             onboard.appendChild(onboardDesc);
 
             // Two-path layout
@@ -133,38 +133,43 @@ const DashboardPage = {
 
             const pathABadge = document.createElement('div');
             pathABadge.style.cssText = 'display: inline-block; font-size: 10px; font-weight: 700; background: var(--accent-primary); color: white; border-radius: 4px; padding: 2px 7px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
-            pathABadge.textContent = 'Default';
+            pathABadge.textContent = 'Quickest';
             pathA.appendChild(pathABadge);
 
             const pathATitle = document.createElement('div');
             pathATitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;';
-            pathATitle.textContent = 'Using OpenClaw / ClawdBot?';
+            pathATitle.textContent = 'Point your agent to the proxy';
             pathA.appendChild(pathATitle);
 
             const pathADesc = document.createElement('div');
             pathADesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
-            pathADesc.textContent = 'The OpenClaw proxy is already running. Go to the OpenClaw integration and follow step 2 onwards.';
+            pathADesc.textContent = 'Set one environment variable and traffic flows through SecureVector automatically:';
             pathA.appendChild(pathADesc);
+
+            const pathACode = document.createElement('div');
+            pathACode.style.cssText = 'font-size: 11px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 5px 8px; border-radius: 4px; margin-bottom: 10px; word-break: break-all;';
+            pathACode.textContent = 'OPENAI_BASE_URL=http://localhost:8742/openai/v1';
+            pathA.appendChild(pathACode);
 
             const pathABtn = document.createElement('button');
             pathABtn.className = 'btn btn-primary';
             pathABtn.style.cssText = 'font-size: 11px; padding: 5px 12px; width: 100%;';
-            pathABtn.textContent = 'OpenClaw Integration →';
-            pathABtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-openclaw'); });
+            pathABtn.textContent = 'Getting Started Guide →';
+            pathABtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide'); });
             pathA.appendChild(pathABtn);
 
-            // Path 2 — Other frameworks
+            // Path 2 — Pick an integration
             const pathB = document.createElement('div');
             pathB.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 6px; padding: 14px;';
 
             const pathBTitle = document.createElement('div');
             pathBTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; margin-top: 22px;';
-            pathBTitle.textContent = 'Using another framework?';
+            pathBTitle.textContent = 'Using a specific framework?';
             pathB.appendChild(pathBTitle);
 
             const pathBDesc = document.createElement('div');
             pathBDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
-            pathBDesc.textContent = 'LangChain, LangGraph, CrewAI, n8n, or Ollama — go to Integrations and follow all steps for your framework.';
+            pathBDesc.textContent = 'LangChain, LangGraph, CrewAI, n8n, Ollama, or OpenClaw — step-by-step guides in the Integrations section.';
             pathB.appendChild(pathBDesc);
 
             const pathBBtn = document.createElement('button');
@@ -247,7 +252,7 @@ const DashboardPage = {
 
                 const link = document.createElement('span');
                 link.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary);';
-                link.textContent = 'Explore →';
+                link.textContent = 'Set up →';
                 card.appendChild(link);
 
                 card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(page); });
@@ -255,14 +260,14 @@ const DashboardPage = {
             };
 
             featureCards.appendChild(makeFeatureCard(
-                'Agent Tool Permissions',
+                'Tool Permissions',
                 'Control exactly which tools your agent is allowed to call. Block risky file, shell, or network operations before they run.',
                 'tool-permissions'
             ));
             featureCards.appendChild(makeFeatureCard(
-                'Agent Cost Intelligence',
+                'Cost Tracking',
                 'Track every dollar your agents spend per model and session. Set daily budgets to hard-stop runaway LLM costs.',
-                'costs'
+                'cost-settings'
             ));
 
             strip.appendChild(featureCards);
@@ -648,19 +653,25 @@ const DashboardPage = {
         const days = 7;
         const buckets = [];
         const now = new Date();
+        // Use local dates so chart labels match timestamps shown in the UI
+        const toLocalDateStr = ts => {
+            const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        };
         for (let i = days - 1; i >= 0; i--) {
-            const d = new Date(now);
+            const d = new Date();
             d.setDate(d.getDate() - i);
+            const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
             buckets.push({
                 label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'),
-                dateStr: d.toISOString().slice(0, 10),
+                dateStr,
                 total: 0,
                 threats: 0,
             });
         }
 
         (this.threats || []).forEach(t => {
-            const dateStr = (t.created_at || '').slice(0, 10);
+            const dateStr = toLocalDateStr(t.created_at || new Date().toISOString());
             const bucket = buckets.find(b => b.dateStr === dateStr);
             if (bucket) {
                 bucket.total++;
@@ -734,10 +745,15 @@ const DashboardPage = {
         const days = 7;
         const buckets = [];
         const now = new Date();
+        const toLocalDateStr2 = ts => {
+            const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        };
         for (let i = days - 1; i >= 0; i--) {
-            const d = new Date(now);
+            const d = new Date();
             d.setDate(d.getDate() - i);
-            buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), dateStr: d.toISOString().slice(0, 10), cost: 0 });
+            const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+            buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), dateStr, cost: 0 });
         }
 
         try {
@@ -745,7 +761,7 @@ const DashboardPage = {
             start.setDate(start.getDate() - 7);
             const records = await API.getCostRecords({ start: start.toISOString(), page_size: 200 });
             (records.items || []).forEach(r => {
-                const dateStr = (r.recorded_at || '').slice(0, 10);
+                const dateStr = toLocalDateStr2(r.recorded_at || new Date().toISOString());
                 const bucket = buckets.find(b => b.dateStr === dateStr);
                 if (bucket) bucket.cost += r.total_cost_usd || 0;
             });
@@ -922,8 +938,9 @@ const DashboardPage = {
                 if (this.currentContainer) {
                     this.render(this.currentContainer);
                 }
-            }, 30000);
-            if (window.Toast) Toast.info('Auto refresh enabled (30s)');
+            }, getPollInterval());
+            const _sec = Math.round(getPollInterval() / 1000);
+            if (window.Toast) Toast.info(`Auto refresh enabled (${_sec}s)`);
         } else {
             if (this.autoRefreshInterval) {
                 clearInterval(this.autoRefreshInterval);
@@ -936,7 +953,7 @@ const DashboardPage = {
     async renderCostWidget() {
         const widget = document.createElement('div');
         widget.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 20px; cursor: pointer;';
-        widget.title = 'Click to open Cost Intelligence';
+        widget.title = 'Click to open Cost Tracking';
         widget.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
 
         const header = document.createElement('div');
@@ -944,7 +961,7 @@ const DashboardPage = {
 
         const titleEl = document.createElement('div');
         titleEl.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-primary);';
-        titleEl.textContent = '💰 Cost Intelligence';
+        titleEl.textContent = '💰 Cost Tracking';
         header.appendChild(titleEl);
 
         const viewLink = document.createElement('span');

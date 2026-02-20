@@ -1404,7 +1404,8 @@ class LLMProxy:
                 )
 
         except httpx.RequestError as e:
-            logger.error(f"[llm-proxy] Request error: {e}")
+            # Log type only — avoid exposing full URL which may contain API keys (e.g. Gemini key= param)
+            logger.error(f"[llm-proxy] Request error ({type(e).__name__}): failed to connect to LLM provider")
             return Response(
                 content=json.dumps({"error": {"message": "Failed to connect to LLM provider"}}),
                 status_code=502,

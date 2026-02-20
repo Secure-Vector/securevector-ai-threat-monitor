@@ -317,13 +317,13 @@ class CustomToolsRepository:
         rows = await self.db.fetch_all(
             """
             SELECT
-                DATE(called_at) AS day,
+                DATE(called_at, 'localtime') AS day,
                 SUM(CASE WHEN action = 'block'    THEN 1 ELSE 0 END) AS blocked,
                 SUM(CASE WHEN action = 'allow'    THEN 1 ELSE 0 END) AS allowed,
                 SUM(CASE WHEN action = 'log_only' THEN 1 ELSE 0 END) AS logged
             FROM tool_call_audit
-            WHERE called_at >= DATE('now', ?)
-            GROUP BY DATE(called_at)
+            WHERE DATE(called_at, 'localtime') >= DATE('now', 'localtime', ?)
+            GROUP BY DATE(called_at, 'localtime')
             ORDER BY day ASC
             """,
             (f"-{days} days",),

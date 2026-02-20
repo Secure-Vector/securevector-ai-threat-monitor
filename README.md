@@ -20,7 +20,13 @@
 
 <br>
 
-## The Problem
+<table>
+<tr>
+<th align="left" width="50%">The Problem</th>
+<th align="left" width="50%">The Fix</th>
+</tr>
+<tr>
+<td valign="top">
 
 AI agents are powerful — and completely unprotected.
 
@@ -31,11 +37,14 @@ Your agents send every prompt, every API key, every piece of user data straight 
 
 You don't need an enterprise security team to fix this. You need SecureVector.
 
-<br>
-
-## The Fix
+</td>
+<td valign="top">
 
 SecureVector runs on your machine, between your AI agents and LLM providers. It starts with an OpenClaw proxy by default and supports a multi-provider proxy mode for routing across OpenAI, Anthropic, Ollama, and more — all through a single endpoint. It intercepts defined tool calls, scans every prompt and response for injection and data leaks, and hard-stops agents that exceed their budget. 100% local by default. No accounts required.
+
+</td>
+</tr>
+</table>
 
 ```bash
 pip install securevector-ai-monitor[app]
@@ -63,30 +72,6 @@ SecureVector gives you a live dashboard showing every request, every token, ever
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
 **SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats, controlling tool permissions, and tracking spend in real time. Runs entirely on your machine — nothing leaves your infrastructure.
-
-<br>
-
-## Features
-
-### Security
-
-Prompt injection blocking, jailbreak detection, PII and credential redaction, data leak prevention — all running locally on your machine. Every request is scanned before it reaches the LLM provider. Every response is validated before it reaches your agent.
-
-### Cost Control
-
-Real-time token tracking across all providers. Set daily and monthly budget limits. Get alerts at custom thresholds. Hard-stop agents that exceed their budget. See per-agent, per-model cost breakdowns. Never wake up to a surprise bill again.
-
-### Visibility
-
-Live dashboard at `localhost:8741` showing every request flowing through your agents. See what prompts are being sent, what responses come back, how many tokens each call uses, and what it costs. The X-ray for your AI stack.
-
-### 100% Local
-
-No cloud. No telemetry. No accounts. No data leaves your machine. Ever. SecureVector runs entirely on localhost. Your prompts, your data, your costs — all stay on your hardware.
-
-### Fast
-
-Less than 50ms overhead per request. You won't notice it's there — until it blocks something.
 
 <br>
 
@@ -156,23 +141,87 @@ The UI keeps this file in sync — changes in the dashboard are written back to 
 
 Point any application to SecureVector's proxy instead of the provider's API.
 
-```bash
-# OpenAI
-export OPENAI_BASE_URL=http://localhost:8742/openai/v1
+<table>
+<tr>
+<th align="left" width="50%">🪟 Windows</th>
+<th align="left" width="50%">🐧 Linux / macOS</th>
+</tr>
+<tr>
+<td valign="top">
 
-# Anthropic
-export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic
+**Command Prompt** (current session)
+<pre>set OPENAI_BASE_URL=http://localhost:8742/openai/v1
+set ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
 
-# Ollama
-export OPENAI_BASE_URL=http://localhost:8742/ollama/v1
+**PowerShell** (current session)
+<pre>$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
+$env:ANTHROPIC_BASE_URL="http://localhost:8742/anthropic"</pre>
 
-# OpenClaw
-ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway
-```
+**PowerShell** (persistent, per user)
+<pre>[Environment]::SetEnvironmentVariable(
+  "OPENAI_BASE_URL",
+  "http://localhost:8742/openai/v1",
+  "User"
+)</pre>
+
+</td>
+<td valign="top">
+
+**Terminal** (current session)
+<pre>export OPENAI_BASE_URL=http://localhost:8742/openai/v1
+export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
+
+**Persistent** (add to `~/.bashrc` or `~/.zshrc`)
+<pre>echo 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1' >> ~/.bashrc
+echo 'export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' >> ~/.bashrc
+source ~/.bashrc</pre>
+
+</td>
+</tr>
+</table>
 
 Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked.
 
 **Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
+
+<br>
+
+## What You Get
+
+<table>
+<tr>
+<th align="left" width="50%">Threat Protection</th>
+<th align="left" width="50%">Cost Control</th>
+</tr>
+<tr>
+<td valign="top">
+
+Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Blocks threats before they reach the LLM.
+
+</td>
+<td valign="top">
+
+Tracks every token and dollar per agent in real time. Set daily budget limits — requests auto-stop when the cap is hit. Never wake up to a surprise bill.
+
+</td>
+</tr>
+<tr>
+<th align="left">Full Visibility</th>
+<th align="left">100% Local</th>
+</tr>
+<tr>
+<td valign="top">
+
+Live dashboard showing every LLM request, tool call, token count, and threat event. See exactly what your agents are doing.
+
+</td>
+<td valign="top">
+
+Runs entirely on your machine. No accounts. No cloud. No data leaves your infrastructure. Open source under Apache 2.0.
+
+</td>
+</tr>
+</table>
 
 <br>
 
@@ -229,7 +278,7 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 
 Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 
-### AI Agent Attack Protection (28 rules)
+### AI Agent Attack Protection (28 new rules · 78 total)
 
 Built from real attack chains observed against production agent frameworks:
 
@@ -375,6 +424,16 @@ No Python required. Download and run.
 | **Linux RPM** | `sudo rpm -U securevector-<version>.x86_64.rpm` |
 
 After updating, restart SecureVector.
+
+<br>
+
+## Recent Fixes
+
+| Problem | Fix |
+|---------|-----|
+| Python 3.9: `dict \| None` union type syntax requires Python 3.10+ | Changed to `Optional[dict]` from `typing` in test files |
+| `fastapi` missing from `[dev]` extras — FastAPI test client unavailable in CI | Added `fastapi>=0.100.0` and `httpx>=0.24.0` to `[dev]` in `setup.py` |
+| CodeQL: API key exposed via exception URL in log output | Changed `logger.error(f"...{e}")` to log exception type only, avoiding Gemini `key=` query param |
 
 <br>
 

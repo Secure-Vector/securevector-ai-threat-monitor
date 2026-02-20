@@ -31,6 +31,7 @@ import os
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 from securevector.app import (
@@ -153,6 +154,14 @@ def run_web(host: str, port: int) -> None:
     print(f"  Web UI:  http://{host}:{port}")
     print(f"  API:     http://{host}:{port}/docs")
     print(f"\n  Press Ctrl+C to stop\n")
+
+    url = f"http://{host}:{port}"
+
+    def _open_browser():
+        time.sleep(1.2)  # Wait for uvicorn to bind
+        webbrowser.open(url)
+
+    threading.Thread(target=_open_browser, daemon=True).start()
 
     app = create_app(host=host, port=port)
     uvicorn.run(app, host=host, port=port, log_level="info")

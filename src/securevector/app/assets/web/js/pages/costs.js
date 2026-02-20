@@ -10,6 +10,7 @@
 
 const CostsPage = {
     activeTab: 'overview',
+    mode: 'monitor',
     summaryData: null,
     pricingData: null,
     recordsData: null,
@@ -28,15 +29,24 @@ const CostsPage = {
         container.textContent = '';
         if (this.pollInterval) clearInterval(this.pollInterval);
 
-        if (window.Header) Header.setPageInfo('Agent Cost Intelligence', 'Track LLM token spend per agent · Set daily budgets to prevent runaway costs');
+        if (this.mode === 'settings') {
+            if (window.Header) Header.setPageInfo('Cost Settings', 'Set daily budgets and manage model pricing');
+        } else {
+            if (window.Header) Header.setPageInfo('Cost Tracking', 'Track LLM token spend per agent');
+        }
 
-        // Tab bar
+        // Settings mode: budget card + pricing reference, no tab bar
+        if (this.mode === 'settings') {
+            await this._renderSettingsMode(container);
+            return;
+        }
+
+        // Monitor mode: Cost Summary + Request History tabs only
         const tabs = document.createElement('div');
         tabs.className = 'tab-bar';
         tabs.id = 'costs-tabs';
         container.appendChild(tabs);
 
-        // Tab content area
         const content = document.createElement('div');
         content.id = 'costs-tab-content';
         container.appendChild(content);
@@ -44,12 +54,39 @@ const CostsPage = {
         this._renderTabBar();
         await this._renderActiveTab();
 
-        // Poll overview and history every 10s (skip when tab is hidden)
+        // Poll overview and history (skip when tab is hidden)
         this.pollInterval = setInterval(async () => {
             if (document.hidden) return;
             if (this.activeTab === 'overview') await this._loadAndRenderOverview();
             else if (this.activeTab === 'history') await this._loadAndRenderHistory();
-        }, 10000);
+        }, getPollInterval());
+    },
+
+    async _renderSettingsMode(container) {
+        // Load data needed for both sections
+        try {
+            [this.budgetData, this.agentBudgets] = await Promise.all([
+                API.getGlobalBudget().catch(() => ({})),
+                API.listAgentBudgets().catch(() => []),
+            ]);
+        } catch (e) { /* non-fatal */ }
+
+        // Global budget widget
+        const budgetSection = this._buildGlobalBudgetWidget();
+        container.appendChild(budgetSection);
+
+        // Divider / heading for pricing
+        const pricingHeading = document.createElement('div');
+        pricingHeading.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; padding: 20px 0 10px;';
+        pricingHeading.textContent = 'Pricing Reference';
+        container.appendChild(pricingHeading);
+
+        // Pricing reference content rendered into a wrapper div
+        const pricingWrapper = document.createElement('div');
+        pricingWrapper.id = 'costs-tab-content';
+        container.appendChild(pricingWrapper);
+
+        await this._loadAndRenderPricing();
     },
 
     _renderTabBar() {
@@ -57,15 +94,17 @@ const CostsPage = {
         if (!bar) return;
         bar.textContent = '';
 
+        // Monitor mode only shows summary + history
         const defs = [
             { id: 'overview', label: 'Cost Summary' },
             { id: 'history', label: 'Request History' },
-            { id: 'pricing', label: 'Pricing Reference' },
         ];
 
         defs.forEach(({ id, label }) => {
             const btn = document.createElement('button');
-            btn.className = `tab-btn${this.activeTab === id ? ' active' : ''}`;
+            const isActive = this.activeTab === id;
+            if (isActive) localStorage.setItem('sv-tab-seen-costs-' + id, '1');
+            btn.className = `tab-btn${isActive ? ' active' : ''}`;
             btn.textContent = label;
             btn.addEventListener('click', async () => {
                 this.activeTab = id;
@@ -83,7 +122,6 @@ const CostsPage = {
 
         if (this.activeTab === 'overview') await this._loadAndRenderOverview();
         else if (this.activeTab === 'history') await this._loadAndRenderHistory();
-        else if (this.activeTab === 'pricing') await this._loadAndRenderPricing();
     },
 
     // ==================== Overview Tab (Summary only) ====================
@@ -112,15 +150,12 @@ const CostsPage = {
 
         const totals = this.summaryData.totals || {};
 
-        // ─── Global Budget Widget — prominent, at the top ─────────────────
-        content.appendChild(this._buildGlobalBudgetWidget());
-
         // ─── Summary cards ──────────────────────────────────────────────
         const cardsRow = document.createElement('div');
         cardsRow.className = 'stats-grid';
 
         const cardDefs = [
-            { label: 'Today\'s Spend', value: `$${(totals.today_spend_usd || 0).toFixed(4)}`, sub: 'UTC day — used for budget checks' },
+            { label: 'Today\'s Spend', value: `$${(totals.today_spend_usd || 0).toFixed(4)}`, sub: 'Resets at midnight' },
             { label: 'Total Cost', value: `$${(totals.total_cost_usd || 0).toFixed(4)}`, sub: 'All time' },
             { label: 'Total Requests', value: (totals.total_requests || 0).toLocaleString() },
             { label: 'Input Tokens', value: this._fmtTokens(totals.total_input_tokens || 0) },
@@ -570,17 +605,104 @@ const CostsPage = {
         thead.appendChild(hrow);
         table.appendChild(thead);
 
+        const buildCostDrawerContent = (r) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
+
+            const section = (label, node) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+                const lbl = document.createElement('div');
+                lbl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px;';
+                lbl.textContent = label;
+                row.appendChild(lbl);
+                if (typeof node === 'string') {
+                    const val = document.createElement('div');
+                    val.style.cssText = 'font-size: 13px; color: var(--text-primary);';
+                    val.textContent = node;
+                    row.appendChild(val);
+                } else {
+                    row.appendChild(node);
+                }
+                return row;
+            };
+
+            // Cost banner
+            const banner = document.createElement('div');
+            banner.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px; background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.25);';
+            const costVal = document.createElement('div');
+            costVal.style.cssText = 'font-size: 28px; font-weight: 800; color: var(--accent-primary); font-family: monospace;';
+            costVal.textContent = '$' + r.total_cost_usd.toFixed(6);
+            banner.appendChild(costVal);
+            const pricingBadge = document.createElement('span');
+            pricingBadge.className = r.pricing_known ? 'badge badge-success' : 'badge badge-warning';
+            pricingBadge.textContent = r.pricing_known ? 'Pricing known' : 'Pricing estimated';
+            banner.appendChild(pricingBadge);
+            wrap.appendChild(banner);
+
+            // Timestamp
+            wrap.appendChild(section('Time', new Date(r.recorded_at).toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })));
+
+            // Agent + Provider + Model grid
+            const metaGrid = document.createElement('div');
+            metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
+            const agentEl = document.createElement('code');
+            agentEl.style.cssText = 'font-size: 12px; color: var(--text-primary); word-break: break-all;';
+            agentEl.textContent = r.agent_id || '—';
+            metaGrid.appendChild(section('Agent ID', agentEl));
+            metaGrid.appendChild(section('Provider', r.provider || '—'));
+            wrap.appendChild(metaGrid);
+
+            const modelEl = document.createElement('code');
+            modelEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
+            modelEl.textContent = r.model_id || '—';
+            wrap.appendChild(section('Model', modelEl));
+
+            // Token breakdown
+            const tokenGrid = document.createElement('div');
+            tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;';
+
+            const tokenCard = (label, value, color) => {
+                const card = document.createElement('div');
+                card.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; text-align: center;';
+                const v = document.createElement('div');
+                v.style.cssText = 'font-size: 18px; font-weight: 700; color: ' + (color || 'var(--text-primary)') + '; font-family: monospace;';
+                v.textContent = value;
+                const l = document.createElement('div');
+                l.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 2px;';
+                l.textContent = label;
+                card.appendChild(v);
+                card.appendChild(l);
+                return card;
+            };
+
+            tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
+            const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
+                ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
+            tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '—', '#10b981'));
+            tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), '#f59e0b'));
+            wrap.appendChild(section('Token Usage', tokenGrid));
+
+            return wrap;
+        };
+
         const tbody = document.createElement('tbody');
         records.forEach(r => {
             const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            tr.title = 'Click to view details';
             if (this.recordsSelectedIds.has(r.id)) tr.classList.add('selected');
+            tr.addEventListener('click', () => {
+                SideDrawer.show({ title: 'Request Detail', content: buildCostDrawerContent(r) });
+            });
 
-            // Checkbox cell
+            // Checkbox cell — stop click from bubbling to row
             const cbTd = document.createElement('td');
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.className = 'record-checkbox';
             cb.checked = this.recordsSelectedIds.has(r.id);
+            cb.addEventListener('click', (e) => e.stopPropagation());
             cb.addEventListener('change', (e) => this._toggleSelectRecord(r.id, e.target.checked, records));
             cbTd.appendChild(cb);
             tr.appendChild(cbTd);
@@ -743,7 +865,7 @@ const CostsPage = {
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');
-        ['Provider', 'Model', 'Input / 1M', 'Output / 1M', 'Verified', 'Status'].forEach(h => {
+        ['Provider', 'Model', 'Input / 1M', 'Output / 1M', 'Verified', 'Status', ''].forEach(h => {
             const th = document.createElement('th');
             th.textContent = h;
             hrow.appendChild(th);
@@ -791,6 +913,80 @@ const CostsPage = {
             tdStatus.appendChild(badge);
             tr.appendChild(tdStatus);
 
+            // Edit / Save / Cancel actions
+            const tdActions = document.createElement('td');
+            tdActions.style.cssText = 'white-space: nowrap;';
+
+            const fieldStyle = 'width: 72px; padding: 2px 6px; border: 1px solid var(--accent-primary); border-radius: 4px; font-size: 12px; background: var(--bg-secondary); color: var(--text-primary);';
+
+            const exitEdit = () => {
+                tdInput.textContent = `$${entry.input_per_million.toFixed(2)}`;
+                tdOutput.textContent = `$${entry.output_per_million.toFixed(2)}`;
+                tdActions.textContent = '';
+                tdActions.appendChild(editBtn);
+            };
+
+            const enterEdit = () => {
+                tdInput.textContent = '';
+                const inField = document.createElement('input');
+                inField.type = 'number'; inField.min = '0'; inField.step = '0.01';
+                inField.value = entry.input_per_million.toFixed(2);
+                inField.style.cssText = fieldStyle;
+                tdInput.appendChild(inField);
+
+                tdOutput.textContent = '';
+                const outField = document.createElement('input');
+                outField.type = 'number'; outField.min = '0'; outField.step = '0.01';
+                outField.value = entry.output_per_million.toFixed(2);
+                outField.style.cssText = fieldStyle;
+                tdOutput.appendChild(outField);
+
+                tdActions.textContent = '';
+
+                const saveBtn = document.createElement('button');
+                saveBtn.className = 'btn btn-primary';
+                saveBtn.style.cssText = 'font-size: 11px; padding: 2px 8px; margin-right: 4px;';
+                saveBtn.textContent = 'Save';
+                saveBtn.addEventListener('click', async () => {
+                    const newIn = parseFloat(inField.value);
+                    const newOut = parseFloat(outField.value);
+                    if (isNaN(newIn) || isNaN(newOut) || newIn < 0 || newOut < 0) return;
+                    saveBtn.textContent = 'Saving…';
+                    saveBtn.disabled = true;
+                    try {
+                        await API.updateModelPricing(entry.provider, entry.model_id, {
+                            input_per_million: newIn,
+                            output_per_million: newOut,
+                        });
+                        entry.input_per_million = newIn;
+                        entry.output_per_million = newOut;
+                        exitEdit();
+                    } catch (e) {
+                        saveBtn.textContent = 'Save';
+                        saveBtn.disabled = false;
+                    }
+                });
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn btn-secondary';
+                cancelBtn.style.cssText = 'font-size: 11px; padding: 2px 8px;';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', exitEdit);
+
+                tdActions.appendChild(saveBtn);
+                tdActions.appendChild(cancelBtn);
+            };
+
+            const editBtn = document.createElement('button');
+            editBtn.style.cssText = 'background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px 6px; border-radius: 3px; font-size: 13px; transition: color 0.15s;';
+            editBtn.title = 'Edit pricing';
+            editBtn.textContent = '✎';
+            editBtn.addEventListener('mouseenter', () => { editBtn.style.color = 'var(--accent-primary)'; });
+            editBtn.addEventListener('mouseleave', () => { editBtn.style.color = 'var(--text-secondary)'; });
+            editBtn.addEventListener('click', enterEdit);
+            tdActions.appendChild(editBtn);
+
+            tr.appendChild(tdActions);
             tbody.appendChild(tr);
         });
         table.appendChild(tbody);
@@ -856,8 +1052,23 @@ const CostsPage = {
         infoBanner.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 1.5rem;';
 
         const infoTitle = document.createElement('div');
-        infoTitle.style.cssText = 'font-weight: 600; margin-bottom: 6px; color: var(--text-primary);';
-        infoTitle.textContent = '💸 How Budget Limits Work';
+        infoTitle.style.cssText = 'font-weight: 600; margin-bottom: 6px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
+        const infoIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        infoIcon.setAttribute('viewBox', '0 0 24 24');
+        infoIcon.setAttribute('fill', 'none');
+        infoIcon.setAttribute('stroke', 'currentColor');
+        infoIcon.setAttribute('stroke-width', '2');
+        infoIcon.setAttribute('stroke-linecap', 'round');
+        infoIcon.style.cssText = 'width: 14px; height: 14px; color: var(--text-secondary); flex-shrink: 0;';
+        const infoCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        infoCircle.setAttribute('cx', '12'); infoCircle.setAttribute('cy', '12'); infoCircle.setAttribute('r', '10');
+        const infoLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        infoLine1.setAttribute('x1', '12'); infoLine1.setAttribute('y1', '8'); infoLine1.setAttribute('x2', '12'); infoLine1.setAttribute('y2', '12');
+        const infoLine2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        infoLine2.setAttribute('x1', '12'); infoLine2.setAttribute('y1', '16'); infoLine2.setAttribute('x2', '12.01'); infoLine2.setAttribute('y2', '16');
+        [infoCircle, infoLine1, infoLine2].forEach(el => infoIcon.appendChild(el));
+        infoTitle.appendChild(infoIcon);
+        infoTitle.appendChild(document.createTextNode('How Budget Limits Work'));
         infoBanner.appendChild(infoTitle);
 
         const infoText = document.createElement('div');
@@ -1205,10 +1416,27 @@ const CostsPage = {
 
         const titleWrap = document.createElement('div');
         titleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-        const icon = document.createElement('span');
-        icon.textContent = '💸';
-        icon.style.fontSize = '18px';
-        titleWrap.appendChild(icon);
+
+        // Wallet SVG icon
+        const walletSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        walletSvg.setAttribute('viewBox', '0 0 24 24');
+        walletSvg.setAttribute('fill', 'none');
+        walletSvg.setAttribute('stroke', 'currentColor');
+        walletSvg.setAttribute('stroke-width', '2');
+        walletSvg.setAttribute('stroke-linecap', 'round');
+        walletSvg.setAttribute('stroke-linejoin', 'round');
+        walletSvg.style.cssText = 'width: 15px; height: 15px; color: var(--accent-primary); flex-shrink: 0;';
+        [
+            { tag: 'path', d: 'M21 12V7H5a2 2 0 0 1 0-4h14v4' },
+            { tag: 'path', d: 'M3 5v14a2 2 0 0 0 2 2h16v-5' },
+            { tag: 'path', d: 'M18 12a2 2 0 0 0 0 4h4v-4Z' },
+        ].forEach(({ tag, d }) => {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+            el.setAttribute('d', d);
+            walletSvg.appendChild(el);
+        });
+        titleWrap.appendChild(walletSvg);
+
         const titleLbl = document.createElement('span');
         titleLbl.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.6px;';
         titleLbl.textContent = 'Global Daily Budget';

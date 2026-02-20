@@ -18,8 +18,10 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
-        'tool-permissions': ToolPermissionsPage,
-        costs: CostsPage,
+        'tool-permissions': { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        costs: { render: (c) => { CostsPage.mode = 'monitor'; CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = false; return CostsPage.render(c); } },
+        'tool-activity': { render: (c) => { ToolPermissionsPage.activeTab = 'activity'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'cost-settings': { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
     },
 
     /**
@@ -113,81 +115,108 @@ const App = {
 
         // Instructions
         const instructionBox = document.createElement('div');
-        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px;';
+        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; display: flex; flex-direction: column; gap: 16px;';
 
-        // Step 1
+        const _numStyle = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
+        const _titleStyle = 'font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
+        const _descStyle = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 3px;';
+
+        // Step 1 — Proxy already running
         const step1 = document.createElement('div');
-        step1.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-
+        step1.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step1Num = document.createElement('span');
-        step1Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
+        step1Num.style.cssText = _numStyle;
         step1Num.textContent = '1';
         step1.appendChild(step1Num);
-
-        const step1Content = document.createElement('div');
+        const step1Body = document.createElement('div');
         const step1Title = document.createElement('div');
-        step1Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step1Title.textContent = 'Go to Integrations / Proxy Page';
-        step1Content.appendChild(step1Title);
+        step1Title.style.cssText = _titleStyle;
+        step1Title.appendChild(document.createTextNode('Proxy Already Running'));
+        const step1Badge = document.createElement('span');
+        step1Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step1Badge.textContent = '\u25CF Active';
+        step1Title.appendChild(step1Badge);
+        step1Body.appendChild(step1Title);
         const step1Desc = document.createElement('div');
-        step1Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step1Desc.textContent = 'Click "Integrations" in the sidebar';
-        step1Content.appendChild(step1Desc);
-        step1.appendChild(step1Content);
-
+        step1Desc.style.cssText = _descStyle;
+        step1Desc.textContent = "Your AI Firewall is live. Point your agent's LLM calls to the proxy by setting one environment variable:";
+        step1Body.appendChild(step1Desc);
+        const step1Code = document.createElement('div');
+        step1Code.style.cssText = 'margin-top: 5px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 4px 10px; border-radius: 4px; display: inline-block;';
+        step1Code.textContent = 'OPENAI_BASE_URL=http://localhost:8742/openai/v1';
+        step1Body.appendChild(step1Code);
+        step1.appendChild(step1Body);
         instructionBox.appendChild(step1);
 
-        // Step 2
+        // Step 2 — Rules already enabled
         const step2 = document.createElement('div');
-        step2.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-
+        step2.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step2Num = document.createElement('span');
-        step2Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
+        step2Num.style.cssText = _numStyle;
         step2Num.textContent = '2';
         step2.appendChild(step2Num);
-
-        const step2Content = document.createElement('div');
+        const step2Body = document.createElement('div');
         const step2Title = document.createElement('div');
-        step2Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step2Title.textContent = 'Select Provider';
-        step2Content.appendChild(step2Title);
+        step2Title.style.cssText = _titleStyle;
+        step2Title.appendChild(document.createTextNode('Threat Detection Rules Enabled'));
+        const step2Badge = document.createElement('span');
+        step2Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step2Badge.textContent = '\u25CF Ready';
+        step2Title.appendChild(step2Badge);
+        step2Body.appendChild(step2Title);
         const step2Desc = document.createElement('div');
-        step2Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step2Desc.textContent = 'Choose the LLM provider your agent uses (OpenAI, Anthropic, Ollama, etc.)';
-        step2Content.appendChild(step2Desc);
-        step2.appendChild(step2Content);
-
+        step2Desc.style.cssText = _descStyle;
+        step2Desc.textContent = 'Prompt injection, jailbreak, data exfiltration, and 300+ other threat patterns are pre-loaded and scanning every request automatically.';
+        step2Body.appendChild(step2Desc);
+        step2.appendChild(step2Body);
         instructionBox.appendChild(step2);
 
-        // Step 3 - Proxy Active
+        // Step 3 — Tool Permissions
         const step3 = document.createElement('div');
-        step3.style.cssText = 'margin: 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-
+        step3.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step3Num = document.createElement('span');
-        step3Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
+        step3Num.style.cssText = _numStyle;
         step3Num.textContent = '3';
         step3.appendChild(step3Num);
-
-        const step3Content = document.createElement('div');
+        const step3Body = document.createElement('div');
         const step3Title = document.createElement('div');
-        step3Title.style.cssText = 'font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
-        step3Title.textContent = 'Proxy is Active';
-        const step3Badge = document.createElement('span');
-        step3Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
-        step3Badge.textContent = '● Running';
-        step3Title.appendChild(step3Badge);
-        step3Content.appendChild(step3Title);
+        step3Title.style.cssText = _titleStyle;
+        step3Title.textContent = 'Configure Tool Permissions & Budgets';
+        step3Body.appendChild(step3Title);
         const step3Desc = document.createElement('div');
-        step3Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5;';
-        step3Desc.textContent = 'Your AI Firewall is already running. Just point your agent\'s base URL to the proxy — no extra setup needed.';
-        step3Content.appendChild(step3Desc);
-        const step3Url = document.createElement('div');
-        step3Url.style.cssText = 'margin-top: 4px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 3px 8px; border-radius: 4px; display: inline-block;';
-        step3Url.textContent = 'http://localhost:8742/{provider}/v1';
-        step3Content.appendChild(step3Url);
-        step3.appendChild(step3Content);
-
+        step3Desc.style.cssText = _descStyle;
+        const step3b1 = document.createElement('strong'); step3b1.textContent = 'Tool Permissions';
+        const step3b2 = document.createElement('strong'); step3b2.textContent = 'Cost Settings';
+        step3Desc.appendChild(document.createTextNode('Go to '));
+        step3Desc.appendChild(step3b1);
+        step3Desc.appendChild(document.createTextNode(' to block risky agent actions, and '));
+        step3Desc.appendChild(step3b2);
+        step3Desc.appendChild(document.createTextNode(' to set daily spend limits.'));
+        step3Body.appendChild(step3Desc);
+        step3.appendChild(step3Body);
         instructionBox.appendChild(step3);
+
+        // Step 4 — Monitor
+        const step4 = document.createElement('div');
+        step4.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
+        const step4Num = document.createElement('span');
+        step4Num.style.cssText = _numStyle;
+        step4Num.textContent = '4';
+        step4.appendChild(step4Num);
+        const step4Body = document.createElement('div');
+        const step4Title = document.createElement('div');
+        step4Title.style.cssText = _titleStyle;
+        step4Title.textContent = "Run Your Agent \u2014 Watch It Live";
+        step4Body.appendChild(step4Title);
+        const step4Desc = document.createElement('div');
+        step4Desc.style.cssText = _descStyle;
+        const step4b1 = document.createElement('strong'); step4b1.textContent = 'Monitor';
+        step4Desc.appendChild(document.createTextNode('Threats, tool calls, and costs appear in real time in the '));
+        step4Desc.appendChild(step4b1);
+        step4Desc.appendChild(document.createTextNode(' section as your agent runs.'));
+        step4Body.appendChild(step4Desc);
+        step4.appendChild(step4Body);
+        instructionBox.appendChild(step4);
 
         content.appendChild(instructionBox);
 
@@ -210,14 +239,14 @@ const App = {
         gotItBtn.addEventListener('click', dismissModal);
         footer.appendChild(gotItBtn);
 
-        const docsBtn = document.createElement('button');
-        docsBtn.className = 'btn btn-primary';
-        docsBtn.textContent = 'Open Integrations';
-        docsBtn.addEventListener('click', () => {
+        const configureBtn = document.createElement('button');
+        configureBtn.className = 'btn btn-primary';
+        configureBtn.textContent = 'Go to Configure';
+        configureBtn.addEventListener('click', () => {
             dismissModal();
-            if (window.Sidebar) Sidebar.navigate('proxy-langchain');
+            if (window.Sidebar) Sidebar.navigate('tool-permissions');
         });
-        footer.appendChild(docsBtn);
+        footer.appendChild(configureBtn);
 
         modal.appendChild(footer);
         overlay.appendChild(modal);
@@ -323,6 +352,12 @@ const App = {
 
 // Make App globally available
 window.App = App;
+
+/**
+ * getPollInterval — returns the user-configured polling interval in ms.
+ * Default: 5000ms (5s). Stored in localStorage key 'sv-poll-interval'.
+ */
+window.getPollInterval = () => parseInt(localStorage.getItem('sv-poll-interval') || '5000', 10);
 
 /**
  * makeTableSortable — attach click-to-sort to all <th> in a .data-table.
