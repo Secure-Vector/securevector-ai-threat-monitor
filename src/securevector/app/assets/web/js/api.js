@@ -300,6 +300,27 @@ const API = {
         });
     },
 
+    // ==================== Tool Call Audit Log ====================
+
+    async getToolCallAudit(limit = 50, action = null, offset = 0) {
+        const params = new URLSearchParams({ limit, offset });
+        if (action) params.set('action', action);
+        return this.request(`/api/tool-permissions/call-audit?${params}`).catch(() => ({
+            entries: [],
+            total: 0,
+        }));
+    },
+
+    async getToolCallAuditDaily(days = 7) {
+        return this.request(`/api/tool-permissions/call-audit/daily?days=${days}`).catch(() => ({ days: [] }));
+    },
+
+    async getToolCallAuditStats() {
+        return this.request('/api/tool-permissions/call-audit/stats').catch(() => ({
+            total: 0, blocked: 0, allowed: 0, log_only: 0,
+        }));
+    },
+
     // ==================== LLM Settings ====================
 
     async getLLMSettings() {

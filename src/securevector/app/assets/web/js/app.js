@@ -75,7 +75,7 @@ const App = {
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
-        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px;';
+        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px; display: flex; align-items: center; justify-content: space-between;';
 
         const title = document.createElement('h2');
         title.style.cssText = 'margin: 0; display: flex; align-items: center; gap: 10px;';
@@ -91,6 +91,14 @@ const App = {
         title.appendChild(titleText);
 
         header.appendChild(title);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'background: none; border: none; font-size: 22px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 0; flex-shrink: 0;';
+        closeBtn.textContent = '×';
+        closeBtn.title = 'Close';
+        closeBtn.addEventListener('click', () => dismissModal());
+        header.appendChild(closeBtn);
+
         modal.appendChild(header);
 
         // Content
@@ -100,7 +108,7 @@ const App = {
 
         const intro = document.createElement('div');
         intro.style.cssText = 'margin: 0 0 20px 0; padding: 12px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; color: white; font-weight: 600; text-align: center;';
-        intro.textContent = '100% Local AI Threat Detection for Your Agents';
+        intro.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents';
         content.appendChild(intro);
 
         // Instructions
@@ -109,21 +117,21 @@ const App = {
 
         // Step 1
         const step1 = document.createElement('div');
-        step1.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
+        step1.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
 
         const step1Num = document.createElement('span');
-        step1Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step1Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
         step1Num.textContent = '1';
         step1.appendChild(step1Num);
 
         const step1Content = document.createElement('div');
         const step1Title = document.createElement('div');
         step1Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step1Title.textContent = 'Go to Integrations';
+        step1Title.textContent = 'Go to Integrations / Proxy Page';
         step1Content.appendChild(step1Title);
         const step1Desc = document.createElement('div');
         step1Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step1Desc.textContent = 'Choose your agent framework and LLM provider';
+        step1Desc.textContent = 'Click "Integrations" in the sidebar';
         step1Content.appendChild(step1Desc);
         step1.appendChild(step1Content);
 
@@ -131,44 +139,52 @@ const App = {
 
         // Step 2
         const step2 = document.createElement('div');
-        step2.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
+        step2.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
 
         const step2Num = document.createElement('span');
-        step2Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step2Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
         step2Num.textContent = '2';
         step2.appendChild(step2Num);
 
         const step2Content = document.createElement('div');
         const step2Title = document.createElement('div');
         step2Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step2Title.textContent = 'Start Proxy or Code Integration';
+        step2Title.textContent = 'Select Provider';
         step2Content.appendChild(step2Title);
         const step2Desc = document.createElement('div');
         step2Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step2Desc.textContent = 'Choice is yours - use proxy or integrate via SDK';
+        step2Desc.textContent = 'Choose the LLM provider your agent uses (OpenAI, Anthropic, Ollama, etc.)';
         step2Content.appendChild(step2Desc);
         step2.appendChild(step2Content);
 
         instructionBox.appendChild(step2);
 
-        // Step 3 - AI Analysis
+        // Step 3 - Proxy Active
         const step3 = document.createElement('div');
-        step3.style.cssText = 'margin: 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
+        step3.style.cssText = 'margin: 0; font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
 
         const step3Num = document.createElement('span');
-        step3Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step3Num.style.cssText = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
         step3Num.textContent = '3';
         step3.appendChild(step3Num);
 
         const step3Content = document.createElement('div');
         const step3Title = document.createElement('div');
-        step3Title.style.cssText = 'font-weight: 600; color: var(--accent-primary);';
-        step3Title.textContent = 'AI Analysis (Recommended)';
+        step3Title.style.cssText = 'font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
+        step3Title.textContent = 'Proxy is Active';
+        const step3Badge = document.createElement('span');
+        step3Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step3Badge.textContent = '● Running';
+        step3Title.appendChild(step3Badge);
         step3Content.appendChild(step3Title);
         const step3Desc = document.createElement('div');
-        step3Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step3Desc.textContent = 'Enable in Settings for enhanced LLM-powered threat detection';
+        step3Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5;';
+        step3Desc.textContent = 'Your AI Firewall is already running. Just point your agent\'s base URL to the proxy — no extra setup needed.';
         step3Content.appendChild(step3Desc);
+        const step3Url = document.createElement('div');
+        step3Url.style.cssText = 'margin-top: 4px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 3px 8px; border-radius: 4px; display: inline-block;';
+        step3Url.textContent = 'http://localhost:8742/{provider}/v1';
+        step3Content.appendChild(step3Url);
         step3.appendChild(step3Content);
 
         instructionBox.appendChild(step3);
@@ -190,16 +206,16 @@ const App = {
 
         const gotItBtn = document.createElement('button');
         gotItBtn.className = 'btn btn-secondary';
-        gotItBtn.textContent = 'Got it';
+        gotItBtn.textContent = 'Close';
         gotItBtn.addEventListener('click', dismissModal);
         footer.appendChild(gotItBtn);
 
         const docsBtn = document.createElement('button');
         docsBtn.className = 'btn btn-primary';
-        docsBtn.textContent = 'Get Started';
+        docsBtn.textContent = 'Open Integrations';
         docsBtn.addEventListener('click', () => {
             dismissModal();
-            if (window.Sidebar) Sidebar.navigate('guide');
+            if (window.Sidebar) Sidebar.navigate('proxy-langchain');
         });
         footer.appendChild(docsBtn);
 

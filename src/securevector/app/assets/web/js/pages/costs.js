@@ -112,6 +112,9 @@ const CostsPage = {
 
         const totals = this.summaryData.totals || {};
 
+        // ─── Global Budget Widget — prominent, at the top ─────────────────
+        content.appendChild(this._buildGlobalBudgetWidget());
+
         // ─── Summary cards ──────────────────────────────────────────────
         const cardsRow = document.createElement('div');
         cardsRow.className = 'stats-grid';
@@ -143,9 +146,6 @@ const CostsPage = {
             cardsRow.appendChild(card);
         });
         content.appendChild(cardsRow);
-
-        // ─── Global Budget Widget ─────────────────────────────────────────
-        content.appendChild(this._buildGlobalBudgetWidget());
 
         // ─── Budget Guardian alerts ───────────────────────────────────────
         const gd = this._guardianData;
@@ -1197,29 +1197,34 @@ const CostsPage = {
 
         const widget = document.createElement('div');
         widget.id = 'global-budget-widget';
-        widget.style.cssText = 'margin-bottom: 1.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden;';
+        widget.style.cssText = 'margin-bottom: 1.5rem; background: var(--bg-secondary); border: 2px solid rgba(6,182,212,0.35); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 4px rgba(6,182,212,0.06);';
 
         // ── Header ──────────────────────────────────────────────────────
         const topRow = document.createElement('div');
         topRow.style.cssText = 'padding: 16px 20px 0; display: flex; align-items: center; justify-content: space-between;';
 
         const titleWrap = document.createElement('div');
-        titleWrap.style.cssText = 'display: flex; align-items: center; gap: 7px;';
+        titleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px;';
         const icon = document.createElement('span');
         icon.textContent = '💸';
-        icon.style.fontSize = '14px';
+        icon.style.fontSize = '18px';
         titleWrap.appendChild(icon);
         const titleLbl = document.createElement('span');
-        titleLbl.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
+        titleLbl.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.6px;';
         titleLbl.textContent = 'Global Daily Budget';
         titleWrap.appendChild(titleLbl);
+        const titleSub = document.createElement('span');
+        titleSub.style.cssText = 'font-size: 11px; color: var(--text-muted); font-weight: 400; text-transform: none; letter-spacing: 0;';
+        titleSub.textContent = '— wallet cap across all agents';
+        titleWrap.appendChild(titleSub);
         topRow.appendChild(titleWrap);
 
-        // Edit button (right — only when limit is set)
+        // Edit button (right — only when limit is set) — gradient so it's visible
         const editBtn = document.createElement('button');
-        editBtn.className = 'btn btn-secondary btn-sm';
+        editBtn.style.cssText = 'display: ' + (hasLimit ? 'inline-flex' : 'none') + '; align-items: center; gap: 5px; padding: 4px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #06b6d4, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s;';
         editBtn.textContent = '✏ Edit';
-        editBtn.style.display = hasLimit ? '' : 'none';
+        editBtn.addEventListener('mouseenter', () => { editBtn.style.opacity = '0.85'; });
+        editBtn.addEventListener('mouseleave', () => { editBtn.style.opacity = '1'; });
         topRow.appendChild(editBtn);
 
         widget.appendChild(topRow);

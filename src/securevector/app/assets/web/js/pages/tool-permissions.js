@@ -4,6 +4,7 @@
  */
 
 const ToolPermissionsPage = {
+    activeTab: 'permissions',
     tools: [],
     customTools: [],
     settings: null,
@@ -247,22 +248,65 @@ const ToolPermissionsPage = {
 
         if (window.Header) Header.setPageInfo('Agent Tool Permissions', 'Control which tools your agent is allowed to call');
 
+        // Tab bar
+        const tabs = document.createElement('div');
+        tabs.className = 'tab-bar';
+        tabs.id = 'tp-tabs';
+        container.appendChild(tabs);
+
+        // Tab content area
+        const content = document.createElement('div');
+        content.id = 'tp-content';
+        container.appendChild(content);
+
+        this._renderTabBar();
+        await this._renderActiveTab();
+    },
+
+    _renderTabBar() {
+        const bar = document.getElementById('tp-tabs');
+        if (!bar) return;
+        bar.textContent = '';
+
+        const defs = [
+            { id: 'permissions', label: 'Tool Permissions' },
+            { id: 'activity',    label: 'Tool Call History' },
+        ];
+
+        defs.forEach(({ id, label }) => {
+            const btn = document.createElement('button');
+            btn.className = `tab-btn${this.activeTab === id ? ' active' : ''}`;
+            btn.textContent = label;
+            btn.addEventListener('click', async () => {
+                this.activeTab = id;
+                this._renderTabBar();
+                await this._renderActiveTab();
+            });
+            bar.appendChild(btn);
+        });
+    },
+
+    async _renderActiveTab() {
+        const content = document.getElementById('tp-content');
+        if (!content) return;
+        content.textContent = '';
+
+        if (this.activeTab === 'permissions') await this._renderPermissionsTab(content);
+        else if (this.activeTab === 'activity') await this._renderActivityTab(content);
+    },
+
+    async _renderPermissionsTab(content) {
         // Page wrapper
         const page = document.createElement('div');
         page.className = 'page-wrapper';
 
-        // Compact toolbar: title + toggle + cloud info — single row
+        // Compact toolbar: toggle + cloud info + add button
         const toolbar = document.createElement('div');
-        toolbar.style.cssText = 'display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;';
+        toolbar.style.cssText = 'display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;';
 
-        // Enforcement toggle (inline)
+        // Enforcement toggle with label + description
         const toggleWrap = document.createElement('div');
-        toggleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-
-        const toggleLabelText = document.createElement('span');
-        toggleLabelText.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
-        toggleLabelText.textContent = 'Enforcement';
-        toggleWrap.appendChild(toggleLabelText);
+        toggleWrap.style.cssText = 'display: flex; align-items: center; gap: 10px;';
 
         const toggleLabel = document.createElement('label');
         toggleLabel.className = 'toggle';
@@ -278,6 +322,21 @@ const ToolPermissionsPage = {
         toggleLabel.appendChild(toggleInput);
         toggleLabel.appendChild(toggleSlider);
         toggleWrap.appendChild(toggleLabel);
+
+        const toggleTextCol = document.createElement('div');
+        toggleTextCol.style.cssText = 'display: flex; flex-direction: column; gap: 1px;';
+
+        const toggleLabelText = document.createElement('span');
+        toggleLabelText.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.3;';
+        toggleLabelText.textContent = 'Enforcement';
+        toggleTextCol.appendChild(toggleLabelText);
+
+        const toggleDesc = document.createElement('span');
+        toggleDesc.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4; max-width: 320px;';
+        toggleDesc.textContent = 'When ON, the proxy actively intercepts tool calls and enforces your block/allow rules. When OFF, all tool calls pass through unblocked (monitor only).';
+        toggleTextCol.appendChild(toggleDesc);
+
+        toggleWrap.appendChild(toggleTextCol);
         toolbar.appendChild(toggleWrap);
 
         // Spacer
@@ -285,7 +344,7 @@ const ToolPermissionsPage = {
         spacer.style.cssText = 'flex: 1;';
         toolbar.appendChild(spacer);
 
-        // Add Custom Tool button — top toolbar shortcut
+        // Add Custom Tool button
         const topAddBtn = document.createElement('button');
         topAddBtn.id = 'top-add-custom-tool-btn';
         topAddBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #06b6d4, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
@@ -318,17 +377,23 @@ const ToolPermissionsPage = {
         const toolsContainer = document.createElement('div');
         toolsContainer.id = 'tools-list-container';
 
-        // Loading state
         const loading = document.createElement('div');
         loading.style.cssText = 'text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px;';
         loading.textContent = 'Loading essential tools...';
         toolsContainer.appendChild(loading);
 
         page.appendChild(toolsContainer);
-        container.appendChild(page);
+        content.appendChild(page);
 
         // Load data
         await this.loadData(toggleInput, toolsContainer, cloudPill);
+    },
+
+    async _renderActivityTab(content) {
+        const page = document.createElement('div');
+        page.className = 'page-wrapper';
+        content.appendChild(page);
+        await this.renderAuditSection(page);
     },
 
     async loadData(toggleInput, toolsContainer, cloudPill) {
@@ -456,8 +521,8 @@ const ToolPermissionsPage = {
 
         // Render in defined order so OpenClaw always appears first
         const CATEGORY_ORDER = [
-            'openclaw', 'browser_automation', 'communication', 'code_devops', 'file_system', 'database',
-            'cloud_infra', 'payment', 'project_management', 'social_media', 'security',
+            'openclaw', 'browser_automation', 'communication', 'code_devops', 'project_management', 'file_system', 'database',
+            'cloud_infra', 'payment', 'social_media', 'security',
         ];
         const sortedCategories = [
             ...CATEGORY_ORDER.filter(k => categories[k]),
@@ -556,9 +621,524 @@ const ToolPermissionsPage = {
 
         // Attribution footer
         const attribution = document.createElement('div');
-        attribution.style.cssText = 'margin-top: 40px; padding: 16px 20px; text-align: center; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-default);';
+        attribution.style.cssText = 'margin-top: 24px; padding: 16px 20px; text-align: center; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-default);';
         attribution.textContent = 'Essential tools are sourced from official MCP servers and verified OpenClaw integrations. Tool names are trademarks of their respective owners. SecureVector is not affiliated with or endorsed by these providers.';
         container.appendChild(attribution);
+    },
+
+    // ==================== Tool Call Audit Log ====================
+
+    async renderAuditSection(container) {
+        const RISK_COLORS = this.RISK_COLORS;
+        const PAGE_SIZE = 50;
+        let currentPage = 1;
+        let totalEntries = 0;
+
+        // ── 7-day activity chart ─────────────────────────────────────────
+        const chartCard = document.createElement('div');
+        chartCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;';
+
+        const chartTitle = document.createElement('div');
+        chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 14px;';
+        chartTitle.textContent = 'Tool Call Activity — Last 7 Days';
+        chartCard.appendChild(chartTitle);
+
+        const chartBody = document.createElement('div');
+        chartCard.appendChild(chartBody);
+        container.appendChild(chartCard);
+
+        // Fetch daily stats and render chart async (non-blocking)
+        API.getToolCallAuditDaily(7).then(data => {
+            const rows = data.days || [];
+
+            // Build full 7-day buckets (fill gaps with zeros)
+            const buckets = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().slice(0, 10);
+                const match = rows.find(r => r.day === dateStr) || {};
+                buckets.push({
+                    label: (d.getMonth() + 1) + '/' + d.getDate(),
+                    blocked: match.blocked || 0,
+                    allowed: match.allowed || 0,
+                    logged:  match.logged  || 0,
+                });
+            }
+
+            const maxVal = Math.max(...buckets.map(b => b.blocked + b.allowed + b.logged), 1);
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
+
+            buckets.forEach(bucket => {
+                const total = bucket.blocked + bucket.allowed + bucket.logged;
+                const col = document.createElement('div');
+                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
+                col.title = bucket.label + '\nBlocked: ' + bucket.blocked + '\nAllowed: ' + bucket.allowed + '\nLogged: ' + bucket.logged;
+
+                // Value label
+                const valLbl = document.createElement('div');
+                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
+                valLbl.textContent = total > 0 ? total : '';
+                col.appendChild(valLbl);
+
+                // Bar area — stacked segments
+                const barArea = document.createElement('div');
+                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
+
+                const pctBlock   = (bucket.blocked / maxVal) * 100;
+                const pctAllow   = (bucket.allowed / maxVal) * 100;
+                const pctLogged  = (bucket.logged  / maxVal) * 100;
+                const pctTotal   = pctBlock + pctAllow + pctLogged;
+
+                if (pctTotal > 0) {
+                    // Stacked from bottom: logged (muted) → allowed (cyan) → blocked (red)
+                    const stack = document.createElement('div');
+                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
+
+                    if (pctBlock > 0) {
+                        const seg = document.createElement('div');
+                        seg.style.cssText = 'background: #ef4444; flex: ' + bucket.blocked + ';';
+                        stack.appendChild(seg);
+                    }
+                    if (pctAllow > 0) {
+                        const seg = document.createElement('div');
+                        seg.style.cssText = 'background: #06b6d4; flex: ' + bucket.allowed + ';';
+                        stack.appendChild(seg);
+                    }
+                    if (pctLogged > 0) {
+                        const seg = document.createElement('div');
+                        seg.style.cssText = 'background: #475569; flex: ' + bucket.logged + ';';
+                        stack.appendChild(seg);
+                    }
+                    barArea.appendChild(stack);
+                } else {
+                    // Empty day — faint baseline
+                    const base = document.createElement('div');
+                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
+                    barArea.appendChild(base);
+                }
+
+                col.appendChild(barArea);
+
+                // Day label
+                const lbl = document.createElement('div');
+                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
+                lbl.textContent = bucket.label;
+                col.appendChild(lbl);
+
+                wrap.appendChild(col);
+            });
+
+            chartBody.appendChild(wrap);
+
+            // Legend
+            const legend = document.createElement('div');
+            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary);';
+            [['#ef4444', 'Blocked'], ['#06b6d4', 'Allowed'], ['#475569', 'Logged']]
+                .forEach(([color, label]) => {
+                    const item = document.createElement('span');
+                    item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
+                    const dot = document.createElement('span');
+                    dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
+                    item.appendChild(dot);
+                    item.appendChild(document.createTextNode(label));
+                    legend.appendChild(item);
+                });
+            chartBody.appendChild(legend);
+        });
+
+        // Stat cards row (like costs page)
+        const statsGrid = document.createElement('div');
+        statsGrid.className = 'stats-grid';
+        statsGrid.style.marginBottom = '20px';
+        container.appendChild(statsGrid);
+
+        const statsWrapEl = { total: null, blocked: null, allowed: null, logged: null };
+        const makeStatCard = (key, label, color) => {
+            const card = document.createElement('div');
+            card.className = 'stat-card';
+            const val = document.createElement('div');
+            val.className = 'stat-value';
+            val.style.color = color || '';
+            val.textContent = '—';
+            const lbl = document.createElement('div');
+            lbl.className = 'stat-label';
+            lbl.textContent = label;
+            card.appendChild(val);
+            card.appendChild(lbl);
+            statsWrapEl[key] = val;
+            statsGrid.appendChild(card);
+        };
+        makeStatCard('total',   'Total Calls',    '');
+        makeStatCard('blocked', 'Blocked',        '#ef4444');
+        makeStatCard('allowed', 'Allowed',        '#06b6d4');
+        makeStatCard('logged',  'Logged (Pass)',  '#94a3b8');
+
+        // Toolbar: filter buttons + refresh
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;';
+
+        const filters = [
+            { label: 'All',     value: null,       color: '#94a3b8' },
+            { label: 'Blocked', value: 'block',    color: '#ef4444' },
+            { label: 'Allowed', value: 'allow',    color: '#06b6d4' },
+            { label: 'Logged',  value: 'log_only', color: '#64748b' },
+        ];
+        let activeFilter = null;
+        const filterBtns = [];
+
+        const applyFilterStyle = (btn, fi, isActive) => {
+            btn.style.cssText = 'padding: 3px 12px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: 1px solid; cursor: pointer; transition: all 0.15s; ' +
+                (isActive
+                    ? 'background: ' + fi.color + '22; color: ' + fi.color + '; border-color: ' + fi.color + '55;'
+                    : 'background: transparent; color: var(--text-muted); border-color: var(--border-default);');
+        };
+
+        filters.forEach((f, fi) => {
+            const btn = document.createElement('button');
+            applyFilterStyle(btn, f, f.value === activeFilter);
+            btn.textContent = f.label;
+            btn.addEventListener('click', async () => {
+                activeFilter = f.value;
+                currentPage = 1;
+                filterBtns.forEach((b, i) => applyFilterStyle(b, filters[i], filters[i].value === activeFilter));
+                await loadAuditData(f.value);
+            });
+            filterBtns.push(btn);
+            toolbar.appendChild(btn);
+        });
+
+        const spacer = document.createElement('div');
+        spacer.style.cssText = 'flex: 1;';
+        toolbar.appendChild(spacer);
+
+        const refreshBtn = document.createElement('button');
+        refreshBtn.style.cssText = 'padding: 3px 10px; border-radius: var(--radius-full); font-size: 12px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: color 0.15s;';
+        refreshBtn.title = 'Refresh';
+        refreshBtn.textContent = '↻ Refresh';
+        refreshBtn.addEventListener('mouseenter', () => { refreshBtn.style.color = 'var(--text-primary)'; });
+        refreshBtn.addEventListener('mouseleave', () => { refreshBtn.style.color = 'var(--text-muted)'; });
+        toolbar.appendChild(refreshBtn);
+
+        container.appendChild(toolbar);
+
+        // Table wrapper
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'overflow-x: auto; overflow-y: auto; max-height: 600px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-card);';
+        container.appendChild(tableWrap);
+
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px;';
+
+        // Sort state
+        let sortKey = 'called_at';
+        let sortDir = 'desc'; // 'asc' | 'desc'
+        let lastEntries = [];
+
+        const COLS = [
+            { label: 'Decision',     key: 'action',        width: '100px' },
+            { label: 'Tool',         key: 'function_name', width: '200px' },
+            { label: 'Risk',         key: 'risk',          width: '75px'  },
+            { label: 'Type',         key: 'is_essential',  width: '85px'  },
+            { label: 'Reason',       key: 'reason',        width: '240px' },
+            { label: 'Args Preview', key: null,            width: '160px' },
+            { label: 'Date',         key: 'called_at',     width: '100px' },
+            { label: 'Time',         key: 'called_at',     width: '80px'  },
+        ];
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        headRow.style.cssText = 'border-bottom: 1px solid var(--border-default); position: sticky; top: 0; background: var(--bg-card); z-index: 1;';
+
+        const thEls = [];
+        const updateSortIndicators = () => {
+            thEls.forEach((th, i) => {
+                const col = COLS[i];
+                if (!col.key) return;
+                const isActive = col.key === sortKey && !(col.label === 'Time' && sortKey !== 'called_at');
+                th.style.color = isActive ? 'var(--text-primary)' : 'var(--text-muted)';
+                th.style.cursor = 'pointer';
+                const arrow = isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
+                th.textContent = col.label + arrow;
+            });
+        };
+
+        const sortAndRender = () => {
+            const sorted = [...lastEntries].sort((a, b) => {
+                let av = a[sortKey] ?? '';
+                let bv = b[sortKey] ?? '';
+                if (typeof av === 'number' || typeof bv === 'number') {
+                    av = Number(av); bv = Number(bv);
+                } else {
+                    av = String(av).toLowerCase(); bv = String(bv).toLowerCase();
+                }
+                if (av < bv) return sortDir === 'asc' ? -1 : 1;
+                if (av > bv) return sortDir === 'asc' ? 1 : -1;
+                return 0;
+            });
+            Array.from(tbody.querySelectorAll('[data-audit-row]')).forEach(r => r.remove());
+            sorted.forEach((entry, idx) => tbody.appendChild(makeRow(entry, idx)));
+        };
+
+        COLS.forEach((col, i) => {
+            const th = document.createElement('th');
+            th.style.cssText = 'padding: 9px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; white-space: nowrap; width:' + col.width + '; user-select: none;';
+            th.textContent = col.label;
+            if (col.key) {
+                th.style.cursor = 'pointer';
+                th.addEventListener('click', () => {
+                    if (sortKey === col.key) {
+                        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortKey = col.key;
+                        sortDir = 'asc';
+                    }
+                    updateSortIndicators();
+                    sortAndRender();
+                });
+                th.addEventListener('mouseenter', () => { if (col.key !== sortKey) th.style.color = 'var(--text-secondary)'; });
+                th.addEventListener('mouseleave', () => { updateSortIndicators(); });
+            }
+            thEls.push(th);
+            headRow.appendChild(th);
+        });
+
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        updateSortIndicators();
+
+        const tbody = document.createElement('tbody');
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+
+        // Pagination bar (below table)
+        const paginationBar = document.createElement('div');
+        paginationBar.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-top: 10px; justify-content: flex-end;';
+        container.appendChild(paginationBar);
+
+        const pageInfo = document.createElement('span');
+        pageInfo.style.cssText = 'font-size: 12px; color: var(--text-muted);';
+        pageInfo.textContent = '';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.style.cssText = 'padding: 3px 12px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;';
+        prevBtn.textContent = '← Prev';
+        prevBtn.disabled = true;
+
+        const nextBtn = document.createElement('button');
+        nextBtn.style.cssText = 'padding: 3px 12px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;';
+        nextBtn.textContent = 'Next →';
+        nextBtn.disabled = true;
+
+        paginationBar.appendChild(prevBtn);
+        paginationBar.appendChild(pageInfo);
+        paginationBar.appendChild(nextBtn);
+
+        prevBtn.addEventListener('click', async () => {
+            if (currentPage > 1) { currentPage--; await loadAuditData(activeFilter); }
+        });
+        nextBtn.addEventListener('click', async () => {
+            if (currentPage * PAGE_SIZE < totalEntries) { currentPage++; await loadAuditData(activeFilter); }
+        });
+
+        // Empty / loading row
+        const emptyRow = document.createElement('tr');
+        const emptyCell = document.createElement('td');
+        emptyCell.colSpan = 8;
+        emptyCell.style.cssText = 'padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px;';
+        emptyCell.textContent = 'Loading tool call history…';
+        emptyRow.appendChild(emptyCell);
+        tbody.appendChild(emptyRow);
+
+        // Helpers
+        const fmtDate = (iso) => {
+            const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        };
+        const fmtTime = (iso) => {
+            const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        };
+
+        // Action badge configs — cyan for allowed, red for blocked
+        const ACTION_CFG = {
+            block:    { icon: '🔒', label: 'Blocked', color: '#ef4444', bg: 'rgba(239,68,68,0.12)'   },
+            allow:    { icon: '✓',  label: 'Allowed', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)'   },
+            log_only: { icon: '~',  label: 'Logged',  color: '#94a3b8', bg: 'rgba(148,163,184,0.1)'  },
+        };
+
+        const makeRow = (entry, idx) => {
+            const tr = document.createElement('tr');
+            tr.dataset.auditRow = '1';
+            const rowBg = idx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent';
+            tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + ';';
+            tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--bg-tertiary)'; });
+            tr.addEventListener('mouseleave', () => { tr.style.background = rowBg; });
+
+            // Decision badge
+            const tdAction = document.createElement('td');
+            tdAction.style.cssText = 'padding: 8px 12px; white-space: nowrap;';
+            const cfg = ACTION_CFG[entry.action] || { icon: '?', label: entry.action, color: '#94a3b8', bg: 'transparent' };
+            const badge = document.createElement('span');
+            badge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: 11px; font-weight: 700; color: ' + cfg.color + '; background: ' + cfg.bg + '; border: 1px solid ' + cfg.color + '44;';
+            const iconSpan = document.createElement('span');
+            iconSpan.textContent = cfg.icon;
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = cfg.label;
+            badge.appendChild(iconSpan);
+            badge.appendChild(labelSpan);
+            tdAction.appendChild(badge);
+            tr.appendChild(tdAction);
+
+            // Tool name
+            const tdTool = document.createElement('td');
+            tdTool.style.cssText = 'padding: 8px 12px; max-width: 200px;';
+            const toolName = document.createElement('span');
+            toolName.style.cssText = 'font-family: monospace; font-size: 12px; color: var(--text-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;';
+            toolName.textContent = entry.function_name;
+            tdTool.appendChild(toolName);
+            if (entry.tool_id && entry.tool_id !== entry.function_name) {
+                const resolved = document.createElement('span');
+                resolved.style.cssText = 'font-size: 10px; color: var(--text-muted); font-family: monospace;';
+                resolved.textContent = '\u2192 ' + entry.tool_id;
+                tdTool.appendChild(resolved);
+            }
+            tr.appendChild(tdTool);
+
+            // Risk
+            const tdRisk = document.createElement('td');
+            tdRisk.style.cssText = 'padding: 8px 12px; white-space: nowrap;';
+            if (entry.risk) {
+                const rc = RISK_COLORS[entry.risk] || RISK_COLORS.write;
+                const riskBadge = document.createElement('span');
+                riskBadge.style.cssText = 'font-size: 11px; padding: 2px 7px; border-radius: var(--radius-full); font-weight: 600; text-transform: uppercase; border: 1px solid ' + rc.border + '; background: ' + rc.bg + '; color: ' + rc.text + ';';
+                riskBadge.textContent = entry.risk;
+                tdRisk.appendChild(riskBadge);
+            } else {
+                tdRisk.textContent = '\u2014';
+                tdRisk.style.color = 'var(--text-muted)';
+            }
+            tr.appendChild(tdRisk);
+
+            // Type
+            const tdType = document.createElement('td');
+            tdType.style.cssText = 'padding: 8px 12px; white-space: nowrap; font-size: 12px;';
+            const typeColor = entry.is_essential ? '#06b6d4' : (entry.action !== 'log_only' ? '#00bcd4' : 'var(--text-muted)');
+            const typeText = entry.is_essential ? 'Essential' : (entry.action !== 'log_only' ? 'Custom' : 'Unknown');
+            const typeSpan = document.createElement('span');
+            typeSpan.style.color = typeColor;
+            typeSpan.textContent = typeText;
+            tdType.appendChild(typeSpan);
+            tr.appendChild(tdType);
+
+            // Reason (fixed width, truncated with tooltip)
+            const tdReason = document.createElement('td');
+            tdReason.style.cssText = 'padding: 8px 12px; font-size: 12px; color: var(--text-secondary); max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+            tdReason.textContent = entry.reason || '\u2014';
+            if (entry.reason) tdReason.title = entry.reason;
+            tr.appendChild(tdReason);
+
+            // Args preview
+            const tdArgs = document.createElement('td');
+            tdArgs.style.cssText = 'padding: 8px 12px; max-width: 160px;';
+            if (entry.args_preview) {
+                const args = document.createElement('code');
+                args.style.cssText = 'font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 160px;';
+                args.textContent = entry.args_preview;
+                args.title = entry.args_preview;
+                tdArgs.appendChild(args);
+            } else {
+                tdArgs.textContent = '\u2014';
+                tdArgs.style.color = 'var(--text-muted)';
+            }
+            tr.appendChild(tdArgs);
+
+            // Date
+            const tdDate = document.createElement('td');
+            tdDate.style.cssText = 'padding: 8px 12px; color: var(--text-secondary); font-size: 12px; white-space: nowrap;';
+            tdDate.textContent = fmtDate(entry.called_at);
+            tr.appendChild(tdDate);
+
+            // Time
+            const tdTime = document.createElement('td');
+            tdTime.style.cssText = 'padding: 8px 12px; color: var(--text-muted); font-size: 12px; white-space: nowrap; font-family: monospace;';
+            tdTime.textContent = fmtTime(entry.called_at);
+            tdTime.title = entry.called_at;
+            tr.appendChild(tdTime);
+
+            return tr;
+        };
+
+        refreshBtn.addEventListener('click', () => { currentPage = 1; loadAuditData(activeFilter); });
+
+        // Load & render table body
+        const loadAuditData = async (filter) => {
+            emptyRow.style.display = 'table-row';
+            emptyCell.textContent = 'Loading\u2026';
+            Array.from(tbody.querySelectorAll('[data-audit-row]')).forEach(r => r.remove());
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+            pageInfo.textContent = '';
+
+            try {
+                const offset = (currentPage - 1) * PAGE_SIZE;
+                const [data, stats] = await Promise.all([
+                    API.getToolCallAudit(PAGE_SIZE, filter, offset),
+                    API.getToolCallAuditStats(),
+                ]);
+
+                // Update stat cards
+                const statTotal = (stats.blocked || 0) + (stats.allowed || 0) + (stats.log_only || 0);
+                if (statsWrapEl.total)   statsWrapEl.total.textContent   = statTotal.toLocaleString();
+                if (statsWrapEl.blocked) statsWrapEl.blocked.textContent = (stats.blocked  || 0).toLocaleString();
+                if (statsWrapEl.allowed) statsWrapEl.allowed.textContent = (stats.allowed  || 0).toLocaleString();
+                if (statsWrapEl.logged)  statsWrapEl.logged.textContent  = (stats.log_only || 0).toLocaleString();
+
+                const entries = data.entries || [];
+                totalEntries = data.total || entries.length;
+
+                if (!entries.length) {
+                    emptyCell.textContent = filter
+                        ? 'No "' + filter + '" tool calls recorded yet.'
+                        : 'No tool calls recorded yet. Calls will appear here once the proxy intercepts them.';
+                    pageInfo.textContent = '';
+                    return;
+                }
+
+                lastEntries = entries;
+                emptyRow.style.display = 'none';
+
+                // Apply current sort then render
+                const sorted = [...lastEntries].sort((a, b) => {
+                    let av = a[sortKey] ?? '';
+                    let bv = b[sortKey] ?? '';
+                    if (typeof av === 'number' || typeof bv === 'number') {
+                        av = Number(av); bv = Number(bv);
+                    } else {
+                        av = String(av).toLowerCase(); bv = String(bv).toLowerCase();
+                    }
+                    if (av < bv) return sortDir === 'asc' ? -1 : 1;
+                    if (av > bv) return sortDir === 'asc' ? 1 : -1;
+                    return 0;
+                });
+                sorted.forEach((entry, idx) => tbody.appendChild(makeRow(entry, idx)));
+
+                // Update pagination
+                const totalPages = Math.ceil(totalEntries / PAGE_SIZE);
+                pageInfo.textContent = 'Page ' + currentPage + ' of ' + totalPages + ' (' + totalEntries + ' total)';
+                prevBtn.disabled = currentPage <= 1;
+                nextBtn.disabled = currentPage >= totalPages;
+                prevBtn.style.color = prevBtn.disabled ? 'var(--text-muted)' : 'var(--text-primary)';
+                nextBtn.style.color = nextBtn.disabled ? 'var(--text-muted)' : 'var(--text-primary)';
+
+            } catch (e) {
+                emptyCell.textContent = 'Failed to load: ' + (e.message || 'Unknown error');
+            }
+        };
+
+        await loadAuditData(null);
     },
 
     createToolCard(tool, accent) {
@@ -898,7 +1478,7 @@ const ToolPermissionsPage = {
         headerRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 12px;';
         const iconEl = document.createElement('div');
         iconEl.style.cssText = 'width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; background: ' + accent.bg + ';';
-        iconEl.textContent = '🔧';
+        iconEl.textContent = '⚙️';
         headerRow.appendChild(iconEl);
         const titleCol = document.createElement('div');
         titleCol.style.cssText = 'flex: 1; min-width: 0;';
@@ -1014,7 +1594,7 @@ const ToolPermissionsPage = {
         // Icon — 20px matching standard cards
         const icon = document.createElement('div');
         icon.style.cssText = 'width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; background: ' + accent.bg + ';';
-        icon.textContent = '🔧';
+        icon.textContent = '⚙️';
         card.appendChild(icon);
 
         // Name — single line truncated

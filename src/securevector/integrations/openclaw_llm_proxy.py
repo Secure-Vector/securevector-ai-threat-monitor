@@ -950,28 +950,26 @@ class LLMProxy:
                     print(f"[llm-proxy] │  args   : {args_preview}")
                     print(f"[llm-proxy] └────────────────────────────────────────────────────")
 
-        # Log permission decisions to SecureVector
-        for decision in decisions:
-            if decision.is_essential:
-                try:
-                    risk_score = get_risk_score(decision.risk)
-                    action_taken = "blocked" if decision.action == "block" else "logged"
-                    log_payload = {
-                        "text": f"Tool call: {decision.function_name}",
-                        "metadata": {
-                            "source": "llm-proxy",
-                            "target": self.target_url,
-                            "scan_type": "tool_permission",
-                            "action_taken": action_taken,
-                            "tool_name": decision.tool_name,
-                            "tool_action": decision.action,
-                            "tool_risk": decision.risk,
-                        }
-                    }
-                    client = await self.get_http_client()
-                    await client.post(self.analyze_url, json=log_payload, timeout=3.0)
-                except Exception:
-                    pass  # Logging failure is non-critical
+        # Log ALL tool call decisions (block + allow + log_only) to audit log
+        for tc, decision in zip(tool_calls, decisions):
+            try:
+                audit_payload = {
+                    "tool_id":       decision.tool_name or decision.function_name,
+                    "function_name": decision.function_name,
+                    "action":        decision.action,
+                    "risk":          decision.risk,
+                    "reason":        decision.reason,
+                    "is_essential":  decision.is_essential,
+                    "args_preview":  (tc.arguments or "")[:200],
+                }
+                client = await self.get_http_client()
+                await client.post(
+                    f"{self.securevector_url}/api/tool-permissions/call-audit",
+                    json=audit_payload,
+                    timeout=3.0,
+                )
+            except Exception:
+                pass  # Audit logging failure is non-critical
 
         # Periodic cleanup of old call log entries (every 100 requests)
         self._request_counter += 1

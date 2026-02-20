@@ -153,6 +153,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         12: migrate_to_v12,
         13: migrate_to_v13,
         14: migrate_to_v14,
+        15: migrate_to_v15,
     }
 
     if version in migrations:
@@ -500,6 +501,41 @@ async def migrate_to_v14(db: DatabaseConnection) -> None:
         "INSERT INTO schema_version (version, applied_at, description) VALUES (14, CURRENT_TIMESTAMP, 'Add cached token tracking')"
     )
     logger.info("Applied migration v14: cached token tracking")
+
+
+async def migrate_to_v15(db: DatabaseConnection) -> None:
+    """Migration v14 -> v15: Add tool call audit log for full block/allow history."""
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tool_call_audit (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_id      TEXT NOT NULL,
+            function_name TEXT NOT NULL,
+            action       TEXT NOT NULL CHECK (action IN ('block', 'allow', 'log_only')),
+            risk         TEXT,
+            reason       TEXT,
+            is_essential INTEGER NOT NULL DEFAULT 0,
+            args_preview TEXT,
+            called_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tool_call_audit_lookup
+        ON tool_call_audit (action, called_at)
+        """
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (15, CURRENT_TIMESTAMP, 'Add tool call audit log')"
+    )
+
+    logger.info("Applied migration v15: tool call audit log")
 
 
 async def load_model_pricing(db: DatabaseConnection) -> int:

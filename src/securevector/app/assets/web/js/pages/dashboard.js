@@ -192,6 +192,83 @@ const DashboardPage = {
             container.appendChild(onboard);
         }
 
+        // "What's New" feature discovery strip — shown until dismissed
+        if (!localStorage.getItem('sv-newfeatures-dismissed')) {
+            const strip = document.createElement('div');
+            strip.style.cssText = 'margin-bottom: 16px;';
+
+            const stripHeader = document.createElement('div');
+            stripHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;';
+
+            const stripTitle = document.createElement('div');
+            stripTitle.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;';
+            const pulseDot = document.createElement('span');
+            pulseDot.style.cssText = 'display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #f97316; flex-shrink: 0;';
+            stripTitle.appendChild(pulseDot);
+            stripTitle.appendChild(document.createTextNode("What's New"));
+            stripHeader.appendChild(stripTitle);
+
+            const dismissBtn = document.createElement('button');
+            dismissBtn.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; transition: all 0.15s;';
+            dismissBtn.textContent = '✕ Dismiss';
+            dismissBtn.title = 'Dismiss';
+            dismissBtn.addEventListener('mouseenter', () => { dismissBtn.style.borderColor = '#ef4444'; dismissBtn.style.color = '#ef4444'; });
+            dismissBtn.addEventListener('mouseleave', () => { dismissBtn.style.borderColor = 'var(--border-default)'; dismissBtn.style.color = 'var(--text-secondary)'; });
+            dismissBtn.addEventListener('click', () => {
+                localStorage.setItem('sv-newfeatures-dismissed', '1');
+                strip.remove();
+            });
+            stripHeader.appendChild(dismissBtn);
+            strip.appendChild(stripHeader);
+
+            const featureCards = document.createElement('div');
+            featureCards.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 10px;';
+
+            const makeFeatureCard = (title, desc, page) => {
+                const card = document.createElement('div');
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(0,188,212,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
+                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(0,188,212,0.5)');
+                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(0,188,212,0.22)');
+
+                const badge = document.createElement('div');
+                badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; background: rgba(249,115,22,0.12); color: #f97316; border-radius: 3px; padding: 1px 6px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
+                badge.textContent = 'New';
+                card.appendChild(badge);
+
+                const cardTitle = document.createElement('div');
+                cardTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 5px;';
+                cardTitle.textContent = title;
+                card.appendChild(cardTitle);
+
+                const cardDesc = document.createElement('div');
+                cardDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+                cardDesc.textContent = desc;
+                card.appendChild(cardDesc);
+
+                const link = document.createElement('span');
+                link.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary);';
+                link.textContent = 'Explore →';
+                card.appendChild(link);
+
+                card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(page); });
+                return card;
+            };
+
+            featureCards.appendChild(makeFeatureCard(
+                'Agent Tool Permissions',
+                'Control exactly which tools your agent is allowed to call. Block risky file, shell, or network operations before they run.',
+                'tool-permissions'
+            ));
+            featureCards.appendChild(makeFeatureCard(
+                'Agent Cost Intelligence',
+                'Track every dollar your agents spend per model and session. Set daily budgets to hard-stop runaway LLM costs.',
+                'costs'
+            ));
+
+            strip.appendChild(featureCards);
+            container.appendChild(strip);
+        }
+
         // 1. Security Controls — most actionable, show first
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
@@ -223,6 +300,80 @@ const DashboardPage = {
         statsGrid.style.marginBottom = '16px';
         stats.forEach(stat => statsGrid.appendChild(this.createStatCard(stat)));
         container.appendChild(statsGrid);
+
+        // 2b. Tool Permissions quick-stats widget
+        try {
+            const [toolsData, settings] = await Promise.all([
+                API.getEssentialTools().catch(() => null),
+                API.getSettings().catch(() => null),
+            ]);
+            if (toolsData && toolsData.tools) {
+                const tools = toolsData.tools;
+                const blocked = tools.filter(t => t.effective_action === 'block').length;
+                const allowed = tools.filter(t => t.effective_action === 'allow').length;
+                const enforcementOn = settings && settings.tool_permissions_enabled;
+
+                const toolWidget = document.createElement('div');
+                toolWidget.style.cssText = 'margin-bottom: 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; cursor: pointer; transition: border-color 0.15s;';
+                toolWidget.addEventListener('mouseenter', () => { toolWidget.style.borderColor = 'rgba(6,182,212,0.4)'; });
+                toolWidget.addEventListener('mouseleave', () => { toolWidget.style.borderColor = 'var(--border-default)'; });
+                toolWidget.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); });
+
+                // Icon + title
+                const titlePart = document.createElement('div');
+                titlePart.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-shrink: 0;';
+                const toolIcon = document.createElement('span');
+                toolIcon.style.cssText = 'font-size: 18px;';
+                toolIcon.textContent = '🎛️';
+                const titleText = document.createElement('div');
+                titleText.style.cssText = 'font-size: 12px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;';
+                titleText.textContent = 'Tool Permissions';
+                titlePart.appendChild(toolIcon);
+                titlePart.appendChild(titleText);
+                toolWidget.appendChild(titlePart);
+
+                // Divider
+                const div1 = document.createElement('div');
+                div1.style.cssText = 'width: 1px; height: 28px; background: var(--border-default); flex-shrink: 0;';
+                toolWidget.appendChild(div1);
+
+                // Enforcement badge
+                const enfBadge = document.createElement('span');
+                enfBadge.style.cssText = 'font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid; flex-shrink: 0; ' +
+                    (enforcementOn
+                        ? 'color: #06b6d4; background: rgba(6,182,212,0.1); border-color: rgba(6,182,212,0.3);'
+                        : 'color: var(--text-muted); background: var(--bg-secondary); border-color: var(--border-default);');
+                enfBadge.textContent = enforcementOn ? '⚡ Enforcement ON' : '○ Enforcement OFF';
+                toolWidget.appendChild(enfBadge);
+
+                // Stats pills
+                const statsRow = document.createElement('div');
+                statsRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap;';
+                [
+                    { label: tools.length + ' Total', color: '#94a3b8', bg: 'var(--bg-secondary)' },
+                    { label: blocked + ' Blocked',   color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+                    { label: allowed + ' Allowed',   color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+                ].forEach(item => {
+                    const pill = document.createElement('span');
+                    pill.style.cssText = 'font-size: 12px; font-weight: 700; color: ' + item.color + '; padding: 2px 10px; border-radius: var(--radius-full); background: ' + item.bg + '; border: 1px solid ' + item.color + '33;';
+                    pill.textContent = item.label;
+                    statsRow.appendChild(pill);
+                });
+                toolWidget.appendChild(statsRow);
+
+                // Spacer + link
+                const spacerEl = document.createElement('div');
+                spacerEl.style.cssText = 'flex: 1;';
+                toolWidget.appendChild(spacerEl);
+
+                const linkEl = document.createElement('span');
+                linkEl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary); flex-shrink: 0; white-space: nowrap;';
+                linkEl.textContent = 'Manage →';
+                toolWidget.appendChild(linkEl);
+
+                container.appendChild(toolWidget);
+            }
+        } catch (_) {}
 
         // 3. Charts row — threat trend + cost trend side by side
         const chartsRow = document.createElement('div');

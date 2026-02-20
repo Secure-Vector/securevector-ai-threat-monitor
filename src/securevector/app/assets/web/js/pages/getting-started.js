@@ -9,6 +9,9 @@ const GettingStartedPage = {
 
         if (window.Header) Header.setPageInfo('Guide', 'Everything you need to protect your AI agents.');
 
+        // === Welcome hero ===
+        container.appendChild(this.buildWelcomeHero());
+
         // === SECTIONS (all collapsible, collapsed by default) ===
 
         container.appendChild(this.createCollapsibleCard(
@@ -70,6 +73,98 @@ const GettingStartedPage = {
                 }
             }, 100);
         }
+    },
+
+    // === Welcome hero ===
+
+    buildWelcomeHero() {
+        const hero = document.createElement('div');
+        hero.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 24px 28px; margin-bottom: 16px;';
+
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;';
+        title.textContent = 'Welcome to SecureVector';
+        hero.appendChild(title);
+
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;';
+        subtitle.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents';
+        hero.appendChild(subtitle);
+
+        const steps = document.createElement('div');
+        steps.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;';
+
+        const stepData = [
+            {
+                num: '1',
+                title: 'Go to Integrations',
+                desc: 'Click "Integrations" in the sidebar to open the proxy and framework setup page',
+                action: () => { if (window.Sidebar) Sidebar.navigate('integrations'); },
+            },
+            {
+                num: '2',
+                title: 'Select Your Agent',
+                desc: 'Pick your agent framework and point it to the SecureVector proxy endpoint',
+                action: null,
+            },
+            {
+                num: '3',
+                title: 'Proxy is Active — Point Your Agent',
+                badge: 'Running',
+                desc: 'AI Firewall is already running. Point your agent\'s base URL to http://localhost:8742/{provider}/v1 — done.',
+                action: () => { if (window.Sidebar) Sidebar.navigate('integrations'); },
+            },
+        ];
+
+        stepData.forEach((s, i) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px;' + (s.action ? ' cursor: pointer;' : '');
+            if (s.action) {
+                card.addEventListener('mouseenter', () => card.style.background = 'var(--bg-hover)');
+                card.addEventListener('mouseleave', () => card.style.background = 'var(--bg-secondary)');
+                card.addEventListener('click', s.action);
+            }
+
+            // Step number circle
+            const numCircle = document.createElement('div');
+            numCircle.style.cssText = 'width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg,#00bcd4,#f44336); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; flex-shrink: 0;';
+            numCircle.textContent = s.num;
+            card.appendChild(numCircle);
+
+            // Title row
+            const titleRow = document.createElement('div');
+            titleRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;';
+
+            const stepTitle = document.createElement('div');
+            stepTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary);';
+            stepTitle.textContent = s.title;
+            titleRow.appendChild(stepTitle);
+
+            if (s.badge) {
+                const badge = document.createElement('span');
+                badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(0,188,212,0.12); color: var(--accent-primary); letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap;';
+                badge.textContent = s.badge;
+                titleRow.appendChild(badge);
+            }
+            card.appendChild(titleRow);
+
+            const stepDesc = document.createElement('div');
+            stepDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            stepDesc.textContent = s.desc;
+            card.appendChild(stepDesc);
+
+            if (s.action) {
+                const link = document.createElement('div');
+                link.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary); margin-top: 8px;';
+                link.textContent = 'Go →';
+                card.appendChild(link);
+            }
+
+            steps.appendChild(card);
+        });
+
+        hero.appendChild(steps);
+        return hero;
     },
 
     // === Collapsible card wrapper ===

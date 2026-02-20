@@ -90,7 +90,7 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
             cmd.extend(["--provider", effective_provider])
 
     try:
-        _llm_proxy_process = subprocess.Popen(cmd)
+        _llm_proxy_process = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         import time; time.sleep(0.5)
         if _llm_proxy_process.poll() is None:
             _current_provider = "multi" if multi else effective_provider
@@ -99,6 +99,16 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
             _started_with_openclaw = (integration == "openclaw")
             logger.info(f"[svconfig] Proxy auto-started: integration={integration}, mode={mode}, provider={effective_provider}, port={port}")
             return True
+        else:
+            # Process exited immediately — openclaw/pi-ai likely not installed, or config error
+            # This is non-fatal: user may be using a different agent framework
+            logger.warning(
+                f"[svconfig] Proxy exited immediately (code={_llm_proxy_process.poll()}). "
+                f"OpenClaw may not be installed, or this user is using a different agent framework. "
+                f"Starting without proxy — use the Integrations page to start it manually."
+            )
+    except FileNotFoundError:
+        logger.warning(f"[svconfig] Proxy command not found ({cmd[0]}). Starting without proxy.")
     except Exception as e:
         logger.warning(f"[svconfig] Could not auto-start proxy: {e}")
     return False

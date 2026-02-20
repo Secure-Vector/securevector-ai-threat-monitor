@@ -6,10 +6,10 @@
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'threats', label: 'Threat Analytics', icon: 'shield' },
+        { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        { id: 'tool-permissions', label: 'Agent Tool Control', icon: 'lock' },
+        { id: 'costs', label: 'LLM Cost Tracker', icon: 'costs' },
         { id: 'rules', label: 'Rules', icon: 'rules' },
-        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
-        { id: 'costs', label: 'Cost Intelligence', icon: 'costs' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
@@ -67,7 +67,34 @@ const Sidebar = {
         const nav = document.createElement('nav');
         nav.className = 'sidebar-nav';
 
+        // Core features get an orange badge dot overlaid on their icon
+        const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
+
+        // Section labels before nav items
+        const SECTION_BEFORE = {
+            'threats': 'Security',
+            'costs':   'Cost',
+            'rules':   'Configure',
+        };
+
+        // Items that get a divider before them
+        const DIVIDER_BEFORE = new Set(['costs', 'rules']);
+
         this.navItems.forEach(item => {
+            // Section label
+            if (SECTION_BEFORE[item.id]) {
+                const sectionLbl = document.createElement('div');
+                sectionLbl.className = 'nav-section-label';
+                sectionLbl.textContent = SECTION_BEFORE[item.id];
+                nav.appendChild(sectionLbl);
+            }
+
+            // Divider
+            if (DIVIDER_BEFORE.has(item.id)) {
+                const divider = document.createElement('div');
+                divider.className = 'nav-section-divider';
+                nav.appendChild(divider);
+            }
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
@@ -76,14 +103,28 @@ const Sidebar = {
             navItem.dataset.page = item.id;
             if (item.collapsible) navItem.dataset.collapsible = 'true';
 
-            // Add icon (SVG)
+            // Add icon (SVG) — core features get an orange badge dot overlaid on the icon
             const iconSvg = this.createIcon(item.icon);
-            navItem.appendChild(iconSvg);
+            if (CORE_BADGE.has(item.id)) {
+                const iconWrap = document.createElement('div');
+                iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
+                iconWrap.appendChild(iconSvg);
+                const iconDot = document.createElement('div');
+                iconDot.style.cssText = 'position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; border: 1.5px solid var(--bg-secondary);';
+                iconDot.title = 'Core feature';
+                iconDot.dataset.coreDot = item.id;
+                // Hide permanently if already visited
+                if (localStorage.getItem('sv-visited-core-' + item.id)) iconDot.style.display = 'none';
+                iconWrap.appendChild(iconDot);
+                navItem.appendChild(iconWrap);
+            } else {
+                navItem.appendChild(iconSvg);
+            }
 
             // Add label
             const label = document.createElement('span');
             label.textContent = item.label;
-            label.style.cssText = 'white-space: nowrap; font-size: 12.5px;';
+            label.style.cssText = 'white-space: nowrap; font-size: 12.5px; flex: 1; min-width: 0;';
             navItem.appendChild(label);
 
             // Add badge for rules count
@@ -95,8 +136,8 @@ const Sidebar = {
                 navItem.appendChild(badge);
             }
 
-            // NEW badge (dismissible) for Rules, Tool Permissions, Cost Intelligence and Guide
-            const newBadgeItems = ['rules', 'tool-permissions', 'costs', 'guide'];
+            // NEW badge (dismissible) — only on Rules
+            const newBadgeItems = ['rules'];
             if (newBadgeItems.includes(item.id) && !localStorage.getItem('sv-new-dismissed-' + item.id)) {
                 const newBadge = document.createElement('span');
                 newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: #b45309; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
@@ -120,6 +161,7 @@ const Sidebar = {
                 setTimeout(dismissBadge, 30000);
             }
 
+
             // Chevron for collapsible items
             let chevron = null;
             if (item.collapsible && hasSubItems) {
@@ -129,7 +171,7 @@ const Sidebar = {
                 chevron.setAttribute('fill', 'none');
                 chevron.setAttribute('stroke', 'currentColor');
                 chevron.setAttribute('stroke-width', '2');
-                chevron.style.cssText = 'width: 14px; height: 14px; margin-left: auto; transition: transform 0.2s; flex-shrink: 0; opacity: 0.5;';
+                chevron.style.cssText = 'width: 14px; height: 14px; transition: transform 0.2s; flex-shrink: 0; opacity: 0.5;';
                 chevron.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
                 const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 chevronPath.setAttribute('d', 'M6 9l6 6 6-6');
@@ -137,10 +179,9 @@ const Sidebar = {
                 navItem.appendChild(chevron);
             }
 
-            // Click handler — navigate only; chevron handles expand/collapse
+            // Click handler — collapsible rows toggle on any click; others navigate
             navItem.addEventListener('click', (e) => {
-                if (e.target.closest('svg') && item.collapsible && hasSubItems) {
-                    // Chevron click — toggle only, don't navigate
+                if (item.collapsible && hasSubItems) {
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
                     if (subNav) {
                         const isVisible = subNav.style.display !== 'none';
@@ -710,6 +751,15 @@ const Sidebar = {
 
     navigate(page) {
         this.currentPage = page;
+
+        // Remove core icon badge dot on first visit
+        const coreDot = document.querySelector(`[data-core-dot="${page}"]`);
+        if (coreDot && !localStorage.getItem('sv-visited-core-' + page)) {
+            localStorage.setItem('sv-visited-core-' + page, '1');
+            coreDot.style.transition = 'opacity 0.3s';
+            coreDot.style.opacity = '0';
+            setTimeout(() => coreDot.remove(), 300);
+        }
 
         // Update active state
         document.querySelectorAll('.nav-item').forEach(item => {

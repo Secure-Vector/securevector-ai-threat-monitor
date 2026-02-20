@@ -300,3 +300,96 @@ async def delete_custom_tool(tool_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== Tool Call Audit Log ====================
+
+
+class AuditLogRequest(BaseModel):
+    """Single tool call decision to record in the audit log."""
+
+    tool_id: str
+    function_name: str
+    action: str = Field(..., pattern="^(block|allow|log_only)$")
+    risk: Optional[str] = None
+    reason: Optional[str] = None
+    is_essential: bool = False
+    args_preview: Optional[str] = None
+
+
+@router.post("/tool-permissions/call-audit")
+async def record_call_audit(request: AuditLogRequest):
+    """Record a tool call decision (block/allow/log_only) in the audit log.
+
+    Called by the proxy after every tool permission evaluation.
+    """
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        await repo.log_tool_call_audit(
+            tool_id=request.tool_id,
+            function_name=request.function_name,
+            action=request.action,
+            risk=request.risk,
+            reason=request.reason,
+            is_essential=request.is_essential,
+            args_preview=request.args_preview,
+        )
+        return {"ok": True}
+
+    except Exception as e:
+        logger.error(f"Failed to record call audit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/call-audit")
+async def get_call_audit(
+    limit: int = 50,
+    offset: int = 0,
+    action: Optional[str] = None,
+):
+    """Return recent tool call audit entries, newest first.
+
+    Query params:
+      - limit: page size (default 50, max 200)
+      - offset: skip N rows for pagination
+      - action: filter to "block" | "allow" | "log_only"
+    """
+    try:
+        limit = min(limit, 200)
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        entries, total = await repo.get_audit_log(limit=limit, offset=offset, action_filter=action)
+        return {"entries": entries, "total": total}
+
+    except Exception as e:
+        logger.error(f"Failed to fetch call audit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/call-audit/daily")
+async def get_call_audit_daily(days: int = 7):
+    """Return per-day blocked/allowed/logged counts for the last N days."""
+    try:
+        days = min(days, 30)
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        rows = await repo.get_audit_daily_stats(days=days)
+        return {"days": rows, "total_days": days}
+    except Exception as e:
+        logger.error(f"Failed to fetch daily audit stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/call-audit/stats")
+async def get_call_audit_stats():
+    """Return aggregate block/allow/log_only counts for the audit log."""
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        stats = await repo.get_audit_stats()
+        return stats
+
+    except Exception as e:
+        logger.error(f"Failed to fetch audit stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

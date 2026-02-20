@@ -196,3 +196,136 @@ class CustomToolsRepository:
             (f"-{older_than_seconds} seconds",),
         )
         return result if isinstance(result, int) else 0
+
+    # ==================== Audit Log ====================
+
+    async def log_tool_call_audit(
+        self,
+        tool_id: str,
+        function_name: str,
+        action: str,
+        *,
+        risk: Optional[str] = None,
+        reason: Optional[str] = None,
+        is_essential: bool = False,
+        args_preview: Optional[str] = None,
+    ) -> None:
+        """Record a full tool call decision (block/allow/log_only) for audit history.
+
+        Args:
+            tool_id: Resolved registry tool ID (or function_name if unknown).
+            function_name: Actual function name from LLM response.
+            action: Decision — "block", "allow", or "log_only".
+            risk: Risk level string ("read", "write", "delete", "admin").
+            reason: Human-readable reason for the decision.
+            is_essential: True if matched in essential registry.
+            args_preview: First 200 chars of the tool arguments.
+        """
+        await self.db.execute(
+            """
+            INSERT INTO tool_call_audit
+                (tool_id, function_name, action, risk, reason, is_essential, args_preview)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tool_id or function_name,
+                function_name,
+                action,
+                risk,
+                reason,
+                1 if is_essential else 0,
+                args_preview,
+            ),
+        )
+
+    async def get_audit_log(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        action_filter: Optional[str] = None,
+    ) -> tuple[list[dict], int]:
+        """Fetch recent tool call audit entries, newest first, with pagination.
+
+        Args:
+            limit: Page size.
+            offset: Skip this many rows.
+            action_filter: Optional "block" | "allow" | "log_only" filter.
+
+        Returns:
+            Tuple of (list of audit record dicts, total count).
+        """
+        if action_filter and action_filter in ("block", "allow", "log_only"):
+            count_row = await self.db.fetch_one(
+                "SELECT COUNT(*) AS n FROM tool_call_audit WHERE action = ?",
+                (action_filter,),
+            )
+            rows = await self.db.fetch_all(
+                """
+                SELECT id, tool_id, function_name, action, risk, reason,
+                       is_essential, args_preview, called_at
+                FROM tool_call_audit
+                WHERE action = ?
+                ORDER BY id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (action_filter, limit, offset),
+            )
+        else:
+            count_row = await self.db.fetch_one(
+                "SELECT COUNT(*) AS n FROM tool_call_audit",
+            )
+            rows = await self.db.fetch_all(
+                """
+                SELECT id, tool_id, function_name, action, risk, reason,
+                       is_essential, args_preview, called_at
+                FROM tool_call_audit
+                ORDER BY id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            )
+        total = count_row["n"] if count_row else 0
+        return ([dict(r) for r in rows] if rows else []), total
+
+    async def get_audit_stats(self) -> dict:
+        """Return aggregate counts for the audit log.
+
+        Returns:
+            Dict with total, blocked, allowed, log_only counts.
+        """
+        row = await self.db.fetch_one(
+            """
+            SELECT
+                COUNT(*)                                        AS total,
+                SUM(CASE WHEN action = 'block'    THEN 1 ELSE 0 END) AS blocked,
+                SUM(CASE WHEN action = 'allow'    THEN 1 ELSE 0 END) AS allowed,
+                SUM(CASE WHEN action = 'log_only' THEN 1 ELSE 0 END) AS log_only
+            FROM tool_call_audit
+            """
+        )
+        if row:
+            return {
+                "total":    row["total"]    or 0,
+                "blocked":  row["blocked"]  or 0,
+                "allowed":  row["allowed"]  or 0,
+                "log_only": row["log_only"] or 0,
+            }
+        return {"total": 0, "blocked": 0, "allowed": 0, "log_only": 0}
+
+    async def get_audit_daily_stats(self, days: int = 7) -> list[dict]:
+        """Return per-day blocked/allowed/logged counts for the last N days."""
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                DATE(called_at) AS day,
+                SUM(CASE WHEN action = 'block'    THEN 1 ELSE 0 END) AS blocked,
+                SUM(CASE WHEN action = 'allow'    THEN 1 ELSE 0 END) AS allowed,
+                SUM(CASE WHEN action = 'log_only' THEN 1 ELSE 0 END) AS logged
+            FROM tool_call_audit
+            WHERE called_at >= DATE('now', ?)
+            GROUP BY DATE(called_at)
+            ORDER BY day ASC
+            """,
+            (f"-{days} days",),
+        )
+        return [dict(r) for r in rows] if rows else []

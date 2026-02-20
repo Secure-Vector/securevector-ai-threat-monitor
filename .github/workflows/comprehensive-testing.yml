@@ -58,11 +58,13 @@ jobs:
             print(f'✅ {rule_file} is valid')
         "
     
-    #- name: Run tests with pytest
-      #run: |
-        #pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
-      #env:
-        #PYTHONPATH: .
+    - name: Run unit tests
+      run: |
+        PYTHONPATH=src pytest tests/ -v --tb=short -m "not integration"
+      env:
+        PYTHONPATH: src
+      # Integration tests (test_costs_budget.py) are excluded here.
+      # They require a live SecureVector app + proxy and must be run locally.
     
     - name: Test CLI commands
       run: |
