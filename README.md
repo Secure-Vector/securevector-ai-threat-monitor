@@ -12,8 +12,9 @@
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/ZDKHDDZcYS)
 
-[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Dashboard Screenshots](#screenshots)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Discord](https://discord.gg/ZDKHDDZcYS) · [Dashboard Screenshots](#screenshots)
 
 </div>
 
@@ -280,15 +281,12 @@ Track exactly what your agents are spending, per agent, per model, per day:
 
 <table>
 <tr>
-<td><img src="docs/app-dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — stats, risk distribution, recent threats</em></td>
-<td><img src="docs/app-threats.png" alt="Threats" width="100%"><br><em>Threat Analytics — blocked, redacted, logged</em></td>
+<td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
+<td width="50%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Agent Tool Permissions — allow or block tools by name or category</em></td>
 </tr>
 <tr>
-<td><img src="docs/app-integrations.png" alt="Integrations" width="100%"><br><em>Integrations — LangChain, Ollama, OpenClaw, and more</em></td>
-<td><img src="docs/app-rules.png" alt="Detection Rules" width="100%"><br><em>Detection Rules — community rules, or create your own for your use case or industry</em></td>
-</tr>
-<tr>
-<td><img src="docs/app-guide.png" alt="Getting Started" width="100%"><br><em>Getting Started — onboarding guide with setup steps</em></td>
+<td width="50%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
+<td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — full audit log with decision, risk, and args</em></td>
 </tr>
 </table>
 
@@ -403,6 +401,6 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**[Get Started](#install)** · **[Documentation](https://docs.securevector.io)** · **[GitHub Issues](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues)** · **[security@securevector.io](mailto:security@securevector.io)**
+**[Get Started](#install)** · **[Documentation](https://docs.securevector.io)** · **[Discord](https://discord.gg/ZDKHDDZcYS)** · **[GitHub Issues](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues)** · **[security@securevector.io](mailto:security@securevector.io)**
 
 </div>
