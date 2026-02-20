@@ -30,6 +30,8 @@ import time
 import pytest
 import requests
 
+pytestmark = pytest.mark.integration
+
 API = "http://localhost:8741/api"
 AUDIT = f"{API}/tool-permissions/call-audit"
 
