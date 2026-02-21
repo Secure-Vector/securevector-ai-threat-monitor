@@ -28,6 +28,12 @@ _started_with_openclaw: bool = False  # Set when proxy is started with --opencla
 PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemini", "together", "cohere", "cerebras", "moonshot", "minimax"]
 
 
+def _get_proxy_port() -> int:
+    """Return the proxy port — set by main.py via SV_PROXY_PORT, defaults to 8742."""
+    import os
+    return int(os.environ.get('SV_PROXY_PORT', '8742'))
+
+
 def _is_port_in_use(port: int) -> bool:
     """Check if a port is in use (proxy might be running)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -76,7 +82,7 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
     effective_provider = provider or "openai"
 
     if integration == "openclaw":
-        cmd = ["securevector-app", "--proxy", "--openclaw"]
+        cmd = ["securevector-app", "--proxy", "--openclaw", "--proxy-port", str(port)]
         if multi:
             cmd.append("--multi")
         else:
@@ -141,10 +147,11 @@ async def get_proxy_status():
         if not running:
             _llm_proxy_process = None
             _multi_mode = False
-    # Check 3: Port 8742 is in use (proxy started externally)
-    elif _is_port_in_use(8742):
+    # Check 3: Proxy port is in use (proxy started externally)
+    elif _is_port_in_use(_get_proxy_port()):
         running = True
 
+    proxy_port = _get_proxy_port()
     return {
         "running": running,
         "provider": _current_provider if running else None,
@@ -153,7 +160,7 @@ async def get_proxy_status():
         "openclaw": _started_with_openclaw if running else False,
         "in_process": _proxy_running_in_process,
         "providers": PROVIDERS,
-        "llm_proxy": {"running": running, "port": 8742},
+        "llm_proxy": {"running": running, "port": proxy_port},
     }
 
 
@@ -173,9 +180,11 @@ async def start_proxy(request: StartProxyRequest = None):
         mode_str = "multi-provider" if _multi_mode else _current_provider
         return {"status": "already_running", "message": f"Proxy already running ({mode_str}). Stop it first."}
 
+    proxy_port = _get_proxy_port()
+
     # Check if port is in use (started externally)
-    if _is_port_in_use(8742):
-        return {"status": "already_running", "message": "Proxy already running on port 8742 (started externally)"}
+    if _is_port_in_use(proxy_port):
+        return {"status": "already_running", "message": f"Proxy already running on port {proxy_port} (started externally)"}
 
     try:
         # Build command - use securevector-app for OpenClaw to enable patching
@@ -185,6 +194,7 @@ async def start_proxy(request: StartProxyRequest = None):
                 "securevector-app",
                 "--proxy",
                 "--openclaw",
+                "--proxy-port", str(proxy_port),
             ]
             if multi:
                 cmd.append("--multi")
@@ -196,7 +206,7 @@ async def start_proxy(request: StartProxyRequest = None):
                 sys.executable,
                 "-m",
                 "securevector.integrations.openclaw_llm_proxy",
-                "--port", "8742",
+                "--port", str(proxy_port),
                 "-v",  # verbose mode
             ]
             if multi:
@@ -216,10 +226,10 @@ async def start_proxy(request: StartProxyRequest = None):
             _multi_mode = multi
             mode_str = "multi-provider" if multi else provider
             integration_str = f" for {integration}" if integration else ""
-            logger.info(f"LLM proxy started on port 8742 ({mode_str}){integration_str}")
+            logger.info(f"LLM proxy started on port {proxy_port} ({mode_str}){integration_str}")
             return {
                 "status": "started",
-                "message": f"Proxy started ({mode_str}) on port 8742",
+                "message": f"Proxy started ({mode_str}) on port {proxy_port}",
                 "provider": provider,
                 "integration": integration,
                 "multi": multi,

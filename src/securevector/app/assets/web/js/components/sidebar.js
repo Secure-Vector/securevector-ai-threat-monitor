@@ -22,6 +22,7 @@ const Sidebar = {
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
+            { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
@@ -285,13 +286,21 @@ const Sidebar = {
         // Check proxy status
         this.checkProxyStatus();
 
-        // Try SecureVector gradient button
+        // Try SecureVector button — opens floating chat
         const tryBtn = document.createElement('button');
-        tryBtn.style.cssText = 'display: flex; align-items: center; justify-content: center; width: calc(100% - 24px); margin: 8px 12px 2px; padding: 7px 12px; border: none; border-radius: 7px; background: linear-gradient(135deg, #00bcd4, #f44336); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; letter-spacing: 0.2px;';
-        tryBtn.textContent = 'Getting Started Guide';
-        tryBtn.addEventListener('mouseenter', () => { tryBtn.style.opacity = '0.88'; });
-        tryBtn.addEventListener('mouseleave', () => { tryBtn.style.opacity = '1'; });
-        tryBtn.addEventListener('click', () => this.navigate('guide'));
+        tryBtn.className = 'try-it-trigger-btn';
+        const tryIcon = document.createElement('span');
+        tryIcon.textContent = '🔍';
+        tryIcon.style.fontSize = '13px';
+        const tryLabel = document.createElement('span');
+        tryLabel.textContent = 'Try SecureVector';
+        const tryArrow = document.createElement('span');
+        tryArrow.textContent = '↗';
+        tryArrow.style.cssText = 'font-size:10px; opacity:0.7;';
+        tryBtn.appendChild(tryIcon);
+        tryBtn.appendChild(tryLabel);
+        tryBtn.appendChild(tryArrow);
+        tryBtn.addEventListener('click', () => TryItChat.open());
         bottomSection.appendChild(tryBtn);
 
         container.appendChild(bottomSection);
@@ -813,3 +822,199 @@ const SideDrawer = {
 
 window.Sidebar = Sidebar;
 window.SideDrawer = SideDrawer;
+
+/**
+ * TryItChat — floating chat window for testing prompt analysis
+ */
+const TryItChat = {
+    panel: null,
+
+    open() {
+        if (!this.panel) this._build();
+        this.panel.classList.add('open');
+        this._focusInput();
+    },
+
+    close() {
+        if (this.panel) this.panel.classList.remove('open');
+    },
+
+    _focusInput() {
+        if (!this.panel) return;
+        const ta = this.panel.querySelector('.tryit-chat-input');
+        if (ta) setTimeout(() => ta.focus(), 60);
+    },
+
+    _build() {
+        const panel = document.createElement('div');
+        panel.className = 'tryit-chat-panel';
+
+        // ── Header ──────────────────────────────
+        const header = document.createElement('div');
+        header.className = 'tryit-chat-header';
+
+        const headerLeft = document.createElement('div');
+        headerLeft.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+        const shieldIcon = document.createElement('span');
+        shieldIcon.textContent = '🛡️';
+        shieldIcon.style.fontSize = '16px';
+        headerLeft.appendChild(shieldIcon);
+
+        const headerTitle = document.createElement('div');
+        const titleLine = document.createElement('div');
+        titleLine.style.cssText = 'font-weight:700; font-size:13px; color:var(--text-primary);';
+        titleLine.textContent = 'Try SecureVector';
+        const subtitleLine = document.createElement('div');
+        subtitleLine.style.cssText = 'font-size:10.5px; color:var(--text-muted);';
+        subtitleLine.textContent = 'Test any prompt for threats';
+        headerTitle.appendChild(titleLine);
+        headerTitle.appendChild(subtitleLine);
+        headerLeft.appendChild(headerTitle);
+        header.appendChild(headerLeft);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'tryit-chat-close';
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => this.close());
+        header.appendChild(closeBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'tryit-chat-clear';
+        clearBtn.title = 'Clear chat';
+        clearBtn.textContent = '🗑';
+        clearBtn.style.cssText = 'background:none; border:none; font-size:13px; cursor:pointer; color:var(--text-muted); padding:2px 6px; border-radius:4px; transition:color 0.15s;';
+        clearBtn.addEventListener('click', () => {
+            const feed = panel.querySelector('.tryit-chat-feed');
+            if (feed) { feed.textContent = ''; this._addWelcome(feed); }
+        });
+        header.appendChild(clearBtn);
+
+        panel.appendChild(header);
+
+        // ── Message feed ─────────────────────────
+        const feed = document.createElement('div');
+        feed.className = 'tryit-chat-feed';
+        this._addWelcome(feed);
+        panel.appendChild(feed);
+
+        // ── Input row ────────────────────────────
+        const inputRow = document.createElement('div');
+        inputRow.className = 'tryit-chat-input-row';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'tryit-chat-input';
+        textarea.placeholder = 'Type a prompt to test… (Enter to send)';
+        textarea.rows = 1;
+        textarea.addEventListener('input', () => {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 96) + 'px';
+        });
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendBtn.click();
+            }
+        });
+        inputRow.appendChild(textarea);
+
+        const sendBtn = document.createElement('button');
+        sendBtn.className = 'tryit-chat-send';
+        sendBtn.textContent = '→';
+        sendBtn.addEventListener('click', () => this._send(textarea, feed));
+        inputRow.appendChild(sendBtn);
+
+        panel.appendChild(inputRow);
+
+        document.body.appendChild(panel);
+        this.panel = panel;
+    },
+
+    _addWelcome(feed) {
+        const welcome = document.createElement('div');
+        welcome.className = 'tryit-msg tryit-msg-system';
+        welcome.textContent = 'Send any prompt — SecureVector will scan it for injection, jailbreaks, data leaks, and 300+ threat patterns.';
+        feed.appendChild(welcome);
+    },
+
+    async _send(textarea, feed) {
+        const text = textarea.value.trim();
+        if (!text) return;
+
+        textarea.value = '';
+        textarea.style.height = 'auto';
+
+        // User bubble
+        const userBubble = document.createElement('div');
+        userBubble.className = 'tryit-msg tryit-msg-user';
+        userBubble.textContent = text;
+        feed.appendChild(userBubble);
+        feed.scrollTop = feed.scrollHeight;
+
+        // Thinking bubble
+        const thinking = document.createElement('div');
+        thinking.className = 'tryit-msg tryit-msg-thinking';
+        thinking.textContent = 'Scanning…';
+        feed.appendChild(thinking);
+        feed.scrollTop = feed.scrollHeight;
+
+        try {
+            const res = await API.analyze(text);
+            thinking.remove();
+
+            const isThreat = res.is_threat;
+            const score = res.risk_score || 0;
+            const type = res.threat_type || '';
+            const rules = res.matched_rules || [];
+
+            const resultBubble = document.createElement('div');
+            resultBubble.className = 'tryit-msg tryit-msg-result ' + (isThreat ? 'threat' : 'safe');
+
+            const topRow = document.createElement('div');
+            topRow.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px;';
+
+            const badge = document.createElement('span');
+            badge.className = 'tryit-result-badge';
+            badge.textContent = isThreat ? '⚠ Threat Detected' : '✓ Safe';
+            topRow.appendChild(badge);
+
+            const scoreChip = document.createElement('span');
+            scoreChip.className = 'tryit-result-score';
+            scoreChip.textContent = score + '% risk';
+            topRow.appendChild(scoreChip);
+
+            resultBubble.appendChild(topRow);
+
+            if (isThreat && type) {
+                const typeRow = document.createElement('div');
+                typeRow.style.cssText = 'font-size:11.5px; color:var(--text-secondary); margin-bottom:4px;';
+                typeRow.textContent = 'Type: ' + type;
+                resultBubble.appendChild(typeRow);
+            }
+
+            if (rules.length > 0) {
+                const rulesRow = document.createElement('div');
+                rulesRow.style.cssText = 'display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;';
+                rules.slice(0, 4).forEach(r => {
+                    const chip = document.createElement('span');
+                    chip.style.cssText = 'font-size:10px; padding:1px 6px; border-radius:3px; background:var(--bg-tertiary); color:var(--text-muted);';
+                    chip.textContent = r;
+                    rulesRow.appendChild(chip);
+                });
+                resultBubble.appendChild(rulesRow);
+            }
+
+            feed.appendChild(resultBubble);
+        } catch (e) {
+            thinking.remove();
+            const errBubble = document.createElement('div');
+            errBubble.className = 'tryit-msg tryit-msg-result threat';
+            errBubble.textContent = 'Error: ' + (e.message || 'Request failed');
+            feed.appendChild(errBubble);
+        }
+
+        feed.scrollTop = feed.scrollHeight;
+    },
+};
+
+window.TryItChat = TryItChat;

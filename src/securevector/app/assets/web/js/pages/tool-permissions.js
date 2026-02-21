@@ -550,7 +550,8 @@ const ToolPermissionsPage = {
 
         // ==================== Categories as columns ====================
         const columnsWrap = document.createElement('div');
-        columnsWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; align-items: start;';
+        columnsWrap.className = 'tool-permissions-grid';
+        columnsWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; align-items: start;';
 
         const buildCategoryCol = (catKey) => {
             const tools = categories[catKey];

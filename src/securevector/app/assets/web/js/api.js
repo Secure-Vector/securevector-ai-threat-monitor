@@ -75,6 +75,12 @@ const API = {
                 threatTypes[type] = (threatTypes[type] || 0) + 1;
             });
 
+            // Compute average analysis latency from items with recorded processing time
+            const latencyItems = items.filter(t => t.processing_time_ms > 0);
+            const avgLatencyMs = latencyItems.length > 0
+                ? latencyItems.reduce((sum, t) => sum + t.processing_time_ms, 0) / latencyItems.length
+                : null;
+
             return {
                 total_threats: totalCount,  // Use actual total from API
                 critical_count: criticalCount,
@@ -82,6 +88,7 @@ const API = {
                 active_rules: activeRulesCount,
                 recent_threats: recentThreats,
                 threat_types: threatTypes,
+                avg_latency_ms: avgLatencyMs,
             };
         } catch (e) {
             return {

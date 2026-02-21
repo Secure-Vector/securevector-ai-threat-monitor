@@ -191,6 +191,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
         print(f"  SecureVector Multi-Provider LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
         print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
+        print(f"  Reports to: http://127.0.0.1:{securevector_port}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         print(f"\n  Multi-provider routing enabled!")
         print(f"  Use path-based URLs:")
@@ -213,6 +214,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
         print(f"  SecureVector LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
         print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
+        print(f"  Reports to: http://127.0.0.1:{securevector_port}")
         print(f"  Provider:   {provider} → {target_url}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         print(f"\n  Start OpenClaw with:")
@@ -961,8 +963,8 @@ Examples:
     parser.add_argument(
         "--proxy-port",
         type=int,
-        default=8742,
-        help="LLM proxy listen port (default: 8742)",
+        default=None,
+        help="LLM proxy listen port (default: app port + 1, i.e. 8742 when using default port 8741)",
     )
     parser.add_argument(
         "--provider",
@@ -995,6 +997,14 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Auto-compute proxy port as app port + 1 if not explicitly specified
+    if args.proxy_port is None:
+        args.proxy_port = args.port + 1
+
+    # Expose proxy port to the FastAPI process via env var so proxy routes use the right port
+    import os
+    os.environ['SV_PROXY_PORT'] = str(args.proxy_port)
 
     if args.version:
         print(f"SecureVector Local Threat Monitor v{__version__}")

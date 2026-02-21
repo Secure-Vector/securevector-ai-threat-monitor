@@ -6,6 +6,8 @@
 
 <p>Also tracks every token and enforces budget limits so you never wake up to a surprise bill.</p>
 
+<p><strong>No coding required.</strong> Download the desktop app, point your AI agent at it — done. Or install with pip.</p>
+
 <br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
@@ -46,12 +48,14 @@ SecureVector runs on your machine, between your AI agents and LLM providers. It 
 </tr>
 </table>
 
+**Download :** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
+
+**Or install with pip:**
+
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
-
-Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-v2.1.3-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector_2.1.3_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector-2.1.3-1.x86_64.rpm)
 
 One command to install. One command to start. Point your app to `localhost:8742/{provider}/v1` instead of the provider's API — everything else stays the same. Zero code changes.
 
@@ -77,13 +81,9 @@ SecureVector gives you a live dashboard showing every request, every token, ever
 
 ## Quick Start
 
-**Install**
+**1. Install or download** — see [Install](#install) below for pip, binaries, and other options.
 
-```bash
-pip install securevector-ai-monitor[app]
-```
-
-**Start**
+**2. Start**
 
 ```bash
 securevector-app --web
@@ -91,9 +91,9 @@ securevector-app --web
 
 Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary.
 
-**Configure**
+**Configure** *(optional — defaults work out of the box)*
 
-SecureVector writes `svconfig.yml` to your app data directory on first run. Edit it to set your security and budget policy:
+SecureVector writes `svconfig.yml` to your app data directory on first run. You can skip this entirely and configure everything from the UI instead. To set policy in code:
 
 ```yaml
 # SecureVector Configuration
@@ -225,11 +225,26 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 
 <br>
 
+## Features
+
+| Section | Feature | Description |
+|---------|---------|-------------|
+| **Monitor** | Threat Monitor | Live feed of every detected threat — prompt injection, jailbreaks, data leaks, tool abuse |
+| | Tool Activity | Full audit log of every tool call your agents make, with args, decision, and timestamp |
+| | Cost Tracking | Per-agent, per-model token spend and USD cost in real time, with request history |
+| **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule |
+| | Cost Settings | Set daily budget limits and choose whether to warn or hard-block at the cap |
+| | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
+
+**Performance:** Rule-based analysis (default) adds ~10–50ms per request. Enabling optional AI analysis adds 1–3s per request depending on the model and provider — this is shown on the dashboard so you can measure it against your actual traffic.
+
+<br>
+
 ## Works With Everything
 
 **Your AI Stack**
 
-LangChain · LlamaIndex · CrewAI · AutoGen · LangGraph · n8n · Dify · OpenClaw/ClawdBot — or any framework that makes HTTP calls to an LLM provider.
+LangChain · LlamaIndex · CrewAI · AutoGen · LangGraph · n8n · Dify · OpenClaw/ClawdBot *(LLM gateway agent framework)* — or any framework that makes HTTP calls to an LLM provider.
 
 **LLM Providers**
 
@@ -255,7 +270,7 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 | **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
 | **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
 | **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
-| **OpenClaw / ClawdBot** | LLM Proxy — see Integrations in UI |
+| **OpenClaw / ClawdBot** *(LLM gateway agent)* | LLM Proxy — see Integrations in UI |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
 | **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
 | **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
@@ -290,30 +305,6 @@ Built from real attack chains observed against production agent frameworks:
 
 <br>
 
-## Tool Permissions
-
-Every tool call your AI agent makes is logged and can be controlled. For MCP servers (Claude Desktop, GitHub MCP, etc.) and custom tool integrations, you can:
-
-- **Audit** all tool calls with their arguments and outcomes
-- **Allow / Warn / Block** specific tools by name or category
-- View pre-loaded permissions for 100+ official MCP tools (GitHub, filesystem, web search, etc.)
-- Add custom tools and set permission policies
-
-<br>
-
-## Cost Intelligence
-
-Track exactly what your agents are spending, per agent, per model, per day:
-
-- **Live spend dashboard** — token counts and USD cost per agent, updated in real time
-- **Request history** — every LLM call with input/output tokens and cost
-- **Daily budget limits** — set a per-agent cap; requests are blocked once the limit is hit
-- **Pricing reference** — 49 models across 9 providers (OpenAI, Anthropic, Gemini, Grok, Groq, Mistral, Cohere, Ollama, and more)
-
-> Pricing data is sourced from official provider pages. Rates are subject to change — always verify with your provider.
-
-<br>
-
 ## Why SecureVector?
 
 | Without SecureVector | With SecureVector |
@@ -336,6 +327,10 @@ Track exactly what your agents are spending, per agent, per model, per day:
 <tr>
 <td width="50%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
 <td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — full audit log with decision, risk, and args</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — click any row for full context: decision, tool, args, and timestamp</em></td>
+<td width="50%"></td>
 </tr>
 </table>
 
@@ -376,13 +371,13 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v2.1.3-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-v2.1.3-Windows-Setup.exe) |
-| macOS | [SecureVector-2.1.3-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-2.1.3-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-x86_64.AppImage) |
-| Linux (DEB) | [securevector_2.1.3_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector_2.1.3_amd64.deb) |
-| Linux (RPM) | [securevector-2.1.3-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector-2.1.3-1.x86_64.rpm) |
+| Windows | [SecureVector-v3.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) |
+| macOS | [SecureVector-3.0.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-3.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_3.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) |
+| Linux (RPM) | [securevector-3.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
@@ -427,10 +422,10 @@ After updating, restart SecureVector.
 
 <br>
 
-## Recent Fixes
+## Compatibility Notes
 
-| Problem | Fix |
-|---------|-----|
+| Issue | Resolution |
+|-------|------------|
 | Python 3.9: `dict \| None` union type syntax requires Python 3.10+ | Changed to `Optional[dict]` from `typing` in test files |
 | `fastapi` missing from `[dev]` extras — FastAPI test client unavailable in CI | Added `fastapi>=0.100.0` and `httpx>=0.24.0` to `[dev]` in `setup.py` |
 | CodeQL: API key exposed via exception URL in log output | Changed `logger.error(f"...{e}")` to log exception type only, avoiding Gemini `key=` query param |

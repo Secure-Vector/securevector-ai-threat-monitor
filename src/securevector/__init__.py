@@ -70,7 +70,7 @@ except ImportError:
         return False
 
 # Main public interface
-__version__ = "2.1.3"
+__version__ = "3.0.0"
 __all__ = [
     # Core clients
     "SecureVectorClient",

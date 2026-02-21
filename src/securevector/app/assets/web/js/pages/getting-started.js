@@ -61,6 +61,11 @@ const GettingStartedPage = {
             'section-api', () => this.buildAPIContent()
         ));
 
+        container.appendChild(this.createCollapsibleCard(
+            'Troubleshooting', 'Common issues and how to fix them',
+            'section-troubleshooting', () => this.buildTroubleshootingContent()
+        ));
+
         // Handle pending scroll from sidebar section navigation
         if (Sidebar._pendingScroll) {
             const sectionId = Sidebar._pendingScroll;
@@ -724,6 +729,199 @@ const GettingStartedPage = {
         costsBtn.textContent = 'Open Cost Tracking';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
+
+        return frag;
+    },
+
+    buildTroubleshootingContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const issues = [
+            {
+                title: 'App is running but not analyzing anything',
+                cause: 'Your agent or OpenClaw gateway was started without the environment variable pointing to the SecureVector proxy.',
+                fix: [
+                    'Stop your agent/gateway if running.',
+                    'In the same terminal session, set the proxy URL:',
+                    { code: 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' },
+                    'Restart your agent in the same terminal. Traffic should now appear in the Threat Monitor.',
+                ],
+                note: 'OpenClaw users: use ANTHROPIC_BASE_URL=http://localhost:8742/anthropic when starting the gateway.',
+            },
+            {
+                title: 'Google Gemini API key — 401 Unauthorized error',
+                cause: 'The Google API key must be available in the environment where SecureVector is running, not just where your agent runs.',
+                fix: [
+                    'Stop SecureVector.',
+                    'In the same terminal where you will run SecureVector, set your key:',
+                    { code: 'export GOOGLE_API_KEY=your-key-here' },
+                    'Then start SecureVector in that terminal:',
+                    { code: 'securevector-app --web' },
+                    'Your agent can now route Gemini calls through the proxy.',
+                ],
+                note: 'This applies to any provider key that SecureVector needs to forward: set it before starting the app.',
+            },
+            {
+                title: 'Dashboard shows no data / Threat Monitor is empty',
+                cause: 'The proxy may not be running, or your agent is still pointing at the provider directly.',
+                fix: [
+                    'Check the sidebar bottom — you should see a coloured "proxy running" banner.',
+                    'If not, go to Integrations in the sidebar and start the proxy for your framework.',
+                    'Verify your agent\'s base URL points to localhost:8742 (not the provider\'s URL).',
+                    'Send a test request from your agent and refresh the dashboard.',
+                ],
+            },
+            {
+                title: 'Threats are detected but not being blocked',
+                cause: 'Block Mode may be toggled off — in Log Mode, threats are recorded but not stopped.',
+                fix: [
+                    'Look at the header bar — the "Block" toggle should show red/active.',
+                    'Click the toggle to switch from Log Mode to Block Mode.',
+                    'Block Mode is the default; it gets reset to Log Mode only if you toggled it manually.',
+                ],
+            },
+            {
+                title: 'Cost Tracking shows $0.00 for all requests',
+                cause: 'The model name returned by the provider does not match a known pricing entry, or token counts were not included in the response.',
+                fix: [
+                    'Go to Cost Tracking → Pricing Reference and check if your model is listed.',
+                    'Some providers return snapshot model names (e.g. gpt-4o-2024-08-06) instead of aliases — both are matched.',
+                    'For Ollama, $0.00 is correct — local models have no API cost.',
+                    'If a model is missing, open an issue on GitHub with the model name and provider.',
+                ],
+            },
+            {
+                title: 'Tool permissions rules are not being enforced',
+                cause: 'Tool enforcement may be disabled in settings, or your agent framework does not route tool call decisions through the proxy.',
+                fix: [
+                    'Go to Settings and check that "Tool Enforcement" is enabled.',
+                    'Tool permissions work by intercepting tool calls forwarded through the SecureVector proxy.',
+                    'If your agent calls tools directly (not via the LLM proxy response), they bypass the proxy and cannot be intercepted.',
+                    'For MCP tools, use the MCP Server integration — see Guide → API Reference for the MCP setup.',
+                ],
+            },
+            {
+                title: 'Port 8741 or 8742 is already in use',
+                cause: 'Another process is using the SecureVector app port (8741) or proxy port (8742).',
+                fix: [
+                    'Find and stop the conflicting process:',
+                    { code: 'lsof -i :8741\nlsof -i :8742' },
+                    'Or start SecureVector on a custom port — the proxy starts automatically on app port + 1:',
+                    { code: 'securevector-app --web --port 8800\n# App runs on 8800, proxy runs automatically on 8801' },
+                    'To override the proxy port explicitly, use --proxy-port:',
+                    { code: 'securevector-app --web --port 8800 --proxy-port 8900\n# App on 8800, proxy on 8900' },
+                    'Update your agent\'s provider URL to point at the proxy port:',
+                    { code: 'export OPENAI_BASE_URL=http://localhost:8801/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8801/anthropic' },
+                ],
+                note: 'The proxy port is always app port + 1 by default. App on 8800 → proxy on 8801. Use --proxy-port to set a different port.',
+            },
+        ];
+
+        issues.forEach((issue, idx) => {
+            const box = document.createElement('div');
+            box.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; margin-bottom: 8px; overflow: hidden; border-left: 3px solid ' + (idx < 2 ? '#f59e0b' : 'var(--border-color)') + ';';
+
+            // Clickable header
+            const header = document.createElement('div');
+            header.style.cssText = 'padding: 10px 16px; display: flex; align-items: flex-start; justify-content: space-between; cursor: pointer; user-select: none; gap: 12px;';
+            header.addEventListener('mouseenter', () => { header.style.background = 'rgba(0,188,212,0.04)'; });
+            header.addEventListener('mouseleave', () => { header.style.background = ''; });
+
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); line-height: 1.4;';
+            titleEl.textContent = issue.title;
+            header.appendChild(titleEl);
+
+            const indicator = document.createElement('span');
+            indicator.style.cssText = 'font-size: 16px; font-weight: 300; color: var(--text-secondary); flex-shrink: 0; margin-top: 1px;';
+            indicator.textContent = '+';
+            header.appendChild(indicator);
+            box.appendChild(header);
+
+            // Body
+            const body = document.createElement('div');
+            body.style.cssText = 'display: none; padding: 0 16px 14px 16px;';
+
+            if (issue.cause) {
+                const causeEl = document.createElement('div');
+                causeEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px; border-left: 2px solid #f59e0b;';
+                const causeLabel = document.createElement('strong');
+                causeLabel.style.color = 'var(--text-primary)';
+                causeLabel.textContent = 'Likely cause: ';
+                causeEl.appendChild(causeLabel);
+                causeEl.appendChild(document.createTextNode(issue.cause));
+                body.appendChild(causeEl);
+            }
+
+            const fixLabel = document.createElement('div');
+            fixLabel.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;';
+            fixLabel.textContent = 'Fix:';
+            body.appendChild(fixLabel);
+
+            const olCss = 'margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; display: flex; flex-direction: column; gap: 4px;';
+            let currentOl = document.createElement('ol');
+            currentOl.style.cssText = olCss;
+            let olHasItems = false;
+
+            issue.fix.forEach(step => {
+                if (step && step.code) {
+                    if (olHasItems) {
+                        body.appendChild(currentOl);
+                        currentOl = document.createElement('ol');
+                        currentOl.style.cssText = olCss;
+                        currentOl.style.marginTop = '6px';
+                        olHasItems = false;
+                    }
+                    body.appendChild(this.createCodeBlock(step.code));
+                } else {
+                    const li = document.createElement('li');
+                    li.textContent = step;
+                    currentOl.appendChild(li);
+                    olHasItems = true;
+                }
+            });
+
+            if (olHasItems) {
+                body.appendChild(currentOl);
+            }
+
+            if (issue.note) {
+                const noteEl = document.createElement('div');
+                noteEl.style.cssText = 'margin-top: 10px; font-size: 11.5px; color: var(--text-secondary); padding: 7px 10px; background: rgba(0,188,212,0.05); border-radius: 6px; border-left: 2px solid var(--accent-primary); line-height: 1.5;';
+                const noteLabel = document.createElement('strong');
+                noteLabel.style.color = 'var(--accent-primary)';
+                noteLabel.textContent = 'Note: ';
+                noteEl.appendChild(noteLabel);
+                noteEl.appendChild(document.createTextNode(issue.note));
+                body.appendChild(noteEl);
+            }
+
+            box.appendChild(body);
+
+            header.addEventListener('click', () => {
+                const hidden = body.style.display === 'none';
+                body.style.display = hidden ? 'block' : 'none';
+                indicator.textContent = hidden ? '\u2212' : '+';
+            });
+
+            frag.appendChild(box);
+        });
+
+        // Footer link to GitHub issues
+        const footer = document.createElement('div');
+        footer.style.cssText = 'margin-top: 12px; font-size: 12px; color: var(--text-secondary);';
+        footer.appendChild(document.createTextNode('Still stuck? '));
+        const issueLink = document.createElement('a');
+        issueLink.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues';
+        issueLink.target = '_blank';
+        issueLink.style.cssText = 'color: var(--accent-primary); text-decoration: none;';
+        issueLink.textContent = 'Open an issue on GitHub';
+        issueLink.addEventListener('mouseenter', () => { issueLink.style.textDecoration = 'underline'; });
+        issueLink.addEventListener('mouseleave', () => { issueLink.style.textDecoration = 'none'; });
+        footer.appendChild(issueLink);
+        footer.appendChild(document.createTextNode(' or join our Discord for help.'));
+        frag.appendChild(footer);
 
         return frag;
     },
