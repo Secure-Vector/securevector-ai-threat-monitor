@@ -67,16 +67,14 @@ One command to install. One command to start. Point your app to `localhost:8742/
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
-<td width="50%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Agent Tool Permissions — allow or block tools by name or category</em></td>
+<td width="33%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
+<td width="33%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Tool Permissions — allow or block tools by name or category</em></td>
+<td width="33%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — decision, tool, args, and timestamp for every call</em></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
-<td width="50%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — click any row for full context: decision, tool, args, and timestamp</em></td>
-<td width="50%"></td>
+<td width="33%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
+<td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
+<td width="33%"></td>
 </tr>
 </table>
 
@@ -84,10 +82,12 @@ One command to install. One command to start. Point your app to `localhost:8742/
 
 ## Why SecureVector?
 
-| Without SecureVector | With SecureVector |
-|---------------------|-------------------|
+| ❌ Without SecureVector | ✅ With SecureVector |
+|---|---|
 | Prompt injections pass straight through | Blocked before they reach the LLM |
 | API keys and PII leak in prompts | Automatically redacted |
+| No control over what tools agents can use | Fine-grained allow/block rules per tool |
+| No audit trail of tool calls | Full tool call history with decisions and reasons |
 | No idea what agents are spending | Real-time cost tracking per agent |
 | One runaway agent = surprise $500 bill | Hard budget limits with auto-stop |
 | Zero visibility into agent traffic | Live dashboard showing everything |
