@@ -26,6 +26,12 @@ _TEMPLATE = """\
 #
 # Config location: {path}
 
+server:
+  # Web UI / API server host and port
+  # Change these if port 8741 is already in use on your machine.
+  host: {server_host}
+  port: {server_port}
+
 security:
   # Block detected threats (true) or log/warn only (false)
   block_mode: {block_mode}
@@ -117,6 +123,8 @@ DEFAULT_INTEGRATION = "openclaw"
 DEFAULT_PROXY_MODE = "multi-provider"
 DEFAULT_PROXY_HOST = "127.0.0.1"
 DEFAULT_PROXY_PORT = 8742
+DEFAULT_SERVER_HOST = "127.0.0.1"
+DEFAULT_SERVER_PORT = 8741
 
 
 def save_config(
@@ -132,11 +140,15 @@ def save_config(
     proxy_provider: Optional[str] = None,
     proxy_host: str = DEFAULT_PROXY_HOST,
     proxy_port: int = DEFAULT_PROXY_PORT,
+    server_host: str = DEFAULT_SERVER_HOST,
+    server_port: int = DEFAULT_SERVER_PORT,
 ) -> Path:
     """Write current settings to svconfig.yml. Returns the config path."""
     path = get_config_path()
     content = _TEMPLATE.format(
         path=path,
+        server_host=server_host,
+        server_port=server_port,
         block_mode=str(block_mode).lower(),
         output_scan=str(output_scan).lower(),
         daily_limit=_fmt_amount(budget_daily_limit),
@@ -155,6 +167,42 @@ def save_config(
     except Exception as e:
         logger.warning(f"Failed to write config to {path}: {e}")
     return path
+
+
+def get_server_defaults() -> tuple[str, int]:
+    """
+    Return (host, port) from svconfig.yml server section.
+    Falls back to defaults if the file doesn't exist or the keys are missing.
+    """
+    config = load_config()
+    server = config.get("server", {})
+    host = server.get("host", DEFAULT_SERVER_HOST)
+    port = server.get("port", DEFAULT_SERVER_PORT)
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        port = DEFAULT_SERVER_PORT
+    return str(host), port
+
+
+def get_proxy_defaults() -> tuple[str, Optional[int]]:
+    """
+    Return (host, port) from svconfig.yml proxy section.
+    Port is None if not set in config (caller should use its own default).
+    Falls back to DEFAULT_PROXY_HOST for host if not set.
+    """
+    config = load_config()
+    proxy = config.get("proxy", {})
+    host = proxy.get("host", DEFAULT_PROXY_HOST)
+    raw_port = proxy.get("port", None)
+    if raw_port is not None:
+        try:
+            port: Optional[int] = int(raw_port)
+        except (TypeError, ValueError):
+            port = None
+    else:
+        port = None
+    return str(host), port
 
 
 async def apply_config_to_db(db) -> None:
@@ -209,8 +257,8 @@ async def apply_config_to_db(db) -> None:
         except Exception as e:
             logger.warning(f"Could not apply budget config: {e}")
 
-    # Always ensure the config file exists (create default if missing)
-    if not config:
+    # Always ensure the config file exists (create default if missing or incomplete)
+    if not config or "server" not in config:
         try:
             settings = await settings_repo.get()
             try:
@@ -219,6 +267,8 @@ async def apply_config_to_db(db) -> None:
                 budget_data = {}
             budget_action = budget_data.get("budget_action", "warn")
             daily = budget_data.get("daily_budget_usd")
+            _proxy = config.get("proxy", {})
+            _server = config.get("server", {})
             save_config(
                 block_mode=settings.block_threats,
                 output_scan=settings.scan_llm_responses,
@@ -226,10 +276,12 @@ async def apply_config_to_db(db) -> None:
                 budget_block=(budget_action == "block"),
                 budget_daily_limit=daily if daily and daily > 0 else None,
                 tools_enforcement=settings.tool_permissions_enabled,
-                proxy_integration=DEFAULT_INTEGRATION,
-                proxy_mode=DEFAULT_PROXY_MODE,
-                proxy_host=DEFAULT_PROXY_HOST,
-                proxy_port=DEFAULT_PROXY_PORT,
+                proxy_integration=_proxy.get("integration", DEFAULT_INTEGRATION),
+                proxy_mode=_proxy.get("mode", DEFAULT_PROXY_MODE),
+                proxy_host=_proxy.get("host", DEFAULT_PROXY_HOST),
+                proxy_port=int(_proxy.get("port", DEFAULT_PROXY_PORT)),
+                server_host=_server.get("host", DEFAULT_SERVER_HOST),
+                server_port=int(_server.get("port", DEFAULT_SERVER_PORT)),
             )
         except Exception as e:
             logger.warning(f"Could not create default config: {e}")

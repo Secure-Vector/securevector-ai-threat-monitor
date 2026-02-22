@@ -27,6 +27,10 @@ const API = {
                 throw new Error(error.detail || `HTTP ${response.status}`);
             }
 
+            if (response.status === 204) {
+                return {};
+            }
+
             return await response.json();
         } catch (error) {
             console.error(`API Error [${endpoint}]:`, error);
@@ -334,6 +338,16 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ids }),
         });
+    },
+
+    async deleteRule(ruleId) {
+        return this.request(`/api/rules/custom/${encodeURIComponent(ruleId)}`, {
+            method: 'DELETE',
+        });
+    },
+
+    async getProxyStatus() {
+        return this.request('/api/proxy/status');
     },
 
     // ==================== LLM Settings ====================

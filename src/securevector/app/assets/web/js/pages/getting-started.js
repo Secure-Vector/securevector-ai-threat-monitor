@@ -1163,10 +1163,14 @@ const GettingStartedPage = {
     },
 
     createCodeBlock(code) {
-        // Substitute actual running ports so display and Copy both show the right port
+        // Substitute actual running ports and host so display and Copy both show the right values
         const _pp = window.__SV_PROXY_PORT; const _wp = window.__SV_WEB_PORT;
-        if (_pp && _pp !== 8742) code = code.replaceAll(':8742', ':' + _pp).replaceAll('://127.0.0.1:8742', '://127.0.0.1:' + _pp);
-        if (_wp && _wp !== 8741) code = code.replaceAll(':8741', ':' + _wp).replaceAll('://127.0.0.1:8741', '://127.0.0.1:' + _wp);
+        const _host = window.__SV_HOST;
+        if (_pp && _pp !== 8742) code = code.replaceAll(':8742', ':' + _pp);
+        if (_wp && _wp !== 8741) code = code.replaceAll(':8741', ':' + _wp);
+        if (_host && _host !== 'localhost' && _host !== '127.0.0.1') {
+            code = code.replaceAll('://localhost:', '://' + _host + ':').replaceAll('://127.0.0.1:', '://' + _host + ':');
+        }
 
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'position: relative;';

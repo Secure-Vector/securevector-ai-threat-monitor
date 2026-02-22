@@ -4,7 +4,7 @@
 
 <h3>AI Firewall for Agents — Block prompt injection, tool abuse, and data leaks before and after the LLM.</h3>
 
-<p>Also tracks every token and enforces budget limits so you never wake up to a surprise bill.</p>
+<p>Your AI agent is flying blind. SecureVector fixes that — block prompt injection, tool abuse, and data leaks, track every token, enforce budget limits, and keep a full audit trail.</p>
 
 <p><strong>No coding required.</strong> Download the desktop app, point your AI agent at it — done. Or install with pip.</p>
 
@@ -32,7 +32,7 @@
 
 AI agents are powerful — and completely unprotected.
 
-Your agents send every prompt, every API key, every piece of user data straight to LLM providers with zero filtering. There is no budget limit. No injection protection. No visibility into what is actually happening.
+Every prompt your AI agent sends, every secret it handles, every piece of user data — goes straight to the LLM provider with nothing in between. No spend limit. No injection protection. No audit trail. You're flying blind.
 
 - Developers have reported API bills of hundreds of dollars appearing in days from runaway agents
 - Agent frameworks commonly ship with no budget enforcement, no PII filtering, and no permission model — a risk pattern flagged by MITRE and Gartner in their AI agent security research
@@ -63,11 +63,34 @@ One command to install. One command to start. Point your app to `localhost:8742/
 
 <br>
 
-## See What Your Agents Are Actually Doing
+## Screenshots
 
-Most developers have never seen the raw traffic between their agents and LLM providers.
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
+<td width="50%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Agent Tool Permissions — allow or block tools by name or category</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
+<td width="50%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — click any row for full context: decision, tool, args, and timestamp</em></td>
+<td width="50%"></td>
+</tr>
+</table>
 
-SecureVector gives you a live dashboard showing every request, every token, every dollar — in real time. You might be surprised what you find.
+<br>
+
+## Why SecureVector?
+
+| Without SecureVector | With SecureVector |
+|---------------------|-------------------|
+| Prompt injections pass straight through | Blocked before they reach the LLM |
+| API keys and PII leak in prompts | Automatically redacted |
+| No idea what agents are spending | Real-time cost tracking per agent |
+| One runaway agent = surprise $500 bill | Hard budget limits with auto-stop |
+| Zero visibility into agent traffic | Live dashboard showing everything |
 
 <br>
 
@@ -98,9 +121,18 @@ SecureVector writes `svconfig.yml` to your app data directory on first run. You 
 ```yaml
 # SecureVector Configuration
 # Changes take effect on next restart.
+# The config path is printed to the console when you start the app.
+#
 # Linux:   ~/.local/share/securevector/threat-monitor/svconfig.yml
 # macOS:   ~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml
 # Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml
+
+server:
+  # Web UI / API server listen host and port.
+  # Change these if port 8741 is already in use on your machine.
+  # To listen on all interfaces (e.g. for LAN access), set host: 0.0.0.0
+  host: 127.0.0.1
+  port: 8741
 
 security:
   # Block detected threats (true) or log/warn only (false)
@@ -121,7 +153,10 @@ tools:
   enforcement: true
 
 proxy:
-  # Step 1: Start SecureVector  →  SecureVector proxy starts automatically on port 8742
+  # Setting mode here auto-starts the proxy when you run: securevector-app --web
+  # No --proxy flag needed — proxy starts automatically with the settings below.
+  #
+  # Step 1: Start SecureVector  →  securevector-app --web
   # Step 2: Point your agent at the proxy instead of the LLM provider
   #
   #   Linux / macOS:  export OPENAI_BASE_URL=http://localhost:8742/openai/v1
@@ -133,6 +168,8 @@ proxy:
   integration: openclaw       # or: langchain, langgraph, crewai, ollama
   mode: multi-provider        # or: single (add provider: below)
   provider: null              # required only when mode is "single"
+  host: 127.0.0.1             # proxy listen host (0.0.0.0 for LAN access)
+  port: 8742                  # proxy listen port (default: server.port + 1)
 ```
 
 The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
@@ -260,8 +297,6 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 | Virtual Machines | EC2, Droplets, VMs |
 | Edge / Serverless | Lambda, Workers, Vercel |
 
-<br>
-
 ## Agent Integrations
 
 | Agent/Framework | Integration |
@@ -305,52 +340,25 @@ Built from real attack chains observed against production agent frameworks:
 
 <br>
 
-## Why SecureVector?
-
-| Without SecureVector | With SecureVector |
-|---------------------|-------------------|
-| Prompt injections pass straight through | Blocked before they reach the LLM |
-| API keys and PII leak in prompts | Automatically redacted |
-| No idea what agents are spending | Real-time cost tracking per agent |
-| One runaway agent = surprise $500 bill | Hard budget limits with auto-stop |
-| Zero visibility into agent traffic | Live dashboard showing everything |
-
-<br>
-
-## Screenshots
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
-<td width="50%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Agent Tool Permissions — allow or block tools by name or category</em></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
-<td width="50%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — full audit log with decision, risk, and args</em></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — click any row for full context: decision, tool, args, and timestamp</em></td>
-<td width="50%"></td>
-</tr>
-</table>
-
-<br>
-
 ## Open Source
 
 SecureVector is fully open source. No cloud required. No accounts. No tracking. Run it, fork it, contribute to it.
 
 **Built for** solo developers and small teams who ship AI agents without a security team or a FinOps budget. If you are building with LangChain, CrewAI, OpenClaw, or any agent framework — and you do not have someone watching your agent traffic and API spend — SecureVector is for you.
 
-<br>
+## Open Source vs Cloud
 
-## Documentation
+| Open Source (100% Free) | Cloud (Optional) |
+|-------------------------|------------------|
+| Apache 2.0 license | Expert-curated rule library |
+| Community detection rules | Multi-stage ML threat analysis |
+| Custom YAML rules | Real-time cloud dashboard |
+| 100% local by default, no data sharing | Team collaboration |
+| Desktop app + local API | Priority support |
 
-- [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
-- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, n8n, FastAPI
-- [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
-- [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
-- [Security Policy](.github/SECURITY.md) — Vulnerability disclosure
+> **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
+
+[**Try Free**](https://app.securevector.io)
 
 <br>
 
@@ -386,23 +394,8 @@ No Python required. Download and run.
 | Install | Use Case | Size |
 |---------|----------|------|
 | `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration | ~18MB |
+| `pip install securevector-ai-monitor[app]` | **Full app** — web UI, LLM proxy, cost tracking, tool permissions | 453 KB wheel · ~16 MB total on disk (incl. dependencies) |
 | `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
-
-<br>
-
-## Open Source vs Cloud
-
-| Open Source (100% Free) | Cloud (Optional) |
-|-------------------------|------------------|
-| Apache 2.0 license | Expert-curated rule library |
-| Community detection rules | Multi-stage ML threat analysis |
-| Custom YAML rules | Real-time cloud dashboard |
-| 100% local by default, no data sharing | Team collaboration |
-| Desktop app + local API | Priority support |
-
-> **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
-
-[**Try Free**](https://app.securevector.io)
 
 <br>
 
@@ -422,13 +415,13 @@ After updating, restart SecureVector.
 
 <br>
 
-## Compatibility Notes
+## Documentation
 
-| Issue | Resolution |
-|-------|------------|
-| Python 3.9: `dict \| None` union type syntax requires Python 3.10+ | Changed to `Optional[dict]` from `typing` in test files |
-| `fastapi` missing from `[dev]` extras — FastAPI test client unavailable in CI | Added `fastapi>=0.100.0` and `httpx>=0.24.0` to `[dev]` in `setup.py` |
-| CodeQL: API key exposed via exception URL in log output | Changed `logger.error(f"...{e}")` to log exception type only, avoiding Gemini `key=` query param |
+- [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
+- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, n8n, FastAPI
+- [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
+- [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
+- [Security Policy](.github/SECURITY.md) — Vulnerability disclosure
 
 <br>
 
@@ -442,6 +435,14 @@ pytest tests/ -v
 ```
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
+
+## Compatibility Notes
+
+| Issue | Resolution |
+|-------|------------|
+| Python 3.9: `dict \| None` union type syntax requires Python 3.10+ | Changed to `Optional[dict]` from `typing` in test files |
+| `fastapi` missing from `[dev]` extras — FastAPI test client unavailable in CI | Added `fastapi>=0.100.0` and `httpx>=0.24.0` to `[dev]` in `setup.py` |
+| CodeQL: API key exposed via exception URL in log output | Changed `logger.error(f"...{e}")` to log exception type only, avoiding Gemini `key=` query param |
 
 <br>
 

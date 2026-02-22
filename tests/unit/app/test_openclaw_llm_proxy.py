@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 # Skip entire module if optional LLM proxy dependencies are not installed
 pytest.importorskip("uvicorn", reason="uvicorn not installed; skipping LLM proxy tests")
+pytest.importorskip("fastapi", reason="fastapi not installed; skipping LLM proxy tests")
 
 import httpx
 from fastapi.testclient import TestClient

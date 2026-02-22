@@ -160,6 +160,7 @@ async def get_proxy_status():
     proxy_port = _get_proxy_port()
     return {
         "running": running,
+        "port": proxy_port,
         "provider": _current_provider if running else None,
         "integration": _current_integration if running else None,
         "multi": _multi_mode if running else False,

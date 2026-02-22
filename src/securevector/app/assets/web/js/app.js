@@ -31,9 +31,10 @@ const App = {
         // Load saved theme
         this.loadTheme();
 
-        // Fetch live proxy port and web port once — used by applyDynamicPorts()
+        // Fetch live proxy port, web port, and host once — used by applyDynamicPorts()
         window.__SV_WEB_PORT = parseInt(window.location.port) || 8741;
         window.__SV_PROXY_PORT = window.__SV_WEB_PORT + 1; // optimistic fallback
+        window.__SV_HOST = window.location.hostname || 'localhost';
         try {
             const status = await API.getProxyStatus();
             if (status && status.port) window.__SV_PROXY_PORT = status.port;

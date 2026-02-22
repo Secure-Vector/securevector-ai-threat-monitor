@@ -153,6 +153,14 @@ def run_web(host: str, port: int) -> None:
     print(f"  ─────────────────────────────────────────")
     print(f"  Web UI:  http://{host}:{port}")
     print(f"  API:     http://{host}:{port}/docs")
+    try:
+        from securevector.app.utils.config_file import get_config_path
+        _cfg_path = get_config_path()
+        print(f"  Config:  {_cfg_path}")
+        if not _cfg_path.exists():
+            print(f"           (will be created on first run)")
+    except Exception:
+        pass
     print(f"\n  Press Ctrl+C to stop\n")
 
     url = f"http://{host}:{port}"
@@ -167,7 +175,7 @@ def run_web(host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
-def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False) -> None:
+def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False, proxy_host: str = "127.0.0.1") -> None:
     """Run LLM proxy only (no web server)."""
     try:
         from securevector.integrations.openclaw_llm_proxy import LLMProxy, MultiProviderProxy
@@ -190,14 +198,14 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
 
         print(f"  SecureVector Multi-Provider LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
-        print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
+        print(f"  Proxy:      http://{proxy_host}:{proxy_port}")
         print(f"  Reports to: http://127.0.0.1:{securevector_port}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         print(f"\n  Multi-provider routing enabled!")
         print(f"  Use path-based URLs:")
-        print(f"    http://localhost:{proxy_port}/openai/v1")
-        print(f"    http://localhost:{proxy_port}/anthropic")
-        print(f"    http://localhost:{proxy_port}/ollama/v1")
+        print(f"    http://{proxy_host}:{proxy_port}/openai/v1")
+        print(f"    http://{proxy_host}:{proxy_port}/anthropic")
+        print(f"    http://{proxy_host}:{proxy_port}/ollama/v1")
         print(f"\n  Press Ctrl+C to stop\n")
     else:
         # Single provider mode
@@ -213,17 +221,17 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
 
         print(f"  SecureVector LLM Proxy v{__version__}")
         print(f"  ─────────────────────────────────────────")
-        print(f"  Proxy:      http://127.0.0.1:{proxy_port}")
+        print(f"  Proxy:      http://{proxy_host}:{proxy_port}")
         print(f"  Reports to: http://127.0.0.1:{securevector_port}")
         print(f"  Provider:   {provider} → {target_url}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         print(f"\n  Start OpenClaw with:")
-        print(f"    OPENAI_BASE_URL=http://localhost:{proxy_port} openclaw gateway")
+        print(f"    OPENAI_BASE_URL=http://{proxy_host}:{proxy_port} openclaw gateway")
         print(f"\n  Press Ctrl+C to stop\n")
 
     app = proxy.create_app()
     try:
-        uvicorn.run(app, host="127.0.0.1", port=proxy_port, log_level="warning" if not verbose else "info")
+        uvicorn.run(app, host=proxy_host, port=proxy_port, log_level="warning" if not verbose else "info")
     except KeyboardInterrupt:
         print("\n[llm-proxy] Shutting down...")
     finally:
@@ -302,7 +310,7 @@ def run_web_with_proxy(host: str, port: int, platform: str, proxy_port: int, tar
         print("\n  Shutting down...")
 
 
-def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False) -> None:
+def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False, proxy_host: str = "127.0.0.1") -> None:
     """Run web server and LLM proxy together."""
     import asyncio
     import uvicorn
@@ -327,16 +335,16 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
     print(f"  API:        http://{host}:{port}/docs")
 
     if multi:
-        print(f"  LLM Proxy:  http://127.0.0.1:{proxy_port} (multi-provider)")
+        print(f"  LLM Proxy:  http://{proxy_host}:{proxy_port} (multi-provider)")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         if verbose:
             print(f"  Verbose:    ON")
         print(f"\n  Multi-provider routing enabled!")
         print(f"  Configure your apps with:")
-        print(f"    OpenAI:    base_url=\"http://localhost:{proxy_port}/openai/v1\"")
-        print(f"    Anthropic: base_url=\"http://localhost:{proxy_port}/anthropic\"")
-        print(f"    Ollama:    base_url=\"http://localhost:{proxy_port}/ollama/v1\"")
-        print(f"    Groq:      base_url=\"http://localhost:{proxy_port}/groq/v1\"")
+        print(f"    OpenAI:    base_url=\"http://{proxy_host}:{proxy_port}/openai/v1\"")
+        print(f"    Anthropic: base_url=\"http://{proxy_host}:{proxy_port}/anthropic\"")
+        print(f"    Ollama:    base_url=\"http://{proxy_host}:{proxy_port}/ollama/v1\"")
+        print(f"    Groq:      base_url=\"http://{proxy_host}:{proxy_port}/groq/v1\"")
 
         proxy = MultiProviderProxy(
             securevector_url=f"http://127.0.0.1:{port}",
@@ -348,12 +356,12 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         set_proxy_running_in_process(True, "multi", integration=integration_name)
     else:
         target_url = LLMProxy.PROVIDERS.get(provider, "https://api.openai.com")
-        print(f"  LLM Proxy:  http://127.0.0.1:{proxy_port} → {provider}")
+        print(f"  LLM Proxy:  http://{proxy_host}:{proxy_port} → {provider}")
         print(f"  Mode:       {'BLOCK' if block_threats else 'ANALYZE'}")
         if verbose:
             print(f"  Verbose:    ON")
         print(f"\n  Configure your app with:")
-        print(f"    OPENAI_BASE_URL=http://localhost:{proxy_port}/v1 python your_app.py")
+        print(f"    OPENAI_BASE_URL=http://{proxy_host}:{proxy_port}/v1 python your_app.py")
 
         proxy = LLMProxy(
             target_url=target_url,
@@ -374,7 +382,7 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         web_config = uvicorn.Config(web_app, host=host, port=port, log_level="warning")
         web_server = uvicorn.Server(web_config)
 
-        proxy_config = uvicorn.Config(proxy_app, host="127.0.0.1", port=proxy_port, log_level="warning" if not verbose else "info")
+        proxy_config = uvicorn.Config(proxy_app, host=proxy_host, port=proxy_port, log_level="warning" if not verbose else "info")
         proxy_server = uvicorn.Server(proxy_config)
 
         await asyncio.gather(
@@ -999,9 +1007,42 @@ Examples:
 
     args = parser.parse_args()
 
-    # Auto-compute proxy port as app port + 1 if not explicitly specified
+    # If --port / --host were not explicitly passed, prefer values from svconfig.yml
+    explicit_args = {a.lstrip("-").replace("-", "_") for a in sys.argv[1:] if a.startswith("-")}
+    if "port" not in explicit_args or "host" not in explicit_args:
+        try:
+            from securevector.app.utils.config_file import get_server_defaults
+            cfg_host, cfg_port = get_server_defaults()
+            if "port" not in explicit_args:
+                args.port = cfg_port
+            if "host" not in explicit_args:
+                args.host = cfg_host
+        except Exception:
+            pass  # Fall back to argparse defaults
+
+    # Read proxy defaults from config (host, port, mode, integration)
+    _proxy_host_cfg = "127.0.0.1"
+    _proxy_port_cfg: "int | None" = None
+    _config_wants_proxy = False
+    _proxy_mode_cfg = "multi-provider"
+    _proxy_integration_cfg = "openclaw"
+    try:
+        from securevector.app.utils.config_file import get_proxy_defaults, load_config as _load_cfg, VALID_PROXY_MODES
+        _proxy_host_cfg, _proxy_port_cfg = get_proxy_defaults()
+        _cfg_data = _load_cfg()
+        _proxy_cfg_data = _cfg_data.get("proxy", {})
+        _proxy_mode_cfg = _proxy_cfg_data.get("mode", "")
+        _proxy_integration_cfg = _proxy_cfg_data.get("integration", "openclaw")
+        _config_wants_proxy = _proxy_mode_cfg in VALID_PROXY_MODES
+    except Exception:
+        pass
+
+    # Auto-compute proxy port: CLI > config file > (server port + 1)
     if args.proxy_port is None:
-        args.proxy_port = args.port + 1
+        if _proxy_port_cfg is not None:
+            args.proxy_port = _proxy_port_cfg
+        else:
+            args.proxy_port = args.port + 1
 
     # Expose ports to the FastAPI process via env vars so proxy routes use the right ports
     import os
@@ -1089,11 +1130,11 @@ Examples:
 
         if args.web:
             # Run both web server and LLM proxy together
-            run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode, args.multi, args.openclaw)
+            run_web_with_llm_proxy(args.host, args.port, args.provider, args.proxy_port, args.verbose, args.mode, args.multi, args.openclaw, proxy_host=_proxy_host_cfg)
             return
         else:
             # Run LLM proxy only
-            run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi, args.openclaw)
+            run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi, args.openclaw, proxy_host=_proxy_host_cfg)
             return
 
     # Check if required ports are already in use and warn early
@@ -1136,23 +1177,6 @@ Examples:
     db = asyncio.run(init_database())
     asyncio.run(init_database_schema(db))
 
-    # Read svconfig.yml — auto-start proxy if configured
-    try:
-        from securevector.app.utils.config_file import load_config, VALID_INTEGRATIONS, VALID_PROXY_MODES
-        _cfg = load_config()
-        _proxy_cfg = _cfg.get("proxy", {})
-        _proxy_mode = _proxy_cfg.get("mode", "")
-        _proxy_integration = _proxy_cfg.get("integration", "openclaw")
-        _proxy_host = _proxy_cfg.get("host", "127.0.0.1")
-        _proxy_port = int(_proxy_cfg.get("port", 8742))
-        _config_wants_proxy = _proxy_mode in ("multi-provider", "single")
-    except Exception:
-        _config_wants_proxy = False
-        _proxy_mode = ""
-        _proxy_integration = "openclaw"
-        _proxy_host = "127.0.0.1"
-        _proxy_port = 8742
-
     logger.info(f"Starting SecureVector on {args.host}:{args.port}")
 
     # Write runtime state so a separately-started proxy can auto-detect the web app port
@@ -1167,7 +1191,15 @@ Examples:
         pass
 
     if args.web:
-        run_web(args.host, args.port)
+        if _config_wants_proxy:
+            run_web_with_llm_proxy(
+                args.host, args.port, _proxy_integration_cfg, args.proxy_port,
+                args.verbose, args.mode,
+                multi=(_proxy_mode_cfg == "multi-provider"),
+                proxy_host=_proxy_host_cfg,
+            )
+        else:
+            run_web(args.host, args.port)
     else:
         run_desktop(args.host, args.port, args.debug)
 

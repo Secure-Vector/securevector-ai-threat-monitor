@@ -197,13 +197,13 @@ html, body {
 .cloud-toggle-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+    gap: 5px;
+    padding: 5px 10px;
     background: var(--bg-tertiary);
-    border: 2px solid var(--border-default);
+    border: 1.5px solid var(--border-default);
     border-radius: var(--radius-md);
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -215,14 +215,14 @@ html, body {
 }
 
 .cloud-toggle-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
 }
 
 .cloud-toggle-btn.gradient-btn {
     background: var(--gradient);
     border: none;
-    padding: 10px 16px;
+    padding: 6px 12px;
     color: #ffffff;
     font-weight: 600;
 }
@@ -240,13 +240,13 @@ html, body {
 .llm-toggle-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+    gap: 5px;
+    padding: 5px 10px;
     background: var(--bg-tertiary);
-    border: 2px solid var(--accent-primary);
+    border: 1.5px solid var(--accent-primary);
     border-radius: var(--radius-md);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -258,8 +258,8 @@ html, body {
 }
 
 .llm-toggle-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
     color: var(--accent-primary);
 }
 
@@ -4444,6 +4444,26 @@ thead tr:hover #audit-select-all,
     width: 8px;
     height: 1.5px;
     background: #00bcd4;
+}
+
+/* Custom rules checkboxes */
+.rule-row-cb,
+.rule-select-all {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--primary, #00bcd4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
+
+tr:hover .rule-row-cb,
+thead tr:hover .rule-select-all,
+#custom-rules-table.has-selection .rule-row-cb,
+#custom-rules-table.has-selection .rule-select-all {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 /* Cost records checkboxes */
