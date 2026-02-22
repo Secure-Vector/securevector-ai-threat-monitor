@@ -329,3 +329,18 @@ class CustomToolsRepository:
             (f"-{days} days",),
         )
         return [dict(r) for r in rows] if rows else []
+
+    async def delete_audit_entries(self, ids: list[int]) -> int:
+        """Delete audit log entries by their IDs.
+
+        Returns:
+            Number of rows deleted.
+        """
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        await self.db.execute(
+            f"DELETE FROM tool_call_audit WHERE id IN ({placeholders})",
+            tuple(ids),
+        )
+        return len(ids)

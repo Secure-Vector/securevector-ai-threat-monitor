@@ -81,15 +81,21 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
 
     effective_provider = provider or "openai"
 
+    # Web app port — used so the subprocess knows where to report threats
+    import os as _os
+    web_port = int(_os.environ.get('SV_WEB_PORT', '8741'))
+
     if integration == "openclaw":
-        cmd = ["securevector-app", "--proxy", "--openclaw", "--proxy-port", str(port)]
+        cmd = ["securevector-app", "--proxy", "--openclaw",
+               "--proxy-port", str(port), "--port", str(web_port)]
         if multi:
             cmd.append("--multi")
         else:
             cmd.extend(["--provider", effective_provider])
     else:
         cmd = [sys.executable, "-m", "securevector.integrations.openclaw_llm_proxy",
-               "--port", str(port)]
+               "--port", str(port),
+               "--securevector-url", f"http://127.0.0.1:{web_port}"]
         if multi:
             cmd.append("--multi")
         else:
@@ -187,6 +193,9 @@ async def start_proxy(request: StartProxyRequest = None):
         return {"status": "already_running", "message": f"Proxy already running on port {proxy_port} (started externally)"}
 
     try:
+        import os as _os
+        web_port = int(_os.environ.get('SV_WEB_PORT', '8741'))
+
         # Build command - use securevector-app for OpenClaw to enable patching
         if integration == 'openclaw':
             # Use securevector-app command for OpenClaw to trigger patching logic
@@ -195,6 +204,7 @@ async def start_proxy(request: StartProxyRequest = None):
                 "--proxy",
                 "--openclaw",
                 "--proxy-port", str(proxy_port),
+                "--port", str(web_port),
             ]
             if multi:
                 cmd.append("--multi")
@@ -207,6 +217,7 @@ async def start_proxy(request: StartProxyRequest = None):
                 "-m",
                 "securevector.integrations.openclaw_llm_proxy",
                 "--port", str(proxy_port),
+                "--securevector-url", f"http://127.0.0.1:{web_port}",
                 "-v",  # verbose mode
             ]
             if multi:

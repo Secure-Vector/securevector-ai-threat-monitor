@@ -4368,6 +4368,63 @@ html, body {
     transform: scale(1.1);
 }
 
+/* Custom audit checkboxes */
+.audit-row-cb,
+#audit-select-all {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--border-strong, #475569);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: border-color 0.15s, background 0.15s;
+    vertical-align: middle;
+}
+
+.audit-row-cb:hover,
+#audit-select-all:hover {
+    border-color: #00bcd4;
+}
+
+.audit-row-cb:checked,
+#audit-select-all:checked {
+    background: #00bcd4;
+    border-color: #00bcd4;
+}
+
+.audit-row-cb:checked::after,
+#audit-select-all:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 1px;
+    width: 5px;
+    height: 8px;
+    border: 1.5px solid #fff;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+}
+
+#audit-select-all:indeterminate {
+    background: rgba(0,188,212,0.2);
+    border-color: #00bcd4;
+}
+
+#audit-select-all:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 8px;
+    height: 1.5px;
+    background: #00bcd4;
+}
+
 .btn-secondary {
     background: var(--bg-tertiary);
     color: var(--text-primary);

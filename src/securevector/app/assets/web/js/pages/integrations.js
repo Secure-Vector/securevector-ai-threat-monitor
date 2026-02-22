@@ -1019,7 +1019,7 @@ def chat_with_protection(user_input):
         geminiDesc.textContent = 'To use Gemini through the proxy, add a custom provider to ~/.openclaw/openclaw.json under "models.providers":';
         geminiSection.appendChild(geminiDesc);
 
-        const geminiJson = '"gemini-sv": {\n  "baseUrl": "http://localhost:8742' + geminiConfig.path + '",\n  "apiKey": "YOUR_GEMINI_API_KEY",\n  "api": "google-generative-ai",\n  "models": [\n    {\n      "id": "gemini-2.0-flash",\n      "name": "Gemini 2.0 Flash",\n      "contextWindow": 200000,\n      "maxTokens": 8192\n    }\n  ]\n}';
+        const geminiJson = '"gemini-sv": {\n  "baseUrl": "http://localhost:' + (window.__SV_PROXY_PORT || 8742) + geminiConfig.path + '",\n  "apiKey": "YOUR_GEMINI_API_KEY",\n  "api": "google-generative-ai",\n  "models": [\n    {\n      "id": "gemini-2.0-flash",\n      "name": "Gemini 2.0 Flash",\n      "contextWindow": 200000,\n      "maxTokens": 8192\n    }\n  ]\n}';
         const geminiBlock = this.createCodeBlock(geminiJson);
         geminiBlock.style.marginBottom = '8px';
         geminiSection.appendChild(geminiBlock);
@@ -1147,6 +1147,11 @@ def chat_with_protection(user_input):
     },
 
     createCodeBlock(code) {
+        // Substitute actual running ports so display and Copy both show the right port
+        const _pp = window.__SV_PROXY_PORT; const _wp = window.__SV_WEB_PORT;
+        if (_pp && _pp !== 8742) code = code.replaceAll(':8742', ':' + _pp).replaceAll('://127.0.0.1:8742', '://127.0.0.1:' + _pp);
+        if (_wp && _wp !== 8741) code = code.replaceAll(':8741', ':' + _wp).replaceAll('://127.0.0.1:8741', '://127.0.0.1:' + _wp);
+
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'position: relative;';
 

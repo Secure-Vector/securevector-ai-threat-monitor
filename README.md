@@ -89,7 +89,7 @@ SecureVector gives you a live dashboard showing every request, every token, ever
 securevector-app --web
 ```
 
-Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary.
+Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary. If ports 8741/8742 are taken, use `--port <port>` of your choice — the proxy starts automatically on port+1.
 
 **Configure** *(optional — defaults work out of the box)*
 

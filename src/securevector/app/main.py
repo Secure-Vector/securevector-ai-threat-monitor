@@ -748,7 +748,7 @@ def setup_proxy(provider: str = "openai") -> None:
         print(f"         securevector-app --proxy --provider {provider}")
         print()
         print(f"    2. Start OpenClaw with proxy routing:")
-        print(f"         {env_var}=http://localhost:8742{base_path} openclaw gateway")
+        print(f"         {env_var}=http://localhost:{os.environ.get('SV_PROXY_PORT', '8742')}{base_path} openclaw gateway")
         print()
         print(f"  NOTE: Re-run after updating OpenClaw (npm update -g openclaw)")
         print()
@@ -903,12 +903,13 @@ def main() -> None:
 Examples:
   Single provider (Ollama):
     securevector-app --proxy --provider ollama --web
-    Then set: OPENAI_BASE_URL=http://localhost:8742/ollama/v1
+    Then set: OPENAI_BASE_URL=http://localhost:8742/ollama/v1  (proxy port = --port + 1)
 
   Multiple providers (use different LLMs simultaneously):
     securevector-app --proxy --multi --web
     Then set: OPENAI_BASE_URL=http://localhost:8742/openai/v1
               ANTHROPIC_BASE_URL=http://localhost:8742/anthropic
+    (Use --port 8800 to run on 8800/8801 instead of 8741/8742)
 
   OpenClaw integration:
     securevector-app --proxy --provider anthropic --web --openclaw
@@ -1002,9 +1003,10 @@ Examples:
     if args.proxy_port is None:
         args.proxy_port = args.port + 1
 
-    # Expose proxy port to the FastAPI process via env var so proxy routes use the right port
+    # Expose ports to the FastAPI process via env vars so proxy routes use the right ports
     import os
     os.environ['SV_PROXY_PORT'] = str(args.proxy_port)
+    os.environ['SV_WEB_PORT'] = str(args.port)
 
     if args.version:
         print(f"SecureVector Local Threat Monitor v{__version__}")
@@ -1094,6 +1096,26 @@ Examples:
             run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi, args.openclaw)
             return
 
+    # Check if required ports are already in use and warn early
+    _busy_ports = []
+    for _chk_port in [args.port, args.proxy_port]:
+        try:
+            import socket as _sock
+            with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as _s:
+                _s.settimeout(0.2)
+                if _s.connect_ex(('127.0.0.1', _chk_port)) == 0:
+                    _busy_ports.append(_chk_port)
+        except Exception:
+            pass
+    if _busy_ports:
+        _busy_str = ' and '.join(str(p) for p in _busy_ports)
+        _alt = 8800
+        print(f"\n  ⚠  Port {_busy_str} already in use.")
+        print(f"     Start SecureVector on a different port:")
+        print(f"       securevector-app --web --port {_alt}")
+        print(f"     (proxy starts automatically on {_alt + 1})\n")
+        sys.exit(1)
+
     # Check dependencies
     try:
         check_app_dependencies()
@@ -1132,6 +1154,17 @@ Examples:
         _proxy_port = 8742
 
     logger.info(f"Starting SecureVector on {args.host}:{args.port}")
+
+    # Write runtime state so a separately-started proxy can auto-detect the web app port
+    try:
+        import json, pathlib
+        _sv_home = pathlib.Path.home() / '.securevector'
+        _sv_home.mkdir(exist_ok=True)
+        (_sv_home / 'runtime.json').write_text(
+            json.dumps({"web_port": args.port, "proxy_port": args.proxy_port})
+        )
+    except Exception:
+        pass
 
     if args.web:
         run_web(args.host, args.port)

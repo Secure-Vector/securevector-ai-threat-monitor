@@ -29,10 +29,17 @@ try:
     from fastapi import FastAPI, Request, Response, HTTPException
     from fastapi.responses import StreamingResponse
     import uvicorn
-except ImportError:
-    print("Missing dependencies. Install with:")
-    print("  pip install httpx fastapi uvicorn")
-    sys.exit(1)
+except ImportError as _e:
+    _missing = str(_e)
+    if __name__ == "__main__":
+        print("Missing dependencies. Install with:")
+        print("  pip install httpx fastapi uvicorn")
+        sys.exit(1)
+    else:
+        raise ImportError(
+            f"openclaw_llm_proxy requires optional dependencies ({_missing}). "
+            "Install with: pip install httpx fastapi uvicorn"
+        ) from _e
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1730,14 +1737,15 @@ class MultiProviderProxy:
             return await proxy.handle_request(modified_request)
 
         @app.get("/")
-        async def root():
+        async def root(request: Request):
+            base = str(request.base_url).rstrip("/")
             return {
                 "service": "SecureVector Multi-Provider LLM Proxy",
                 "providers": list(LLMProxy.PROVIDERS.keys()),
                 "usage": {
-                    "openai": "OPENAI_BASE_URL=http://localhost:8742/openai/v1",
-                    "anthropic": "ANTHROPIC_BASE_URL=http://localhost:8742/anthropic",
-                    "ollama": "OPENAI_BASE_URL=http://localhost:8742/ollama/v1",
+                    "openai": f"OPENAI_BASE_URL={base}/openai/v1",
+                    "anthropic": f"ANTHROPIC_BASE_URL={base}/anthropic",
+                    "ollama": f"OPENAI_BASE_URL={base}/ollama/v1",
                 },
                 "active_proxies": list(self._proxies.keys()),
             }
@@ -1783,8 +1791,8 @@ def main():
     parser.add_argument(
         "--port", "-p",
         type=int,
-        default=8742,
-        help="Proxy listen port (default: 8742)"
+        default=None,
+        help="Proxy listen port (default: auto-detect from web app, fallback 8742)"
     )
     parser.add_argument(
         "--host",
@@ -1828,6 +1836,19 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Auto-detect proxy port and securevector URL from runtime file if not explicitly set
+    if args.port is None or args.securevector_url == "http://127.0.0.1:8741":
+        try:
+            import json, pathlib
+            _runtime = json.loads((pathlib.Path.home() / '.securevector' / 'runtime.json').read_text())
+            if args.port is None:
+                args.port = _runtime.get('proxy_port', 8742)
+            if args.securevector_url == "http://127.0.0.1:8741":
+                args.securevector_url = f"http://127.0.0.1:{_runtime.get('web_port', 8741)}"
+        except Exception:
+            if args.port is None:
+                args.port = 8742
 
     if args.multi:
         # Multi-provider mode with path-based routing

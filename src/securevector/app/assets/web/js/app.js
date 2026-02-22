@@ -31,6 +31,14 @@ const App = {
         // Load saved theme
         this.loadTheme();
 
+        // Fetch live proxy port and web port once — used by applyDynamicPorts()
+        window.__SV_WEB_PORT = parseInt(window.location.port) || 8741;
+        window.__SV_PROXY_PORT = window.__SV_WEB_PORT + 1; // optimistic fallback
+        try {
+            const status = await API.getProxyStatus();
+            if (status && status.port) window.__SV_PROXY_PORT = status.port;
+        } catch (_) {}
+
         // Render components
         Sidebar.render();
         Header.render();
@@ -143,7 +151,7 @@ const App = {
         step1Body.appendChild(step1Desc);
         const step1Code = document.createElement('div');
         step1Code.style.cssText = 'margin-top: 5px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 4px 10px; border-radius: 4px; display: inline-block;';
-        step1Code.textContent = 'OPENAI_BASE_URL=http://localhost:8742/openai/v1';
+        step1Code.textContent = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
         step1Body.appendChild(step1Code);
         step1.appendChild(step1Body);
         instructionBox.appendChild(step1);
@@ -309,10 +317,41 @@ const App = {
         // Render page
         try {
             await pageHandler.render(container);
+            this.applyDynamicPorts(container);
         } catch (error) {
             console.error('Failed to render page:', error);
             this.renderError(container, error);
         }
+    },
+
+    /**
+     * Walk all text nodes in container and replace default ports with the
+     * actual running ports. Runs after every page render so all instruction
+     * code blocks, env-var examples, and URLs show the correct port.
+     */
+    applyDynamicPorts(container) {
+        const proxyPort = window.__SV_PROXY_PORT;
+        const webPort   = window.__SV_WEB_PORT;
+        if (!proxyPort && !webPort) return;
+        const defaultProxy = 8742;
+        const defaultWeb   = 8741;
+        if (proxyPort === defaultProxy && webPort === defaultWeb) return; // nothing to replace
+
+        const walk = (node) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                let t = node.textContent;
+                if (proxyPort && proxyPort !== defaultProxy) {
+                    t = t.replaceAll(':' + defaultProxy, ':' + proxyPort);
+                }
+                if (webPort && webPort !== defaultWeb) {
+                    t = t.replaceAll(':' + defaultWeb, ':' + webPort);
+                }
+                if (t !== node.textContent) node.textContent = t;
+            } else {
+                node.childNodes.forEach(walk);
+            }
+        };
+        walk(container);
     },
 
     /**

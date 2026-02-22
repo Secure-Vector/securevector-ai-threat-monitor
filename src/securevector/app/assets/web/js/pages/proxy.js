@@ -382,11 +382,12 @@ const ProxyPage = {
             // Build multi-provider command showing OpenAI + Anthropic + selected provider (if different)
             const envLines = [];
             // Always show the two most common providers
-            envLines.push('OPENAI_BASE_URL=http://localhost:8742/openai');
-            envLines.push('ANTHROPIC_BASE_URL=http://localhost:8742/anthropic');
+            const _pp = window.__SV_PROXY_PORT || 8742;
+            envLines.push(`OPENAI_BASE_URL=http://localhost:${_pp}/openai`);
+            envLines.push(`ANTHROPIC_BASE_URL=http://localhost:${_pp}/anthropic`);
             // Add selected provider if it uses a different env var
             if (config.envVar !== 'OPENAI_BASE_URL' && config.envVar !== 'ANTHROPIC_BASE_URL') {
-                envLines.push(`${config.envVar}=http://localhost:8742${config.proxyPath}`);
+                envLines.push(`${config.envVar}=http://localhost:${_pp}${config.proxyPath}`);
             }
             step2Code.textContent = envLines.join(' \\\n') + ' \\\n  openclaw gateway';
             step2.appendChild(step2Code);
@@ -433,11 +434,12 @@ const ProxyPage = {
 
         const jsonCode = document.createElement('code');
         jsonCode.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 11px; font-family: monospace; white-space: pre; line-height: 1.5; margin-bottom: 10px; overflow-x: auto;';
+        const _pp2 = window.__SV_PROXY_PORT || 8742;
         jsonCode.textContent =
 `"models": {
   "providers": {
     "gemini-sv": {
-      "baseUrl": "http://localhost:8742/gemini/v1beta",
+      "baseUrl": "http://localhost:${_pp2}/gemini/v1beta",
       "api": "google-generative-ai",
       "apiKey": "YOUR_GEMINI_API_KEY",
       "models": [{
@@ -764,7 +766,7 @@ const ProxyPage = {
                     const data = await response.json();
                     this.proxyStatus = 'running';
                     this.currentIntegration = data.integration;
-                    Toast.success(`Proxy started (${provider}) on port 8742`);
+                    Toast.success(`Proxy started (${provider}) on port ${window.__SV_PROXY_PORT || 8742}`);
                 } else {
                     throw new Error('Failed to start proxy');
                 }

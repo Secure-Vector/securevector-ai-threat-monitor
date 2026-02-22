@@ -1163,6 +1163,11 @@ const GettingStartedPage = {
     },
 
     createCodeBlock(code) {
+        // Substitute actual running ports so display and Copy both show the right port
+        const _pp = window.__SV_PROXY_PORT; const _wp = window.__SV_WEB_PORT;
+        if (_pp && _pp !== 8742) code = code.replaceAll(':8742', ':' + _pp).replaceAll('://127.0.0.1:8742', '://127.0.0.1:' + _pp);
+        if (_wp && _wp !== 8741) code = code.replaceAll(':8741', ':' + _wp).replaceAll('://127.0.0.1:8741', '://127.0.0.1:' + _wp);
+
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'position: relative;';
 

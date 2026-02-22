@@ -8,6 +8,57 @@ const ToolPermissionsPage = {
     tools: [],
     customTools: [],
     settings: null,
+    auditSelectedIds: new Set(),
+
+    _updateAuditDeleteBtn() {
+        const btn = document.getElementById('audit-delete-selected-btn');
+        if (!btn) return;
+        const count = this.auditSelectedIds.size;
+        if (count > 0) {
+            btn.style.display = '';
+            btn.textContent = `Delete Selected (${count})`;
+        } else {
+            btn.style.display = 'none';
+        }
+    },
+
+    _toggleSelectAllAudit(checked, entries) {
+        if (checked) {
+            entries.forEach(e => this.auditSelectedIds.add(e.id));
+        } else {
+            entries.forEach(e => this.auditSelectedIds.delete(e.id));
+        }
+        document.querySelectorAll('.audit-row-cb').forEach(cb => { cb.checked = checked; });
+        document.querySelectorAll('[data-audit-row]').forEach(tr => tr.classList.toggle('sv-selected', checked));
+        this._updateAuditDeleteBtn();
+    },
+
+    _toggleSelectAuditRecord(id, checked, entries) {
+        if (checked) this.auditSelectedIds.add(id);
+        else this.auditSelectedIds.delete(id);
+        const allCb = document.getElementById('audit-select-all');
+        if (allCb) {
+            allCb.checked = entries.length > 0 && this.auditSelectedIds.size === entries.length;
+            allCb.indeterminate = this.auditSelectedIds.size > 0 && this.auditSelectedIds.size < entries.length;
+        }
+        this._updateAuditDeleteBtn();
+    },
+
+    async _confirmDeleteAuditSelected(reloadFn) {
+        const count = this.auditSelectedIds.size;
+        if (!count) return;
+        const confirmed = confirm(`Delete ${count} selected record${count !== 1 ? 's' : ''}?\n\nThis action cannot be undone.`);
+        if (!confirmed) return;
+        try {
+            await API.deleteToolCallAuditEntries([...this.auditSelectedIds]);
+            this.auditSelectedIds.clear();
+            this._updateAuditDeleteBtn();
+            await reloadFn();
+            if (window.Toast) Toast.show(`Deleted ${count} record${count !== 1 ? 's' : ''}`, 'success');
+        } catch (e) {
+            if (window.Toast) Toast.show('Failed to delete records', 'error');
+        }
+    },
 
     // ==================== Shared Constants ====================
 
@@ -668,9 +719,11 @@ const ToolPermissionsPage = {
 
     async renderAuditSection(container) {
         const RISK_COLORS = this.RISK_COLORS;
+        const self = this;
         const PAGE_SIZE = 50;
         let currentPage = 1;
         let totalEntries = 0;
+        this.auditSelectedIds = new Set();
 
         // ── 7-day activity chart ─────────────────────────────────────────
         const chartCard = document.createElement('div');
@@ -860,6 +913,14 @@ const ToolPermissionsPage = {
         refreshBtn.addEventListener('mouseleave', () => { refreshBtn.style.color = 'var(--text-muted)'; });
         toolbar.appendChild(refreshBtn);
 
+        const deleteSelectedBtn = document.createElement('button');
+        deleteSelectedBtn.id = 'audit-delete-selected-btn';
+        deleteSelectedBtn.className = 'btn btn-danger';
+        deleteSelectedBtn.style.cssText = 'display: none; margin-left: 4px;';
+        deleteSelectedBtn.textContent = 'Delete Selected (0)';
+        deleteSelectedBtn.addEventListener('click', () => self._confirmDeleteAuditSelected(() => loadAuditData(activeFilter)));
+        toolbar.appendChild(deleteSelectedBtn);
+
         container.appendChild(toolbar);
 
         // Table wrapper
@@ -889,6 +950,18 @@ const ToolPermissionsPage = {
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
         headRow.style.cssText = 'border-bottom: 1px solid var(--border-default); position: sticky; top: 0; background: var(--bg-card); z-index: 1;';
+
+        // Select-all checkbox column header
+        const selectAllTh = document.createElement('th');
+        selectAllTh.style.cssText = 'padding: 9px 8px; width: 28px; text-align: center;';
+        const selectAllCb = document.createElement('input');
+        selectAllCb.type = 'checkbox';
+        selectAllCb.id = 'audit-select-all';
+        selectAllCb.addEventListener('change', (e) => {
+            self._toggleSelectAllAudit(e.target.checked, lastEntries);
+        });
+        selectAllTh.appendChild(selectAllCb);
+        headRow.appendChild(selectAllTh);
 
         const thEls = [];
         const updateSortIndicators = () => {
@@ -984,7 +1057,7 @@ const ToolPermissionsPage = {
         // Empty / loading row
         const emptyRow = document.createElement('tr');
         const emptyCell = document.createElement('td');
-        emptyCell.colSpan = 8;
+        emptyCell.colSpan = 9;
         emptyCell.style.cssText = 'padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px;';
         emptyCell.textContent = 'Loading tool call history…';
         emptyRow.appendChild(emptyCell);
@@ -1122,9 +1195,29 @@ const ToolPermissionsPage = {
             tr.title = 'Click to view details';
             const rowBg = idx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent';
             tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + '; cursor: pointer;';
-            tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--bg-tertiary)'; });
-            tr.addEventListener('mouseleave', () => { tr.style.background = rowBg; });
-            tr.addEventListener('click', () => {
+            if (self.auditSelectedIds.has(entry.id)) { tr.classList.add('sv-selected'); tr.style.background = 'rgba(6,182,212,0.06)'; }
+            tr.addEventListener('mouseenter', () => { if (!tr.classList.contains('sv-selected')) tr.style.background = 'var(--bg-tertiary)'; });
+            tr.addEventListener('mouseleave', () => { tr.style.background = tr.classList.contains('sv-selected') ? 'rgba(6,182,212,0.06)' : rowBg; });
+
+            // Checkbox cell
+            const tdCb = document.createElement('td');
+            tdCb.style.cssText = 'padding: 8px 8px; width: 28px; text-align: center;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'audit-row-cb';
+            cb.checked = self.auditSelectedIds.has(entry.id);
+            cb.addEventListener('click', (e) => e.stopPropagation());
+            cb.addEventListener('change', () => {
+                if (cb.checked) tr.style.background = 'rgba(6,182,212,0.06)';
+                else tr.style.background = rowBg;
+                tr.classList.toggle('sv-selected', cb.checked);
+                self._toggleSelectAuditRecord(entry.id, cb.checked, lastEntries);
+            });
+            tdCb.appendChild(cb);
+            tr.appendChild(tdCb);
+
+            tr.addEventListener('click', (e) => {
+                if (e.target.type === 'checkbox') return;
                 SideDrawer.show({ title: 'Tool Call Detail', content: buildDrawerContent(entry) });
             });
 
@@ -1229,6 +1322,10 @@ const ToolPermissionsPage = {
             emptyRow.style.display = 'table-row';
             emptyCell.textContent = 'Loading\u2026';
             Array.from(tbody.querySelectorAll('[data-audit-row]')).forEach(r => r.remove());
+            self.auditSelectedIds.clear();
+            self._updateAuditDeleteBtn();
+            const allCbEl = document.getElementById('audit-select-all');
+            if (allCbEl) { allCbEl.checked = false; allCbEl.indeterminate = false; }
             prevBtn.disabled = true;
             nextBtn.disabled = true;
             pageInfo.textContent = '';

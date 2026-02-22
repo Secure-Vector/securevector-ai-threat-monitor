@@ -289,9 +289,9 @@ const Sidebar = {
         // Try SecureVector button — opens floating chat
         const tryBtn = document.createElement('button');
         tryBtn.className = 'try-it-trigger-btn';
-        const tryIcon = document.createElement('span');
-        tryIcon.textContent = '🔍';
-        tryIcon.style.fontSize = '13px';
+        const tryIcon = document.createElement('img');
+        tryIcon.src = '/images/favicon.png';
+        tryIcon.style.cssText = 'width:14px; height:14px; object-fit:contain; flex-shrink:0;';
         const tryLabel = document.createElement('span');
         tryLabel.textContent = 'Try SecureVector';
         const tryArrow = document.createElement('span');
@@ -856,9 +856,9 @@ const TryItChat = {
         const headerLeft = document.createElement('div');
         headerLeft.style.cssText = 'display:flex; align-items:center; gap:8px;';
 
-        const shieldIcon = document.createElement('span');
-        shieldIcon.textContent = '🛡️';
-        shieldIcon.style.fontSize = '16px';
+        const shieldIcon = document.createElement('img');
+        shieldIcon.src = '/images/favicon.png';
+        shieldIcon.style.cssText = 'width:18px; height:18px; object-fit:contain; flex-shrink:0;';
         headerLeft.appendChild(shieldIcon);
 
         const headerTitle = document.createElement('div');

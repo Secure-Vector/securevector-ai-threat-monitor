@@ -216,7 +216,7 @@ const Header = {
         step1Text.appendChild(step1Desc);
         const step1Code = document.createElement('div');
         step1Code.style.cssText = 'font-size: 11px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 3px 8px; border-radius: 4px; display: inline-block; margin-top: 2px;';
-        step1Code.textContent = 'OPENAI_BASE_URL=http://localhost:8742/openai/v1';
+        step1Code.textContent = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
         step1Text.appendChild(step1Code);
         step1El.appendChild(step1Text);
         stepsList.appendChild(step1El);
@@ -293,7 +293,7 @@ const Header = {
 
         // Link to Docs
         const docsLink = document.createElement('div');
-        docsLink.style.cssText = 'margin-top: 12px; text-align: center;';
+        docsLink.style.cssText = 'margin-top: 12px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 16px;';
         const docsBtn = document.createElement('a');
         docsBtn.style.cssText = 'color: var(--accent-primary); cursor: pointer; font-size: 13px; font-weight: 500;';
         docsBtn.textContent = 'View Guide \u2192';
@@ -302,6 +302,20 @@ const Header = {
             if (window.Sidebar) Sidebar.navigate('guide');
         });
         docsLink.appendChild(docsBtn);
+
+        const issuesSep = document.createElement('span');
+        issuesSep.style.cssText = 'color: var(--text-muted); font-size: 13px;';
+        issuesSep.textContent = '·';
+        docsLink.appendChild(issuesSep);
+
+        const issuesBtn = document.createElement('a');
+        issuesBtn.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues';
+        issuesBtn.target = '_blank';
+        issuesBtn.rel = 'noopener noreferrer';
+        issuesBtn.style.cssText = 'color: var(--text-secondary); font-size: 13px; font-weight: 500; text-decoration: none;';
+        issuesBtn.textContent = 'Report an Issue';
+        docsLink.appendChild(issuesBtn);
+
         content.appendChild(docsLink);
 
         Modal.show({

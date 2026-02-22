@@ -52,16 +52,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Auto-start proxy if configured in svconfig.yml
     try:
+        import os as _os
         _cfg = load_config()
         _proxy_cfg = _cfg.get("proxy", {})
         _proxy_mode = _proxy_cfg.get("mode", "")
         if _proxy_mode in ("multi-provider", "single"):
             from securevector.app.server.routes.proxy import auto_start_from_config
+            # Use SV_PROXY_PORT (set by main.py from --port + 1) rather than the
+            # svconfig default of 8742, so the proxy respects the --port flag.
+            _proxy_port = int(_os.environ.get('SV_PROXY_PORT', _proxy_cfg.get("port", 8742)))
             auto_start_from_config(
                 integration=_proxy_cfg.get("integration", "openclaw"),
                 mode=_proxy_mode,
                 host=_proxy_cfg.get("host", "127.0.0.1"),
-                port=int(_proxy_cfg.get("port", 8742)),
+                port=_proxy_port,
                 provider=_proxy_cfg.get("provider") or None,
             )
     except Exception as _e:
@@ -194,12 +198,17 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         if images_path.exists():
             app.mount("/images", StaticFiles(directory=str(images_path)), name="images")
 
+        _NO_CACHE_HEADERS = {
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        }
+
         # Serve index.html at root
         @app.get("/", include_in_schema=False)
         async def serve_index():
             index_path = WEB_ASSETS_PATH / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path))
+                return FileResponse(str(index_path), headers=_NO_CACHE_HEADERS)
             return {"error": "Web UI not found"}
 
         # Client-side routing catch-all — serve index.html for any unmatched path
@@ -208,7 +217,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         async def serve_spa(path: str):
             index_path = WEB_ASSETS_PATH / "index.html"
             if index_path.exists():
-                return FileResponse(str(index_path))
+                return FileResponse(str(index_path), headers=_NO_CACHE_HEADERS)
             return {"error": "Web UI not found"}
 
         logger.info(f"Web UI mounted from {WEB_ASSETS_PATH}")

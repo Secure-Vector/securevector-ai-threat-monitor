@@ -393,3 +393,21 @@ async def get_call_audit_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class AuditDeleteRequest(BaseModel):
+    ids: list[int] = Field(..., description="List of audit entry IDs to delete")
+
+
+@router.delete("/tool-permissions/call-audit")
+async def delete_call_audit_entries(body: AuditDeleteRequest):
+    """Delete tool call audit entries by ID."""
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        deleted = await repo.delete_audit_entries(body.ids)
+        return {"deleted": deleted}
+
+    except Exception as e:
+        logger.error(f"Failed to delete audit entries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

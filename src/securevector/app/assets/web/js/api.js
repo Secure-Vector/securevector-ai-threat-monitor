@@ -328,6 +328,14 @@ const API = {
         }));
     },
 
+    async deleteToolCallAuditEntries(ids) {
+        return this.request('/api/tool-permissions/call-audit', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+        });
+    },
+
     // ==================== LLM Settings ====================
 
     async getLLMSettings() {
