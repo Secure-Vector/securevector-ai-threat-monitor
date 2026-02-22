@@ -49,6 +49,8 @@ SecureVector runs on your machine, between your AI agents and LLM providers. It 
 
 ## Quick Start
 
+**Step 1 — Install or download**
+
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app --web
@@ -56,7 +58,13 @@ securevector-app --web
 
 **Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
 
-Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary. **Go to the Integrations tab for step-by-step setup guides** — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
+**Step 2 — Open the app**
+
+Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary.
+
+**Step 3 — Connect your agent**
+
+**Go to the Integrations tab for step-by-step setup guides** — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
 
 If the app fails to launch because ports 8741/8742 are already in use, use `--port <port>` of your choice — the proxy starts automatically on port+1.
 See [Configuration](#configuration) for proxy or web/api port settings.
@@ -66,6 +74,8 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <br>
 
 ## Screenshots
+
+*All screenshots are from a local app instance.*
 
 <table>
 <tr>
@@ -93,104 +103,6 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 | No idea what agents are spending | Real-time cost tracking per agent |
 | Runaway agents burn through your API budget overnight | Hard budget limits with auto-stop |
 | Zero visibility into agent traffic | Live dashboard showing everything |
-
-<br>
-
-## Configuration
-
-SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
-
-```yaml
-# SecureVector Configuration
-# Changes take effect on next restart.
-# The config path is printed to the console when you start the app.
-#
-# Linux:   ~/.local/share/securevector/threat-monitor/svconfig.yml
-# macOS:   ~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml
-# Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml
-
-server:
-  # Web UI / API server listen host and port.
-  # Change these if port 8741 is already in use on your machine.
-  # If running on a remote server, set host to the server's hostname or IP address.
-  host: 127.0.0.1
-  port: 8741
-
-security:
-  # Block detected threats (true) or log/warn only (false)
-  block_mode: true
-  # Scan LLM responses for data leakage and PII
-  output_scan: true
-
-budget:
-  # Daily spend limit in USD (set to null to disable)
-  daily_limit: 5.00
-  # Warn in logs/headers when spend approaches the limit
-  warn: true
-  # Block requests when the daily budget is exceeded
-  block: true
-
-tools:
-  # Enforce tool permission rules (allow/block based on your rules)
-  enforcement: true           # default: true
-
-proxy:
-  # Proxy auto-starts with securevector-app --web when mode is set below.
-  integration: openclaw       # or: langchain, langgraph, crewai, ollama
-  mode: multi-provider        # or: single (add provider: below)
-  provider: null              # required only when mode is "single"
-  host: 127.0.0.1             # proxy listen host — set to the server's hostname or IP if running remotely
-  port: 8742                  # proxy listen port (default: server.port + 1)
-```
-
-The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
-
-**Use**
-
-Point any application to SecureVector's proxy instead of the provider's API.
-
-<table>
-<tr>
-<th align="left" width="50%">🪟 Windows</th>
-<th align="left" width="50%">🐧 Linux / macOS</th>
-</tr>
-<tr>
-<td valign="top">
-
-**Command Prompt** (current session)
-<pre>set OPENAI_BASE_URL=http://localhost:8742/openai/v1
-set ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
-
-**PowerShell** (current session)
-<pre>$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
-$env:ANTHROPIC_BASE_URL="http://localhost:8742/anthropic"</pre>
-
-**PowerShell** (persistent, per user)
-<pre>[Environment]::SetEnvironmentVariable(
-  "OPENAI_BASE_URL",
-  "http://localhost:8742/openai/v1",
-  "User"
-)</pre>
-
-</td>
-<td valign="top">
-
-**Terminal** (current session)
-<pre>export OPENAI_BASE_URL=http://localhost:8742/openai/v1
-export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
-
-**Persistent** (add to `~/.bashrc` or `~/.zshrc`)
-<pre>echo 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1' >> ~/.bashrc
-echo 'export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' >> ~/.bashrc
-source ~/.bashrc</pre>
-
-</td>
-</tr>
-</table>
-
-Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked.
-
-**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
 
 <br>
 
@@ -370,6 +282,104 @@ No Python required. Download and run.
 
 <br>
 
+## Configuration
+
+SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
+
+```yaml
+# SecureVector Configuration
+# Changes take effect on next restart.
+# The config path is printed to the console when you start the app.
+#
+# Linux:   ~/.local/share/securevector/threat-monitor/svconfig.yml
+# macOS:   ~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml
+# Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml
+
+server:
+  # Web UI / API server listen host and port.
+  # Change these if port 8741 is already in use on your machine.
+  # If running on a remote server, set host to the server's hostname or IP address.
+  host: 127.0.0.1
+  port: 8741
+
+security:
+  # Block detected threats (true) or log/warn only (false)
+  block_mode: true
+  # Scan LLM responses for data leakage and PII
+  output_scan: true
+
+budget:
+  # Daily spend limit in USD (set to null to disable)
+  daily_limit: 5.00
+  # Warn in logs/headers when spend approaches the limit
+  warn: true
+  # Block requests when the daily budget is exceeded
+  block: true
+
+tools:
+  # Enforce tool permission rules (allow/block based on your rules)
+  enforcement: true           # default: true
+
+proxy:
+  # Proxy auto-starts with securevector-app --web when mode is set below.
+  integration: openclaw       # or: langchain, langgraph, crewai, ollama
+  mode: multi-provider        # or: single (add provider: below)
+  provider: null              # required only when mode is "single"
+  host: 127.0.0.1             # proxy listen host — set to the server's hostname or IP if running remotely
+  port: 8742                  # proxy listen port (default: server.port + 1)
+```
+
+The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
+
+### Pointing Your Agent at the Proxy
+
+Point any application to SecureVector's proxy instead of the provider's API.
+
+<table>
+<tr>
+<th align="left" width="50%">🪟 Windows</th>
+<th align="left" width="50%">🐧 Linux / macOS</th>
+</tr>
+<tr>
+<td valign="top">
+
+**Command Prompt** (current session)
+<pre>set OPENAI_BASE_URL=http://localhost:8742/openai/v1
+set ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
+
+**PowerShell** (current session)
+<pre>$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
+$env:ANTHROPIC_BASE_URL="http://localhost:8742/anthropic"</pre>
+
+**PowerShell** (persistent, per user)
+<pre>[Environment]::SetEnvironmentVariable(
+  "OPENAI_BASE_URL",
+  "http://localhost:8742/openai/v1",
+  "User"
+)</pre>
+
+</td>
+<td valign="top">
+
+**Terminal** (current session)
+<pre>export OPENAI_BASE_URL=http://localhost:8742/openai/v1
+export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
+
+**Persistent** (add to `~/.bashrc` or `~/.zshrc`)
+<pre>echo 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1' >> ~/.bashrc
+echo 'export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' >> ~/.bashrc
+source ~/.bashrc</pre>
+
+</td>
+</tr>
+</table>
+
+Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked.
+
+**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
+
+<br>
+
 ## Update
 
 | Method | Command |
@@ -406,16 +416,6 @@ pytest tests/ -v
 ```
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
-
-## Compatibility Notes
-
-| Issue | Resolution |
-|-------|------------|
-| Python 3.9: `dict \| None` union type syntax requires Python 3.10+ | Changed to `Optional[dict]` from `typing` in test files |
-| `fastapi` missing from `[dev]` extras — FastAPI test client unavailable in CI | Added `fastapi>=0.100.0` and `httpx>=0.24.0` to `[dev]` in `setup.py` |
-| CodeQL: API key exposed via exception URL in log output | Changed `logger.error(f"...{e}")` to log exception type only, avoiding Gemini `key=` query param |
-
-<br>
 
 ## License
 
