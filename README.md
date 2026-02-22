@@ -47,30 +47,14 @@ SecureVector runs on your machine, between your AI agents and LLM providers. It 
 </tr>
 </table>
 
-**Download :** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
-
-**Or install with pip:**
-
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-One command to install. One command to start. Zero code changes.
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
 
-**Quick connect — set any or all, mix and match:**
-
-| | One line to get started |
-|---|---|
-| **OpenClaw with Anthropic** | `ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway` |
-| **OpenClaw with OpenAI** | `OPENAI_BASE_URL=http://localhost:8742/openai/v1 openclaw gateway` |
-| **OpenAI / LangChain / CrewAI** | `OPENAI_BASE_URL=http://localhost:8742/openai/v1` |
-| **Anthropic** | `ANTHROPIC_BASE_URL=http://localhost:8742/anthropic` |
-| **Ollama** | Set API base URL to `http://localhost:8742/ollama/v1` |
-| **Gemini / Groq / Mistral / others** | `http://localhost:8742/{provider}/v1` |
-| **n8n / any HTTP client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
-
-> For more integrations and setup guides, launch the app and check the **Integrations** tab.
+Launch the app and go to the **Integrations** tab for step-by-step setup guides — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
 
 > **Open-source. 100% local by default. No API keys required.**
 
