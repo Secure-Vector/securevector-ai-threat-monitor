@@ -418,7 +418,7 @@ class LLMProxy:
                 settings = response.json()
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
-                self._tool_permissions_enabled = settings.get("tool_permissions_enabled", False)
+                self._tool_permissions_enabled = settings.get("tool_permissions_enabled", True)
                 self._settings_checked_at = now
 
             # Check cloud mode and get API key directly from credentials file
@@ -444,7 +444,7 @@ class LLMProxy:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": False}
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": True}
 
     async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
         """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.

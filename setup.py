@@ -112,6 +112,7 @@ setup(
             "rules/README.md",
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
+            "pricing/*.yml",
             "app/assets/**/*",
             "app/assets/web/**/*",
             "app/assets/web/css/*",

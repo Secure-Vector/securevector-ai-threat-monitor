@@ -47,7 +47,7 @@ class AppSettings:
     # Block threats mode (when enabled, proxy blocks detected threats)
     block_threats: bool = True
     # Tool call permission scanning
-    tool_permissions_enabled: bool = False
+    tool_permissions_enabled: bool = True
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -151,7 +151,7 @@ class SettingsRepository:
             llm_settings=llm_settings,
             scan_llm_responses=bool(row_dict.get("scan_llm_responses", True)),
             block_threats=bool(row_dict.get("block_threats", True)),
-            tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", False)),
+            tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", True)),
         )
 
     async def update(self, **kwargs) -> AppSettings:

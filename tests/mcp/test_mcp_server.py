@@ -105,8 +105,8 @@ class TestMCPServer:
         # First request should be allowed
         assert rate_limiter.is_allowed("test_client") == True
 
-        # Requests within limit should be allowed
-        for _ in range(10):
+        # Requests within limit should be allowed (9 more = 10 total within burst_size)
+        for _ in range(9):
             assert rate_limiter.is_allowed("test_client") == True
 
     def test_audit_logger(self, test_server):

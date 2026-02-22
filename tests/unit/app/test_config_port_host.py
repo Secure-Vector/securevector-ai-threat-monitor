@@ -164,7 +164,7 @@ class TestProxyStatusPort:
 
     def test_proxy_status_has_port_field(self):
         """The proxy status dict always includes a top-level 'port' key."""
-        # Import and call the route function directly (no HTTP needed)
+        pytest.importorskip("aiosqlite", reason="aiosqlite not installed; skipping proxy status tests")
         from securevector.app.server.routes.proxy import get_proxy_status
         import asyncio
 
@@ -174,6 +174,7 @@ class TestProxyStatusPort:
 
     def test_proxy_status_port_matches_llm_proxy_port(self):
         """Top-level port equals llm_proxy.port for consistency."""
+        pytest.importorskip("aiosqlite", reason="aiosqlite not installed; skipping proxy status tests")
         from securevector.app.server.routes.proxy import get_proxy_status
         import asyncio
 

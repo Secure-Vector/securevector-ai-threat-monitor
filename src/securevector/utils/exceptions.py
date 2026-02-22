@@ -138,6 +138,16 @@ ERROR_SOLUTIONS = {
             "Validate input before calling analyze()",
         ],
     ),
+    ErrorCode.VALIDATION_INVALID_INPUT_TYPE: ErrorSolution(
+        ErrorCode.VALIDATION_INVALID_INPUT_TYPE,
+        "Invalid Input Type",
+        "Prompt must be a non-None string value.",
+        [
+            "Pass a string value to analyze()",
+            "Check that the prompt variable is not None",
+            "Ensure prompt is initialized before calling analyze()",
+        ],
+    ),
     ErrorCode.API_RATE_LIMIT_EXCEEDED: ErrorSolution(
         ErrorCode.API_RATE_LIMIT_EXCEEDED,
         "Rate Limit Exceeded",

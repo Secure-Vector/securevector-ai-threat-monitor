@@ -35,7 +35,7 @@ class GeneralSettingsResponse(BaseModel):
     store_text_content: bool = True
     retention_days: int = 30
     block_threats: bool = False
-    tool_permissions_enabled: bool = False
+    tool_permissions_enabled: bool = True
     config_file: Optional[str] = None
     config_updated: bool = False
 

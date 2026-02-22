@@ -154,6 +154,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         13: migrate_to_v13,
         14: migrate_to_v14,
         15: migrate_to_v15,
+        16: migrate_to_v16,
     }
 
     if version in migrations:
@@ -348,7 +349,7 @@ async def migrate_to_v9(db: DatabaseConnection) -> None:
 
     if "tool_permissions_enabled" not in existing_columns:
         await conn.execute(
-            "ALTER TABLE app_settings ADD COLUMN tool_permissions_enabled INTEGER NOT NULL DEFAULT 0"
+            "ALTER TABLE app_settings ADD COLUMN tool_permissions_enabled INTEGER NOT NULL DEFAULT 1"
         )
 
     # Record migration
@@ -461,6 +462,9 @@ async def migrate_to_v12(db: DatabaseConnection) -> None:
 
     logger.info("Applied migration v12: LLM cost tracking tables")
 
+    # Seed pricing on fresh installs
+    await load_model_pricing(db)
+
 
 async def migrate_to_v13(db: DatabaseConnection) -> None:
     """Migration v12 -> v13: Add budget limits for cost control."""
@@ -536,6 +540,17 @@ async def migrate_to_v15(db: DatabaseConnection) -> None:
     )
 
     logger.info("Applied migration v15: tool call audit log")
+
+
+async def migrate_to_v16(db: DatabaseConnection) -> None:
+    """Migration v15 -> v16: Seed model pricing reference data."""
+    count = await load_model_pricing(db)
+    conn = await db.connect()
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (16, CURRENT_TIMESTAMP, 'Seed model pricing reference data')"
+    )
+    logger.info(f"Applied migration v16: seeded {count} model pricing entries")
 
 
 async def load_model_pricing(db: DatabaseConnection) -> int:

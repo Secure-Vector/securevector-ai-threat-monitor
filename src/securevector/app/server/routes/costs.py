@@ -28,22 +28,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-LITELLM_PRICING_URL = (
-    "https://raw.githubusercontent.com/BerriAI/litellm/main/"
-    "model_prices_and_context_window.json"
+PRICING_REMOTE_URL = (
+    "https://raw.githubusercontent.com/secure-vector/ai-threat-monitor/"
+    "master/src/securevector/pricing/model_pricing.yml"
 )
-
-# Map LiteLLM provider keys → our provider names
-LITELLM_PROVIDER_MAP = {
-    "openai": "openai",
-    "anthropic": "anthropic",
-    "gemini": "gemini",
-    "groq": "groq",
-    "mistral": "mistral",
-    "cohere": "cohere",
-    "ollama": "ollama",
-}
-
 
 # --- Pydantic models ---
 
@@ -469,11 +457,9 @@ async def sync_pricing_from_source() -> SyncResponse:
     """
     On-demand price sync.
 
-    Phase 1 — YAML re-seed: Applies verified prices from model_pricing.yml
-    (source-verified from official provider pages).
-
-    Phase 2 — LiteLLM supplement: For any models NOT in YAML, fetches
-    community data from LiteLLM as a best-effort addition.
+    Fetches the latest model_pricing.yml from GitHub (primary source).
+    Falls back to the bundled YAML if the network is unavailable.
+    All prices are source-verified from official provider pricing pages.
     """
     import yaml
     from pathlib import Path
@@ -489,106 +475,79 @@ async def sync_pricing_from_source() -> SyncResponse:
         skipped = 0
         changes = []
         now_str = datetime.utcnow().date().isoformat()
-        yaml_model_keys: set[str] = set()
+        source = "bundled"
 
-        # ── Phase 1: Re-apply YAML (source-verified prices) ────────────────
-        pricing_paths = [
-            Path(__file__).parent.parent.parent.parent.parent / "pricing" / "model_pricing.yml",
-            Path(__file__).parent.parent.parent.parent / "pricing" / "model_pricing.yml",
-            Path(__file__).parent.parent.parent / "pricing" / "model_pricing.yml",
-        ]
-        yaml_path = next((p for p in pricing_paths if p.exists()), None)
+        # ── Fetch YAML: GitHub first, bundled file as fallback ──────────────
+        yaml_data = None
 
-        if yaml_path:
-            with open(yaml_path, "r", encoding="utf-8") as f:
-                yaml_data = yaml.safe_load(f)
-
-            for provider_entry in yaml_data.get("providers", []):
-                provider = provider_entry.get("provider", "")
-                if not provider:
-                    continue
-                for model in provider_entry.get("models", []):
-                    model_id = model.get("model_id", "")
-                    if not model_id:
-                        continue
-                    cache_key = f"{provider}/{model_id}"
-                    yaml_model_keys.add(cache_key)
-                    new_input = float(model.get("input_per_million", 0))
-                    new_output = float(model.get("output_per_million", 0))
-                    existing_entry = existing_map.get(cache_key)
-                    old_input = existing_entry.input_per_million if existing_entry else 0.0
-                    old_output = existing_entry.output_per_million if existing_entry else 0.0
-                    await repo.upsert_pricing(
-                        provider=provider,
-                        model_id=model_id,
-                        display_name=model.get("display_name", model_id),
-                        input_per_million=new_input,
-                        output_per_million=new_output,
-                        effective_date=model.get("effective_date"),
-                        verified_at=model.get("verified_at", now_str),
-                        source_url=provider_entry.get("source_url"),
-                    )
-                    updated += 1
-                    if abs(new_input - old_input) > 0.001 or abs(new_output - old_output) > 0.001:
-                        changes.append({
-                            "model_id": model_id,
-                            "provider": provider,
-                            "old_input": old_input,
-                            "new_input": new_input,
-                            "old_output": old_output,
-                            "new_output": new_output,
-                            "source": "yaml",
-                        })
-
-        # ── Phase 2: LiteLLM supplement (only for unlisted models) ─────────
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(LITELLM_PRICING_URL)
+                resp = await client.get(PRICING_REMOTE_URL)
                 if resp.status_code == 200:
-                    pricing_data = resp.json()
-                    for model_key, model_info in pricing_data.items():
-                        if not isinstance(model_info, dict):
-                            continue
-                        litellm_provider = model_info.get("litellm_provider", "")
-                        our_provider = LITELLM_PROVIDER_MAP.get(litellm_provider, "")
-                        if not our_provider:
-                            continue
-                        cache_key = f"{our_provider}/{model_key}"
-                        # Skip models already covered by YAML
-                        if cache_key in yaml_model_keys:
-                            skipped += 1
-                            continue
-                        # Skip models not in our DB at all
-                        if cache_key not in existing_map:
-                            skipped += 1
-                            continue
-                        inp = model_info.get("input_cost_per_token")
-                        out = model_info.get("output_cost_per_token")
-                        if inp is None or out is None:
-                            skipped += 1
-                            continue
-                        new_input = float(inp) * 1_000_000
-                        new_output = float(out) * 1_000_000
-                        existing_entry = existing_map[cache_key]
-                        await repo.upsert_pricing(
-                            provider=our_provider,
-                            model_id=model_key,
-                            display_name=existing_entry.display_name,
-                            input_per_million=round(new_input, 4),
-                            output_per_million=round(new_output, 4),
-                            verified_at=now_str,
-                            source_url=existing_entry.source_url,
-                        )
-                        updated += 1
-        except Exception as litellm_err:
-            logger.warning(f"LiteLLM supplement fetch failed (non-fatal): {litellm_err}")
+                    yaml_data = yaml.safe_load(resp.text)
+                    source = "github"
+                    logger.info("Fetched pricing from GitHub")
+        except Exception as fetch_err:
+            logger.warning(f"GitHub pricing fetch failed, using bundled YAML: {fetch_err}")
 
-        logger.info(f"Pricing sync complete: {updated} updated, {skipped} skipped")
+        if yaml_data is None:
+            pricing_paths = [
+                Path(__file__).parent.parent.parent.parent.parent / "pricing" / "model_pricing.yml",
+                Path(__file__).parent.parent.parent.parent / "pricing" / "model_pricing.yml",
+                Path(__file__).parent.parent.parent / "pricing" / "model_pricing.yml",
+            ]
+            yaml_path = next((p for p in pricing_paths if p.exists()), None)
+            if yaml_path:
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    yaml_data = yaml.safe_load(f)
+                logger.info(f"Using bundled pricing YAML: {yaml_path}")
+
+        if not yaml_data:
+            raise HTTPException(status_code=503, detail="Pricing data unavailable — no network and no bundled file found")
+
+        # ── Apply pricing data ───────────────────────────────────────────────
+        for provider_entry in yaml_data.get("providers", []):
+            provider = provider_entry.get("provider", "")
+            if not provider:
+                continue
+            for model in provider_entry.get("models", []):
+                model_id = model.get("model_id", "")
+                if not model_id:
+                    continue
+                cache_key = f"{provider}/{model_id}"
+                new_input = float(model.get("input_per_million", 0))
+                new_output = float(model.get("output_per_million", 0))
+                existing_entry = existing_map.get(cache_key)
+                old_input = existing_entry.input_per_million if existing_entry else 0.0
+                old_output = existing_entry.output_per_million if existing_entry else 0.0
+                await repo.upsert_pricing(
+                    provider=provider,
+                    model_id=model_id,
+                    display_name=model.get("display_name", model_id),
+                    input_per_million=new_input,
+                    output_per_million=new_output,
+                    effective_date=model.get("effective_date"),
+                    verified_at=model.get("verified_at", now_str),
+                    source_url=provider_entry.get("source_url"),
+                )
+                updated += 1
+                if abs(new_input - old_input) > 0.001 or abs(new_output - old_output) > 0.001:
+                    changes.append({
+                        "model_id": model_id,
+                        "provider": provider,
+                        "old_input": old_input,
+                        "new_input": new_input,
+                        "old_output": old_output,
+                        "new_output": new_output,
+                        "source": source,
+                    })
+
+        logger.info(f"Pricing sync complete: {updated} updated, {skipped} skipped, source={source}")
 
         return SyncResponse(
             updated=updated,
             skipped=skipped,
-            source="yaml+litellm",
+            source=source,
             synced_at=datetime.utcnow().isoformat() + "Z",
             changes=changes,
         )

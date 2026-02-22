@@ -133,6 +133,7 @@ class AsyncSecureVectorClient:
         start_time = time.time()
 
         async with self._lock:
+            context: dict = {}
             try:
                 # Enhanced input validation with structured error codes
                 await self._validate_prompt(prompt)
@@ -181,10 +182,11 @@ class AsyncSecureVectorClient:
                         f"Threat detected: {result.summary}", result=result, action=policy_action
                     )
 
+                result.analysis_time_ms = (time.time() - start_time) * 1000
                 return result
 
-            except SecurityException:
-                # Re-raise security exceptions
+            except (SecurityException, ValidationError):
+                # Re-raise security and validation exceptions
                 raise
             except Exception as e:
                 self.logger.error(f"Analysis failed: {e}")
