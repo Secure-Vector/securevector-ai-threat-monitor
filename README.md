@@ -4,9 +4,7 @@
 
 <h3>AI Firewall for Agents — Block prompt injection, tool abuse, and data leaks before and after the LLM.</h3>
 
-<p>Your AI agent is flying blind. SecureVector fixes that — block prompt injection, tool abuse, and data leaks, track every token, enforce budget limits, and keep a full audit trail.</p>
-
-<p><strong>No coding required.</strong> Download the desktop app, point your AI agent at it — done. Or install with pip.</p>
+<p><strong>No coding required.</strong> Threat protection, cost tracking, and budget limits — in one tool. Download the app or install with pip.</p>
 
 <br>
 
@@ -19,6 +17,12 @@
 [Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
 
 </div>
+
+## How It Works
+
+<img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
+
+**SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats, controlling tool permissions, and tracking spend in real time. Runs entirely on your machine — nothing leaves your infrastructure.
 
 <br>
 
@@ -34,15 +38,10 @@ AI agents are powerful — and completely unprotected.
 
 Every prompt your AI agent sends, every secret it handles, every piece of user data — goes straight to the LLM provider with nothing in between. No spend limit. No injection protection. No audit trail. You're flying blind.
 
-- Developers have reported API bills of hundreds of dollars appearing in days from runaway agents
-- Agent frameworks commonly ship with no budget enforcement, no PII filtering, and no permission model — a risk pattern flagged by MITRE and Gartner in their AI agent security research
-
-You don't need an enterprise security team to fix this. You need SecureVector.
-
 </td>
 <td valign="top">
 
-SecureVector runs on your machine, between your AI agents and LLM providers. It starts with an OpenClaw proxy by default and supports a multi-provider proxy mode for routing across OpenAI, Anthropic, Ollama, and more — all through a single endpoint. It intercepts defined tool calls, scans every prompt and response for injection and data leaks, and hard-stops agents that exceed their budget. 100% local by default. No accounts required.
+SecureVector runs on your machine, between your AI agents and LLM providers. It starts with a multi-provider proxy mode for routing across OpenAI, Anthropic, Ollama, and more — all through a single endpoint. It blocks threats, enforces tool permissions, and hard-stops agents that blow their budget. 100% local. No accounts.
 
 </td>
 </tr>
@@ -57,7 +56,21 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-One command to install. One command to start. Point your app to `localhost:8742/{provider}/v1` instead of the provider's API — everything else stays the same. Zero code changes.
+One command to install. One command to start. Zero code changes.
+
+**Quick connect — set any or all, mix and match:**
+
+| | One line to get started |
+|---|---|
+| **OpenClaw with Anthropic** | `ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway` |
+| **OpenClaw with OpenAI** | `OPENAI_BASE_URL=http://localhost:8742/openai/v1 openclaw gateway` |
+| **OpenAI / LangChain / CrewAI** | `OPENAI_BASE_URL=http://localhost:8742/openai/v1` |
+| **Anthropic** | `ANTHROPIC_BASE_URL=http://localhost:8742/anthropic` |
+| **Ollama** | Set API base URL to `http://localhost:8742/ollama/v1` |
+| **Gemini / Groq / Mistral / others** | `http://localhost:8742/{provider}/v1` |
+| **n8n / any HTTP client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
+
+> For more integrations and setup guides, launch the app and check the **Integrations** tab.
 
 > **Open-source. 100% local by default. No API keys required.**
 
@@ -89,16 +102,8 @@ One command to install. One command to start. Point your app to `localhost:8742/
 | No control over what tools agents can use | Fine-grained allow/block rules per tool |
 | No audit trail of tool calls | Full tool call history with decisions and reasons |
 | No idea what agents are spending | Real-time cost tracking per agent |
-| One runaway agent = surprise $500 bill | Hard budget limits with auto-stop |
+| Runaway agents burn through your API budget overnight | Hard budget limits with auto-stop |
 | Zero visibility into agent traffic | Live dashboard showing everything |
-
-<br>
-
-## How It Works
-
-<img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
-
-**SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats, controlling tool permissions, and tracking spend in real time. Runs entirely on your machine — nothing leaves your infrastructure.
 
 <br>
 
