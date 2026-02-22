@@ -47,6 +47,8 @@ SecureVector runs on your machine, between your AI agents and LLM providers. It 
 </tr>
 </table>
 
+## Quick Start
+
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app --web
@@ -54,7 +56,10 @@ securevector-app --web
 
 **Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
 
-Launch the app and go to the **Integrations** tab for step-by-step setup guides — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
+Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary. **Go to the Integrations tab for step-by-step setup guides** — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
+
+If the app fails to launch because ports 8741/8742 are already in use, use `--port <port>` of your choice — the proxy starts automatically on port+1.
+See [Configuration](#configuration) for proxy or web/api port settings.
 
 > **Open-source. 100% local by default. No API keys required.**
 
@@ -91,21 +96,9 @@ Launch the app and go to the **Integrations** tab for step-by-step setup guides 
 
 <br>
 
-## Quick Start
+## Configuration
 
-**1. Install or download** — see [Install](#install) below for pip, binaries, and other options.
-
-**2. Start**
-
-```bash
-securevector-app --web
-```
-
-Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary. If ports 8741/8742 are taken, use `--port <port>` of your choice — the proxy starts automatically on port+1.
-
-**Configure** *(optional — defaults work out of the box)*
-
-SecureVector writes `svconfig.yml` to your app data directory on first run. You can skip this entirely and configure everything from the UI instead. To set policy in code:
+SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
 
 ```yaml
 # SecureVector Configuration
@@ -119,7 +112,7 @@ SecureVector writes `svconfig.yml` to your app data directory on first run. You 
 server:
   # Web UI / API server listen host and port.
   # Change these if port 8741 is already in use on your machine.
-  # To listen on all interfaces (e.g. for LAN access), set host: 0.0.0.0
+  # If running on a remote server, set host to the server's hostname or IP address.
   host: 127.0.0.1
   port: 8741
 
@@ -139,25 +132,14 @@ budget:
 
 tools:
   # Enforce tool permission rules (allow/block based on your rules)
-  enforcement: true
+  enforcement: true           # default: true
 
 proxy:
-  # Setting mode here auto-starts the proxy when you run: securevector-app --web
-  # No --proxy flag needed — proxy starts automatically with the settings below.
-  #
-  # Step 1: Start SecureVector  →  securevector-app --web
-  # Step 2: Point your agent at the proxy instead of the LLM provider
-  #
-  #   Linux / macOS:  export OPENAI_BASE_URL=http://localhost:8742/openai/v1
-  #                   export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic
-  #   Windows PS:     $env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
-  #   Windows CMD:    set OPENAI_BASE_URL=http://localhost:8742/openai/v1
-  #   Ollama/WebUI:   set API base URL to http://localhost:8742/ollama/v1
-  #   OpenClaw:       ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway
+  # Proxy auto-starts with securevector-app --web when mode is set below.
   integration: openclaw       # or: langchain, langgraph, crewai, ollama
   mode: multi-provider        # or: single (add provider: below)
   provider: null              # required only when mode is "single"
-  host: 127.0.0.1             # proxy listen host (0.0.0.0 for LAN access)
+  host: 127.0.0.1             # proxy listen host — set to the server's hostname or IP if running remotely
   port: 8742                  # proxy listen port (default: server.port + 1)
 ```
 
