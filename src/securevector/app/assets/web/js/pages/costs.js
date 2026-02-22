@@ -509,6 +509,8 @@ const CostsPage = {
         } else {
             btn.style.display = 'none';
         }
+        const tbl = document.getElementById('costs-records-table');
+        if (tbl) tbl.classList.toggle('has-selection', count > 0);
     },
 
     _toggleSelectAll(checked, records) {
@@ -583,6 +585,7 @@ const CostsPage = {
 
         const table = document.createElement('table');
         table.className = 'data-table';
+        table.id = 'costs-records-table';
 
         const thead = document.createElement('thead');
         const hrow = document.createElement('tr');

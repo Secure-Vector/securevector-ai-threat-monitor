@@ -1271,13 +1271,6 @@ class LLMProxy:
         headers.pop("host", None)
         headers.pop("content-length", None)
 
-        # Debug: log auth headers (masked)
-        auth_keys = [k for k in headers if k.lower() in ("x-api-key", "authorization")]
-        for k in auth_keys:
-            val = headers[k]
-            masked = val[:12] + "..." + val[-4:] if len(val) > 20 else "(short/empty)"
-            print(f"[llm-proxy] Auth header: {k}={masked}")
-
         # Auto-prepend API version prefix if missing from path
         # e.g. /responses → /v1/responses for OpenAI
         if self.api_prefix and not path.startswith(self.api_prefix):

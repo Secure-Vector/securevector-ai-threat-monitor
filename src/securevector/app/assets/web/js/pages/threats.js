@@ -170,6 +170,8 @@ const ThreatsPage = {
         } else {
             btn.style.display = 'none';
         }
+        const tbl = document.getElementById('threats-data-table');
+        if (tbl) tbl.classList.toggle('has-selection', count > 0);
     },
 
     toggleSelectAll(checked) {
@@ -414,6 +416,7 @@ const ThreatsPage = {
 
         const table = document.createElement('table');
         table.className = 'data-table';
+        table.id = 'threats-data-table';
 
         // Header
         const thead = document.createElement('thead');

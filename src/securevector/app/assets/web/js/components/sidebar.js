@@ -13,12 +13,12 @@ const Sidebar = {
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },

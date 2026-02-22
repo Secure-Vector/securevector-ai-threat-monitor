@@ -174,6 +174,18 @@ const RulesPage = {
 
         enabledGroup.appendChild(enabledSelect);
         bar.appendChild(enabledGroup);
+
+        // Spacer to push Create Rule button to the right
+        const spacer = document.createElement('div');
+        spacer.style.cssText = 'flex: 1;';
+        bar.appendChild(spacer);
+
+        // Create Rule button
+        const createBtn = document.createElement('button');
+        createBtn.className = 'btn btn-primary';
+        createBtn.textContent = '+ Create Rule';
+        createBtn.addEventListener('click', () => this.showCreateRuleModal());
+        bar.appendChild(createBtn);
     },
 
     getUniqueCategories() {
@@ -970,8 +982,17 @@ const RulesPage = {
                 if (result.patterns.length === 0) {
                     const noPatterns = document.createElement('p');
                     noPatterns.className = 'form-help';
-                    noPatterns.textContent = 'No patterns could be generated. Try a different description.';
+                    noPatterns.style.marginBottom = '8px';
+                    noPatterns.textContent = 'No patterns could be auto-generated for this description. Enter a regex pattern manually:';
                     preview.appendChild(noPatterns);
+
+                    const manualInput = document.createElement('input');
+                    manualInput.type = 'text';
+                    manualInput.id = 'manual-pattern-input';
+                    manualInput.className = 'form-input';
+                    manualInput.placeholder = 'e.g. (?i)give.*discount|free.*offer';
+                    manualInput.style.cssText = 'width: 100%; font-family: monospace; font-size: 13px;';
+                    preview.appendChild(manualInput);
                 } else {
                     const list = document.createElement('div');
                     list.className = 'generated-patterns-list';
@@ -1002,7 +1023,7 @@ const RulesPage = {
                 }
             }
 
-            // Show name and severity fields
+            // Always show name, severity, and create button
             document.getElementById('rule-name-group').style.display = 'block';
             document.getElementById('rule-severity-group').style.display = 'block';
 
@@ -1013,6 +1034,11 @@ const RulesPage = {
             // Show create button, hide generate
             if (generateBtn) generateBtn.style.display = 'none';
             document.getElementById('create-rule-btn').style.display = 'inline-flex';
+            // Focus the manual input if no patterns generated
+            if (result.patterns.length === 0) {
+                const mi = document.getElementById('manual-pattern-input');
+                if (mi) setTimeout(() => mi.focus(), 50);
+            }
 
         } catch (error) {
             Toast.error('Failed to generate patterns: ' + error.message);
@@ -1033,9 +1059,19 @@ const RulesPage = {
             return;
         }
 
-        if (!this.generatedPatterns || this.generatedPatterns.patterns.length === 0) {
-            Toast.error('No patterns generated');
-            return;
+        let patternsToUse = this.generatedPatterns ? this.generatedPatterns.patterns : [];
+        let categoryToUse = this.generatedPatterns ? (this.generatedPatterns.suggested_category || 'custom') : 'custom';
+
+        if (patternsToUse.length === 0) {
+            const manualInput = document.getElementById('manual-pattern-input');
+            const manualPattern = manualInput ? manualInput.value.trim() : '';
+            if (!manualPattern) {
+                Toast.error('Please enter a regex pattern in the manual input field');
+                if (manualInput) manualInput.focus();
+                return;
+            }
+            patternsToUse = [{ pattern: manualPattern, description: 'Manual pattern', confidence: 1.0, category: 'custom' }];
+            categoryToUse = 'custom';
         }
 
         const createBtn = document.getElementById('create-rule-btn');
@@ -1047,10 +1083,10 @@ const RulesPage = {
         try {
             await API.createRule({
                 name: name,
-                category: this.generatedPatterns.suggested_category || 'custom',
+                category: categoryToUse,
                 description: description,
                 severity: severity,
-                patterns: this.generatedPatterns.patterns.map(p => p.pattern),
+                patterns: patternsToUse.map(p => p.pattern),
                 enabled: true,
             });
 

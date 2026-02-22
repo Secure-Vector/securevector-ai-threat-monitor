@@ -4361,6 +4361,17 @@ html, body {
     height: 16px;
     cursor: pointer;
     accent-color: var(--primary, #00bcd4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s, transform 0.1s;
+}
+
+tr:hover .threat-checkbox,
+thead tr:hover .threat-select-all,
+#threats-data-table.has-selection .threat-checkbox,
+#threats-data-table.has-selection .threat-select-all {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .threat-checkbox:hover,
@@ -4381,8 +4392,18 @@ html, body {
     cursor: pointer;
     position: relative;
     flex-shrink: 0;
-    transition: border-color 0.15s, background 0.15s;
+    transition: opacity 0.12s, border-color 0.15s, background 0.15s;
     vertical-align: middle;
+    opacity: 0;
+    pointer-events: none;
+}
+
+tr:hover .audit-row-cb,
+thead tr:hover #audit-select-all,
+#audit-activity-table.has-selection .audit-row-cb,
+#audit-activity-table.has-selection #audit-select-all {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .audit-row-cb:hover,
@@ -4423,6 +4444,26 @@ html, body {
     width: 8px;
     height: 1.5px;
     background: #00bcd4;
+}
+
+/* Cost records checkboxes */
+.record-checkbox,
+#records-select-all {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--primary, #00bcd4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
+
+tr:hover .record-checkbox,
+thead tr:hover #records-select-all,
+#costs-records-table.has-selection .record-checkbox,
+#costs-records-table.has-selection #records-select-all {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .btn-secondary {

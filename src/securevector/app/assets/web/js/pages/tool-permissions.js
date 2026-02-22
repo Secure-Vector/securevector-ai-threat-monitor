@@ -20,6 +20,8 @@ const ToolPermissionsPage = {
         } else {
             btn.style.display = 'none';
         }
+        const tbl = document.getElementById('audit-activity-table');
+        if (tbl) tbl.classList.toggle('has-selection', count > 0);
     },
 
     _toggleSelectAllAudit(checked, entries) {
@@ -929,6 +931,7 @@ const ToolPermissionsPage = {
         container.appendChild(tableWrap);
 
         const table = document.createElement('table');
+        table.id = 'audit-activity-table';
         table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 13px;';
 
         // Sort state
