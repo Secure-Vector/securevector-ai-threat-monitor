@@ -74,7 +74,7 @@ One command to install. One command to start. Point your app to `localhost:8742/
 <tr>
 <td width="33%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
 <td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
-<td width="33%"></td>
+<td width="33%"><img src="docs/screenshots/custom-rules-light.png" alt="Custom Rules" width="100%"><br><em>Custom Rules — create and manage detection rules by category and severity</em></td>
 </tr>
 </table>
 

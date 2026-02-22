@@ -22,14 +22,15 @@ try:
         SecureVectorMCPServer,
         create_mcp_server,
         check_mcp_dependencies,
-        MCP_AVAILABLE
     )
+    from securevector.mcp.server import MCP_AVAILABLE
     from securevector.mcp.config.server_config import (
         create_default_config,
         create_development_config
     )
-    SECUREVECTOR_MCP_AVAILABLE = True
+    SECUREVECTOR_MCP_AVAILABLE = MCP_AVAILABLE
 except ImportError:
+    MCP_AVAILABLE = False
     SECUREVECTOR_MCP_AVAILABLE = False
 
 

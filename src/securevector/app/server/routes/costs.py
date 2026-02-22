@@ -7,7 +7,7 @@ GET  /api/costs/pricing          - Model pricing reference
 PUT  /api/costs/pricing/{p}/{m}  - Update a model's pricing
 GET  /api/costs/export           - Export as CSV
 GET  /api/costs/dashboard-summary - Compact widget for dashboard
-POST /api/costs/pricing/sync     - On-demand sync from LiteLLM source
+POST /api/costs/pricing/sync     - On-demand sync from GitHub (bundled YAML fallback)
 """
 
 import csv
