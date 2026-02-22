@@ -29,10 +29,17 @@ try:
     from fastapi import FastAPI, Request, Response, HTTPException
     from fastapi.responses import StreamingResponse
     import uvicorn
-except ImportError:
-    print("Missing dependencies. Install with:")
-    print("  pip install httpx fastapi uvicorn")
-    sys.exit(1)
+except ImportError as _e:
+    _missing = str(_e)
+    if __name__ == "__main__":
+        print("Missing dependencies. Install with:")
+        print("  pip install httpx fastapi uvicorn")
+        sys.exit(1)
+    else:
+        raise ImportError(
+            f"openclaw_llm_proxy requires optional dependencies ({_missing}). "
+            "Install with: pip install httpx fastapi uvicorn"
+        ) from _e
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -194,13 +201,193 @@ class LLMProxy:
         self._block_threats_enabled: Optional[bool] = None
         self._cloud_mode_enabled: Optional[bool] = None
         self._cloud_api_key: Optional[str] = None
+        self._tool_permissions_enabled: Optional[bool] = None
         self._settings_checked_at: float = 0
+
+        # Tool permissions engine (lazy-loaded)
+        self._essential_registry: Optional[dict] = None
+        self._tool_overrides: Optional[dict] = None
+        self._tool_overrides_checked_at: float = 0
+        self._custom_tools_registry: Optional[dict] = None
+        self._custom_tools_checked_at: float = 0
+
+        # Rate limiting
+        self._request_counter: int = 0
+
+        # Cost recording (lazy-init)
+        self._cost_recorder_instance = None
+        self._cost_db = None
+
+        # Budget check cache: agent_id → (status_dict, checked_at)
+        self._budget_cache: dict = {}
+        self._budget_cache_ttl: float = 10.0  # Short TTL; cache is also invalidated after each recorded cost
 
     def _truncate(self, text: str, max_len: int = 100) -> str:
         """Truncate text for logging."""
         if len(text) <= max_len:
             return text
         return text[:max_len] + f"... ({len(text)} chars)"
+
+    def _extract_agent_id(self, request: Request) -> str:
+        """Extract agent ID from X-Agent-ID header, or auto-generate one."""
+        agent_id = request.headers.get("x-agent-id", "").strip()
+        if agent_id:
+            return agent_id[:128]  # Cap length
+        # Fall back to client IP (not port — port is ephemeral per-connection)
+        client = getattr(request, "client", None)
+        if client:
+            return f"client:{client.host}"
+        return "unknown-agent"
+
+    async def _get_cost_recorder(self):
+        """Lazy-init CostRecorder using local SecureVector database."""
+        if self._cost_recorder_instance is not None:
+            return self._cost_recorder_instance
+        try:
+            from securevector.app.database.connection import get_database
+            from securevector.app.services.cost_recorder import CostRecorder
+            db = get_database()
+            if db._connection is None:
+                await db.connect()
+            self._cost_db = db
+            self._cost_recorder_instance = CostRecorder(db)
+            logger.info("[llm-proxy] CostRecorder initialized")
+        except Exception as e:
+            logger.warning(f"[llm-proxy] CostRecorder init failed: {e}")
+            return None
+        return self._cost_recorder_instance
+
+    async def _record_cost(self, provider: str, agent_id: str, response_body: bytes) -> None:
+        """Fire-and-forget cost recording. Never raises.
+
+        For SSE streaming bodies, scans chunks in reverse to find the last
+        data line that contains token usage fields.
+        """
+        try:
+            recorder = await self._get_cost_recorder()
+            if not recorder:
+                logger.debug("[llm-proxy] cost recording skipped: no recorder")
+                return
+
+            # Detect SSE format: bodies starting with "data:" or "event:" (e.g. Responses API)
+            body_bytes = response_body
+            stripped = body_bytes.lstrip() if body_bytes else b""
+            if body_bytes and (stripped.startswith(b"data:") or stripped.startswith(b"event:")):
+                body_bytes = self._extract_sse_usage_chunk(response_body, provider=provider)
+                if not body_bytes:
+                    logger.debug("[llm-proxy] cost recording skipped: no usage in SSE stream")
+                    return
+
+            await recorder.record(provider=provider, agent_id=agent_id, response_body=body_bytes)
+            logger.info(f"[llm-proxy] cost recorded for agent={agent_id} provider={provider}")
+            # Invalidate budget cache so the next request re-checks against updated spend
+            self._budget_cache.pop(agent_id, None)
+        except Exception as e:
+            logger.warning(f"[llm-proxy] cost recording failed: {e}")
+
+    async def _check_budget(self, agent_id: str) -> dict:
+        """Check if agent is within its daily budget. Returns budget status dict.
+
+        Cached for 30s to avoid DB hit on every request.
+        Never raises — returns permissive defaults on error.
+        """
+        import time
+        now = time.monotonic()
+        cached = self._budget_cache.get(agent_id)
+        if cached:
+            status, checked_at = cached
+            if (now - checked_at) < self._budget_cache_ttl:
+                return status
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/costs/budget-status",
+                params={"agent_id": agent_id},
+                timeout=2.0,
+            )
+            if response.status_code == 200:
+                status = response.json()
+                logger.info(
+                    f"[llm-proxy] Budget check: agent={agent_id} "
+                    f"spend=${status.get('today_spend_usd', 0):.6f} "
+                    f"limit=${status.get('effective_budget_usd')} "
+                    f"over={status.get('over_budget')}"
+                )
+                self._budget_cache[agent_id] = (status, now)
+                return status
+            else:
+                logger.warning(f"[llm-proxy] Budget check returned HTTP {response.status_code}: {response.text[:200]}")
+        except Exception as e:
+            logger.warning(f"[llm-proxy] Budget check failed: {e}")
+
+        # Default: no budget limits
+        return {"over_budget": False, "effective_budget_usd": None, "budget_action": "warn"}
+
+    def _extract_sse_usage_chunk(self, sse_body: bytes, provider: str = "") -> Optional[bytes]:
+        """Extract token usage from an SSE response body.
+
+        For Anthropic: merges input tokens (message_start) + output tokens (message_delta)
+        since they arrive in separate events.
+
+        For all others: reverse-scans for the last data line with usage fields
+        (OpenAI's final chunk or response.completed event contains full usage).
+        Returns synthesised JSON bytes, or None if no usage found.
+        """
+        import json as _json
+        try:
+            text = sse_body.decode("utf-8", errors="replace")
+            lines = text.splitlines()
+
+            if provider == "anthropic":
+                # Anthropic SSE splits usage across two events:
+                #   message_start → input_tokens, cache_read_input_tokens, model
+                #   message_delta → output_tokens
+                # Scan all lines and merge.
+                input_tokens = 0
+                output_tokens = 0
+                cached_tokens = 0
+                model_id = ""
+                for line in lines:
+                    if not line.startswith("data: "):
+                        continue
+                    try:
+                        chunk = _json.loads(line[6:])
+                        t = chunk.get("type", "")
+                        if t == "message_start":
+                            msg = chunk.get("message", {})
+                            model_id = msg.get("model", model_id)
+                            usage = msg.get("usage", {})
+                            input_tokens = usage.get("input_tokens", input_tokens)
+                            cached_tokens = usage.get("cache_read_input_tokens", cached_tokens)
+                        elif t == "message_delta":
+                            usage = chunk.get("usage", {})
+                            output_tokens = usage.get("output_tokens", output_tokens)
+                    except Exception:
+                        pass
+                if input_tokens or output_tokens:
+                    return _json.dumps({
+                        "model": model_id,
+                        "usage": {
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "cache_read_input_tokens": cached_tokens,
+                        },
+                    }).encode()
+                return None
+
+            # Default: reverse-scan for last data line with usage fields.
+            # Works for OpenAI Chat (final chunk), OpenAI Responses API
+            # (response.completed event), Gemini, Groq, Mistral, Cohere, Ollama.
+            usage_keys = ("prompt_tokens", "input_tokens", "output_tokens", "usageMetadata", "prompt_eval_count", "response.completed")
+            for line in reversed(lines):
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    json_str = line[6:]
+                    if any(k in json_str for k in usage_keys):
+                        return json_str.encode("utf-8")
+        except Exception:
+            pass
+        return None
 
     async def get_http_client(self) -> httpx.AsyncClient:
         """Get or create shared HTTP client."""
@@ -221,6 +408,7 @@ class LLMProxy:
                 "block_threats": self._block_threats_enabled or self.block_threats,
                 "cloud_mode_enabled": self._cloud_mode_enabled or False,
                 "cloud_api_key": self._cloud_api_key,
+                "tool_permissions_enabled": self._tool_permissions_enabled or False,
             }
 
         try:
@@ -230,6 +418,7 @@ class LLMProxy:
                 settings = response.json()
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
+                self._tool_permissions_enabled = settings.get("tool_permissions_enabled", True)
                 self._settings_checked_at = now
 
             # Check cloud mode and get API key directly from credentials file
@@ -249,12 +438,13 @@ class LLMProxy:
                 "block_threats": self._block_threats_enabled,
                 "cloud_mode_enabled": self._cloud_mode_enabled or False,
                 "cloud_api_key": self._cloud_api_key,
+                "tool_permissions_enabled": self._tool_permissions_enabled or False,
             }
         except Exception as e:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None}
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": True}
 
     async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
         """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.
@@ -591,6 +781,269 @@ class LLMProxy:
 
         return "\n".join(t for t in texts if t)
 
+    async def _load_tool_overrides(self) -> dict:
+        """Fetch essential tool overrides from SecureVector API (cached for 5s)."""
+        import time
+        now = time.time()
+        if self._tool_overrides is not None and (now - self._tool_overrides_checked_at) < 5:
+            return self._tool_overrides
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/tool-permissions/overrides",
+                timeout=3.0,
+            )
+            if response.status_code == 200:
+                from securevector.core.tool_permissions.engine import get_essential_overrides
+                overrides_list = response.json().get("overrides", [])
+                self._tool_overrides = get_essential_overrides(overrides_list)
+                self._tool_overrides_checked_at = now
+                return self._tool_overrides
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"[llm-proxy] Could not fetch tool overrides: {e}")
+
+        return self._tool_overrides or {}
+
+    def _load_essential_registry(self) -> dict:
+        """Lazy-load the essential tool registry."""
+        if self._essential_registry is None:
+            from securevector.core.tool_permissions.engine import load_essential_registry
+            self._essential_registry = load_essential_registry()
+        return self._essential_registry
+
+    async def _load_custom_tools_registry(self) -> dict:
+        """Fetch custom tools from SecureVector API (cached for 5s)."""
+        import time
+        now = time.time()
+        if self._custom_tools_registry is not None and (now - self._custom_tools_checked_at) < 5:
+            return self._custom_tools_registry
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/tool-permissions/custom",
+                timeout=3.0,
+            )
+            if response.status_code == 200:
+                tools_list = response.json().get("tools", [])
+                self._custom_tools_registry = {
+                    t["tool_id"]: t for t in tools_list if "tool_id" in t
+                }
+                self._custom_tools_checked_at = now
+                return self._custom_tools_registry
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"[llm-proxy] Could not fetch custom tools: {e}")
+
+        return self._custom_tools_registry or {}
+
+    async def _evaluate_tool_permissions(self, response_dict: dict, settings: dict) -> tuple:
+        """Evaluate tool call permissions in an LLM response.
+
+        Returns:
+            Tuple of (modified_response_dict, blocked_tools, decisions).
+            modified_response_dict has blocked tool calls stripped.
+            blocked_tools is a list of blocked tool names.
+            decisions is a list of all PermissionDecision objects.
+        """
+        from securevector.core.tool_permissions.parser import extract_tool_calls
+        from securevector.core.tool_permissions.engine import (
+            evaluate_tool_call, get_risk_score,
+        )
+
+        tool_calls = extract_tool_calls(response_dict)
+        if not tool_calls:
+            return response_dict, [], []
+
+        registry = self._load_essential_registry()
+        overrides = await self._load_tool_overrides()
+        custom_registry = await self._load_custom_tools_registry()
+
+        decisions = []
+        blocked_tools = []
+        blocked_indices_openai = set()  # (choice_idx, tc_idx) for OpenAI
+        blocked_indices_anthropic = set()  # content block indices for Anthropic
+
+        for tc in tool_calls:
+            decision = evaluate_tool_call(tc.function_name, registry, overrides, custom_registry)
+
+            # Rate limit check for allowed tools (essential + custom)
+            if decision.action == "allow":
+                max_calls = None
+                window_secs = None
+                rate_limit_api_prefix = None
+
+                if decision.is_essential:
+                    # Essential tools: rate limits stored in overrides (fetched via API)
+                    rate_limit_api_prefix = f"/api/tool-permissions/overrides/{tc.function_name}"
+                elif custom_registry:
+                    custom_tool = custom_registry.get(tc.function_name)
+                    if custom_tool:
+                        max_calls = custom_tool.get("rate_limit_max_calls")
+                        window_secs = custom_tool.get("rate_limit_window_seconds")
+                        rate_limit_api_prefix = f"/api/tool-permissions/custom/{tc.function_name}"
+
+                # Check rate limit via API (works for both essential and custom)
+                if rate_limit_api_prefix:
+                    try:
+                        client = await self.get_http_client()
+                        count_resp = await client.get(
+                            f"{self.securevector_url}{rate_limit_api_prefix}/rate-limit",
+                            timeout=3.0,
+                        )
+                        if count_resp.status_code == 200:
+                            rl_data = count_resp.json()
+                            # Use API response for authoritative rate limit data
+                            rl_max = rl_data.get("max_calls")
+                            rl_window = rl_data.get("window_seconds")
+                            current_count = rl_data.get("current_count", 0)
+
+                            if rl_max and rl_window and current_count >= rl_max:
+                                if rl_window >= 3600:
+                                    window_display = f"{rl_window // 3600} hour(s)"
+                                elif rl_window >= 60:
+                                    window_display = f"{rl_window // 60} minute(s)"
+                                else:
+                                    window_display = f"{rl_window} seconds"
+
+                                decision.action = "block"
+                                decision.reason = (
+                                    f"Rate limited: {current_count}/{rl_max} calls "
+                                    f"in the last {window_display}"
+                                )
+                    except Exception as e:
+                        if self.verbose:
+                            logger.warning(f"[llm-proxy] Rate limit check failed for {tc.function_name}: {e}")
+
+            decisions.append(decision)
+
+            if decision.action == "block":
+                blocked_tools.append(tc.function_name)
+                if tc.provider_format == "openai":
+                    blocked_indices_openai.add(tc.index)
+                elif tc.provider_format == "anthropic":
+                    blocked_indices_anthropic.add(tc.index)
+
+                args_preview = (tc.arguments or "")[:200]
+                print(f"[llm-proxy] ┌─ 🔒 BLOCKED ──────────────────────────────────────")
+                print(f"[llm-proxy] │  tool   : {tc.function_name}")
+                print(f"[llm-proxy] │  reason : {decision.reason}")
+                print(f"[llm-proxy] │  args   : {args_preview}")
+                print(f"[llm-proxy] └────────────────────────────────────────────────────")
+            else:
+                # Log allowed tool calls for rate limiting (essential + custom)
+                if decision.action == "allow" and decision.tool_name:
+                    log_prefix = (
+                        f"/api/tool-permissions/overrides/{tc.function_name}"
+                        if decision.is_essential
+                        else f"/api/tool-permissions/custom/{tc.function_name}"
+                    )
+                    try:
+                        client = await self.get_http_client()
+                        await client.post(
+                            f"{self.securevector_url}{log_prefix}/log-call",
+                            timeout=3.0,
+                        )
+                    except Exception:
+                        pass  # Logging failure is non-critical
+
+                action_label = "allowed" if decision.action == "allow" else "logged"
+                if decision.is_essential or (decision.tool_name and decision.action == "allow"):
+                    args_preview = (tc.arguments or "")[:200]
+                    print(f"[llm-proxy] ┌─ ✓ {action_label.upper()} ──────────────────────────────────────")
+                    print(f"[llm-proxy] │  tool   : {tc.function_name}")
+                    print(f"[llm-proxy] │  args   : {args_preview}")
+                    print(f"[llm-proxy] └────────────────────────────────────────────────────")
+
+        # Log ALL tool call decisions (block + allow + log_only) to audit log
+        for tc, decision in zip(tool_calls, decisions):
+            try:
+                audit_payload = {
+                    "tool_id":       decision.tool_name or decision.function_name,
+                    "function_name": decision.function_name,
+                    "action":        decision.action,
+                    "risk":          decision.risk,
+                    "reason":        decision.reason,
+                    "is_essential":  decision.is_essential,
+                    "args_preview":  (tc.arguments or "")[:200],
+                }
+                client = await self.get_http_client()
+                await client.post(
+                    f"{self.securevector_url}/api/tool-permissions/call-audit",
+                    json=audit_payload,
+                    timeout=3.0,
+                )
+            except Exception:
+                pass  # Audit logging failure is non-critical
+
+        # Periodic cleanup of old call log entries (every 100 requests)
+        self._request_counter += 1
+        if self._request_counter % 100 == 0:
+            try:
+                client = await self.get_http_client()
+                await client.post(
+                    f"{self.securevector_url}/api/tool-permissions/cleanup-call-log",
+                    timeout=3.0,
+                )
+            except Exception:
+                pass
+
+        # If ALL tool calls are blocked, replace with text denial
+        if blocked_tools and len(blocked_tools) == len(tool_calls):
+            # Build denial message — include rate limit details when applicable
+            rate_limited = [d for d in decisions if "Rate limited" in d.reason]
+            if rate_limited:
+                rl = rate_limited[0]
+                denial_msg = (
+                    f"[SecureVector] Tool '{rl.function_name}' rate limited: {rl.reason}. "
+                    f"Retry after the window resets. This limit protects against provider TOS violations."
+                )
+            else:
+                names = ", ".join(blocked_tools)
+                denial_msg = (
+                    f"[SecureVector] Tool call blocked by policy: {names}. "
+                    f"This is a security policy decision — not a capability limitation. "
+                    f"The tool can be enabled in SecureVector settings."
+                )
+            # Replace response with text-only message
+            if "choices" in response_dict:
+                for choice in response_dict.get("choices", []):
+                    if isinstance(choice, dict) and "message" in choice:
+                        choice["message"] = {
+                            "role": "assistant",
+                            "content": denial_msg,
+                        }
+            elif "content" in response_dict and isinstance(response_dict["content"], list):
+                response_dict["content"] = [
+                    {"type": "text", "text": denial_msg}
+                ]
+            return response_dict, blocked_tools, decisions
+
+        # Strip only blocked tool calls (partial block)
+        if blocked_indices_openai:
+            for choice in response_dict.get("choices", []):
+                if isinstance(choice, dict) and "message" in choice:
+                    msg = choice["message"]
+                    if isinstance(msg, dict) and "tool_calls" in msg:
+                        msg["tool_calls"] = [
+                            tc for i, tc in enumerate(msg["tool_calls"])
+                            if i not in blocked_indices_openai
+                        ]
+                        if not msg["tool_calls"]:
+                            del msg["tool_calls"]
+
+        if blocked_indices_anthropic:
+            content = response_dict.get("content", [])
+            if isinstance(content, list):
+                response_dict["content"] = [
+                    block for i, block in enumerate(content)
+                    if i not in blocked_indices_anthropic
+                ]
+
+        return response_dict, blocked_tools, decisions
+
     def extract_response_text(self, body: dict) -> str:
         """Extract text content from any LLM API response body.
 
@@ -678,6 +1131,7 @@ class LLMProxy:
 
     async def handle_request(self, request: Request) -> Response:
         """Handle incoming request, scan, and forward to LLM provider."""
+        agent_id = self._extract_agent_id(request)
         path = request.url.path
         method = request.method
 
@@ -700,7 +1154,48 @@ class LLMProxy:
         body_bytes = await request.body()
         body_text = body_bytes.decode("utf-8", errors="replace") if body_bytes else ""
 
+        # Refine agent_id if no explicit x-agent-id was provided (still an IP fallback)
+        if agent_id.startswith("client:"):
+            ua = request.headers.get("user-agent", "").lower()
+            if "openclaw" in ua or "clawdbot" in ua:
+                agent_id = "openclaw"
+            elif body_bytes:
+                try:
+                    model = json.loads(body_bytes).get("model", "")
+                    if model:
+                        agent_id = model
+                except Exception:
+                    pass
+            if agent_id.startswith("client:"):
+                agent_id = "local-agent"
+
         print(f"[llm-proxy] → {method} {path}")
+
+        # Budget check (only for POST to LLM endpoints)
+        if method == "POST":
+            budget_status = await self._check_budget(agent_id)
+            if budget_status.get("over_budget") and budget_status.get("effective_budget_usd") is not None:
+                budget_action = budget_status.get("budget_action", "warn")
+                spend = budget_status.get("today_spend_usd", 0)
+                limit = budget_status.get("effective_budget_usd", 0)
+                msg = f"Daily budget of ${limit:.4f} exceeded (spent ${spend:.4f} today)"
+                if budget_action == "block":
+                    print(f"[llm-proxy] 💸 BUDGET EXCEEDED — blocking: {msg}")
+                    # Invalidate cache so next check re-evaluates
+                    self._budget_cache.pop(agent_id, None)
+                    return Response(
+                        content=json.dumps({
+                            "error": {
+                                "message": f"[SecureVector] {msg}. Request blocked.",
+                                "type": "budget_exceeded",
+                                "code": "budget_exceeded",
+                            }
+                        }),
+                        status_code=429,
+                        media_type="application/json",
+                    )
+                else:
+                    print(f"[llm-proxy] ⚠️  BUDGET WARNING: {msg}")
 
         # Parse body for scanning
         body_dict = {}
@@ -720,7 +1215,7 @@ class LLMProxy:
             input_text = re.sub(r'\[message_id:\s*[^\]]+\]', '', input_text).strip()
             if input_text:
                 self.stats["scanned"] += 1
-                preview = input_text[:80].replace('\n', ' ')
+                preview = input_text[:200].replace('\n', ' ')
                 print(f"[llm-proxy] 🔍 Scanning input ({len(input_text)} chars): {preview}...")
 
                 # Check block mode first to record correct action
@@ -825,6 +1320,7 @@ class LLMProxy:
                 return await self.handle_streaming_request(
                     client, method, target, headers, body_bytes,
                     input_context=input_context,
+                    agent_id=agent_id,
                 )
             else:
                 # Handle regular request
@@ -870,8 +1366,28 @@ class LLMProxy:
                                             status_code=400,
                                             media_type="application/json",
                                         )
+                        # Tool permission enforcement (after output scan)
+                        settings = await self.check_settings()
+                        if settings.get("tool_permissions_enabled"):
+                            response_dict, blocked, _ = await self._evaluate_tool_permissions(
+                                response_dict, settings
+                            )
+                            if blocked:
+                                # Return modified response with blocked tools stripped
+                                modified_content = json.dumps(response_dict)
+                                return Response(
+                                    content=modified_content.encode(),
+                                    status_code=response.status_code,
+                                    headers=dict(response.headers),
+                                )
                     except json.JSONDecodeError:
                         pass
+
+                # Record cost (fire-and-forget, never blocks the response)
+                if response.status_code == 200 and response.content:
+                    asyncio.create_task(
+                        self._record_cost(self.provider, agent_id, response.content)
+                    )
 
                 # Strip encoding headers: httpx auto-decompresses the body
                 # but keeps content-encoding in headers; forwarding both
@@ -888,7 +1404,8 @@ class LLMProxy:
                 )
 
         except httpx.RequestError as e:
-            logger.error(f"[llm-proxy] Request error: {e}")
+            # Log type only — avoid exposing full URL which may contain API keys (e.g. Gemini key= param)
+            logger.error(f"[llm-proxy] Request error ({type(e).__name__}): failed to connect to LLM provider")
             return Response(
                 content=json.dumps({"error": {"message": "Failed to connect to LLM provider"}}),
                 status_code=502,
@@ -897,7 +1414,7 @@ class LLMProxy:
 
     async def handle_streaming_request(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "", agent_id: str = "unknown-agent"
     ) -> Response:
         """Handle streaming LLM response.
 
@@ -908,17 +1425,18 @@ class LLMProxy:
         """
         settings = await self.check_settings()
         should_scan = settings.get("scan_llm_responses")
+        should_check_tools = settings.get("tool_permissions_enabled")
 
-        if should_scan:
-            # SCAN MODE: Buffer full response, scan, then deliver or block
-            return await self._handle_streaming_buffered(client, method, url, headers, body, input_context)
+        if should_scan or should_check_tools:
+            # Buffer full response to scan output and/or enforce tool permissions
+            return await self._handle_streaming_buffered(client, method, url, headers, body, input_context, agent_id)
         else:
-            # PASSTHROUGH MODE: Stream through without scanning
-            return await self._handle_streaming_passthrough(client, method, url, headers, body, input_context)
+            # PASSTHROUGH MODE: Stream through without buffering
+            return await self._handle_streaming_passthrough(client, method, url, headers, body, input_context, agent_id)
 
     async def _handle_streaming_buffered(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "", agent_id: str = "unknown-agent"
     ) -> Response:
         """Buffer streaming response, scan, then deliver or block."""
         accumulated_text = ""
@@ -971,6 +1489,79 @@ class LLMProxy:
             else:
                 print("[llm-proxy] ✓ Output clean")
 
+        # Tool permission enforcement on buffered stream
+        if settings.get("tool_permissions_enabled"):
+            from securevector.core.tool_permissions.parser import extract_tool_calls
+
+            # Join ALL chunks before parsing — httpx may split a single SSE event
+            # across multiple byte chunks, causing json.loads to fail on fragments
+            full_stream = b"".join(all_chunks).decode("utf-8", errors="replace")
+            found_tool_calls = []
+            for line in full_stream.split("\n"):
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                try:
+                    data = json.loads(line[6:])
+                    found_tool_calls.extend(extract_tool_calls(data))
+                except Exception:
+                    continue
+
+            if found_tool_calls:
+                # Build a synthetic complete-format response so _evaluate_tool_permissions
+                # can apply its full logic (rate limiting, logging, denial construction).
+                # Streaming tool_use inputs may be empty ({}) since the full input arrives
+                # via content_block_delta — the tool name alone is enough to block.
+                is_anthropic = any(tc.provider_format == "anthropic" for tc in found_tool_calls)
+                if is_anthropic:
+                    synthetic = {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tc.tool_call_id or f"toolu_{i}",
+                                "name": tc.function_name,
+                                "input": json.loads(tc.arguments) if tc.arguments and tc.arguments != "{}" else {},
+                            }
+                            for i, tc in enumerate(found_tool_calls)
+                        ],
+                    }
+                else:
+                    synthetic = {
+                        "choices": [{
+                            "message": {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "id": tc.tool_call_id or f"call_{i}",
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function_name,
+                                            "arguments": tc.arguments or "{}",
+                                        },
+                                    }
+                                    for i, tc in enumerate(found_tool_calls)
+                                ],
+                            }
+                        }]
+                    }
+
+                modified, blocked, _ = await self._evaluate_tool_permissions(synthetic, settings)
+                if blocked:
+                    # Return denial as non-streaming response — stream is already buffered
+                    return Response(
+                        content=json.dumps(modified).encode(),
+                        status_code=200,
+                        media_type="application/json",
+                    )
+
+        # Record cost from buffered stream (use last non-empty chunk that has usage data)
+        if all_chunks:
+            full_body = b"".join(all_chunks)
+            asyncio.create_task(
+                self._record_cost(self.provider, agent_id, full_body)
+            )
+
         # Deliver buffered stream
         async def replay_chunks():
             for chunk in all_chunks:
@@ -983,16 +1574,19 @@ class LLMProxy:
 
     async def _handle_streaming_passthrough(
         self, client: httpx.AsyncClient, method: str, url: str,
-        headers: dict, body: bytes, input_context: str = ""
+        headers: dict, body: bytes, input_context: str = "",
+        agent_id: str = "unknown-agent",
     ) -> StreamingResponse:
-        """Stream through in real-time, scan at end for logging."""
+        """Stream through in real-time; record cost and scan after stream exhausts."""
         accumulated_text = ""
+        all_chunks: list[bytes] = []
 
         async def stream_generator():
             nonlocal accumulated_text
 
             async with client.stream(method, url, headers=headers, content=body) as response:
                 async for chunk in response.aiter_bytes():
+                    all_chunks.append(chunk)
                     try:
                         chunk_str = chunk.decode("utf-8")
                         for line in chunk_str.split("\n"):
@@ -1005,6 +1599,13 @@ class LLMProxy:
                         pass
 
                     yield chunk
+
+            # After stream is fully consumed — record cost then scan
+            if all_chunks:
+                full_body = b"".join(all_chunks)
+                asyncio.create_task(
+                    self._record_cost(self.provider, agent_id, full_body)
+                )
 
             # Scan accumulated text after stream completes (logging only)
             if accumulated_text:
@@ -1129,14 +1730,15 @@ class MultiProviderProxy:
             return await proxy.handle_request(modified_request)
 
         @app.get("/")
-        async def root():
+        async def root(request: Request):
+            base = str(request.base_url).rstrip("/")
             return {
                 "service": "SecureVector Multi-Provider LLM Proxy",
                 "providers": list(LLMProxy.PROVIDERS.keys()),
                 "usage": {
-                    "openai": "OPENAI_BASE_URL=http://localhost:8742/openai/v1",
-                    "anthropic": "ANTHROPIC_BASE_URL=http://localhost:8742/anthropic",
-                    "ollama": "OPENAI_BASE_URL=http://localhost:8742/ollama/v1",
+                    "openai": f"OPENAI_BASE_URL={base}/openai/v1",
+                    "anthropic": f"ANTHROPIC_BASE_URL={base}/anthropic",
+                    "ollama": f"OPENAI_BASE_URL={base}/ollama/v1",
                 },
                 "active_proxies": list(self._proxies.keys()),
             }
@@ -1182,8 +1784,8 @@ def main():
     parser.add_argument(
         "--port", "-p",
         type=int,
-        default=8742,
-        help="Proxy listen port (default: 8742)"
+        default=None,
+        help="Proxy listen port (default: auto-detect from web app, fallback 8742)"
     )
     parser.add_argument(
         "--host",
@@ -1227,6 +1829,19 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Auto-detect proxy port and securevector URL from runtime file if not explicitly set
+    if args.port is None or args.securevector_url == "http://127.0.0.1:8741":
+        try:
+            import json, pathlib
+            _runtime = json.loads((pathlib.Path.home() / '.securevector' / 'runtime.json').read_text())
+            if args.port is None:
+                args.port = _runtime.get('proxy_port', 8742)
+            if args.securevector_url == "http://127.0.0.1:8741":
+                args.securevector_url = f"http://127.0.0.1:{_runtime.get('web_port', 8741)}"
+        except Exception:
+            if args.port is None:
+                args.port = 8742
 
     if args.multi:
         # Multi-provider mode with path-based routing

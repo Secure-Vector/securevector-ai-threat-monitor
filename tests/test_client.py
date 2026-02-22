@@ -10,6 +10,7 @@ import pytest
 from securevector import SecureVectorClient
 from securevector.models.analysis_result import AnalysisResult, DetectionMethod, ThreatDetection
 from securevector.models.config_models import OperationMode
+from securevector.utils.exceptions import ConfigurationError, ValidationError
 
 
 class TestSecureVectorClient:
@@ -35,7 +36,7 @@ class TestSecureVectorClient:
 
     def test_client_initialization_without_api_key_fails(self):
         """Test that API mode fails without API key"""
-        with pytest.raises(ValueError):
+        with pytest.raises(ConfigurationError):
             SecureVectorClient(mode=OperationMode.API)
 
     @patch("securevector.client.SecureVectorClient.analyze")
@@ -91,14 +92,14 @@ class TestSecureVectorClient:
         """Test analysis of empty prompt"""
         client = SecureVectorClient(mode=OperationMode.LOCAL)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             client.analyze("")
 
     def test_analyze_none_prompt(self):
         """Test analysis of None prompt"""
         client = SecureVectorClient(mode=OperationMode.LOCAL)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             client.analyze(None)
 
     @patch("securevector.client.SecureVectorClient.analyze_batch")

@@ -18,6 +18,10 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
+        'tool-permissions': { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        costs: { render: (c) => { CostsPage.mode = 'monitor'; CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = false; return CostsPage.render(c); } },
+        'tool-activity': { render: (c) => { ToolPermissionsPage.activeTab = 'activity'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'cost-settings': { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
     },
 
     /**
@@ -26,6 +30,15 @@ const App = {
     async init() {
         // Load saved theme
         this.loadTheme();
+
+        // Fetch live proxy port, web port, and host once — used by applyDynamicPorts()
+        window.__SV_WEB_PORT = parseInt(window.location.port) || 8741;
+        window.__SV_PROXY_PORT = window.__SV_WEB_PORT + 1; // optimistic fallback
+        window.__SV_HOST = window.location.hostname || 'localhost';
+        try {
+            const status = await API.getProxyStatus();
+            if (status && status.port) window.__SV_PROXY_PORT = status.port;
+        } catch (_) {}
 
         // Render components
         Sidebar.render();
@@ -73,7 +86,7 @@ const App = {
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
-        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px;';
+        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px; display: flex; align-items: center; justify-content: space-between;';
 
         const title = document.createElement('h2');
         title.style.cssText = 'margin: 0; display: flex; align-items: center; gap: 10px;';
@@ -89,6 +102,14 @@ const App = {
         title.appendChild(titleText);
 
         header.appendChild(title);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'background: none; border: none; font-size: 22px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 0; flex-shrink: 0;';
+        closeBtn.textContent = '×';
+        closeBtn.title = 'Close';
+        closeBtn.addEventListener('click', () => dismissModal());
+        header.appendChild(closeBtn);
+
         modal.appendChild(header);
 
         // Content
@@ -98,78 +119,113 @@ const App = {
 
         const intro = document.createElement('div');
         intro.style.cssText = 'margin: 0 0 20px 0; padding: 12px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; color: white; font-weight: 600; text-align: center;';
-        intro.textContent = '100% Local AI Threat Detection for Your Agents';
+        intro.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents';
         content.appendChild(intro);
 
         // Instructions
         const instructionBox = document.createElement('div');
-        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px;';
+        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; display: flex; flex-direction: column; gap: 16px;';
 
-        // Step 1
+        const _numStyle = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
+        const _titleStyle = 'font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
+        const _descStyle = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 3px;';
+
+        // Step 1 — Proxy already running
         const step1 = document.createElement('div');
-        step1.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
-
+        step1.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step1Num = document.createElement('span');
-        step1Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step1Num.style.cssText = _numStyle;
         step1Num.textContent = '1';
         step1.appendChild(step1Num);
-
-        const step1Content = document.createElement('div');
+        const step1Body = document.createElement('div');
         const step1Title = document.createElement('div');
-        step1Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step1Title.textContent = 'Go to Integrations';
-        step1Content.appendChild(step1Title);
+        step1Title.style.cssText = _titleStyle;
+        step1Title.appendChild(document.createTextNode('Proxy Already Running'));
+        const step1Badge = document.createElement('span');
+        step1Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step1Badge.textContent = '\u25CF Active';
+        step1Title.appendChild(step1Badge);
+        step1Body.appendChild(step1Title);
         const step1Desc = document.createElement('div');
-        step1Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step1Desc.textContent = 'Choose your agent framework and LLM provider';
-        step1Content.appendChild(step1Desc);
-        step1.appendChild(step1Content);
-
+        step1Desc.style.cssText = _descStyle;
+        step1Desc.textContent = "Your AI Firewall is live. Point your agent's LLM calls to the proxy by setting one environment variable:";
+        step1Body.appendChild(step1Desc);
+        const step1Code = document.createElement('div');
+        step1Code.style.cssText = 'margin-top: 5px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 4px 10px; border-radius: 4px; display: inline-block;';
+        step1Code.textContent = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
+        step1Body.appendChild(step1Code);
+        step1.appendChild(step1Body);
         instructionBox.appendChild(step1);
 
-        // Step 2
+        // Step 2 — Rules already enabled
         const step2 = document.createElement('div');
-        step2.style.cssText = 'margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
-
+        step2.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step2Num = document.createElement('span');
-        step2Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step2Num.style.cssText = _numStyle;
         step2Num.textContent = '2';
         step2.appendChild(step2Num);
-
-        const step2Content = document.createElement('div');
+        const step2Body = document.createElement('div');
         const step2Title = document.createElement('div');
-        step2Title.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-        step2Title.textContent = 'Start Proxy or Code Integration';
-        step2Content.appendChild(step2Title);
+        step2Title.style.cssText = _titleStyle;
+        step2Title.appendChild(document.createTextNode('Threat Detection Rules Enabled'));
+        const step2Badge = document.createElement('span');
+        step2Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
+        step2Badge.textContent = '\u25CF Ready';
+        step2Title.appendChild(step2Badge);
+        step2Body.appendChild(step2Title);
         const step2Desc = document.createElement('div');
-        step2Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step2Desc.textContent = 'Choice is yours - use proxy or integrate via SDK';
-        step2Content.appendChild(step2Desc);
-        step2.appendChild(step2Content);
-
+        step2Desc.style.cssText = _descStyle;
+        step2Desc.textContent = 'Prompt injection, jailbreak, data exfiltration, and 300+ other threat patterns are pre-loaded and scanning every request automatically.';
+        step2Body.appendChild(step2Desc);
+        step2.appendChild(step2Body);
         instructionBox.appendChild(step2);
 
-        // Step 3 - AI Analysis
+        // Step 3 — Tool Permissions
         const step3 = document.createElement('div');
-        step3.style.cssText = 'margin: 0; font-size: 14px; line-height: 1.6; display: flex; gap: 12px;';
-
+        step3.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
         const step3Num = document.createElement('span');
-        step3Num.style.cssText = 'width: 28px; height: 28px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;';
+        step3Num.style.cssText = _numStyle;
         step3Num.textContent = '3';
         step3.appendChild(step3Num);
-
-        const step3Content = document.createElement('div');
+        const step3Body = document.createElement('div');
         const step3Title = document.createElement('div');
-        step3Title.style.cssText = 'font-weight: 600; color: var(--accent-primary);';
-        step3Title.textContent = 'AI Analysis (Recommended)';
-        step3Content.appendChild(step3Title);
+        step3Title.style.cssText = _titleStyle;
+        step3Title.textContent = 'Configure Tool Permissions & Budgets';
+        step3Body.appendChild(step3Title);
         const step3Desc = document.createElement('div');
-        step3Desc.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-        step3Desc.textContent = 'Enable in Settings for enhanced LLM-powered threat detection';
-        step3Content.appendChild(step3Desc);
-        step3.appendChild(step3Content);
-
+        step3Desc.style.cssText = _descStyle;
+        const step3b1 = document.createElement('strong'); step3b1.textContent = 'Tool Permissions';
+        const step3b2 = document.createElement('strong'); step3b2.textContent = 'Cost Settings';
+        step3Desc.appendChild(document.createTextNode('Go to '));
+        step3Desc.appendChild(step3b1);
+        step3Desc.appendChild(document.createTextNode(' to block risky agent actions, and '));
+        step3Desc.appendChild(step3b2);
+        step3Desc.appendChild(document.createTextNode(' to set daily spend limits.'));
+        step3Body.appendChild(step3Desc);
+        step3.appendChild(step3Body);
         instructionBox.appendChild(step3);
+
+        // Step 4 — Monitor
+        const step4 = document.createElement('div');
+        step4.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
+        const step4Num = document.createElement('span');
+        step4Num.style.cssText = _numStyle;
+        step4Num.textContent = '4';
+        step4.appendChild(step4Num);
+        const step4Body = document.createElement('div');
+        const step4Title = document.createElement('div');
+        step4Title.style.cssText = _titleStyle;
+        step4Title.textContent = "Run Your Agent \u2014 Watch It Live";
+        step4Body.appendChild(step4Title);
+        const step4Desc = document.createElement('div');
+        step4Desc.style.cssText = _descStyle;
+        const step4b1 = document.createElement('strong'); step4b1.textContent = 'Monitor';
+        step4Desc.appendChild(document.createTextNode('Threats, tool calls, and costs appear in real time in the '));
+        step4Desc.appendChild(step4b1);
+        step4Desc.appendChild(document.createTextNode(' section as your agent runs.'));
+        step4Body.appendChild(step4Desc);
+        step4.appendChild(step4Body);
+        instructionBox.appendChild(step4);
 
         content.appendChild(instructionBox);
 
@@ -188,18 +244,18 @@ const App = {
 
         const gotItBtn = document.createElement('button');
         gotItBtn.className = 'btn btn-secondary';
-        gotItBtn.textContent = 'Got it';
+        gotItBtn.textContent = 'Close';
         gotItBtn.addEventListener('click', dismissModal);
         footer.appendChild(gotItBtn);
 
-        const docsBtn = document.createElement('button');
-        docsBtn.className = 'btn btn-primary';
-        docsBtn.textContent = 'Get Started';
-        docsBtn.addEventListener('click', () => {
+        const configureBtn = document.createElement('button');
+        configureBtn.className = 'btn btn-primary';
+        configureBtn.textContent = 'Go to Configure';
+        configureBtn.addEventListener('click', () => {
             dismissModal();
-            if (window.Sidebar) Sidebar.navigate('guide');
+            if (window.Sidebar) Sidebar.navigate('tool-permissions');
         });
-        footer.appendChild(docsBtn);
+        footer.appendChild(configureBtn);
 
         modal.appendChild(footer);
         overlay.appendChild(modal);
@@ -262,10 +318,41 @@ const App = {
         // Render page
         try {
             await pageHandler.render(container);
+            this.applyDynamicPorts(container);
         } catch (error) {
             console.error('Failed to render page:', error);
             this.renderError(container, error);
         }
+    },
+
+    /**
+     * Walk all text nodes in container and replace default ports with the
+     * actual running ports. Runs after every page render so all instruction
+     * code blocks, env-var examples, and URLs show the correct port.
+     */
+    applyDynamicPorts(container) {
+        const proxyPort = window.__SV_PROXY_PORT;
+        const webPort   = window.__SV_WEB_PORT;
+        if (!proxyPort && !webPort) return;
+        const defaultProxy = 8742;
+        const defaultWeb   = 8741;
+        if (proxyPort === defaultProxy && webPort === defaultWeb) return; // nothing to replace
+
+        const walk = (node) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                let t = node.textContent;
+                if (proxyPort && proxyPort !== defaultProxy) {
+                    t = t.replaceAll(':' + defaultProxy, ':' + proxyPort);
+                }
+                if (webPort && webPort !== defaultWeb) {
+                    t = t.replaceAll(':' + defaultWeb, ':' + webPort);
+                }
+                if (t !== node.textContent) node.textContent = t;
+            } else {
+                node.childNodes.forEach(walk);
+            }
+        };
+        walk(container);
     },
 
     /**
@@ -305,6 +392,66 @@ const App = {
 
 // Make App globally available
 window.App = App;
+
+/**
+ * getPollInterval — returns the user-configured polling interval in ms.
+ * Default: 5000ms (5s). Stored in localStorage key 'sv-poll-interval'.
+ */
+window.getPollInterval = () => parseInt(localStorage.getItem('sv-poll-interval') || '5000', 10);
+
+/**
+ * makeTableSortable — attach click-to-sort to all <th> in a .data-table.
+ *
+ * Columns with data-no-sort attribute are skipped.
+ * Detects numeric values (including $-prefix, K/M suffixes) for numeric sort.
+ * Falls back to locale string comparison.
+ */
+function makeTableSortable(table) {
+    const ths = Array.from(table.querySelectorAll('thead th'));
+    const state = { col: -1, dir: 'asc' };
+
+    function parseCell(text) {
+        const t = text.trim().replace(/^\$/, '');
+        const m = t.match(/^([\d.]+)\s*([KkMm]?)$/);
+        if (m) {
+            const n = parseFloat(m[1]);
+            const s = m[2].toUpperCase();
+            if (s === 'K') return n * 1_000;
+            if (s === 'M') return n * 1_000_000;
+            if (!isNaN(n)) return n;
+        }
+        return t.toLowerCase();
+    }
+
+    ths.forEach((th, idx) => {
+        if (th.hasAttribute('data-no-sort')) return;
+        th.classList.add('sortable');
+        th.addEventListener('click', () => {
+            if (state.col === idx) {
+                state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.col = idx;
+                state.dir = 'asc';
+            }
+            ths.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+            th.classList.add(state.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const va = parseCell(a.cells[idx]?.textContent ?? '');
+                const vb = parseCell(b.cells[idx]?.textContent ?? '');
+                if (typeof va === 'number' && typeof vb === 'number') {
+                    return state.dir === 'asc' ? va - vb : vb - va;
+                }
+                const sa = String(va), sb = String(vb);
+                return state.dir === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+        });
+    });
+}
+window.makeTableSortable = makeTableSortable;
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {

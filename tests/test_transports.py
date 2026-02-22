@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from securevector.mcp.server import create_server
 
 
-async def test_sse_transport():
+async def run_sse_transport():
     """Test SSE transport starts and runs."""
     print("Testing SSE transport...")
 
@@ -43,7 +43,7 @@ async def test_sse_transport():
         return False
 
 
-async def test_stdio_transport():
+async def run_stdio_transport():
     """Test stdio transport starts and runs."""
     print("Testing stdio transport...")
 
@@ -77,9 +77,9 @@ if __name__ == "__main__":
     transport = sys.argv[1].lower()
 
     if transport == "sse":
-        asyncio.run(test_sse_transport())
+        asyncio.run(run_sse_transport())
     elif transport == "stdio":
-        asyncio.run(test_stdio_transport())
+        asyncio.run(run_stdio_transport())
     else:
         print(f"Unknown transport: {transport}")
         print("Valid options: sse, stdio")

@@ -35,6 +35,9 @@ class GeneralSettingsResponse(BaseModel):
     store_text_content: bool = True
     retention_days: int = 30
     block_threats: bool = False
+    tool_permissions_enabled: bool = True
+    config_file: Optional[str] = None
+    config_updated: bool = False
 
 
 class GeneralSettingsUpdate(BaseModel):
@@ -44,6 +47,7 @@ class GeneralSettingsUpdate(BaseModel):
     store_text_content: Optional[bool] = None
     retention_days: Optional[int] = None
     block_threats: Optional[bool] = None
+    tool_permissions_enabled: Optional[bool] = None
 
 
 class CloudSettingsResponse(BaseModel):
@@ -108,6 +112,7 @@ async def get_general_settings() -> GeneralSettingsResponse:
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
+            tool_permissions_enabled=settings.tool_permissions_enabled,
         )
 
     except Exception as e:
@@ -134,17 +139,44 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             updates["retention_days"] = request.retention_days
         if request.block_threats is not None:
             updates["block_threats"] = request.block_threats
+        if request.tool_permissions_enabled is not None:
+            updates["tool_permissions_enabled"] = request.tool_permissions_enabled
 
         if updates:
             await settings_repo.update(**updates)
 
         settings = await settings_repo.get()
 
+        # Sync to securevector.yml
+        config_path = None
+        config_updated = False
+        if updates:
+            try:
+                from securevector.app.utils.config_file import save_config, get_config_path
+                from securevector.app.database.repositories.costs import CostsRepository
+                costs_repo = CostsRepository(db)
+                budget_data = await costs_repo.get_global_budget() or {}
+                budget_action = budget_data.get("budget_action", "warn")
+                config_path = save_config(
+                    block_mode=settings.block_threats,
+                    output_scan=settings.scan_llm_responses,
+                    budget_warn=(budget_action == "warn"),
+                    budget_block=(budget_action == "block"),
+                    budget_daily_limit=budget_data.get("daily_budget_usd"),
+                    tools_enforcement=settings.tool_permissions_enabled,
+                )
+                config_updated = True
+            except Exception as ce:
+                logger.warning(f"Could not update securevector.yml: {ce}")
+
         return GeneralSettingsResponse(
             scan_llm_responses=settings.scan_llm_responses,
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
+            tool_permissions_enabled=settings.tool_permissions_enabled,
+            config_file=str(config_path) if config_path else None,
+            config_updated=config_updated,
         )
 
     except Exception as e:

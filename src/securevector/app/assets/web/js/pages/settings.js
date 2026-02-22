@@ -40,22 +40,6 @@ const SettingsPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Page header
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Settings';
-        header.appendChild(title);
-
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Configure cloud mode, AI analysis, and test your security setup.';
-        header.appendChild(subtitle);
-
-        container.appendChild(header);
-
         // Cloud Mode Section
         const cloudSection = this.createSection('Cloud Mode', 'Connect to SecureVector cloud for enhanced threat intelligence');
         const cloudCard = Card.create({ gradient: true });
@@ -76,6 +60,38 @@ const SettingsPage = {
         llmSection.appendChild(llmCard);
         container.appendChild(llmSection);
 
+        // Tool Permissions shortcut
+        const toolSection = this.createSection('Tool Permissions', 'Control which tool calls AI agents can execute through the proxy');
+        const toolCard = Card.create({ gradient: true });
+        const toolBody = toolCard.querySelector('.card-body');
+
+        const toolRow = document.createElement('div');
+        toolRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 16px;';
+
+        const toolInfo = document.createElement('div');
+        const toolLabel = document.createElement('div');
+        toolLabel.style.cssText = 'font-weight: 600;';
+        toolLabel.textContent = 'Manage essential tool permissions, block high-risk tool calls.';
+        toolInfo.appendChild(toolLabel);
+
+        const toolNote = document.createElement('div');
+        toolNote.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        toolNote.textContent = '27 high-risk tools are blocked by default when enforcement is enabled.';
+        toolInfo.appendChild(toolNote);
+        toolRow.appendChild(toolInfo);
+
+        const toolBtn = document.createElement('button');
+        toolBtn.className = 'btn btn-primary';
+        toolBtn.textContent = 'Manage';
+        toolBtn.addEventListener('click', () => {
+            if (window.Sidebar) Sidebar.navigate('tool-permissions');
+        });
+        toolRow.appendChild(toolBtn);
+
+        toolBody.appendChild(toolRow);
+        toolSection.appendChild(toolCard);
+        container.appendChild(toolSection);
+
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
         const themeCard = Card.create({ gradient: true });
@@ -83,6 +99,14 @@ const SettingsPage = {
         this.renderThemeSettings(themeBody);
         themeSection.appendChild(themeCard);
         container.appendChild(themeSection);
+
+        // Data Refresh Section
+        const refreshSection = this.createSection('Data Refresh', 'How often the dashboard, threats, and cost pages poll for new data');
+        const refreshCard = Card.create({ gradient: true });
+        const refreshBody = refreshCard.querySelector('.card-body');
+        this.renderRefreshSettings(refreshBody);
+        refreshSection.appendChild(refreshCard);
+        container.appendChild(refreshSection);
 
         // Uninstall Section
         const uninstallSection = this.createSection('Uninstall', 'Remove SecureVector from your system');
@@ -990,6 +1014,54 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         }
 
         Toast.success('Theme updated');
+    },
+
+    renderRefreshSettings(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+
+        const info = document.createElement('div');
+        info.className = 'setting-info';
+
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.textContent = 'Polling Interval';
+        info.appendChild(label);
+
+        const desc = document.createElement('span');
+        desc.className = 'setting-description';
+        desc.textContent = 'How frequently the UI fetches new data from the backend';
+        info.appendChild(desc);
+
+        row.appendChild(info);
+
+        const select = document.createElement('select');
+        select.className = 'form-select';
+        select.style.cssText = 'padding: 8px 12px; font-size: 13px; width: 140px;';
+
+        const options = [
+            { value: '3000', label: '3 seconds' },
+            { value: '5000', label: '5 seconds (default)' },
+            { value: '10000', label: '10 seconds' },
+            { value: '30000', label: '30 seconds' },
+        ];
+
+        const current = localStorage.getItem('sv-poll-interval') || '5000';
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            if (opt.value === current) option.selected = true;
+            select.appendChild(option);
+        });
+
+        select.addEventListener('change', (e) => {
+            localStorage.setItem('sv-poll-interval', e.target.value);
+            Toast.success('Polling interval updated — takes effect on next page visit');
+        });
+
+        row.appendChild(select);
+        container.appendChild(row);
     },
 
     createSection(title, description) {

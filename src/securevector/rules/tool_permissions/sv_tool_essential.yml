@@ -1,0 +1,999 @@
+# SecureVector Essential Tool Permission Registry
+#
+# High-risk tool definitions from official MCP servers and OpenClaw integrations only.
+# These tool calls are blocked by default when tool permission scanning is enabled.
+# Users can toggle individual tools between "block" and "allow" via the app UI.
+#
+# source field:
+#   official  - verified from official provider MCP server
+#   openclaw  - verified from google-workspace-mcp integration
+#
+# mcp_server: short package/server identifier for display in the UI
+# popular: true = commonly deployed by real-world agents (shown with highlight in UI)
+#
+# Rate limits are researched from official provider documentation and TOS.
+# Values are set at ~10-25% of provider limits to prevent account bans,
+# throttling, and TOS violations when AI agents loop.
+#
+# TRADEMARK NOTICE: Tool and provider names (Gmail, Slack, GitHub, Google, etc.)
+# referenced in this registry are trademarks or registered trademarks of their
+# respective owners. SecureVector AI Threat Monitor is an independent security product
+# and is not affiliated with, endorsed by, or sponsored by any referenced provider.
+# Names are used solely for functional security identification and interoperability
+# purposes, consistent with nominative fair use.
+#
+# Categories: communication, code_devops, payment, cloud_infra, project_management
+
+essential_tools:
+  # ── OpenClaw built-in browser (CDP-based, action dispatch) ──────
+  - id: browser
+    provider: OpenClaw
+    category: openclaw
+    name: Browser Control
+    description: OpenClaw built-in browser — controls Chrome via CDP with actions like navigate, click, type, snapshot, open, close, pdf, upload
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Single tool covers all browser actions. Navigate/click/type can exfiltrate data or submit forms; block unless explicitly needed."
+
+  # ── OpenClaw shell execution ─────────────────────────────────────
+  - id: exec
+    provider: OpenClaw
+    category: openclaw
+    name: Execute Command
+    description: Execute shell commands with optional background execution, timeout, and elevation
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Unrestricted shell access — can exfiltrate data, install software, or destroy files. Treat as admin-level."
+
+  - id: bash
+    provider: OpenClaw
+    category: openclaw
+    name: Bash Shell
+    description: Direct bash shell access for running commands
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Equivalent to exec — unrestricted shell. Block unless the agent is explicitly trusted with system access."
+
+  - id: process
+    provider: OpenClaw
+    category: openclaw
+    name: Process Manager
+    description: Manage background exec sessions — list, poll, log, write, kill, clear, remove
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Can interact with running background processes. Kill/write actions can disrupt running services."
+
+  # ── OpenClaw filesystem ──────────────────────────────────────────
+  - id: write
+    provider: OpenClaw
+    category: openclaw
+    name: Write File
+    description: Create or overwrite files with automatic parent directory creation
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can silently overwrite existing files. Agent loops can fill disk or corrupt workspace."
+
+  - id: edit
+    provider: OpenClaw
+    category: openclaw
+    name: Edit File
+    description: Perform targeted search-and-replace edits on files
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can modify any file the agent has access to. Agent loops can corrupt source code or config files."
+
+  - id: apply_patch
+    provider: OpenClaw
+    category: openclaw
+    name: Apply Patch
+    description: Apply structured multi-file patches across the workspace
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Batch file modification — higher blast radius than single-file edit."
+
+  - id: read
+    provider: OpenClaw
+    category: openclaw
+    name: Read File
+    description: Read file contents or directory listings with optional offset and limit
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 500
+      window_seconds: 3600
+      note: "Read-only but can expose secrets, credentials, and private data. Monitor usage."
+
+  # ── OpenClaw web ─────────────────────────────────────────────────
+  - id: web_search
+    provider: OpenClaw
+    category: openclaw
+    name: Web Search
+    description: Query the web via Brave Search API
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Search results can contain hidden prompt injection instructions (OWASP LLM01:2025). Allow by default but monitor for excessive queries or suspicious domain patterns. 30%+ of MCP deployments have unrestricted search as an attack vector."
+
+  - id: web_fetch
+    provider: OpenClaw
+    category: openclaw
+    name: Web Fetch
+    description: Fetch and extract readable content from a URL
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Primary prompt injection vector — attacker-controlled pages can embed malicious instructions that hijack the agent. Block unless the agent's fetch targets are trusted and controlled."
+
+  # ── OpenClaw messaging ───────────────────────────────────────────
+  - id: message
+    provider: OpenClaw
+    category: openclaw
+    name: Send Message
+    description: Send, edit, react, or delete messages across Discord, Slack, Teams, WhatsApp, Telegram, Signal, iMessage
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 900
+      note: "Covers multiple messaging platforms. Agent loops can spam channels. Low cap to prevent TOS violations."
+
+  # ── OpenClaw sessions ────────────────────────────────────────────
+  - id: sessions_spawn
+    provider: OpenClaw
+    category: openclaw
+    name: Spawn Sub-Agent
+    description: Start a new sub-agent session with non-blocking execution
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Each spawned session can take independent actions. Agent loops can spawn many sub-agents, each incurring costs and taking actions."
+
+  - id: sessions_send
+    provider: OpenClaw
+    category: openclaw
+    name: Send to Session
+    description: Send a message to another active agent session, optionally waiting for completion
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Can direct other running agents to take actions. Risk depends on what the target session can do."
+
+  # ── OpenClaw automation ──────────────────────────────────────────
+  - id: cron
+    provider: OpenClaw
+    category: openclaw
+    name: Cron Jobs
+    description: Manage Gateway cron jobs — add, update, remove, run scheduled tasks
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Persistent scheduled execution. A compromised agent could add cron jobs that survive session end."
+
+  - id: gateway
+    provider: OpenClaw
+    category: openclaw
+    name: Gateway Control
+    description: Control the OpenClaw Gateway process — restart, config get/apply/patch, update
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Controls the OpenClaw runtime itself. Can change configuration or restart the gateway."
+
+  # ── OpenClaw nodes ───────────────────────────────────────────────
+  - id: nodes
+    provider: OpenClaw
+    category: openclaw
+    name: Device Control
+    description: Discover paired nodes and control hardware — camera, screen recording, location, notifications
+    risk: admin
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Access to physical hardware including cameras, microphones, and location. High privacy risk."
+
+  # ── OpenClaw canvas & image ─────────────────────────────────────
+  - id: canvas
+    provider: OpenClaw
+    category: openclaw
+    name: Canvas Control
+    description: Drive node Canvas presentations — present, hide, navigate, eval, snapshot, push/reset UI
+    risk: write
+    source: conventional
+    mcp_server: openclaw
+    default_permission: block
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "eval action can execute arbitrary code in the Canvas context. Block by default."
+
+  - id: image
+    provider: OpenClaw
+    category: openclaw
+    name: Image Analysis
+    description: Analyze images using the configured image model
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only. Can process images visible to the agent but does not transmit data externally on its own."
+
+  # ── OpenClaw read-only session & memory tools ────────────────────
+  - id: sessions_list
+    provider: OpenClaw
+    category: openclaw
+    name: List Sessions
+    description: List active agent sessions with optional message history
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only. Reveals which sessions are active — low risk on its own but useful in reconnaissance for multi-agent attacks."
+
+  - id: sessions_history
+    provider: OpenClaw
+    category: openclaw
+    name: Session History
+    description: Fetch conversation transcript for a specific session
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Can expose conversation history including sensitive data discussed in other sessions. Monitor usage."
+
+  - id: session_status
+    provider: OpenClaw
+    category: openclaw
+    name: Session Status
+    description: Get or update current session status and model override
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Mostly read-only. The update/model-override action could be abused to switch to a less-restricted model."
+
+  - id: agents_list
+    provider: OpenClaw
+    category: openclaw
+    name: List Agents
+    description: List available agents for spawning or targeting
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Read-only reconnaissance tool. Low risk alone; concerning if combined with sessions_spawn."
+
+  - id: memory_search
+    provider: OpenClaw
+    category: openclaw
+    name: Memory Search
+    description: Hybrid vector + BM25 semantic search over workspace memory
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can surface sensitive data stored in agent memory. Part of the 'Lethal Trifecta' if combined with write + external comms."
+
+  - id: memory_get
+    provider: OpenClaw
+    category: openclaw
+    name: Memory Get
+    description: Retrieve specific memory documents by ID
+    risk: read
+    source: conventional
+    mcp_server: openclaw
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Targeted memory retrieval. Same risk profile as memory_search."
+
+  # ── Gmail (google-workspace-mcp) ───────────────────────────────
+  - id: gmail.send
+    provider: Gmail
+    category: communication
+    name: Send Email
+    description: Send an email via Gmail
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 86400
+      note: "Gmail personal: 500/day, Workspace: 2000/day. 20/day keeps well under personal cap and avoids spam flags."
+
+  - id: gmail.sendDraft
+    provider: Gmail
+    category: communication
+    name: Send Draft
+    description: Send a saved draft via Gmail
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 86400
+      note: "Same risk as gmail.send — results in outbound email."
+
+  # ── Calendar (google-workspace-mcp) ────────────────────────────
+  - id: calendar.createEvent
+    provider: Google Calendar
+    category: communication
+    name: Create Event
+    description: Create a calendar event and send invites
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Event creation sends invites to attendees. Agent loops can spam calendars."
+
+  - id: calendar.deleteEvent
+    provider: Google Calendar
+    category: communication
+    name: Delete Event
+    description: Delete a calendar event
+    risk: delete
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Irreversible deletion. Low cap prevents agent loops from wiping calendars."
+
+  # ── Google Chat (google-workspace-mcp) ─────────────────────────
+  - id: chat.sendMessage
+    provider: Google Chat
+    category: communication
+    name: Send Message
+    description: Send a message to a Google Chat space
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 900
+      note: "Workspace Chat: rate limits vary by plan. 30/15min prevents spam."
+
+  - id: chat.sendDm
+    provider: Google Chat
+    category: communication
+    name: Send Direct Message
+    description: Send a direct message to a user via Google Chat
+    risk: write
+    source: openclaw
+    mcp_server: google-workspace-mcp
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 900
+      note: "DMs are personal and hard to unsend. Low cap for safety."
+
+  # ── Slack (Official: @modelcontextprotocol/server-slack) ────────
+  - id: slack_post_message
+    provider: Slack
+    category: communication
+    name: Post Message
+    description: Send a message to a Slack channel or user
+    risk: write
+    source: official
+    mcp_server: server-slack
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 900
+      note: "Slack chat.postMessage: 1 msg/sec/channel (Special tier). 30/15min = ~2/min, safe margin."
+
+  # ── GitHub (Official: github/github-mcp-server) ─────────────────
+  - id: push_files
+    provider: GitHub
+    category: code_devops
+    name: Push Files
+    description: Push files to a GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "GitHub: 5000 REST req/hr, but git push recommended max ~6/min/repo. 30/hr is safe for automated workflows."
+
+  - id: create_or_update_file
+    provider: GitHub
+    category: code_devops
+    name: Create or Update File
+    description: Create or overwrite a file in a GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Can silently overwrite existing files. Same rate as push_files."
+
+  - id: delete_file
+    provider: GitHub
+    category: code_devops
+    name: Delete File
+    description: Delete a file from a GitHub repository
+    risk: delete
+    source: official
+    mcp_server: github-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Destructive and tracked via git history, but still dangerous in agent loops."
+
+  - id: create_pull_request
+    provider: GitHub
+    category: code_devops
+    name: Create Pull Request
+    description: Open a pull request on a GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "PRs can trigger CI/CD and code review workflows. Moderate cap."
+
+  - id: merge_pull_request
+    provider: GitHub
+    category: code_devops
+    name: Merge Pull Request
+    description: Merge a pull request into a branch
+    risk: admin
+    source: official
+    mcp_server: github-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Irreversible without a revert commit. Very low cap — merges should be intentional."
+
+  - id: create_repository
+    provider: GitHub
+    category: code_devops
+    name: Create Repository
+    description: Create a new GitHub repository
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Creates new repos under the user/org account. Low cap to prevent accidental proliferation."
+
+  - id: add_issue_comment
+    provider: GitHub
+    category: code_devops
+    name: Add Issue Comment
+    description: Post a comment on a GitHub issue
+    risk: write
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Used in real prompt injection attacks (May 2025) to exfiltrate private repo data via public issue comments. Block unless needed."
+
+  - id: get_file_contents
+    provider: GitHub
+    category: code_devops
+    name: Get File Contents
+    description: Read file contents from a GitHub repository
+    risk: read
+    source: official
+    mcp_server: github-mcp-server
+    popular: true
+    default_permission: allow
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Read-only but used in 2025 GitHub prompt injection attacks to access private repos after token hijack. Monitor usage."
+
+  # ── Stripe (Official: @stripe/mcp) ─────────────────────────────
+  - id: create_payment_link
+    provider: Stripe
+    category: payment
+    name: Create Payment Link
+    description: Create a shareable Stripe payment link
+    risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Payment links can be shared and charged; each creates a live billing instrument."
+
+  - id: finalize_invoice
+    provider: Stripe
+    category: payment
+    name: Finalize Invoice
+    description: Finalize and charge a Stripe invoice
+    risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Finalizing an invoice triggers an immediate charge attempt on the customer."
+
+  - id: create_refund
+    provider: Stripe
+    category: payment
+    name: Create Refund
+    description: Refund a Stripe payment
+    risk: write
+    source: official
+    mcp_server: "@stripe/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Each refund moves real money. Agent loops can exhaust refundable amounts."
+
+  - id: cancel_subscription
+    provider: Stripe
+    category: payment
+    name: Cancel Subscription
+    description: Cancel a Stripe subscription
+    risk: delete
+    source: official
+    mcp_server: "@stripe/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Cancellation is hard to reverse and immediately affects customer billing."
+
+  # ── PayPal (Official: paypal/paypal-mcp-server) ─────────────────
+  - id: create_order
+    provider: PayPal
+    category: payment
+    name: Create Order
+    description: Create a PayPal payment order
+    risk: write
+    source: official
+    mcp_server: paypal-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Initiates a real payment transaction. Agent loops can create many pending orders."
+
+  - id: capture_order
+    provider: PayPal
+    category: payment
+    name: Capture Order
+    description: Capture (charge) a PayPal order
+    risk: write
+    source: official
+    mcp_server: paypal-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Captures real money from a buyer. Must not be triggered by agent loops."
+
+  - id: cancel_sent_invoice
+    provider: PayPal
+    category: payment
+    name: Cancel Invoice
+    description: Cancel a sent PayPal invoice
+    risk: delete
+    source: official
+    mcp_server: paypal-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Cancels live invoices — irreversible and affects revenue collection."
+
+  # ── AWS IAM (Official: awslabs/mcp iam-mcp-server) ──────────────
+  - id: create_access_key
+    provider: AWS IAM
+    category: cloud_infra
+    name: Create Access Key
+    description: Create an IAM user access key (credential)
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Creates long-lived AWS credentials. Extremely dangerous if exploited by a compromised agent."
+
+  - id: attach_user_policy
+    provider: AWS IAM
+    category: cloud_infra
+    name: Attach User Policy
+    description: Attach an IAM policy to a user
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Can grant privilege escalation. A compromised agent could attach AdministratorAccess."
+
+  - id: attach_role_policy
+    provider: AWS IAM
+    category: cloud_infra
+    name: Attach Role Policy
+    description: Attach an IAM policy to a role
+    risk: admin
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 5
+      window_seconds: 3600
+      note: "Role policy changes affect all principals assuming that role. Critical blast radius."
+
+  - id: delete_user
+    provider: AWS IAM
+    category: cloud_infra
+    name: Delete IAM User
+    description: Delete an IAM user account
+    risk: delete
+    source: official
+    mcp_server: awslabs/iam-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 3
+      window_seconds: 3600
+      note: "Permanent account deletion. Low cap to prevent agent-driven account wipeout."
+
+  # ── AWS API (Official: awslabs/mcp aws-api-mcp-server) ──────────
+  - id: use_aws_cli
+    provider: AWS
+    category: cloud_infra
+    name: Use AWS CLI
+    description: Execute arbitrary AWS CLI commands
+    risk: admin
+    source: official
+    mcp_server: awslabs/aws-api-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Executes any AWS CLI command — effectively unrestricted AWS access. Treat as admin-level."
+
+  # ── Atlassian (Official: atlassian-labs/mcp-atlassian) ──────────
+  - id: delete_issue
+    provider: Atlassian
+    category: project_management
+    name: Delete Issue
+    description: Delete a Jira issue permanently
+    risk: delete
+    source: official
+    mcp_server: mcp-atlassian
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion of Jira issues. Cannot be undone without backup."
+
+  - id: delete_page
+    provider: Atlassian
+    category: project_management
+    name: Delete Page
+    description: Delete a Confluence page
+    risk: delete
+    source: official
+    mcp_server: mcp-atlassian
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion of Confluence pages including nested content."
+
+  - id: create_issue
+    provider: Atlassian
+    category: project_management
+    name: Create Issue
+    description: Create a Jira issue
+    risk: write
+    source: official
+    mcp_server: mcp-atlassian
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Agent loops can flood a project with spurious issues. Moderate cap."
+
+  # ── Notion (Official: makenotion/notion-mcp-server) ─────────────
+  - id: notion-delete-block
+    provider: Notion
+    category: project_management
+    name: Delete Block
+    description: Delete a Notion block (page, database, or content block)
+    risk: delete
+    source: official
+    mcp_server: notion-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Deleting blocks in Notion can remove entire pages or databases. Irreversible."
+
+  - id: notion-update-page
+    provider: Notion
+    category: project_management
+    name: Update Page
+    description: Update a Notion page properties or content
+    risk: write
+    source: official
+    mcp_server: notion-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Can overwrite page content silently. Agent loops can corrupt workspace data."
+
+  # ── Linear (Official: linear-app/linear-mcp-server) ─────────────
+  - id: createIssue
+    provider: Linear
+    category: project_management
+    name: Create Issue
+    description: Create a Linear issue
+    risk: write
+    source: official
+    mcp_server: linear-mcp-server
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 30
+      window_seconds: 3600
+      note: "Agent loops can flood Linear projects with duplicate issues."
+
+  - id: deleteIssue
+    provider: Linear
+    category: project_management
+    name: Delete Issue
+    description: Delete a Linear issue permanently
+    risk: delete
+    source: official
+    mcp_server: linear-mcp-server
+    default_permission: block
+    rate_limit:
+      max_calls: 10
+      window_seconds: 3600
+      note: "Permanent deletion. Low cap to prevent agent-driven issue wipeout."
+
+  # ── Playwright (Official: microsoft/playwright-mcp) ─────────────
+  - id: browser_navigate
+    provider: Playwright
+    category: browser_automation
+    name: Navigate
+    description: Navigate the browser to a URL
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 100
+      window_seconds: 3600
+      note: "Can navigate to arbitrary URLs. Agent loops can exfiltrate data via URL params or trigger SSRF-like behavior from the agent host."
+
+  - id: browser_click
+    provider: Playwright
+    category: browser_automation
+    name: Click Element
+    description: Click on a web page element (button, link, etc.)
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 200
+      window_seconds: 3600
+      note: "Can submit forms, trigger purchases, or click destructive UI actions. Agent loops can spam button presses."
+
+  - id: browser_type
+    provider: Playwright
+    category: browser_automation
+    name: Type Text
+    description: Type text into a focused input field
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 200
+      window_seconds: 3600
+      note: "Can inject credentials, malicious input, or exfiltrate data via form fields if combined with browser_navigate."
+
+  - id: browser_evaluate
+    provider: Playwright
+    category: browser_automation
+    name: Execute JavaScript
+    description: Execute arbitrary JavaScript code in the browser context
+    risk: admin
+    source: official
+    mcp_server: "@playwright/mcp"
+    popular: true
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Executes arbitrary JS in the page context — can exfiltrate cookies, localStorage, session tokens, and perform DOM manipulation. Treat as admin-level."
+
+  - id: browser_screenshot
+    provider: Playwright
+    category: browser_automation
+    name: Take Screenshot
+    description: Capture a screenshot of the current browser page
+    risk: read
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: allow
+    rate_limit:
+      max_calls: 60
+      window_seconds: 3600
+      note: "Read-only but can capture sensitive on-screen data (passwords, PII, private content). Allowed by default — restrict if handling sensitive UI."
+
+  - id: browser_pdf_save
+    provider: Playwright
+    category: browser_automation
+    name: Save Page as PDF
+    description: Save the current page as a PDF file
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Writes files to disk. Can exfiltrate full page content including authenticated views."
+
+  - id: browser_tab_new
+    provider: Playwright
+    category: browser_automation
+    name: Open New Tab
+    description: Open a new browser tab optionally navigating to a URL
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: block
+    rate_limit:
+      max_calls: 20
+      window_seconds: 3600
+      note: "Agent loops can open many tabs and navigate to arbitrary URLs, consuming resources and exfiltrating data."
+
+  - id: browser_close
+    provider: Playwright
+    category: browser_automation
+    name: Close Browser
+    description: Close the browser or current page
+    risk: write
+    source: official
+    mcp_server: "@playwright/mcp"
+    default_permission: allow
+    rate_limit:
+      max_calls: 50
+      window_seconds: 3600
+      note: "Low risk on its own. Allowed by default for cleanup in automation workflows."

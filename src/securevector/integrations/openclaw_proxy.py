@@ -24,10 +24,18 @@ from typing import Optional
 try:
     import websockets
     import httpx
-except ImportError:
-    print("Missing dependencies. Install with:")
-    print("  pip install websockets httpx")
-    sys.exit(1)
+except ImportError as _e:
+    _missing = str(_e)
+    # Only exit when run as a script/CLI — not when imported (e.g. during tests)
+    if __name__ == "__main__":
+        print("Missing dependencies. Install with:")
+        print("  pip install websockets httpx")
+        sys.exit(1)
+    else:
+        raise ImportError(
+            f"openclaw_proxy requires optional dependencies ({_missing}). "
+            "Install with: pip install websockets httpx"
+        ) from _e
 
 
 # Compiled regex patterns for sensitive tokens that may be echoed back by LLMs.

@@ -8,6 +8,10 @@ const RulesPage = {
     rules: [],
     expandedRows: new Set(),
     LOCAL_RULE_LIMIT: 100,
+    bannerDismissed: false,
+    rulesSelectedIds: new Set(),
+    sortField: 'created_at',
+    sortDir: 'desc',
     filters: {
         category: '',
         severity: '',
@@ -19,23 +23,7 @@ const RulesPage = {
     async render(container) {
         container.textContent = '';
         this.expandedRows.clear();
-
-        // Page header with title and create button
-        const pageHeader = document.createElement('div');
-        pageHeader.className = 'page-title-bar';
-
-        const title = document.createElement('h2');
-        title.className = 'page-title';
-        title.textContent = 'Detection Rules';
-        pageHeader.appendChild(title);
-
-        const createBtn = document.createElement('button');
-        createBtn.className = 'btn btn-primary';
-        createBtn.textContent = '+ Create Rule';
-        createBtn.addEventListener('click', () => this.showCreateRuleModal());
-        pageHeader.appendChild(createBtn);
-
-        container.appendChild(pageHeader);
+        this.rulesSelectedIds = new Set();
 
         // Filters bar
         const filtersBar = document.createElement('div');
@@ -188,6 +176,18 @@ const RulesPage = {
 
         enabledGroup.appendChild(enabledSelect);
         bar.appendChild(enabledGroup);
+
+        // Spacer to push Create Rule button to the right
+        const spacer = document.createElement('div');
+        spacer.style.cssText = 'flex: 1;';
+        bar.appendChild(spacer);
+
+        // Create Rule button
+        const createBtn = document.createElement('button');
+        createBtn.className = 'btn btn-primary';
+        createBtn.textContent = '+ Create Rule';
+        createBtn.addEventListener('click', () => this.showCreateRuleModal());
+        bar.appendChild(createBtn);
     },
 
     getUniqueCategories() {
@@ -224,6 +224,47 @@ const RulesPage = {
             }
             return true;
         });
+        // Sort by current sort state
+        const field = this.sortField;
+        const dir = this.sortDir === 'asc' ? 1 : -1;
+        this.rules.sort((a, b) => {
+            let av, bv;
+            if (field === 'created_at') {
+                av = a.created_at ? new Date(a.created_at) : new Date(0);
+                bv = b.created_at ? new Date(b.created_at) : new Date(0);
+                return dir * (av - bv);
+            } else if (field === 'patterns') {
+                av = (a.patterns || []).length;
+                bv = (b.patterns || []).length;
+            } else if (field === 'enabled') {
+                av = a.enabled ? 1 : 0;
+                bv = b.enabled ? 1 : 0;
+            } else if (field === 'severity') {
+                const order = { critical: 4, high: 3, medium: 2, low: 1 };
+                av = order[a.severity] || 0;
+                bv = order[b.severity] || 0;
+            } else {
+                av = (a[field] || '').toLowerCase();
+                bv = (b[field] || '').toLowerCase();
+            }
+            if (av < bv) return -1 * dir;
+            if (av > bv) return 1 * dir;
+            return 0;
+        });
+    },
+
+    _isNewRule(rule) {
+        if (!rule.created_at) return false;
+        const added = new Date(rule.created_at);
+        const now = new Date();
+        return (now - added) < 30 * 24 * 60 * 60 * 1000; // within 30 days
+    },
+
+    _formatDate(isoStr) {
+        if (!isoStr) return '—';
+        const d = new Date(isoStr);
+        if (isNaN(d)) return '—';
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     },
 
     getPaginatedRules() {
@@ -263,11 +304,61 @@ const RulesPage = {
         }
         stats.appendChild(statText);
         header.appendChild(stats);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.id = 'rules-delete-selected-btn';
+        deleteBtn.className = 'btn btn-danger';
+        deleteBtn.style.display = 'none';
+        deleteBtn.addEventListener('click', () => this._confirmDeleteSelectedRules());
+        header.appendChild(deleteBtn);
+
         container.appendChild(header);
 
         if (this.rules.length === 0) {
             this.renderEmptyState(container);
             return;
+        }
+
+        // ── New-rules protection banner ─────────────────────────────────
+        const newRules = this.rules.filter(r => this._isNewRule(r));
+        if (newRules.length > 0 && !this.bannerDismissed) {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'margin-bottom: 16px; padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(180,83,9,0.3); background: rgba(245,158,11,0.08); display: flex; gap: 12px; align-items: flex-start; position: relative;';
+
+            const bannerBody = document.createElement('div');
+            bannerBody.style.cssText = 'flex: 1; min-width: 0; padding-right: 24px;';
+
+            const bannerTitle = document.createElement('div');
+            bannerTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--warning-text); margin-bottom: 4px;';
+            bannerTitle.textContent = newRules.length + ' new detection rule' + (newRules.length > 1 ? 's' : '') + ' added — AI Agent Attack Protection';
+            bannerBody.appendChild(bannerTitle);
+
+            const bannerDesc = document.createElement('div');
+            bannerDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+            bannerDesc.textContent = 'SecureVector now detects the latest AI agent attack patterns: injected instructions inside tool results, multi-agent authority spoofing, and permission scope escalation. These cover real attack chains used against OpenClaw, GitHub MCP, and other agent frameworks in 2025\u20132026. Expand any highlighted rule below to see how it protects your agents.';
+            bannerBody.appendChild(bannerDesc);
+
+            const bannerList = document.createElement('div');
+            bannerList.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;';
+            newRules.forEach(r => {
+                const chip = document.createElement('span');
+                chip.style.cssText = 'font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--warning-chip-bg); color: var(--warning-text-muted); border: 1px solid var(--warning-chip-border); font-weight: 500;';
+                chip.textContent = r.name;
+                bannerList.appendChild(chip);
+            });
+            bannerBody.appendChild(bannerList);
+
+            banner.appendChild(bannerBody);
+
+            // Close button
+            const closeBtn = document.createElement('button');
+            closeBtn.style.cssText = 'position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; color: var(--warning-text-muted); font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0.6;';
+            closeBtn.textContent = '\u00D7';
+            closeBtn.title = 'Dismiss';
+            closeBtn.addEventListener('click', () => { this.bannerDismissed = true; banner.remove(); });
+            banner.appendChild(closeBtn);
+
+            container.appendChild(banner);
         }
 
         // Table
@@ -276,18 +367,66 @@ const RulesPage = {
 
         const table = document.createElement('table');
         table.className = 'data-table rules-table';
+        table.id = 'custom-rules-table';
 
         // Header
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
 
-        const headers = ['', 'Name', 'Category', 'Severity', 'Patterns', 'Status'];
-        headers.forEach((text, idx) => {
+        const colDefs = [
+            { label: '', field: null },
+            { label: 'Name', field: 'name' },
+            { label: 'Category', field: 'category' },
+            { label: 'Severity', field: 'severity' },
+            { label: 'Patterns', field: 'patterns' },
+            { label: 'Added', field: 'created_at' },
+            { label: 'Status', field: 'enabled' },
+        ];
+        const self = this;
+        colDefs.forEach((col, idx) => {
             const th = document.createElement('th');
             if (idx === 0) {
-                th.style.width = '40px';
+                th.style.cssText = 'width: 52px; text-align: center;';
+                const allCb = document.createElement('input');
+                allCb.type = 'checkbox';
+                allCb.id = 'rules-select-all';
+                allCb.className = 'rule-select-all';
+                allCb.title = 'Select all custom rules';
+                allCb.addEventListener('change', (e) => {
+                    const customOnPage = self.getPaginatedRules().filter(r => r.source === 'custom');
+                    customOnPage.forEach(r => {
+                        if (e.target.checked) self.rulesSelectedIds.add(r.id);
+                        else self.rulesSelectedIds.delete(r.id);
+                    });
+                    document.querySelectorAll('.rule-row-cb').forEach(cb => { cb.checked = e.target.checked; });
+                    self._updateRulesDeleteBtn();
+                });
+                th.appendChild(allCb);
+                headerRow.appendChild(th);
+                return;
             }
-            th.textContent = text;
+            th.style.whiteSpace = 'nowrap';
+            if (col.field) {
+                th.style.cursor = 'pointer';
+                th.style.userSelect = 'none';
+                const indicator = this.sortField === col.field
+                    ? (this.sortDir === 'asc' ? ' \u25B2' : ' \u25BC')
+                    : ' \u25B7';
+                th.textContent = col.label + indicator;
+                th.addEventListener('click', () => {
+                    if (this.sortField === col.field) {
+                        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        this.sortField = col.field;
+                        this.sortDir = col.field === 'created_at' ? 'desc' : 'asc';
+                    }
+                    this.filters.page = 1;
+                    this.applyFilters();
+                    this.renderContent();
+                });
+            } else {
+                th.textContent = col.label;
+            }
             headerRow.appendChild(th);
         });
 
@@ -325,9 +464,32 @@ const RulesPage = {
         row.className = 'rule-row' + (rule.enabled ? '' : ' disabled-row');
         row.dataset.ruleId = rule.id;
 
-        // Expand button
+        // First cell: checkbox (custom rules only) + expand button
         const expandCell = document.createElement('td');
         expandCell.className = 'expand-cell';
+        expandCell.style.cssText = 'text-align: center; white-space: nowrap;';
+
+        if (rule.source === 'custom') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'rule-row-cb';
+            cb.checked = this.rulesSelectedIds.has(rule.id);
+            cb.title = 'Select for deletion';
+            cb.addEventListener('click', (e) => e.stopPropagation());
+            cb.addEventListener('change', () => {
+                if (cb.checked) this.rulesSelectedIds.add(rule.id);
+                else this.rulesSelectedIds.delete(rule.id);
+                const allCb = document.getElementById('rules-select-all');
+                if (allCb) {
+                    const customOnPage = this.getPaginatedRules().filter(r => r.source === 'custom');
+                    allCb.checked = customOnPage.length > 0 && this.rulesSelectedIds.size === customOnPage.length;
+                    allCb.indeterminate = this.rulesSelectedIds.size > 0 && this.rulesSelectedIds.size < customOnPage.length;
+                }
+                this._updateRulesDeleteBtn();
+            });
+            expandCell.appendChild(cb);
+        }
+
         const expandBtn = document.createElement('button');
         expandBtn.className = 'expand-btn';
         expandBtn.textContent = this.expandedRows.has(rule.id) ? '\u25BC' : '\u25B6';
@@ -339,10 +501,21 @@ const RulesPage = {
         // Name
         const nameCell = document.createElement('td');
         nameCell.className = 'rule-name-cell';
-        const nameText = document.createElement('div');
+
+        const nameLine = document.createElement('div');
+        nameLine.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+        const nameText = document.createElement('span');
         nameText.className = 'rule-name';
         nameText.textContent = rule.name || 'Unnamed Rule';
-        nameCell.appendChild(nameText);
+        nameLine.appendChild(nameText);
+        if (this._isNewRule(rule)) {
+            const newBadge = document.createElement('span');
+            newBadge.style.cssText = 'font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: var(--warning-chip-bg); color: var(--warning-text); border: 1px solid var(--warning-chip-border); letter-spacing: 0.3px; flex-shrink: 0;';
+            newBadge.textContent = 'NEW';
+            nameLine.appendChild(newBadge);
+        }
+        nameCell.appendChild(nameLine);
+
         if (rule.description) {
             const descText = document.createElement('div');
             descText.className = 'rule-desc';
@@ -377,6 +550,12 @@ const RulesPage = {
         patternsCell.appendChild(patternCount);
         row.appendChild(patternsCell);
 
+        // Date added
+        const dateCell = document.createElement('td');
+        dateCell.style.cssText = 'white-space: nowrap; font-size: 12px; color: var(--text-muted);';
+        dateCell.textContent = this._formatDate(rule.created_at);
+        row.appendChild(dateCell);
+
         // Status toggle
         const statusCell = document.createElement('td');
         statusCell.className = 'status-cell';
@@ -400,12 +579,40 @@ const RulesPage = {
         row.style.display = this.expandedRows.has(rule.id) ? 'table-row' : 'none';
 
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'patterns-expand-cell';
+
+        // Protection rationale for new/agent-attack rules
+        const agentRuleIds = ['sv_community_020_github_mcp_injection', 'sv_community_021_tool_result_injection', 'sv_community_022_multiagent_authority_spoof', 'sv_community_023_permission_scope_escalation'];
+        if (agentRuleIds.includes(rule.id) && rule.description) {
+            const rationale = document.createElement('div');
+            rationale.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; border-radius: 6px; border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.06);';
+
+            const rationaleHeader = document.createElement('div');
+            rationaleHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 6px;';
+            const shieldIcon = document.createElement('span');
+            shieldIcon.textContent = '\uD83D\uDEE1\uFE0F';
+            shieldIcon.style.fontSize = '13px';
+            rationaleHeader.appendChild(shieldIcon);
+            const rationaleTitle = document.createElement('span');
+            rationaleTitle.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--warning-text);';
+            rationaleTitle.textContent = 'How SecureVector Protects';
+            rationaleHeader.appendChild(rationaleTitle);
+            rationale.appendChild(rationaleHeader);
+
+            const rationaleText = document.createElement('p');
+            rationaleText.style.cssText = 'font-size: 12px; color: var(--text-color, #4b5563); line-height: 1.6; margin: 0;';
+            rationaleText.textContent = rule.description.replace(/\s+/g, ' ').trim();
+            rationale.appendChild(rationaleText);
+            cell.appendChild(rationale);
+        }
 
         const patterns = rule.patterns || [];
         if (patterns.length === 0) {
-            cell.textContent = 'No patterns defined';
+            const noPatterns = document.createElement('span');
+            noPatterns.style.cssText = 'color: var(--text-muted); font-size: 12px;';
+            noPatterns.textContent = 'No patterns defined';
+            cell.appendChild(noPatterns);
         } else {
             const list = document.createElement('div');
             list.className = 'patterns-list';
@@ -607,6 +814,43 @@ const RulesPage = {
         this.showRuleFormModal(customCount);
     },
 
+    _updateRulesDeleteBtn() {
+        const btn = document.getElementById('rules-delete-selected-btn');
+        if (!btn) return;
+        const count = this.rulesSelectedIds.size;
+        if (count > 0) {
+            btn.style.display = '';
+            btn.textContent = 'Delete Selected (' + count + ')';
+        } else {
+            btn.style.display = 'none';
+        }
+        const tbl = document.getElementById('custom-rules-table');
+        if (tbl) tbl.classList.toggle('has-selection', count > 0);
+    },
+
+    async _confirmDeleteSelectedRules() {
+        const count = this.rulesSelectedIds.size;
+        if (!count) return;
+        const confirmed = confirm('Delete ' + count + ' selected rule' + (count !== 1 ? 's' : '') + '?\n\nThis action cannot be undone.');
+        if (!confirmed) return;
+        try {
+            const ids = [...this.rulesSelectedIds];
+            for (const id of ids) {
+                await API.deleteRule(id);
+            }
+            this.rulesSelectedIds.clear();
+            this._updateRulesDeleteBtn();
+            const container = document.getElementById('rules-content');
+            if (container) {
+                this.applyFilters();
+                this.renderContent();
+            }
+            if (window.Toast) Toast.show('Deleted ' + count + ' rule' + (count !== 1 ? 's' : ''), 'success');
+        } catch (e) {
+            if (window.Toast) Toast.show('Failed to delete rules', 'error');
+        }
+    },
+
     showCloudUpgradeModal(currentCount) {
         const content = document.createElement('div');
         content.className = 'cloud-upgrade-content';
@@ -677,10 +921,12 @@ const RulesPage = {
         // Rule limit indicator
         const limitBar = document.createElement('div');
         limitBar.className = 'rule-limit-bar';
-        limitBar.innerHTML = '<span>Custom Rules: ' + currentCount + '/' + this.LOCAL_RULE_LIMIT + '</span>';
+        const limitSpan = document.createElement('span');
+        limitSpan.textContent = 'Custom Rules: ' + currentCount + '/' + this.LOCAL_RULE_LIMIT;
+        limitBar.appendChild(limitSpan);
         content.appendChild(limitBar);
 
-        // Natural language description
+        // Description
         const descGroup = document.createElement('div');
         descGroup.className = 'form-group';
 
@@ -691,7 +937,7 @@ const RulesPage = {
 
         const descHelp = document.createElement('p');
         descHelp.className = 'form-help';
-        descHelp.textContent = 'Enter a natural language description. We\'ll generate regex patterns automatically.';
+        descHelp.textContent = 'Plain language description — patterns are generated automatically when you create the rule.';
         descGroup.appendChild(descHelp);
 
         const descInput = document.createElement('textarea');
@@ -712,18 +958,16 @@ const RulesPage = {
 
         content.appendChild(descGroup);
 
-        // Generated patterns preview (hidden initially)
+        // Patterns preview (shown after clicking Preview Patterns)
         const previewSection = document.createElement('div');
         previewSection.className = 'patterns-preview';
         previewSection.id = 'patterns-preview';
         previewSection.style.display = 'none';
         content.appendChild(previewSection);
 
-        // Rule name (hidden initially, shown after generation)
+        // Rule name
         const nameGroup = document.createElement('div');
         nameGroup.className = 'form-group';
-        nameGroup.id = 'rule-name-group';
-        nameGroup.style.display = 'none';
 
         const nameLabel = document.createElement('label');
         nameLabel.textContent = 'Rule Name';
@@ -740,11 +984,9 @@ const RulesPage = {
 
         content.appendChild(nameGroup);
 
-        // Severity select (hidden initially)
+        // Severity
         const sevGroup = document.createElement('div');
         sevGroup.className = 'form-group';
-        sevGroup.id = 'rule-severity-group';
-        sevGroup.style.display = 'none';
 
         const sevLabel = document.createElement('label');
         sevLabel.textContent = 'Severity';
@@ -758,6 +1000,7 @@ const RulesPage = {
             const option = document.createElement('option');
             option.value = sev;
             option.textContent = sev.charAt(0).toUpperCase() + sev.slice(1);
+            if (sev === 'medium') option.selected = true;
             sevSelect.appendChild(option);
         });
         sevGroup.appendChild(sevSelect);
@@ -776,17 +1019,16 @@ const RulesPage = {
         buttons.appendChild(cancelBtn);
 
         const generateBtn = document.createElement('button');
-        generateBtn.className = 'btn btn-primary';
+        generateBtn.className = 'btn btn-secondary';
         generateBtn.id = 'generate-btn';
-        generateBtn.textContent = 'Generate Patterns';
-        generateBtn.addEventListener('click', () => this.generatePatterns(descInput.value));
+        generateBtn.textContent = 'Preview Patterns';
+        generateBtn.addEventListener('click', () => this.generateAndPreviewPatterns(descInput.value));
         buttons.appendChild(generateBtn);
 
         const createBtn = document.createElement('button');
         createBtn.className = 'btn btn-primary';
         createBtn.id = 'create-rule-btn';
         createBtn.textContent = 'Create Rule';
-        createBtn.style.display = 'none';
         createBtn.addEventListener('click', () => this.submitCreateRule());
         buttons.appendChild(createBtn);
 
@@ -799,7 +1041,7 @@ const RulesPage = {
         });
     },
 
-    async generatePatterns(description) {
+    async generateAndPreviewPatterns(description) {
         if (!description || description.trim().length < 5) {
             Toast.error('Please enter a description (at least 5 characters)');
             return;
@@ -827,10 +1069,33 @@ const RulesPage = {
                 preview.appendChild(title);
 
                 if (result.patterns.length === 0) {
+                    // Apply keyword fallback so preview shows something useful
+                    const stopWords = new Set(['that', 'this', 'with', 'from', 'have', 'will', 'when', 'then', 'than', 'they', 'their', 'there', 'detect', 'block', 'flag', 'find', 'match']);
+                    const words = description.toLowerCase()
+                        .replace(/[^a-z0-9\s]/g, ' ')
+                        .split(/\s+/)
+                        .filter(w => w.length > 3 && !stopWords.has(w));
+                    if (words.length > 0) {
+                        const fallbackPattern = '(?i)' + words.slice(0, 3).join('.*');
+                        result.patterns = [{ pattern: fallbackPattern, confidence: 0.5 }];
+                        this.generatedPatterns = result;
+                    }
+                }
+
+                if (result.patterns.length === 0) {
                     const noPatterns = document.createElement('p');
                     noPatterns.className = 'form-help';
-                    noPatterns.textContent = 'No patterns could be generated. Try a different description.';
+                    noPatterns.style.marginBottom = '8px';
+                    noPatterns.textContent = 'No patterns could be auto-generated. Enter a regex pattern manually:';
                     preview.appendChild(noPatterns);
+
+                    const manualInput = document.createElement('input');
+                    manualInput.type = 'text';
+                    manualInput.id = 'manual-pattern-input';
+                    manualInput.className = 'form-input';
+                    manualInput.placeholder = 'e.g. (?i)give.*discount|free.*offer';
+                    manualInput.style.cssText = 'width: 100%; font-family: monospace; font-size: 13px;';
+                    preview.appendChild(manualInput);
                 } else {
                     const list = document.createElement('div');
                     list.className = 'generated-patterns-list';
@@ -861,17 +1126,19 @@ const RulesPage = {
                 }
             }
 
-            // Show name and severity fields
-            document.getElementById('rule-name-group').style.display = 'block';
-            document.getElementById('rule-severity-group').style.display = 'block';
+            // Pre-fill name/severity if empty
+            const nameEl = document.getElementById('rule-name');
+            if (nameEl && !nameEl.value) nameEl.value = this.formatLabel(result.suggested_name || 'custom_rule');
+            const sevEl = document.getElementById('rule-severity');
+            if (sevEl && result.suggested_severity) sevEl.value = result.suggested_severity;
 
-            // Pre-fill suggested values
-            document.getElementById('rule-name').value = this.formatLabel(result.suggested_name || 'custom_rule');
-            document.getElementById('rule-severity').value = result.suggested_severity || 'medium';
-
-            // Show create button, hide generate
-            if (generateBtn) generateBtn.style.display = 'none';
-            document.getElementById('create-rule-btn').style.display = 'inline-flex';
+            // Re-enable generate button
+            if (generateBtn) {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Preview Patterns';
+            }
+            // Store generated patterns for use in submitCreateRule
+            this.generatedPatterns = result;
 
         } catch (error) {
             Toast.error('Failed to generate patterns: ' + error.message);
@@ -892,11 +1159,6 @@ const RulesPage = {
             return;
         }
 
-        if (!this.generatedPatterns || this.generatedPatterns.patterns.length === 0) {
-            Toast.error('No patterns generated');
-            return;
-        }
-
         const createBtn = document.getElementById('create-rule-btn');
         if (createBtn) {
             createBtn.disabled = true;
@@ -904,12 +1166,39 @@ const RulesPage = {
         }
 
         try {
+            // Auto-generate patterns from the description
+            let patterns = [];
+            let category = 'custom';
+            try {
+                const result = await API.generatePatterns(description);
+                patterns = result.patterns.map(p => p.pattern);
+                category = result.suggested_category || 'custom';
+            } catch (_) { /* fall through to keyword fallback */ }
+
+            // Fallback: build a simple keyword pattern from meaningful words
+            if (patterns.length === 0) {
+                const stopWords = new Set(['that', 'this', 'with', 'from', 'have', 'will', 'when', 'then', 'than', 'they', 'their', 'there', 'detect', 'block', 'flag', 'find', 'match']);
+                const words = description.toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 3 && !stopWords.has(w));
+                if (words.length > 0) {
+                    patterns = ['(?i)' + words.slice(0, 3).join('.*')];
+                }
+            }
+
+            if (patterns.length === 0) {
+                Toast.error('Could not generate patterns. Try using more specific keywords (e.g. "credit card", "ignore instructions").');
+                if (createBtn) { createBtn.disabled = false; createBtn.textContent = 'Create Rule'; }
+                return;
+            }
+
             await API.createRule({
                 name: name,
-                category: this.generatedPatterns.suggested_category || 'custom',
+                category: category,
                 description: description,
                 severity: severity,
-                patterns: this.generatedPatterns.patterns.map(p => p.pattern),
+                patterns: patterns,
                 enabled: true,
             });
 

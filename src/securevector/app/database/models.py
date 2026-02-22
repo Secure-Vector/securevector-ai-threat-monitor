@@ -281,8 +281,67 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 8
-SCHEMA_DESCRIPTION = "Add action_taken column to track blocked vs logged threats"
+CURRENT_SCHEMA_VERSION = 16
+SCHEMA_DESCRIPTION = "Seed model pricing reference data"
+
+# Migration SQL for v12
+MIGRATION_V12_SQL = """
+-- Schema Version 12: Add LLM cost tracking
+
+CREATE TABLE IF NOT EXISTS llm_cost_records (
+    id              TEXT PRIMARY KEY,
+    agent_id        TEXT NOT NULL,
+    provider        TEXT NOT NULL,
+    model_id        TEXT NOT NULL,
+    request_id      TEXT,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    input_cost_usd  REAL NOT NULL DEFAULT 0.0,
+    output_cost_usd REAL NOT NULL DEFAULT 0.0,
+    total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+    rate_input      REAL,
+    rate_output     REAL,
+    pricing_known   INTEGER NOT NULL DEFAULT 1,
+    recorded_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_cost_records_agent ON llm_cost_records(agent_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cost_records_provider ON llm_cost_records(provider, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cost_records_model ON llm_cost_records(model_id);
+CREATE INDEX IF NOT EXISTS idx_cost_records_recorded_at ON llm_cost_records(recorded_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_pricing (
+    id                  TEXT PRIMARY KEY,
+    provider            TEXT NOT NULL,
+    model_id            TEXT NOT NULL,
+    display_name        TEXT NOT NULL,
+    input_per_million   REAL NOT NULL DEFAULT 0.0,
+    output_per_million  REAL NOT NULL DEFAULT 0.0,
+    effective_date      TEXT,
+    verified_at         TEXT,
+    source_url          TEXT,
+    updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_pricing_provider ON model_pricing(provider);
+"""
+
+# Migration SQL for v13 — Budget limits
+MIGRATION_V13_SQL = """
+CREATE TABLE IF NOT EXISTS agent_budgets (
+    agent_id        TEXT PRIMARY KEY,
+    daily_budget_usd REAL NOT NULL,
+    budget_action   TEXT NOT NULL DEFAULT 'warn' CHECK (budget_action IN ('warn', 'block')),
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# Migration SQL for v14 — Cached token breakdown
+MIGRATION_V14_SQL = """
+ALTER TABLE llm_cost_records ADD COLUMN input_cached_tokens INTEGER NOT NULL DEFAULT 0;
+"""
 
 # Migration SQL for v2
 MIGRATION_V2_SQL = """

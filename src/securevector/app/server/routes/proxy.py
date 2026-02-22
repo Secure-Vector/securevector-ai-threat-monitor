@@ -28,6 +28,12 @@ _started_with_openclaw: bool = False  # Set when proxy is started with --opencla
 PROVIDERS = ["openai", "anthropic", "groq", "deepseek", "mistral", "xai", "gemini", "together", "cohere", "cerebras", "moonshot", "minimax"]
 
 
+def _get_proxy_port() -> int:
+    """Return the proxy port — set by main.py via SV_PROXY_PORT, defaults to 8742."""
+    import os
+    return int(os.environ.get('SV_PROXY_PORT', '8742'))
+
+
 def _is_port_in_use(port: int) -> bool:
     """Check if a port is in use (proxy might be running)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -45,6 +51,79 @@ def set_proxy_running_in_process(running: bool, provider: str = "openai", integr
     if running:
         _current_provider = provider
         _current_integration = integration
+
+
+def auto_start_from_config(integration: str, mode: str, host: str, port: int, provider: Optional[str] = None) -> bool:
+    """
+    Auto-start the proxy as a subprocess from svconfig.yml settings.
+    Sets all globals so status/stop work correctly from the UI.
+    Returns True if started successfully.
+    """
+    global _llm_proxy_process, _current_provider, _current_integration, _multi_mode, _started_with_openclaw
+
+    if _llm_proxy_process is not None and _llm_proxy_process.poll() is None:
+        return True  # Already running
+    if _is_port_in_use(port):
+        return True  # Already running externally
+
+    multi = (mode == "multi-provider")
+
+    # Validate: single mode requires a provider
+    if not multi and not provider:
+        raise ValueError(
+            "svconfig.yml: 'proxy.provider' is required when mode is 'single'.\n"
+            "Example:\n"
+            "  proxy:\n"
+            "    mode: single\n"
+            "    provider: openai\n"
+            "Valid options: openai, anthropic, gemini, groq, mistral, grok, ollama"
+        )
+
+    effective_provider = provider or "openai"
+
+    # Web app port — used so the subprocess knows where to report threats
+    import os as _os
+    web_port = int(_os.environ.get('SV_WEB_PORT', '8741'))
+
+    if integration == "openclaw":
+        cmd = ["securevector-app", "--proxy", "--openclaw",
+               "--proxy-port", str(port), "--port", str(web_port)]
+        if multi:
+            cmd.append("--multi")
+        else:
+            cmd.extend(["--provider", effective_provider])
+    else:
+        cmd = [sys.executable, "-m", "securevector.integrations.openclaw_llm_proxy",
+               "--port", str(port),
+               "--securevector-url", f"http://127.0.0.1:{web_port}"]
+        if multi:
+            cmd.append("--multi")
+        else:
+            cmd.extend(["--provider", effective_provider])
+
+    try:
+        _llm_proxy_process = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+        import time; time.sleep(0.5)
+        if _llm_proxy_process.poll() is None:
+            _current_provider = "multi" if multi else effective_provider
+            _current_integration = integration
+            _multi_mode = multi
+            _started_with_openclaw = (integration == "openclaw")
+            logger.info(f"[svconfig] Proxy auto-started: integration={integration}, mode={mode}, provider={effective_provider}, port={port}")
+            return True
+        else:
+            # Process exited immediately — openclaw/pi-ai likely not installed, or config error
+            # This is non-fatal: user may be using a different agent framework
+            logger.warning(
+                f"[svconfig] Proxy exited immediately (code={_llm_proxy_process.poll()}). "
+                f"OpenClaw may not be installed, or this user is using a different agent framework. "
+                f"Starting without proxy — use the Integrations page to start it manually."
+            )
+    except FileNotFoundError:
+        logger.warning(f"[svconfig] Proxy command not found ({cmd[0]}). Starting without proxy.")
+    except Exception as e:
+        logger.warning(f"[svconfig] Could not auto-start proxy: {e}")
+    return False
 
 
 class StartProxyRequest(BaseModel):
@@ -74,19 +153,21 @@ async def get_proxy_status():
         if not running:
             _llm_proxy_process = None
             _multi_mode = False
-    # Check 3: Port 8742 is in use (proxy started externally)
-    elif _is_port_in_use(8742):
+    # Check 3: Proxy port is in use (proxy started externally)
+    elif _is_port_in_use(_get_proxy_port()):
         running = True
 
+    proxy_port = _get_proxy_port()
     return {
         "running": running,
+        "port": proxy_port,
         "provider": _current_provider if running else None,
         "integration": _current_integration if running else None,
         "multi": _multi_mode if running else False,
         "openclaw": _started_with_openclaw if running else False,
         "in_process": _proxy_running_in_process,
         "providers": PROVIDERS,
-        "llm_proxy": {"running": running, "port": 8742},
+        "llm_proxy": {"running": running, "port": proxy_port},
     }
 
 
@@ -106,11 +187,16 @@ async def start_proxy(request: StartProxyRequest = None):
         mode_str = "multi-provider" if _multi_mode else _current_provider
         return {"status": "already_running", "message": f"Proxy already running ({mode_str}). Stop it first."}
 
+    proxy_port = _get_proxy_port()
+
     # Check if port is in use (started externally)
-    if _is_port_in_use(8742):
-        return {"status": "already_running", "message": "Proxy already running on port 8742 (started externally)"}
+    if _is_port_in_use(proxy_port):
+        return {"status": "already_running", "message": f"Proxy already running on port {proxy_port} (started externally)"}
 
     try:
+        import os as _os
+        web_port = int(_os.environ.get('SV_WEB_PORT', '8741'))
+
         # Build command - use securevector-app for OpenClaw to enable patching
         if integration == 'openclaw':
             # Use securevector-app command for OpenClaw to trigger patching logic
@@ -118,6 +204,8 @@ async def start_proxy(request: StartProxyRequest = None):
                 "securevector-app",
                 "--proxy",
                 "--openclaw",
+                "--proxy-port", str(proxy_port),
+                "--port", str(web_port),
             ]
             if multi:
                 cmd.append("--multi")
@@ -129,7 +217,8 @@ async def start_proxy(request: StartProxyRequest = None):
                 sys.executable,
                 "-m",
                 "securevector.integrations.openclaw_llm_proxy",
-                "--port", "8742",
+                "--port", str(proxy_port),
+                "--securevector-url", f"http://127.0.0.1:{web_port}",
                 "-v",  # verbose mode
             ]
             if multi:
@@ -149,10 +238,10 @@ async def start_proxy(request: StartProxyRequest = None):
             _multi_mode = multi
             mode_str = "multi-provider" if multi else provider
             integration_str = f" for {integration}" if integration else ""
-            logger.info(f"LLM proxy started on port 8742 ({mode_str}){integration_str}")
+            logger.info(f"LLM proxy started on port {proxy_port} ({mode_str}){integration_str}")
             return {
                 "status": "started",
-                "message": f"Proxy started ({mode_str}) on port 8742",
+                "message": f"Proxy started ({mode_str}) on port {proxy_port}",
                 "provider": provider,
                 "integration": integration,
                 "multi": multi,
@@ -181,9 +270,9 @@ async def stop_proxy():
     if _llm_proxy_process is None and not _proxy_running_in_process:
         return {"status": "not_running", "message": "LLM proxy is not running"}
 
-    # If running in-process (via --proxy --web), can't stop from UI
+    # If running in-process (via --proxy --web CLI flag), can't stop from UI
     if _proxy_running_in_process:
-        return {"status": "error", "message": "Proxy running in-process. Stop the app with Ctrl+C."}
+        return {"status": "error", "message": "Proxy was started via CLI (--proxy --web). Use Ctrl+C to stop the app, or start via the UI instead."}
 
     try:
         _llm_proxy_process.terminate()
