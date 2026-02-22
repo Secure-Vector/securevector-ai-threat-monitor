@@ -92,20 +92,6 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 <br>
 
-## Why SecureVector?
-
-| ❌ Without SecureVector | ✅ With SecureVector |
-|---|---|
-| Prompt injections pass straight through | Blocked before they reach the LLM |
-| API keys and PII leak in prompts | Automatically redacted |
-| No control over what tools agents can use | Fine-grained allow/block rules per tool |
-| No audit trail of tool calls | Full tool call history with decisions and reasons |
-| No idea what agents are spending | Real-time cost tracking per agent |
-| Runaway agents burn through your API budget overnight | Hard budget limits with auto-stop |
-| Zero visibility into agent traffic | Live dashboard showing everything |
-
-<br>
-
 ## What You Get
 
 <table>
@@ -157,6 +143,20 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 | | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
 
 **Performance:** Rule-based analysis (default) adds ~10–50ms per request. Enabling optional AI analysis adds 1–3s per request depending on the model and provider — this is shown on the dashboard so you can measure it against your actual traffic.
+
+<br>
+
+## Why SecureVector?
+
+| ❌ Without SecureVector | ✅ With SecureVector |
+|---|---|
+| Prompt injections pass straight through | Blocked before they reach the LLM |
+| API keys and PII leak in prompts | Automatically redacted |
+| No control over what tools agents can use | Fine-grained allow/block rules per tool |
+| No audit trail of tool calls | Full tool call history with decisions and reasons |
+| No idea what agents are spending | Real-time cost tracking per agent |
+| Runaway agents burn through your API budget overnight | Hard budget limits with auto-stop |
+| Zero visibility into agent traffic | Live dashboard showing everything |
 
 <br>
 
