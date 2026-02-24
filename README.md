@@ -18,6 +18,11 @@
 
 </div>
 
+> 🆕 **New in v3.0:**
+> - **Tool Permissions** — allow/block agent tools by name or category
+> - **Cost Tracking & Budget Limits** — per-agent spend tracking, global daily budget, and hard auto-stop
+> - **28 new threat detection rules** (78 total)
+
 ## How It Works
 
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
