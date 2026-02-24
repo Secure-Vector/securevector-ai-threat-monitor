@@ -21,7 +21,7 @@
 > 🆕 **New in v3.0:**
 > - **Tool Permissions** — allow/block agent tool calls
 > - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
-> - **28 new threat detection rules** (78 total)
+> - **28 new threat detection rules**
 
 ## How It Works
 
@@ -216,7 +216,7 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 
 Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 
-### AI Agent Attack Protection (28 new rules · 78 total)
+### AI Agent Attack Protection (28 new rules · 72 total)
 
 Built from real attack chains observed against production agent frameworks:
 
