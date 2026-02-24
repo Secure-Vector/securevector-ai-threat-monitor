@@ -75,6 +75,7 @@ jobs:
             --name "SecureVector${{ steps.version.outputs.suffix }}" \
             --icon "src/securevector/app/assets/favicon.ico" \
             --add-data "src/securevector/rules;securevector/rules" \
+            --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
             --hidden-import webview \
             --hidden-import webview.platforms.winforms \
@@ -168,6 +169,7 @@ jobs:
             --osx-bundle-identifier "io.securevector.threatmonitor" \
             --icon "src/securevector/app/assets/favicon.png" \
             --add-data "src/securevector/rules:securevector/rules" \
+            --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --hidden-import webview \
             --hidden-import uvicorn \
@@ -292,6 +294,7 @@ jobs:
           pyinstaller --noconfirm --onefile \
             --name "${{ steps.version.outputs.pkg_name }}" \
             --add-data "src/securevector/rules:securevector/rules" \
+            --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --hidden-import webview \
             --hidden-import uvicorn \
