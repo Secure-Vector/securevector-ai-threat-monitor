@@ -19,8 +19,8 @@
 </div>
 
 > 🆕 **New in v3.0:**
-> - **Tool Permissions** — allow/block agent tools by name or category
-> - **Cost Tracking & Budget Limits** — per-agent spend tracking, global daily budget, and hard auto-stop
+> - **Tool Permissions** — allow/block agent tool calls
+> - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
 > - **28 new threat detection rules** (78 total)
 
 ## How It Works
