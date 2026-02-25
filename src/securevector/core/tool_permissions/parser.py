@@ -72,6 +72,12 @@ def extract_tool_calls(response_body: dict) -> list[ToolCall]:
         # Cohere v1: top-level tool_calls[].name + parameters
         tool_calls.extend(_extract_cohere_tool_calls(response_body))
 
+        # OpenAI Responses API streaming: response.output_item.added events
+        tool_calls.extend(_extract_openai_responses_api_tool_calls(response_body))
+
+        # OpenAI Responses API complete: output[].type=function_call
+        tool_calls.extend(_extract_openai_responses_api_complete_tool_calls(response_body))
+
     except Exception as e:
         logger.warning(f"Error extracting tool calls: {e}")
 
@@ -284,5 +290,79 @@ def _extract_cohere_tool_calls(body: dict) -> list[ToolCall]:
                 index=idx,
             )
         )
+
+    return tool_calls
+
+
+def _extract_openai_responses_api_complete_tool_calls(body: dict) -> list[ToolCall]:
+    """Extract tool calls from OpenAI Responses API complete (non-streaming) responses.
+
+    Complete format:
+      {"object": "response", "output": [{"type": "function_call", "name": "Read", "arguments": "..."}]}
+    """
+    tool_calls = []
+
+    if body.get("object") != "response":
+        return tool_calls
+
+    output = body.get("output", [])
+    if not isinstance(output, list):
+        return tool_calls
+
+    for idx, item in enumerate(output):
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+
+        name = item.get("name")
+        if not name:
+            continue
+
+        arguments = item.get("arguments", "")
+        tool_calls.append(
+            ToolCall(
+                function_name=name,
+                arguments_hash=_hash_arguments(arguments),
+                arguments=arguments if isinstance(arguments, str) else json.dumps(arguments),
+                provider_format="openai",
+                tool_call_id=item.get("call_id"),
+                index=idx,
+            )
+        )
+
+    return tool_calls
+
+
+def _extract_openai_responses_api_tool_calls(body: dict) -> list[ToolCall]:
+    """Extract tool calls from OpenAI Responses API streaming events.
+
+    The Responses API (/v1/responses) uses a different SSE format from chat completions:
+      {"type": "response.output_item.added", "output_index": 0,
+       "item": {"type": "function_call", "id": "fc_...", "call_id": "call_...",
+                "name": "Read", "arguments": ""}}
+    """
+    tool_calls = []
+
+    if body.get("type") != "response.output_item.added":
+        return tool_calls
+
+    item = body.get("item", {})
+    if not isinstance(item, dict) or item.get("type") != "function_call":
+        return tool_calls
+
+    name = item.get("name")
+    if not name:
+        return tool_calls
+
+    arguments = item.get("arguments", "")
+    tool_calls.append(
+        ToolCall(
+            function_name=name,
+            arguments_hash=_hash_arguments(arguments),
+            arguments=arguments if isinstance(arguments, str) else json.dumps(arguments),
+            provider_format="openai",
+            tool_call_id=item.get("call_id"),
+            index=body.get("output_index", 0),
+        )
+    )
 
     return tool_calls
