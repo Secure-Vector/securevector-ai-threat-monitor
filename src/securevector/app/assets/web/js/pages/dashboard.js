@@ -201,8 +201,8 @@ const DashboardPage = {
                 API.getCostSummary().catch(() => null),
             ]);
             todayCostStr = '$' + (summary.today_cost_usd || 0).toFixed(4);
-            if (costSummary && costSummary.totals && costSummary.totals.total_cost_usd != null) {
-                totalCostStr = '$' + Number(costSummary.totals.total_cost_usd).toFixed(4);
+            if (costSummary && costSummary.totals && costSummary.totals.monthly_cost_usd != null) {
+                totalCostStr = '$' + Number(costSummary.totals.monthly_cost_usd).toFixed(4);
             }
         } catch (e) {}
 
@@ -219,7 +219,7 @@ const DashboardPage = {
             { value: this.data.critical_count || 0, label: 'Critical', icon: 'alert', color: 'danger', tooltip: 'Requests flagged as high-risk (risk score ≥ 75). These may indicate prompt injection, jailbreak attempts, or data exfiltration.' },
             { value: latencyStr, label: 'Avg Analysis Time', icon: 'activity', color: 'primary', raw: true, tooltip: 'Average time SecureVector adds per request (rule-based only). Typically 10–50ms. Enabling AI analysis adds 1–3s per request.' },
             { value: todayCostStr, label: "Today's Cost", icon: 'clock', color: 'primary', raw: true, tooltip: "Estimated LLM provider cost (USD) for today's requests, based on token usage and model pricing." },
-            { value: totalCostStr, label: 'Total Cost', icon: 'gauge', color: 'primary', raw: true, tooltip: 'Cumulative estimated LLM provider cost (USD) across all intercepted requests since installation.' },
+            { value: totalCostStr, label: 'Monthly Cost', icon: 'gauge', color: 'primary', raw: true, tooltip: 'Estimated LLM provider cost (USD) for the current calendar month.' },
         ];
 
         statsGrid.style.marginBottom = '16px';

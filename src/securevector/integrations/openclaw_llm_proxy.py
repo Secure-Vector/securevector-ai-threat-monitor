@@ -1497,20 +1497,36 @@ class LLMProxy:
             # across multiple byte chunks, causing json.loads to fail on fragments
             full_stream = b"".join(all_chunks).decode("utf-8", errors="replace")
             found_tool_calls = []
+            # Accumulate Anthropic input_json_delta partial JSON by content block index
+            _anthropic_args_by_index: dict[int, str] = {}
             for line in full_stream.split("\n"):
                 if not line.startswith("data: ") or line == "data: [DONE]":
                     continue
                 try:
                     data = json.loads(line[6:])
                     found_tool_calls.extend(extract_tool_calls(data))
+                    # Accumulate input_json_delta fragments for Anthropic streaming
+                    if data.get("type") == "content_block_delta":
+                        delta = data.get("delta", {})
+                        if delta.get("type") == "input_json_delta":
+                            idx = data.get("index", 0)
+                            _anthropic_args_by_index[idx] = (
+                                _anthropic_args_by_index.get(idx, "") + delta.get("partial_json", "")
+                            )
                 except Exception:
                     continue
+
+            # Patch tool call arguments with fully-assembled Anthropic args when available
+            if _anthropic_args_by_index:
+                for tc in found_tool_calls:
+                    if tc.provider_format == "anthropic" and tc.index is not None:
+                        assembled = _anthropic_args_by_index.get(tc.index, "")
+                        if assembled:
+                            tc.arguments = assembled
 
             if found_tool_calls:
                 # Build a synthetic complete-format response so _evaluate_tool_permissions
                 # can apply its full logic (rate limiting, logging, denial construction).
-                # Streaming tool_use inputs may be empty ({}) since the full input arrives
-                # via content_block_delta — the tool name alone is enough to block.
                 is_anthropic = any(tc.provider_format == "anthropic" for tc in found_tool_calls)
                 if is_anthropic:
                     synthetic = {
@@ -1521,7 +1537,7 @@ class LLMProxy:
                                 "type": "tool_use",
                                 "id": tc.tool_call_id or f"toolu_{i}",
                                 "name": tc.function_name,
-                                "input": json.loads(tc.arguments) if tc.arguments and tc.arguments != "{}" else {},
+                                "input": json.loads(tc.arguments) if tc.arguments and tc.arguments not in ("{}", "") else {},
                             }
                             for i, tc in enumerate(found_tool_calls)
                         ],

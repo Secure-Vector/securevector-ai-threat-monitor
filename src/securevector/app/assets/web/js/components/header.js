@@ -568,6 +568,19 @@ const Header = {
         const content = document.createElement('div');
         content.className = 'llm-config-modal';
 
+        // Optional info banner
+        const infoBanner = document.createElement('div');
+        infoBanner.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;';
+        const optionalLabel = document.createElement('b');
+        optionalLabel.style.cssText = 'font-size: 15px;';
+        optionalLabel.textContent = 'Optional';
+        infoBanner.appendChild(optionalLabel);
+        infoBanner.appendChild(document.createTextNode(' — only configure AI Analysis if you need to reduce false positives in threat detection.'));
+        const line2 = document.createElement('b');
+        line2.textContent = 'Threat tracking, tool permissions, and cost tracking all work without this.';
+        infoBanner.appendChild(line2);
+        content.appendChild(infoBanner);
+
         // Enable toggle section
         const enableSection = document.createElement('div');
         enableSection.className = 'llm-config-section';

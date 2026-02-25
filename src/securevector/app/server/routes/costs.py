@@ -146,6 +146,40 @@ class BudgetStatusResponse(BaseModel):
 
 # --- Endpoints ---
 
+@router.get("/costs/monthly-chart")
+async def get_monthly_chart(
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    start: Optional[str] = Query(None, description="Custom range start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="Custom range end date YYYY-MM-DD (inclusive)"),
+) -> dict:
+    """Daily cost breakdown for a calendar month or custom date range."""
+    try:
+        db = get_database()
+        repo = CostsRepository(db)
+        now = datetime.utcnow()
+
+        if start and end:
+            # Custom date range mode
+            start_dt = datetime.fromisoformat(start)
+            # end is inclusive — add 1 day for the exclusive upper bound
+            end_dt = datetime.fromisoformat(end).replace(hour=23, minute=59, second=59)
+            days = await repo.get_daily_spend_for_range(start_dt, end_dt)
+            return {"days": days, "mode": "range", "start": start, "end": end}
+
+        # Month mode
+        days = await repo.get_daily_spend_for_month(year=year, month=month)
+        return {
+            "days": days,
+            "mode": "month",
+            "year": year or now.year,
+            "month": month or now.month,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get monthly chart data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/costs/dashboard-summary", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary() -> DashboardSummaryResponse:
     """Compact cost summary for the main dashboard widget."""
@@ -184,6 +218,7 @@ async def get_cost_summary(
         total_input = sum(a.total_input_tokens for a in agents)
         total_output = sum(a.total_output_tokens for a in agents)
         today_spend = await repo.get_today_spend()
+        monthly_spend = await repo.get_monthly_spend()
 
         now = datetime.utcnow()
         period_start = start or now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
@@ -209,6 +244,7 @@ async def get_cost_summary(
                 "total_requests": total_requests,
                 "total_cost_usd": round(total_cost, 4),
                 "today_spend_usd": round(today_spend, 6),
+                "monthly_cost_usd": round(monthly_spend, 4),
                 "total_input_tokens": total_input,
                 "total_output_tokens": total_output,
             },

@@ -146,17 +146,59 @@ const CostsPage = {
             return;
         }
 
-        content.textContent = '';
+        const isFirstRender = !document.getElementById('sv-costs-cards');
 
-        const totals = this.summaryData.totals || {};
+        if (isFirstRender) {
+            content.textContent = '';
 
-        // ─── Summary cards ──────────────────────────────────────────────
+            // Scaffold the layout with stable IDs — never rebuilt on polls
+            const cardsEl = document.createElement('div');
+            cardsEl.id = 'sv-costs-cards';
+            content.appendChild(cardsEl);
+
+            const chartContainer = document.createElement('div');
+            chartContainer.id = 'sv-costs-chart';
+            content.appendChild(chartContainer);
+            await this._initCostChart(chartContainer);
+
+            // Manual refresh button for chart only
+            const refreshBtn = document.createElement('button');
+            refreshBtn.style.cssText = 'display: block; margin: -8px 0 12px auto; background: none; border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-secondary); cursor: pointer; padding: 3px 10px; font-size: 11px;';
+            refreshBtn.textContent = '↻ Refresh chart';
+            refreshBtn.addEventListener('click', async () => {
+                refreshBtn.textContent = '↻ Refreshing…';
+                refreshBtn.disabled = true;
+                await this._loadAndRenderChart(chartContainer);
+                refreshBtn.textContent = '↻ Refresh chart';
+                refreshBtn.disabled = false;
+            });
+            content.appendChild(refreshBtn);
+
+            const guardianEl = document.createElement('div');
+            guardianEl.id = 'sv-costs-guardian';
+            content.appendChild(guardianEl);
+
+            const agentsEl = document.createElement('div');
+            agentsEl.id = 'sv-costs-agents';
+            content.appendChild(agentsEl);
+        }
+
+        // Update each data section in-place — chart is untouched
+        this._updateSummaryCards();
+        this._updateGuardianAlerts();
+        this._updateAgentsSection();
+    },
+
+    _updateSummaryCards() {
+        const el = document.getElementById('sv-costs-cards');
+        if (!el) return;
+        el.textContent = '';
+        const totals = (this.summaryData && this.summaryData.totals) || {};
         const cardsRow = document.createElement('div');
         cardsRow.className = 'stats-grid';
-
         const cardDefs = [
             { label: 'Today\'s Spend', value: `$${(totals.today_spend_usd || 0).toFixed(4)}`, sub: 'Resets at midnight' },
-            { label: 'Total Cost', value: `$${(totals.total_cost_usd || 0).toFixed(4)}`, sub: 'All time' },
+            { label: 'Monthly Cost', value: `$${(totals.monthly_cost_usd || 0).toFixed(4)}`, sub: 'This billing month' },
             { label: 'Total Requests', value: (totals.total_requests || 0).toLocaleString() },
             { label: 'Input Tokens', value: this._fmtTokens(totals.total_input_tokens || 0) },
             { label: 'Output Tokens', value: this._fmtTokens(totals.total_output_tokens || 0) },
@@ -180,115 +222,85 @@ const CostsPage = {
             }
             cardsRow.appendChild(card);
         });
-        content.appendChild(cardsRow);
+        el.appendChild(cardsRow);
+    },
 
-        // ─── Budget Guardian alerts ───────────────────────────────────────
+    _updateGuardianAlerts() {
+        const el = document.getElementById('sv-costs-guardian');
+        if (!el) return;
+        el.textContent = '';
         const gd = this._guardianData;
-        if (gd) {
-            const hasGlobalAlert = gd.global_budget_usd != null && (gd.global_over_budget || gd.global_warning);
-            const hasAgentAlerts = gd.agent_alerts && gd.agent_alerts.some(a => a.over_budget || a.warning);
+        if (!gd) return;
+        const hasGlobalAlert = gd.global_budget_usd != null && (gd.global_over_budget || gd.global_warning);
+        const hasAgentAlerts = gd.agent_alerts && gd.agent_alerts.some(a => a.over_budget || a.warning);
+        if (!hasGlobalAlert && !hasAgentAlerts) return;
 
-            if (hasGlobalAlert || hasAgentAlerts) {
-                const guardianBox = document.createElement('div');
-                guardianBox.style.cssText = 'margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;';
+        const guardianBox = document.createElement('div');
+        guardianBox.style.cssText = 'margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;';
 
-                const buildAlert = (label, today, budget, pct, over, action) => {
-                    const overColor = 'rgba(220,38,38,0.75)';
-                    const warnColor = 'rgba(180,130,0,0.75)';
-                    const color = over ? overColor : warnColor;
-                    const bar = document.createElement('div');
-                    bar.style.cssText = `padding: 10px 14px; border-radius: 8px; border: 1px solid ${color}; background: ${over ? 'rgba(220,38,38,0.06)' : 'rgba(180,130,0,0.06)'}; display: flex; align-items: center; gap: 12px;`;
+        const buildAlert = (label, today, budget, pct, over, action) => {
+            const overColor = 'rgba(220,38,38,0.75)';
+            const warnColor = 'rgba(180,130,0,0.75)';
+            const color = over ? overColor : warnColor;
+            const bar = document.createElement('div');
+            bar.style.cssText = `padding: 10px 14px; border-radius: 8px; border: 1px solid ${color}; background: ${over ? 'rgba(220,38,38,0.06)' : 'rgba(180,130,0,0.06)'}; display: flex; align-items: center; gap: 12px;`;
+            const info = document.createElement('div');
+            info.style.cssText = 'flex: 1; min-width: 0;';
+            const infoTop = document.createElement('div');
+            infoTop.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;';
+            infoTop.textContent = `${label}: $${today.toFixed(4)} of $${budget.toFixed(2)} today (${Math.round(pct * 100)}%)`;
+            info.appendChild(infoTop);
+            const track = document.createElement('div');
+            track.style.cssText = 'height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden;';
+            const fill = document.createElement('div');
+            fill.style.cssText = `height: 100%; border-radius: 3px; background: ${color}; width: ${Math.min(pct * 100, 100)}%; transition: width 0.3s;`;
+            track.appendChild(fill);
+            info.appendChild(track);
+            bar.appendChild(info);
+            const badge = document.createElement('span');
+            badge.className = over && action === 'block' ? 'badge badge-error' : 'badge badge-warning';
+            badge.textContent = over && action === 'block' ? 'Blocked' : over ? 'Over limit' : '80%+ used';
+            bar.appendChild(badge);
+            return bar;
+        };
 
-                    const info = document.createElement('div');
-                    info.style.cssText = 'flex: 1; min-width: 0;';
-
-                    const infoTop = document.createElement('div');
-                    infoTop.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;';
-                    infoTop.textContent = `${label}: $${today.toFixed(4)} of $${budget.toFixed(2)} today (${Math.round(pct * 100)}%)`;
-                    info.appendChild(infoTop);
-
-                    const track = document.createElement('div');
-                    track.style.cssText = 'height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden;';
-                    const fill = document.createElement('div');
-                    fill.style.cssText = `height: 100%; border-radius: 3px; background: ${color}; width: ${Math.min(pct * 100, 100)}%; transition: width 0.3s;`;
-                    track.appendChild(fill);
-                    info.appendChild(track);
-
-                    bar.appendChild(info);
-
-                    if (over && action === 'block') {
-                        const badge = document.createElement('span');
-                        badge.className = 'badge badge-error';
-                        badge.textContent = 'Blocked';
-                        bar.appendChild(badge);
-                    } else if (over) {
-                        const badge = document.createElement('span');
-                        badge.className = 'badge badge-warning';
-                        badge.textContent = 'Over limit';
-                        bar.appendChild(badge);
-                    } else {
-                        const badge = document.createElement('span');
-                        badge.className = 'badge badge-warning';
-                        badge.textContent = '80%+ used';
-                        bar.appendChild(badge);
-                    }
-
-                    return bar;
-                };
-
-                if (hasGlobalAlert) {
-                    guardianBox.appendChild(buildAlert(
-                        'Global budget', gd.global_today_spend_usd,
-                        gd.global_budget_usd, gd.global_pct_used,
-                        gd.global_over_budget, gd.global_budget_action
-                    ));
-                }
-
-                if (hasAgentAlerts) {
-                    gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
-                        guardianBox.appendChild(buildAlert(
-                            a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
-                            a.today_spend_usd, a.budget_usd, a.pct_used,
-                            a.over_budget, a.budget_action
-                        ));
-                    });
-                }
-
-                content.appendChild(guardianBox);
-            }
+        if (hasGlobalAlert) {
+            guardianBox.appendChild(buildAlert('Global budget', gd.global_today_spend_usd, gd.global_budget_usd, gd.global_pct_used, gd.global_over_budget, gd.global_budget_action));
         }
+        if (hasAgentAlerts) {
+            gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
+                guardianBox.appendChild(buildAlert(a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id, a.today_spend_usd, a.budget_usd, a.pct_used, a.over_budget, a.budget_action));
+            });
+        }
+        el.appendChild(guardianBox);
+    },
 
-        // Unknown pricing warning
-        const agents = this.summaryData.agents || [];
+    _updateAgentsSection() {
+        const el = document.getElementById('sv-costs-agents');
+        if (!el) return;
+        el.textContent = '';
+        const agents = (this.summaryData && this.summaryData.agents) || [];
+
         if (agents.some(a => a.has_unknown_pricing)) {
             const warn = document.createElement('div');
             warn.className = 'alert alert-warning';
             warn.textContent = 'Some requests used models with unknown pricing — costs show as $0.00. Update rates in the Pricing Reference tab.';
-            content.appendChild(warn);
+            el.appendChild(warn);
         }
 
-        // ─── Per-agent breakdown ─────────────────────────────────────────
         const sectionTitle = document.createElement('h3');
         sectionTitle.style.cssText = 'margin: 1.5rem 0 0.75rem; font-size: 15px; color: var(--text-primary);';
         sectionTitle.textContent = 'Per-Agent Breakdown';
-        content.appendChild(sectionTitle);
+        el.appendChild(sectionTitle);
 
         if (agents.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            const icon = document.createElement('div');
-            icon.className = 'empty-icon';
-            icon.textContent = '💰';
-            const t = document.createElement('div');
-            t.className = 'empty-title';
-            t.textContent = 'No cost data yet';
-            const m = document.createElement('div');
-            m.className = 'empty-message';
-            m.textContent = 'Costs are recorded automatically as agents route requests through the SecureVector proxy.';
-            empty.appendChild(icon);
-            empty.appendChild(t);
-            empty.appendChild(m);
-            content.appendChild(empty);
+            const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '💰';
+            const t = document.createElement('div'); t.className = 'empty-title'; t.textContent = 'No cost data yet';
+            const m = document.createElement('div'); m.className = 'empty-message'; m.textContent = 'Costs are recorded automatically as agents route requests through the SecureVector proxy.';
+            empty.appendChild(icon); empty.appendChild(t); empty.appendChild(m);
+            el.appendChild(empty);
             return;
         }
 
@@ -299,9 +311,7 @@ const CostsPage = {
         const agentThead = document.createElement('thead');
         const agentHrow = document.createElement('tr');
         ['Agent ID', 'Requests', 'Input Tokens', 'Output Tokens', 'Total Cost', 'Daily Budget', 'Providers', 'Last Seen'].forEach(h => {
-            const th = document.createElement('th');
-            th.textContent = h;
-            agentHrow.appendChild(th);
+            const th = document.createElement('th'); th.textContent = h; agentHrow.appendChild(th);
         });
         agentThead.appendChild(agentHrow);
         agentTable.appendChild(agentThead);
@@ -309,78 +319,43 @@ const CostsPage = {
         const agentTbody = document.createElement('tbody');
         agents.forEach(agent => {
             const tr = document.createElement('tr');
-
             const tdAgent = document.createElement('td');
             const code = document.createElement('code');
-            const MAX_ID = 28;
-            code.textContent = agent.agent_id.length > MAX_ID
-                ? agent.agent_id.slice(0, MAX_ID) + '…'
-                : agent.agent_id;
+            code.textContent = agent.agent_id.length > 28 ? agent.agent_id.slice(0, 28) + '…' : agent.agent_id;
             code.title = agent.agent_id;
             tdAgent.appendChild(code);
             if (agent.has_unknown_pricing) {
                 const badge = document.createElement('span');
-                badge.className = 'badge badge-warning';
-                badge.title = 'Some requests have unknown pricing';
-                badge.textContent = '~';
+                badge.className = 'badge badge-warning'; badge.title = 'Some requests have unknown pricing'; badge.textContent = '~';
                 tdAgent.appendChild(badge);
             }
             tr.appendChild(tdAgent);
-
-            [
-                agent.total_requests.toLocaleString(),
-                this._fmtTokens(agent.total_input_tokens),
-                this._fmtTokens(agent.total_output_tokens),
-            ].forEach(text => {
-                const td = document.createElement('td');
-                td.textContent = text;
-                tr.appendChild(td);
+            [agent.total_requests.toLocaleString(), this._fmtTokens(agent.total_input_tokens), this._fmtTokens(agent.total_output_tokens)].forEach(text => {
+                const td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
             });
-
             const tdCost = document.createElement('td');
-            const strong = document.createElement('strong');
-            strong.textContent = `$${agent.total_cost_usd.toFixed(6)}`;
-            tdCost.appendChild(strong);
-            tr.appendChild(tdCost);
-
+            const strong = document.createElement('strong'); strong.textContent = `$${agent.total_cost_usd.toFixed(6)}`;
+            tdCost.appendChild(strong); tr.appendChild(tdCost);
             tr.appendChild(this._buildAgentBudgetCell(agent));
-
-            const tdProviders = document.createElement('td');
-            tdProviders.textContent = (agent.providers_used || []).join(', ');
-            tr.appendChild(tdProviders);
-
-            const tdLast = document.createElement('td');
-            tdLast.textContent = agent.last_seen ? new Date(agent.last_seen).toLocaleString() : '—';
-            tr.appendChild(tdLast);
-
+            const tdProviders = document.createElement('td'); tdProviders.textContent = (agent.providers_used || []).join(', '); tr.appendChild(tdProviders);
+            const tdLast = document.createElement('td'); tdLast.textContent = agent.last_seen ? new Date(agent.last_seen).toLocaleString() : '—'; tr.appendChild(tdLast);
             agentTbody.appendChild(tr);
         });
         agentTable.appendChild(agentTbody);
         agentWrap.appendChild(agentTable);
-        content.appendChild(agentWrap);
+        el.appendChild(agentWrap);
         makeTableSortable(agentTable);
 
-        // Export link + link to Request History tab
         const actionsRow = document.createElement('div');
         actionsRow.style.cssText = 'display: flex; gap: 10px; margin-top: 0.75rem; align-items: center;';
-
         const exportBtn = document.createElement('a');
-        exportBtn.className = 'btn btn-secondary';
-        exportBtn.href = API.getCostExportUrl();
-        exportBtn.textContent = 'Export CSV';
+        exportBtn.className = 'btn btn-secondary'; exportBtn.href = API.getCostExportUrl(); exportBtn.textContent = 'Export CSV';
         actionsRow.appendChild(exportBtn);
-
         const histLink = document.createElement('button');
-        histLink.className = 'btn btn-secondary';
-        histLink.textContent = 'View Request History →';
-        histLink.addEventListener('click', () => {
-            this.activeTab = 'history';
-            this._renderTabBar();
-            this._renderActiveTab();
-        });
+        histLink.className = 'btn btn-secondary'; histLink.textContent = 'View Request History →';
+        histLink.addEventListener('click', () => { this.activeTab = 'history'; this._renderTabBar(); this._renderActiveTab(); });
         actionsRow.appendChild(histLink);
-
-        content.appendChild(actionsRow);
+        el.appendChild(actionsRow);
     },
 
     // ==================== Request History Tab ====================
@@ -1752,6 +1727,246 @@ const CostsPage = {
         td.appendChild(form);
         amtInput.focus();
         amtInput.select();
+    },
+
+    // ==================== Monthly cost chart ====================
+
+    _chartState: { year: null, month: null, rangeStart: null, rangeEnd: null, mode: 'month', _draftStart: null, _draftEnd: null },
+
+    async _initCostChart(container) {
+        const now = new Date();
+        this._chartState = { year: now.getFullYear(), month: now.getMonth() + 1, rangeStart: null, rangeEnd: null, mode: 'month', _draftStart: null, _draftEnd: null };
+        await this._loadAndRenderChart(container);
+    },
+
+    async _loadAndRenderChart(container) {
+        container.textContent = '';
+        let data;
+        try {
+            if (this._chartState.mode === 'range' && this._chartState.rangeStart && this._chartState.rangeEnd) {
+                data = await API.getMonthlyCostChart({ start: this._chartState.rangeStart, end: this._chartState.rangeEnd });
+            } else {
+                data = await API.getMonthlyCostChart({ year: this._chartState.year, month: this._chartState.month });
+            }
+        } catch (e) {
+            return;
+        }
+        container.appendChild(this._buildChartWidget(data, container));
+    },
+
+    _buildChartWidget(data, container) {
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        const isCurrentMonth = this._chartState.mode === 'month' &&
+            this._chartState.year === now.getFullYear() &&
+            this._chartState.month === (now.getMonth() + 1);
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px;';
+
+        // ── Header ────────────────────────────────────────────────────────
+        const header = document.createElement('div');
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;';
+
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; flex: 1; min-width: 0;';
+        if (this._chartState.mode === 'range') {
+            titleEl.textContent = `Daily Spend — ${this._chartState.rangeStart}  →  ${this._chartState.rangeEnd}`;
+        } else {
+            const d = new Date(this._chartState.year, this._chartState.month - 1, 1);
+            titleEl.textContent = `Daily Spend — ${d.toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+        }
+        header.appendChild(titleEl);
+
+        if (this._chartState.mode === 'month') {
+            const navStyle = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-primary); cursor: pointer; width: 28px; height: 26px; font-size: 15px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;';
+            const prevBtn = document.createElement('button');
+            prevBtn.style.cssText = navStyle;
+            prevBtn.textContent = '‹';
+            prevBtn.title = 'Previous month';
+            prevBtn.addEventListener('click', async () => {
+                let { month: m, year: y } = this._chartState;
+                m--; if (m < 1) { m = 12; y--; }
+                this._chartState.month = m; this._chartState.year = y;
+                await this._loadAndRenderChart(container);
+            });
+            const nextBtn = document.createElement('button');
+            nextBtn.style.cssText = navStyle + (isCurrentMonth ? 'opacity:0.35;cursor:default;' : '');
+            nextBtn.textContent = '›';
+            nextBtn.title = 'Next month';
+            nextBtn.addEventListener('click', async () => {
+                if (isCurrentMonth) return;
+                let { month: m, year: y } = this._chartState;
+                m++; if (m > 12) { m = 1; y++; }
+                this._chartState.month = m; this._chartState.year = y;
+                await this._loadAndRenderChart(container);
+            });
+            header.appendChild(prevBtn);
+            header.appendChild(nextBtn);
+        }
+        wrap.appendChild(header);
+
+        // ── Date range row ────────────────────────────────────────────────
+        const rangeRow = document.createElement('div');
+        rangeRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 14px; flex-wrap: wrap;';
+
+        const iStyle = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-primary); padding: 4px 8px; font-size: 12px; outline: none; cursor: pointer;';
+        const startInput = document.createElement('input');
+        startInput.type = 'date'; startInput.style.cssText = iStyle;
+        // Restore from draft (survives poll rebuilds) then committed range
+        startInput.value = this._chartState._draftStart || this._chartState.rangeStart || '';
+
+        const sep = document.createElement('span');
+        sep.textContent = '→'; sep.style.cssText = 'color: var(--text-secondary); font-size: 12px;';
+
+        const endInput = document.createElement('input');
+        endInput.type = 'date'; endInput.style.cssText = iStyle;
+        endInput.value = this._chartState._draftEnd || this._chartState.rangeEnd || '';
+
+        const applyBtn = document.createElement('button');
+        applyBtn.textContent = 'Apply';
+        applyBtn.style.cssText = 'background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.4); border-radius: 6px; color: rgba(6,182,212,1); cursor: pointer; padding: 4px 12px; font-size: 12px; white-space: nowrap;';
+
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear';
+        clearBtn.style.cssText = 'background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 4px 8px; font-size: 12px;';
+
+        const self = this;
+
+        // Save to draft immediately on change so poll rebuilds don't lose the value
+        startInput.addEventListener('change', function() {
+            self._chartState._draftStart = startInput.value || null;
+        });
+        endInput.addEventListener('change', function() {
+            self._chartState._draftEnd = endInput.value || null;
+        });
+
+        applyBtn.addEventListener('click', async function() {
+            const s = startInput.value;
+            const e = endInput.value;
+            if (s && e && s <= e) {
+                self._chartState.mode = 'range';
+                self._chartState.rangeStart = s;
+                self._chartState.rangeEnd = e;
+                self._chartState._draftStart = null;
+                self._chartState._draftEnd = null;
+                await self._loadAndRenderChart(container);
+            }
+        });
+        clearBtn.addEventListener('click', async function() {
+            const n = new Date();
+            self._chartState.mode = 'month';
+            self._chartState.year = n.getFullYear();
+            self._chartState.month = n.getMonth() + 1;
+            self._chartState.rangeStart = null;
+            self._chartState.rangeEnd = null;
+            self._chartState._draftStart = null;
+            self._chartState._draftEnd = null;
+            await self._loadAndRenderChart(container);
+        });
+
+        rangeRow.appendChild(startInput);
+        rangeRow.appendChild(sep);
+        rangeRow.appendChild(endInput);
+        rangeRow.appendChild(applyBtn);
+        rangeRow.appendChild(clearBtn);
+        wrap.appendChild(rangeRow);
+
+        // ── Build day array ───────────────────────────────────────────────
+        const dayMap = {};
+        (data.days || []).forEach(d => { dayMap[d.date] = d.cost_usd; });
+
+        const allDays = [];
+        if (this._chartState.mode === 'range' && this._chartState.rangeStart && this._chartState.rangeEnd) {
+            let cur = new Date(this._chartState.rangeStart + 'T00:00:00');
+            const endD = new Date(this._chartState.rangeEnd + 'T00:00:00');
+            while (cur <= endD) {
+                const key = cur.toISOString().slice(0, 10);
+                allDays.push({ label: key.slice(5), cost: dayMap[key] || 0, future: key > todayStr, dateKey: key });
+                cur.setDate(cur.getDate() + 1);
+            }
+        } else {
+            const totalDays = new Date(this._chartState.year, this._chartState.month, 0).getDate();
+            for (let i = 1; i <= totalDays; i++) {
+                const d = new Date(this._chartState.year, this._chartState.month - 1, i);
+                const key = d.toISOString().slice(0, 10);
+                allDays.push({ label: String(i), cost: dayMap[key] || 0, future: key > todayStr, dateKey: key });
+            }
+        }
+
+        // ── CSS bar chart (no SVG — no stretching) ────────────────────────
+        const maxCost = Math.max(...allDays.filter(d => !d.future).map(d => d.cost), 0.000001);
+        const CHART_H = 90; // px — fixed height of the bar area
+
+        const chartWrap = document.createElement('div');
+        chartWrap.style.cssText = `position: relative; height: ${CHART_H + 20}px; display: flex; align-items: flex-end; gap: 2px; padding-bottom: 20px; box-sizing: border-box;`;
+
+        allDays.forEach(d => {
+            const isToday = d.dateKey === todayStr;
+            const pct = d.future ? 4 : Math.max(2, Math.round((d.cost / maxCost) * CHART_H));
+
+            const col = document.createElement('div');
+            col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; min-width: 0;';
+
+            const bar = document.createElement('div');
+            bar.style.cssText = `width: 100%; height: ${pct}px; border-radius: 2px 2px 0 0; transition: background 0.1s; box-sizing: border-box;`;
+            bar.style.background = d.future
+                ? 'rgba(6,182,212,0.08)'
+                : isToday ? 'rgba(6,182,212,0.85)' : 'rgba(6,182,212,0.4)';
+            bar.title = d.future ? `${d.dateKey}: —` : `${d.dateKey}: $${d.cost.toFixed(4)}`;
+
+            if (!d.future) {
+                bar.addEventListener('mouseenter', () => { bar.style.background = 'rgba(6,182,212,0.9)'; });
+                bar.addEventListener('mouseleave', () => { bar.style.background = isToday ? 'rgba(6,182,212,0.85)' : 'rgba(6,182,212,0.4)'; });
+            }
+            col.appendChild(bar);
+
+            // Day label below bar (show day 1, every 5th, today)
+            const dayNum = parseInt(d.label.split('-').pop() || d.label, 10);
+            if (dayNum === 1 || dayNum % 5 === 0 || isToday) {
+                const lbl = document.createElement('div');
+                lbl.style.cssText = `position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); font-size: 9px; line-height: 14px; white-space: nowrap; color: ${isToday ? 'rgba(6,182,212,0.9)' : 'var(--text-secondary)'};`;
+                lbl.textContent = d.label;
+                col.appendChild(lbl);
+            }
+
+            chartWrap.appendChild(col);
+        });
+
+        wrap.appendChild(chartWrap);
+
+        // ── Footer stats ──────────────────────────────────────────────────
+        const pastDays = allDays.filter(d => !d.future);
+        const rangeTotal = pastDays.reduce((s, d) => s + d.cost, 0);
+        const rangeAvg = pastDays.length > 0 ? rangeTotal / pastDays.length : 0;
+
+        const footer = document.createElement('div');
+        footer.style.cssText = 'margin-top: 10px; font-size: 13px; color: var(--text-secondary); display: flex; gap: 24px;';
+
+        const tSpan = document.createElement('span');
+        tSpan.textContent = 'Total: ';
+        const tStrong = document.createElement('strong');
+        tStrong.style.color = 'var(--text-primary)';
+        tStrong.textContent = `$${rangeTotal.toFixed(4)}`;
+        tSpan.appendChild(tStrong);
+
+        const aSpan = document.createElement('span');
+        aSpan.textContent = 'Daily avg: ';
+        const aStrong = document.createElement('strong');
+        aStrong.style.color = 'var(--text-primary)';
+        aStrong.textContent = `$${rangeAvg.toFixed(4)}`;
+        aSpan.appendChild(aStrong);
+
+        footer.appendChild(tSpan);
+        footer.appendChild(aSpan);
+        wrap.appendChild(footer);
+
+        return wrap;
+    },
+
+    _renderMonthlyCostChart(days) {
+        // Legacy shim — not used directly anymore; chart is initialized via _initCostChart
+        return document.createElement('div');
     },
 
     // ==================== Helpers ====================

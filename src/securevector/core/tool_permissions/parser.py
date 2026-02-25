@@ -78,6 +78,9 @@ def extract_tool_calls(response_body: dict) -> list[ToolCall]:
         # OpenAI Responses API complete: output[].type=function_call
         tool_calls.extend(_extract_openai_responses_api_complete_tool_calls(response_body))
 
+        # Ollama native /api/chat: message.tool_calls[].function.name + arguments (dict)
+        tool_calls.extend(_extract_ollama_tool_calls(response_body))
+
     except Exception as e:
         logger.warning(f"Error extracting tool calls: {e}")
 
@@ -325,6 +328,56 @@ def _extract_openai_responses_api_complete_tool_calls(body: dict) -> list[ToolCa
                 arguments=arguments if isinstance(arguments, str) else json.dumps(arguments),
                 provider_format="openai",
                 tool_call_id=item.get("call_id"),
+                index=idx,
+            )
+        )
+
+    return tool_calls
+
+
+def _extract_ollama_tool_calls(body: dict) -> list[ToolCall]:
+    """Extract tool calls from Ollama native /api/chat format.
+
+    Ollama wraps the assistant turn in a top-level "message" (no "choices" array).
+    Unlike OpenAI, "arguments" is a dict, not a JSON string.
+
+    Complete:
+      {"model": "...", "message": {"role": "assistant",
+        "tool_calls": [{"function": {"name": "foo", "arguments": {...}}}]}}
+    """
+    tool_calls = []
+
+    # Ollama responses have "message" at top level, not nested under "choices"
+    if "choices" in body or "candidates" in body:
+        return tool_calls
+
+    message = body.get("message", {})
+    if not isinstance(message, dict):
+        return tool_calls
+
+    tc_list = message.get("tool_calls", [])
+    if not isinstance(tc_list, list) or not tc_list:
+        return tool_calls
+
+    for idx, tc in enumerate(tc_list):
+        if not isinstance(tc, dict):
+            continue
+
+        function = tc.get("function", {})
+        if not isinstance(function, dict):
+            continue
+
+        name = function.get("name")
+        if not name:
+            continue
+
+        arguments = function.get("arguments", {})
+        tool_calls.append(
+            ToolCall(
+                function_name=name,
+                arguments_hash=_hash_arguments(arguments),
+                arguments=json.dumps(arguments) if isinstance(arguments, dict) else str(arguments),
+                provider_format="ollama",
                 index=idx,
             )
         )

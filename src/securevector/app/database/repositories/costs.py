@@ -447,6 +447,54 @@ class CostsRepository:
             )
         return float(row["total"]) if row else 0.0
 
+    async def get_monthly_spend(self, agent_id: Optional[str] = None) -> float:
+        """Return this calendar month's total spend in USD, optionally filtered by agent_id."""
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if agent_id:
+            row = await self.db.fetch_one(
+                "SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE agent_id = ? AND recorded_at >= ?",
+                (agent_id, month_start.isoformat()),
+            )
+        else:
+            row = await self.db.fetch_one(
+                "SELECT COALESCE(SUM(total_cost_usd), 0.0) as total FROM llm_cost_records WHERE recorded_at >= ?",
+                (month_start.isoformat(),),
+            )
+        return float(row["total"]) if row else 0.0
+
+    async def get_daily_spend_for_range(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> list[dict]:
+        """Return daily cost totals between start (inclusive) and end (exclusive).
+
+        Returns list of {date: 'YYYY-MM-DD', cost_usd: float} for each day that has records.
+        """
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                date(recorded_at) as day,
+                COALESCE(SUM(total_cost_usd), 0.0) as cost_usd
+            FROM llm_cost_records
+            WHERE recorded_at >= ? AND recorded_at < ?
+            GROUP BY date(recorded_at)
+            ORDER BY day ASC
+            """,
+            (start.isoformat(), end.isoformat()),
+        )
+        return [{"date": row["day"], "cost_usd": round(float(row["cost_usd"]), 6)} for row in rows]
+
+    async def get_daily_spend_for_month(self, year: Optional[int] = None, month: Optional[int] = None) -> list[dict]:
+        """Return daily cost totals for a given calendar month (defaults to current month)."""
+        now = datetime.utcnow()
+        y = year or now.year
+        m = month or now.month
+        month_start = datetime(y, m, 1)
+        month_end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
+        return await self.get_daily_spend_for_range(month_start, month_end)
+
     async def get_stale_pricing(self, days: int = 30) -> list[ModelPricing]:
         """Get pricing entries not updated in the last N days."""
         rows = await self.db.fetch_all(

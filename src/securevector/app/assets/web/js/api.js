@@ -407,6 +407,16 @@ const API = {
         }));
     },
 
+    async getMonthlyCostChart(params = {}) {
+        const qs = new URLSearchParams();
+        if (params.year) qs.set('year', params.year);
+        if (params.month) qs.set('month', params.month);
+        if (params.start) qs.set('start', params.start);
+        if (params.end) qs.set('end', params.end);
+        const query = qs.toString() ? `?${qs}` : '';
+        return this.request(`/api/costs/monthly-chart${query}`);
+    },
+
     async getCostRecords(params = {}) {
         const qs = new URLSearchParams();
         if (params.agent_id) qs.set('agent_id', params.agent_id);

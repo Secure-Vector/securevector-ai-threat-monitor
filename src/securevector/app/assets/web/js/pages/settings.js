@@ -52,8 +52,8 @@ const SettingsPage = {
         const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
         const llmDesc = cloudModeActive
             ? 'Disabled - Cloud ML analysis is active'
-            : 'LLM-powered threat detection for inputs. Outputs use fast regex rules.';
-        const llmSection = this.createSection('AI Analysis (Input Only)', llmDesc);
+            : 'Optional. Uses an LLM to review flagged inputs and reduce false positives in threat detection. Not required for tool permissions or cost tracking — those work without any API key.';
+        const llmSection = this.createSection('AI Analysis — Optional', llmDesc);
         const llmCard = Card.create({ gradient: true });
         const llmBody = llmCard.querySelector('.card-body');
         this.renderLLMSettings(llmBody, cloudModeActive);
