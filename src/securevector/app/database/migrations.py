@@ -155,6 +155,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         14: migrate_to_v14,
         15: migrate_to_v15,
         16: migrate_to_v16,
+        17: migrate_to_v17,
     }
 
     if version in migrations:
@@ -293,9 +294,9 @@ async def migrate_to_v7(db: DatabaseConnection) -> None:
     existing_columns = {row[1] for row in await cursor.fetchall()}
 
     if "block_threats" not in existing_columns:
-        # Default to 1 (enabled) - block threats by default for security-first stance
+        # Default to 0 (disabled) - let users opt in to blocking
         await conn.execute(
-            "ALTER TABLE app_settings ADD COLUMN block_threats INTEGER NOT NULL DEFAULT 1"
+            "ALTER TABLE app_settings ADD COLUMN block_threats INTEGER NOT NULL DEFAULT 0"
         )
 
     # Record migration
@@ -638,6 +639,31 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
         logger.info(f"Loaded {loaded_count} model pricing entries")
 
     return loaded_count
+
+
+async def migrate_to_v17(db: DatabaseConnection) -> None:
+    """Migration v16 -> v17: Default block_threats to disabled (opt-in)."""
+    conn = await db.connect()
+    await conn.execute("UPDATE app_settings SET block_threats = 0")
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (17, CURRENT_TIMESTAMP, 'Default block_threats to disabled')"
+    )
+    logger.info("Applied migration v17: block_threats defaulted to disabled")
+
+    # Also patch svconfig.yml so apply_config_to_db (called after migrations)
+    # doesn't read block_mode: true and override the DB back to enabled.
+    try:
+        from securevector.app.utils.config_file import get_config_path
+        config_path = get_config_path()
+        if config_path.exists():
+            content = config_path.read_text(encoding="utf-8")
+            if "block_mode: true" in content:
+                content = content.replace("block_mode: true", "block_mode: false")
+                config_path.write_text(content, encoding="utf-8")
+                logger.info("Migration v17: patched svconfig.yml block_mode to false")
+    except Exception as e:
+        logger.warning(f"Migration v17: could not patch svconfig.yml: {e}")
 
 
 # Future migration functions would be defined here:

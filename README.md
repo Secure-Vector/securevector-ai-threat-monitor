@@ -107,7 +107,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Blocks threats before they reach the LLM.
+Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Detects and logs threats by default — enable block mode when you're ready to hard-stop them.
 
 </td>
 <td valign="top">
@@ -155,7 +155,7 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 
 | ❌ Without SecureVector | ✅ With SecureVector |
 |---|---|
-| Prompt injections pass straight through | Blocked before they reach the LLM |
+| Prompt injections pass straight through | Detected and logged by default; blocked when you enable block mode |
 | API keys and PII leak in prompts | Automatically redacted |
 | No control over what tools agents can use | Fine-grained allow/block rules per tool |
 | No audit trail of tool calls | Full tool call history with decisions and reasons |
@@ -309,7 +309,8 @@ server:
 
 security:
   # Block detected threats (true) or log/warn only (false)
-  block_mode: true
+  # Defaults to false — enable when you're confident in your rule tuning
+  block_mode: false
   # Scan LLM responses for data leakage and PII
   output_scan: true
 

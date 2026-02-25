@@ -126,10 +126,19 @@ def evaluate_tool_call(
     if overrides is None:
         overrides = {}
 
+    # Normalize for case-insensitive matching (LLM tools may use PascalCase e.g. "Read")
+    function_name_lower = function_name.lower()
+
     # Check if function_name matches any essential tool ID exactly
+    matched_tool_id = None
     if function_name in essential_registry:
-        tool = essential_registry[function_name]
-        tool_id = function_name
+        matched_tool_id = function_name
+    elif function_name_lower in essential_registry:
+        matched_tool_id = function_name_lower
+
+    if matched_tool_id is not None:
+        tool = essential_registry[matched_tool_id]
+        tool_id = matched_tool_id
 
         # Check for user override first
         if tool_id in overrides:
@@ -158,7 +167,7 @@ def evaluate_tool_call(
     # e.g. "send_email" might match "gmail.send_email"
     for tool_id, tool in essential_registry.items():
         parts = tool_id.split(".")
-        if len(parts) == 2 and parts[1] == function_name:
+        if len(parts) == 2 and (parts[1] == function_name or parts[1] == function_name_lower):
             # Exact match on the function part
             if tool_id in overrides:
                 action = overrides[tool_id]
