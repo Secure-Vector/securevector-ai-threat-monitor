@@ -86,16 +86,24 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
     web_port = int(_os.environ.get('SV_WEB_PORT', '8741'))
 
     if integration == "openclaw":
-        cmd = ["securevector-app", "--proxy", "--openclaw",
+        # When running from a PyInstaller binary, sys.executable IS the app binary.
+        # The "securevector-app" console script only exists in pip installs.
+        executable = sys.executable if getattr(sys, "frozen", False) else "securevector-app"
+        cmd = [executable, "--proxy", "--openclaw",
                "--proxy-port", str(port), "--port", str(web_port)]
         if multi:
             cmd.append("--multi")
         else:
             cmd.extend(["--provider", effective_provider])
     else:
-        cmd = [sys.executable, "-m", "securevector.integrations.openclaw_llm_proxy",
-               "--port", str(port),
-               "--securevector-url", f"http://127.0.0.1:{web_port}"]
+        if getattr(sys, "frozen", False):
+            # PyInstaller binary: run self with --proxy flags (no -m support in frozen env)
+            cmd = [sys.executable, "--proxy",
+                   "--proxy-port", str(port), "--port", str(web_port)]
+        else:
+            cmd = [sys.executable, "-m", "securevector.integrations.openclaw_llm_proxy",
+                   "--port", str(port),
+                   "--securevector-url", f"http://127.0.0.1:{web_port}"]
         if multi:
             cmd.append("--multi")
         else:
