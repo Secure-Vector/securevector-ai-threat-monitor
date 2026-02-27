@@ -2,9 +2,9 @@
 
 <h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
-<h3>Runtime Firewall for AI Agents & Bots</h3>
+<h3>AI Firewall for Agents — Block prompt injection, tool abuse, and data leaks before and after the LLM.</h3>
 
-<p><strong>Block prompt injection, jailbreaks, and data leaks before they reach your AI.</strong></p>
+<p><strong>No coding required.</strong> Threat protection, cost tracking, and budget limits — in one tool. Download the app or install with pip.</p>
 
 <br>
 
@@ -12,54 +12,241 @@
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
-[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Local App Screenshots](#screenshots)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
 
 </div>
 
-<br>
+> 🆕 **New in v3.0:**
+> - **Tool Permissions** — allow/block agent tool calls
+> - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
+> - **28 new threat detection rules**
 
 ## How It Works
 
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
-**SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats. Runs entirely on your machine — nothing leaves your infrastructure.
+**SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats, controlling tool permissions, and tracking spend in real time. Runs entirely on your machine — nothing leaves your infrastructure.
+
+<br>
+
+<table>
+<tr>
+<th align="left" width="50%">The Problem</th>
+<th align="left" width="50%">The Fix</th>
+</tr>
+<tr>
+<td valign="top">
+
+AI agents are powerful — and completely unprotected.
+
+Every prompt your AI agent sends, every secret it handles, every piece of user data — goes straight to the LLM provider with nothing in between. No spend limit. No injection protection. No audit trail. You're flying blind.
+
+</td>
+<td valign="top">
+
+SecureVector runs on your machine, between your AI agents and LLM providers. It starts with a multi-provider proxy mode for routing across OpenAI, Anthropic, Ollama, and more — all through a single endpoint. It blocks threats, enforces tool permissions, and hard-stops agents that blow their budget. 100% local. No accounts.
+
+</td>
+</tr>
+</table>
+
+## Quick Start
+
+**Step 1 — Install or download**
 
 ```bash
 pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-Or download: [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-v2.1.3-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector_2.1.3_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector-2.1.3-1.x86_64.rpm)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm)
+
+**Step 2 — Open the app**
+
+Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary.
+
+**Step 3 — Connect your agent**
+
+**Go to the Integrations tab for step-by-step setup guides** — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
+
+If the app fails to launch because ports 8741/8742 are already in use, use `--port <port>` of your choice — the proxy starts automatically on port+1.
+See [Configuration](#configuration) for proxy or web/api port settings.
 
 > **Open-source. 100% local by default. No API keys required.**
 
 <br>
 
-## Highlights
+## Screenshots
 
-- ☑ **100% Local by Default** — No data transmitted externally. Complete privacy.
-- ☑ **Agents Protected** — LangChain, LangGraph, CrewAI, n8n, OpenClaw, and any OpenAI-compatible app.
-- ☑ **Input Scanning** — Block prompt injection, jailbreaks, and manipulation before they reach the LLM.
-- ☑ **Output Scanning** — Detect credential leaks, PII exposure, and system prompt disclosure.
-- ☑ **13 Providers** — OpenAI, Anthropic, Gemini, Ollama, Groq, DeepSeek, Mistral, xAI, Together, Cohere, Cerebras, and more.
-- ☑ **Full Visibility** — Real-time dashboard shows every threat, who sent it, and what was blocked.
-- ☑ **Protect Your API Account** — Block abuse before it triggers ToS violations or key suspension.
-- ☑ **One Command** — `securevector-app --web` and follow the UI to start protecting.
+*All screenshots are from a local app instance.*
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
+<td width="33%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Tool Permissions — allow or block tools by name or category</em></td>
+<td width="33%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — decision, tool, args, and timestamp for every call</em></td>
+</tr>
+<tr>
+<td width="33%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
+<td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
+<td width="33%"><img src="docs/screenshots/custom-rules-light.png" alt="Custom Rules" width="100%"><br><em>Custom Rules — create and manage detection rules by category and severity</em></td>
+</tr>
+</table>
 
 <br>
 
-## What SecureVector Catches
+## What You Get
 
-1. **Your API account is the real target.** One successful jailbreak generating prohibited content gets your key suspended. All your users lose service.
+<table>
+<tr>
+<th align="left" width="50%">Threat Protection</th>
+<th align="left" width="50%">Cost Control</th>
+</tr>
+<tr>
+<td valign="top">
 
-2. **You have zero visibility.** Without SecureVector, you don't know who's abusing your app until OpenAI sends you a ToS violation notice.
+Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Detects and logs threats by default — enable block mode when you're ready to hard-stop them.
 
-3. **LLMs can't police their own output.** When your bot has access to user data, it doesn't know what's sensitive. SecureVector catches leaked credentials, PII, and system prompts in responses.
+</td>
+<td valign="top">
 
-4. **Blocked requests are free requests.** Junk gets stopped locally in ~50ms — you never pay the API for processing it.
+Tracks every token and dollar per agent in real time. Set daily budget limits — requests auto-stop when the cap is hit. Never wake up to a surprise bill.
 
-**Example:** You built an image generation app with 100 users on DALL-E 3 ($0.04/image). Ten users discover they can jailbreak your bot and start generating free images for fun — 20 junk requests/day each. That's 200 × $0.04 × 30 = **$240/month in abuse.** SecureVector blocks them all locally for $0.
+</td>
+</tr>
+<tr>
+<th align="left">Full Visibility</th>
+<th align="left">100% Local</th>
+</tr>
+<tr>
+<td valign="top">
+
+Live dashboard showing every LLM request, tool call, token count, and threat event. See exactly what your agents are doing.
+
+</td>
+<td valign="top">
+
+Runs entirely on your machine. No accounts. No cloud. No data leaves your infrastructure. Open source under Apache 2.0.
+
+</td>
+</tr>
+</table>
+
+<br>
+
+## Features
+
+| Section | Feature | Description |
+|---------|---------|-------------|
+| **Monitor** | Threat Monitor | Live feed of every detected threat — prompt injection, jailbreaks, data leaks, tool abuse |
+| | Tool Activity | Full audit log of every tool call your agents make, with args, decision, and timestamp |
+| | Cost Tracking | Per-agent, per-model token spend and USD cost in real time, with request history |
+| **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule |
+| | Cost Settings | Set daily budget limits and choose whether to warn or hard-block at the cap |
+| | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
+
+**Performance:** Rule-based analysis (default) adds ~10–50ms per request. Enabling optional AI analysis adds 1–3s per request depending on the model and provider — this is shown on the dashboard so you can measure it against your actual traffic.
+
+<br>
+
+## Why SecureVector?
+
+| ❌ Without SecureVector | ✅ With SecureVector |
+|---|---|
+| Prompt injections pass straight through | Detected and logged by default; blocked when you enable block mode |
+| API keys and PII leak in prompts | Automatically redacted |
+| No control over what tools agents can use | Fine-grained allow/block rules per tool |
+| No audit trail of tool calls | Full tool call history with decisions and reasons |
+| No idea what agents are spending | Real-time cost tracking per agent |
+| Runaway agents burn through your API budget overnight | Hard budget limits with auto-stop |
+| Zero visibility into agent traffic | Live dashboard showing everything |
+
+<br>
+
+## Works With Everything
+
+**Your AI Stack**
+
+LangChain · LlamaIndex · CrewAI · AutoGen · LangGraph · n8n · Dify · OpenClaw/ClawdBot *(LLM gateway agent framework)* — or any framework that makes HTTP calls to an LLM provider.
+
+**LLM Providers**
+
+OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
+
+**Run Anywhere**
+
+| Environment | Details |
+|-------------|---------|
+| Local | macOS, Linux, Windows |
+| Cloud | AWS, GCP, Azure |
+| Containers | Docker & Kubernetes |
+| Virtual Machines | EC2, Droplets, VMs |
+| Edge / Serverless | Lambda, Workers, Vercel |
+
+## Agent Integrations
+
+| Agent/Framework | Integration |
+|-----------------|-------------|
+| **LangChain** | LLM Proxy or [SDK Callback](docs/USECASES.md#langchain) |
+| **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
+| **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
+| **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
+| **OpenClaw / ClawdBot** *(LLM gateway agent)* | LLM Proxy — see Integrations in UI |
+| **n8n** | [Community Node](docs/USECASES.md#n8n) |
+| **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
+| **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
+| **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
+
+<br>
+
+## What It Detects
+
+| Input Threats (User to LLM) | Output Threats (LLM to User) |
+|-----------------------------|------------------------------|
+| Prompt injection | Credential leakage (API keys, tokens) |
+| Jailbreak attempts | System prompt exposure |
+| Data exfiltration requests | PII disclosure (SSN, credit cards) |
+| Social engineering | Jailbreak success indicators |
+| SQL injection patterns | Encoded malicious content |
+| Tool result injection (MCP) | — |
+| Multi-agent authority spoofing | — |
+| Permission scope escalation | — |
+
+Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
+
+### AI Agent Attack Protection (28 new rules · 72 total)
+
+Built from real attack chains observed against production agent frameworks:
+
+- **Tool Result Injection** — injected instructions hidden inside MCP tool responses
+- **Multi-Agent Authority Spoofing** — impersonating trusted agents in multi-agent pipelines
+- **Permission Scope Escalation** — agents requesting more permissions than granted
+- **MCP Tool Call Injection** — malicious payloads delivered through MCP tool calls
+- **Evasion techniques** (22 rules) — zero-width characters, encoding tricks, roleplay framing, leetspeak, semantic inversion, emotional manipulation, and more
+
+<br>
+
+## Open Source
+
+SecureVector is fully open source. No cloud required. No accounts. No tracking. Run it, fork it, contribute to it.
+
+**Built for** solo developers and small teams who ship AI agents without a security team or a FinOps budget. If you are building with LangChain, CrewAI, OpenClaw, or any agent framework — and you do not have someone watching your agent traffic and API spend — SecureVector is for you.
+
+## Open Source vs Cloud
+
+| Open Source (100% Free) | Cloud (Optional) |
+|-------------------------|------------------|
+| Apache 2.0 license | Expert-curated rule library |
+| Community detection rules | Multi-stage ML threat analysis |
+| Custom YAML rules | Real-time cloud dashboard |
+| 100% local by default, no data sharing | Team collaboration |
+| Desktop app + local API | Priority support |
+
+> **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
+
+[**Try Free**](https://app.securevector.io)
 
 <br>
 
@@ -80,114 +267,122 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v2.1.3-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-v2.1.3-Windows-Setup.exe) |
-| macOS | [SecureVector-2.1.3-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-2.1.3-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SecureVector-2.1.3-x86_64.AppImage) |
-| Linux (DEB) | [securevector_2.1.3_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector_2.1.3_amd64.deb) |
-| Linux (RPM) | [securevector-2.1.3-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/securevector-2.1.3-1.x86_64.rpm) |
+| Windows | [SecureVector-v3.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-v3.0.0-Windows-Setup.exe) |
+| macOS | [SecureVector-3.0.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-3.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SecureVector-3.0.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_3.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector_3.0.0_amd64.deb) |
+| Linux (RPM) | [securevector-3.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/securevector-3.0.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v2.1.3/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
-
-<br>
-
-## Quick Start
-
-**Step 1:** Start SecureVector app
-- **Option 1:** Run `securevector-app --web` then open [http://localhost:8741](http://localhost:8741) in your browser.
-- **Option 2:** Double-click the installed app if using a binary.
-
-**Step 2:** In the left navigation, expand **Integrations** and choose your agent framework.
-
-**Step 3:** Click **Start Multi-Provider Proxy** (recommended). Point your app to the proxy URL shown on the page.
-
-That's it! Every request is scanned for prompt injection. Every response is scanned for data leaks.
-
-**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
-
-<br>
-
-## Agent Integrations
-
-| Agent/Framework | Integration |
-|-----------------|-------------|
-| **LangChain** | LLM Proxy or [SDK Callback](docs/USECASES.md#langchain) |
-| **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
-| **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
-| **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
-| **OpenClaw / ClaudBot** | LLM Proxy — see Integrations in UI |
-| **n8n** | [Community Node](docs/USECASES.md#n8n) |
-| **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
-| **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
-| **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
-
-<br>
-
-## What It Detects
-
-| Input Threats (User → LLM) | Output Threats (LLM → User) |
-|---------------------------|----------------------------|
-| Prompt injection | Credential leakage (API keys, tokens) |
-| Jailbreak attempts | System prompt exposure |
-| Data exfiltration requests | PII disclosure (SSN, credit cards) |
-| Social engineering | Jailbreak success indicators |
-| SQL injection patterns | Encoded malicious content |
-
-Full coverage: [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-
-<br>
-
-## Screenshots
-
-<table>
-<tr>
-<td><img src="docs/app-dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — stats, risk distribution, recent threats</em></td>
-<td><img src="docs/app-threats.png" alt="Threats" width="100%"><br><em>Threat Analytics — blocked, redacted, logged</em></td>
-</tr>
-<tr>
-<td><img src="docs/app-integrations.png" alt="Integrations" width="100%"><br><em>Integrations — LangChain, Ollama, OpenClaw, and more</em></td>
-<td><img src="docs/app-rules.png" alt="Detection Rules" width="100%"><br><em>Detection Rules — community rules, or create your own for your use case or industry</em></td>
-</tr>
-<tr>
-<td><img src="docs/app-guide.png" alt="Getting Started" width="100%"><br><em>Getting Started — onboarding guide with setup steps</em></td>
-</tr>
-</table>
-
-<br>
-
-## Documentation
-
-- [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
-- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, n8n, FastAPI
-- [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
-- [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
-- [Security Policy](.github/SECURITY.md) — Vulnerability disclosure
-
-<br>
-
-## Editions
 
 ### Other install options
 
 | Install | Use Case | Size |
 |---------|----------|------|
 | `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration | ~18MB |
+| `pip install securevector-ai-monitor[app]` | **Full app** — web UI, LLM proxy, cost tracking, tool permissions | 453 KB wheel · ~16 MB total on disk (incl. dependencies) |
 | `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
 
-### Open Source vs Cloud
+<br>
 
-| Open Source (100% Free) | Cloud (Optional) |
-|-------------------------|------------------|
-| Apache 2.0 license | Expert-curated rule library |
-| Community detection rules | Multi-stage ML threat analysis |
-| Custom YAML rules | Real-time cloud dashboard |
-| 100% local by default, no data sharing | Team collaboration |
-| Desktop app + local API | Priority support |
+## Configuration
 
-> **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
+SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
 
-[**Try Free**](https://app.securevector.io)
+```yaml
+# SecureVector Configuration
+# Changes take effect on next restart.
+# The config path is printed to the console when you start the app.
+#
+# Linux:   ~/.local/share/securevector/threat-monitor/svconfig.yml
+# macOS:   ~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml
+# Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml
+
+server:
+  # Web UI / API server listen host and port.
+  # Change these if port 8741 is already in use on your machine.
+  # If running on a remote server, set host to the server's hostname or IP address.
+  host: 127.0.0.1
+  port: 8741
+
+security:
+  # Block detected threats (true) or log/warn only (false)
+  # Defaults to false — enable when you're confident in your rule tuning
+  block_mode: false
+  # Scan LLM responses for data leakage and PII
+  output_scan: true
+
+budget:
+  # Daily spend limit in USD (set to null to disable)
+  daily_limit: 5.00
+  # Warn in logs/headers when spend approaches the limit
+  warn: true
+  # Block requests when the daily budget is exceeded
+  block: true
+
+tools:
+  # Enforce tool permission rules (allow/block based on your rules)
+  enforcement: true           # default: true
+
+proxy:
+  # Proxy auto-starts with securevector-app --web when mode is set below.
+  integration: openclaw       # or: langchain, langgraph, crewai, ollama
+  mode: multi-provider        # or: single (add provider: below)
+  provider: null              # required only when mode is "single"
+  host: 127.0.0.1             # proxy listen host — set to the server's hostname or IP if running remotely
+  port: 8742                  # proxy listen port (default: server.port + 1)
+```
+
+The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
+
+### Pointing Your Agent at the Proxy
+
+Point any application to SecureVector's proxy instead of the provider's API.
+
+<table>
+<tr>
+<th align="left" width="50%">🪟 Windows</th>
+<th align="left" width="50%">🐧 Linux / macOS</th>
+</tr>
+<tr>
+<td valign="top">
+
+**Command Prompt** (current session)
+<pre>set OPENAI_BASE_URL=http://localhost:8742/openai/v1
+set ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
+
+**PowerShell** (current session)
+<pre>$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"
+$env:ANTHROPIC_BASE_URL="http://localhost:8742/anthropic"</pre>
+
+**PowerShell** (persistent, per user)
+<pre>[Environment]::SetEnvironmentVariable(
+  "OPENAI_BASE_URL",
+  "http://localhost:8742/openai/v1",
+  "User"
+)</pre>
+
+</td>
+<td valign="top">
+
+**Terminal** (current session)
+<pre>export OPENAI_BASE_URL=http://localhost:8742/openai/v1
+export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic</pre>
+
+**Persistent** (add to `~/.bashrc` or `~/.zshrc`)
+<pre>echo 'export OPENAI_BASE_URL=http://localhost:8742/openai/v1' >> ~/.bashrc
+echo 'export ANTHROPIC_BASE_URL=http://localhost:8742/anthropic' >> ~/.bashrc
+source ~/.bashrc</pre>
+
+</td>
+</tr>
+</table>
+
+Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked.
+
+**Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
 
 <br>
 
@@ -207,6 +402,16 @@ After updating, restart SecureVector.
 
 <br>
 
+## Documentation
+
+- [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
+- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, n8n, FastAPI
+- [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
+- [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
+- [Security Policy](.github/SECURITY.md) — Vulnerability disclosure
+
+<br>
+
 ## Contributing
 
 ```bash
@@ -218,8 +423,6 @@ pytest tests/ -v
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
 
-<br>
-
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
@@ -230,6 +433,6 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**[Get Started](#install)** · **[Documentation](https://docs.securevector.io)** · **[GitHub Issues](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues)** · **[security@securevector.io](mailto:security@securevector.io)**
+**[Get Started](#install)** · **[Documentation](https://docs.securevector.io)** · **[Discord](https://discord.gg/k3bgZuCQBC)** · **[GitHub Issues](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues)** · **[security@securevector.io](mailto:security@securevector.io)**
 
 </div>

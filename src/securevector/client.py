@@ -220,6 +220,7 @@ class SecureVectorClient:
             SecurityException: If a threat is detected and raise_on_threat is True
         """
         start_time = time.time()
+        context: dict = {}
 
         # Enhanced telemetry and debugging
         with trace_operation(
@@ -299,10 +300,11 @@ class SecureVectorClient:
                         f"Threat detected: {result.summary}", result=result, action=policy_action
                     )
 
+                result.analysis_time_ms = (time.time() - start_time) * 1000
                 return result
 
-            except SecurityException:
-                # Re-raise security exceptions
+            except (SecurityException, ValidationError):
+                # Re-raise security and validation exceptions
                 raise
             except Exception as e:
                 # Log detailed error internally but don't expose sensitive information

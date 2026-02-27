@@ -45,7 +45,9 @@ class AppSettings:
     # Output leakage detection (scan LLM responses for data leaks)
     scan_llm_responses: bool = True
     # Block threats mode (when enabled, proxy blocks detected threats)
-    block_threats: bool = True
+    block_threats: bool = False
+    # Tool call permission scanning
+    tool_permissions_enabled: bool = True
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -148,7 +150,8 @@ class SettingsRepository:
             updated_at=row_dict["updated_at"],
             llm_settings=llm_settings,
             scan_llm_responses=bool(row_dict.get("scan_llm_responses", True)),
-            block_threats=bool(row_dict.get("block_threats", True)),
+            block_threats=bool(row_dict.get("block_threats", False)),
+            tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", True)),
         )
 
     async def update(self, **kwargs) -> AppSettings:
@@ -184,6 +187,7 @@ class SettingsRepository:
             "llm_settings",
             "scan_llm_responses",
             "block_threats",
+            "tool_permissions_enabled",
         }
 
         updates = {}

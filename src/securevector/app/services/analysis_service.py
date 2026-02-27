@@ -144,6 +144,11 @@ class AnalysisService:
                     patterns = [patterns]
 
                 if patterns:
+                    # Merge created_at / tags / source from rule entry into metadata
+                    base_meta = dict(rule_entry.get("metadata") or {})
+                    for field in ("created_at", "tags", "source"):
+                        if field in rule_entry:
+                            base_meta[field] = rule_entry[field]
                     await self.repo.cache_community_rule(
                         rule_id=rule_id,
                         name=name,
@@ -152,7 +157,7 @@ class AnalysisService:
                         severity=severity,
                         patterns=patterns,
                         source_file=str(yaml_file),
-                        metadata=rule_entry.get("metadata"),
+                        metadata=base_meta or None,
                     )
                     count += 1
 

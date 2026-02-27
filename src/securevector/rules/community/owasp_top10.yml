@@ -165,9 +165,8 @@ rules:
   - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
   - (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}
   - (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
-  - (email|e-mail).*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}
   - phone.*\+?\d{1,3}[-.\s]?\d{3,14}
-  detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|(email|e-mail).*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
+  detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
   pattern_definitions:
     pattern_1:
       regex: (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
@@ -179,9 +178,6 @@ rules:
       regex: (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
       description: Detection pattern for (ssn|social.security).*\d{3}-?\d{2}-?\d{4}...
     pattern_4:
-      regex: (email|e-mail).*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}
-      description: Detection pattern for (email|e-mail).*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}...
-    pattern_5:
       regex: phone.*\+?\d{1,3}[-.\s]?\d{3,14}
       description: Detection pattern for phone.*\+?\d{1,3}[-.\s]?\d{3,14}...
 - category: malicious_code_generation

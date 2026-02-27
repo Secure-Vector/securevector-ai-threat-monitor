@@ -19,7 +19,7 @@ from securevector import SecureVectorClient
 from securevector.models.config_models import OperationMode
 
 
-def test_prompt(client, prompt, expected_threat, description=""):
+def _check_prompt(client, prompt, expected_threat, description=""):
     """Test a single prompt and return result"""
     from securevector.utils.exceptions import SecurityException
     
@@ -177,7 +177,7 @@ def main():
     failed_count = 0
     
     for prompt, expected_threat, description in test_cases:
-        passed, is_threat, risk_score, threat_types = test_prompt(
+        passed, is_threat, risk_score, threat_types = _check_prompt(
             client, prompt, expected_threat, description
         )
         

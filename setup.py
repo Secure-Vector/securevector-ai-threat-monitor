@@ -82,6 +82,8 @@ setup(
             "safety>=2.0",
             "bandit>=1.7",
             "psutil>=5.8",  # For benchmark memory tests
+            "fastapi>=0.100.0",  # Required for FastAPI test client in unit tests
+            "httpx>=0.24.0",     # Required by FastAPI TestClient
         ],
         "benchmark": [
             "psutil>=5.8",
@@ -110,6 +112,7 @@ setup(
             "rules/README.md",
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
+            "pricing/*.yml",
             "app/assets/**/*",
             "app/assets/web/**/*",
             "app/assets/web/css/*",

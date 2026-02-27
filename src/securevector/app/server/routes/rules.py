@@ -227,6 +227,10 @@ async def list_rules(
                 effective_severity = override.severity if (override and override.severity) else rule.severity
                 effective_patterns = override.patterns if (override and override.patterns) else rule.patterns
 
+                # Extract created_at stored in metadata by the loader
+                rule_meta = rule.metadata or {}
+                rule_created_at = rule_meta.get("created_at")
+
                 items.append(
                     RuleResponse(
                         id=rule.id,
@@ -239,6 +243,7 @@ async def list_rules(
                         source="community",
                         has_override=has_override,
                         metadata=rule.metadata,
+                        created_at=rule_created_at,
                     )
                 )
 

@@ -280,22 +280,6 @@ def chat_with_protection(user_input):
 
         container.textContent = '';
 
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = 'margin-bottom: 24px;';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = integration.name + ' Integration';
-        header.appendChild(title);
-
-        const desc = document.createElement('p');
-        desc.className = 'dashboard-subtitle';
-        desc.textContent = integration.description;
-        header.appendChild(desc);
-
-        container.appendChild(header);
-
         // Render based on integration type
         if (integration.isNodeBased) {
             // n8n: Node + API options
@@ -1035,7 +1019,7 @@ def chat_with_protection(user_input):
         geminiDesc.textContent = 'To use Gemini through the proxy, add a custom provider to ~/.openclaw/openclaw.json under "models.providers":';
         geminiSection.appendChild(geminiDesc);
 
-        const geminiJson = '"gemini-sv": {\n  "baseUrl": "http://localhost:8742' + geminiConfig.path + '",\n  "apiKey": "YOUR_GEMINI_API_KEY",\n  "api": "google-generative-ai",\n  "models": [\n    {\n      "id": "gemini-2.0-flash",\n      "name": "Gemini 2.0 Flash",\n      "contextWindow": 200000,\n      "maxTokens": 8192\n    }\n  ]\n}';
+        const geminiJson = '"gemini-sv": {\n  "baseUrl": "http://localhost:' + (window.__SV_PROXY_PORT || 8742) + geminiConfig.path + '",\n  "apiKey": "YOUR_GEMINI_API_KEY",\n  "api": "google-generative-ai",\n  "models": [\n    {\n      "id": "gemini-2.0-flash",\n      "name": "Gemini 2.0 Flash",\n      "contextWindow": 200000,\n      "maxTokens": 8192\n    }\n  ]\n}';
         const geminiBlock = this.createCodeBlock(geminiJson);
         geminiBlock.style.marginBottom = '8px';
         geminiSection.appendChild(geminiBlock);
@@ -1163,6 +1147,15 @@ def chat_with_protection(user_input):
     },
 
     createCodeBlock(code) {
+        // Substitute actual running ports and host so display and Copy both show the right values
+        const _pp = window.__SV_PROXY_PORT; const _wp = window.__SV_WEB_PORT;
+        const _host = window.__SV_HOST;
+        if (_pp && _pp !== 8742) code = code.replaceAll(':8742', ':' + _pp);
+        if (_wp && _wp !== 8741) code = code.replaceAll(':8741', ':' + _wp);
+        if (_host && _host !== 'localhost' && _host !== '127.0.0.1') {
+            code = code.replaceAll('://localhost:', '://' + _host + ':').replaceAll('://127.0.0.1:', '://' + _host + ':');
+        }
+
         const wrapper = document.createElement('div');
         wrapper.style.cssText = 'position: relative;';
 

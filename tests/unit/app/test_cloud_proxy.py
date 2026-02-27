@@ -28,9 +28,9 @@ class TestCloudProxyService:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "is_threat": True,
-            "threat_type": "prompt_injection",
-            "risk_score": 85,
+            "verdict": "BLOCK",
+            "threat_level": "prompt_injection",
+            "threat_score": 0.85,
         }
 
         mock_client = AsyncMock()

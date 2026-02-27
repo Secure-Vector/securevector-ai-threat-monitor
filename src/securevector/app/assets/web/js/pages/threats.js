@@ -22,21 +22,7 @@ const ThreatsPage = {
         container.textContent = '';
         this.selectedIds.clear();
 
-        // Page header
-        const header = document.createElement('div');
-        header.className = 'dashboard-header';
-
-        const title = document.createElement('h1');
-        title.className = 'dashboard-title';
-        title.textContent = 'Threat Analytics';
-        header.appendChild(title);
-
-        const subtitle = document.createElement('p');
-        subtitle.className = 'dashboard-subtitle';
-        subtitle.textContent = 'Monitor and analyze detected threats across your AI agents.';
-        header.appendChild(subtitle);
-
-        container.appendChild(header);
+        if (window.Header) Header.setPageInfo('Threat Monitor', 'All LLM requests analyzed for threats');
 
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
@@ -184,6 +170,8 @@ const ThreatsPage = {
         } else {
             btn.style.display = 'none';
         }
+        const tbl = document.getElementById('threats-data-table');
+        if (tbl) tbl.classList.toggle('has-selection', count > 0);
     },
 
     toggleSelectAll(checked) {
@@ -266,8 +254,9 @@ const ThreatsPage = {
         if (this.autoRefreshEnabled) {
             this.autoRefreshInterval = setInterval(() => {
                 this.loadData();
-            }, 30000);
-            if (window.Toast) Toast.info('Auto refresh enabled (30s)');
+            }, getPollInterval());
+            const _sec = Math.round(getPollInterval() / 1000);
+            if (window.Toast) Toast.info(`Auto refresh enabled (${_sec}s)`);
         } else {
             if (this.autoRefreshInterval) {
                 clearInterval(this.autoRefreshInterval);
@@ -427,6 +416,7 @@ const ThreatsPage = {
 
         const table = document.createElement('table');
         table.className = 'data-table';
+        table.id = 'threats-data-table';
 
         // Header
         const thead = document.createElement('thead');
