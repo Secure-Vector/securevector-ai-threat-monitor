@@ -4,7 +4,7 @@
 
 <h3>AI Firewall for Agents — Block prompt injection, tool abuse, and data leaks before and after the LLM.</h3>
 
-<p><strong>No coding required.</strong> Threat protection, cost tracking, and budget limits — in one tool. Download the app or install with pip.</p>
+<p>Protect your AI agents, track costs, and set budget limits — no coding required. Download the app or install with pip.</p>
 
 <br>
 
@@ -18,7 +18,7 @@
 
 </div>
 
-> 🆕 **New in v3.0:**
+> 🆕 **New in v3.0.0:**
 > - **Tool Permissions** — allow/block agent tool calls
 > - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
 > - **28 new threat detection rules**

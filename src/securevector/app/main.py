@@ -34,6 +34,20 @@ import time
 import webbrowser
 from pathlib import Path
 
+# Ensure stdout/stderr never crash on Unicode characters (✓ etc.) on any platform.
+# Strategy: try reconfigure first; fall back to wrapping the raw buffer; ignore all errors.
+import io as _io
+for _stream_name in ("stdout", "stderr"):
+    try:
+        getattr(sys, _stream_name).reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        try:
+            _buf = getattr(getattr(sys, _stream_name), "buffer", None)
+            if _buf is not None:
+                setattr(sys, _stream_name, _io.TextIOWrapper(_buf, encoding="utf-8", errors="replace"))
+        except Exception:
+            pass
+
 from securevector.app import (
     __app_name__,
     __version__,
