@@ -1508,8 +1508,12 @@ class LLMProxy:
                     continue
                 try:
                     data = json.loads(line[6:])
-                    found_tool_calls.extend(extract_tool_calls(data))
                     event_type = data.get("type", "")
+                    # Skip extract_tool_calls for Cohere streaming events — handled manually below
+                    # to avoid double-counting. Covers both v2 (tool-call-*) and v1/v2
+                    # tool-calls-generation events that carry a top-level tool_calls list.
+                    if event_type not in ("tool-call-start", "tool-call-delta", "tool-call-end", "tool-calls-generation"):
+                        found_tool_calls.extend(extract_tool_calls(data))
 
                     # Anthropic: input_json_delta fragments
                     if event_type == "content_block_delta":
@@ -1578,6 +1582,15 @@ class LLMProxy:
                     if assembled:
                         tc.arguments = assembled
 
+            def _safe_json(s: str) -> dict:
+                """Parse a JSON string into a dict, returning {} on any parse error."""
+                if not s or s in ("{}", ""):
+                    return {}
+                try:
+                    return json.loads(s)
+                except (json.JSONDecodeError, ValueError):
+                    return {}
+
             if found_tool_calls:
                 # Build a synthetic complete-format response so _evaluate_tool_permissions
                 # can apply its full logic (rate limiting, logging, denial construction).
@@ -1591,7 +1604,7 @@ class LLMProxy:
                                 "type": "tool_use",
                                 "id": tc.tool_call_id or f"toolu_{i}",
                                 "name": tc.function_name,
-                                "input": json.loads(tc.arguments) if tc.arguments and tc.arguments not in ("{}", "") else {},
+                                "input": _safe_json(tc.arguments),
                             }
                             for i, tc in enumerate(found_tool_calls)
                         ],
