@@ -1497,32 +1497,86 @@ class LLMProxy:
             # across multiple byte chunks, causing json.loads to fail on fragments
             full_stream = b"".join(all_chunks).decode("utf-8", errors="replace")
             found_tool_calls = []
-            # Accumulate Anthropic input_json_delta partial JSON by content block index
-            _anthropic_args_by_index: dict[int, str] = {}
+            # Accumulate streaming argument fragments by tool call index per provider
+            _anthropic_args_by_index: dict[int, str] = {}   # Anthropic input_json_delta
+            _openai_args_by_index: dict[int, str] = {}      # OpenAI chat delta.tool_calls[].function.arguments
+            _responses_args_by_index: dict[int, str] = {}   # OpenAI Responses API function_call_arguments.done
+            _cohere_args_by_index: dict[int, str] = {}      # Cohere tool-call-delta
+            _cohere_name_by_index: dict[int, str] = {}      # Cohere tool-call-start name
             for line in full_stream.split("\n"):
                 if not line.startswith("data: ") or line == "data: [DONE]":
                     continue
                 try:
                     data = json.loads(line[6:])
                     found_tool_calls.extend(extract_tool_calls(data))
-                    # Accumulate input_json_delta fragments for Anthropic streaming
-                    if data.get("type") == "content_block_delta":
+                    event_type = data.get("type", "")
+
+                    # Anthropic: input_json_delta fragments
+                    if event_type == "content_block_delta":
                         delta = data.get("delta", {})
                         if delta.get("type") == "input_json_delta":
                             idx = data.get("index", 0)
                             _anthropic_args_by_index[idx] = (
                                 _anthropic_args_by_index.get(idx, "") + delta.get("partial_json", "")
                             )
+
+                    # OpenAI chat completions: delta.tool_calls[].function.arguments fragments
+                    for choice in data.get("choices", []):
+                        for tc_delta in (choice.get("delta") or {}).get("tool_calls", []):
+                            idx = tc_delta.get("index", 0)
+                            frag = (tc_delta.get("function") or {}).get("arguments", "")
+                            if frag:
+                                _openai_args_by_index[idx] = _openai_args_by_index.get(idx, "") + frag
+
+                    # OpenAI Responses API: function_call_arguments.done has the full assembled args
+                    if event_type == "response.function_call_arguments.done":
+                        idx = data.get("output_index", 0)
+                        full_args = data.get("arguments", "")
+                        if full_args:
+                            _responses_args_by_index[idx] = full_args
+
+                    # Cohere: tool-call-start captures name; tool-call-delta accumulates args
+                    if event_type == "tool-call-start":
+                        idx = data.get("index", 0)
+                        tc_info = (data.get("delta") or {}).get("message", {}).get("tool_calls", {})
+                        name = (tc_info.get("function") or {}).get("name", "")
+                        if name:
+                            _cohere_name_by_index[idx] = name
+                    elif event_type == "tool-call-delta":
+                        idx = data.get("index", 0)
+                        frag = ((data.get("delta") or {}).get("message", {})
+                                .get("tool_calls", {}).get("function", {}).get("arguments", ""))
+                        if frag:
+                            _cohere_args_by_index[idx] = _cohere_args_by_index.get(idx, "") + frag
                 except Exception:
                     continue
 
-            # Patch tool call arguments with fully-assembled Anthropic args when available
-            if _anthropic_args_by_index:
-                for tc in found_tool_calls:
-                    if tc.provider_format == "anthropic" and tc.index is not None:
-                        assembled = _anthropic_args_by_index.get(tc.index, "")
-                        if assembled:
-                            tc.arguments = assembled
+            # Add Cohere streaming tool calls (not captured by extract_tool_calls)
+            if _cohere_name_by_index:
+                from securevector.core.tool_permissions.parser import ToolCall as _TC
+                import hashlib as _hashlib
+                for idx, name in _cohere_name_by_index.items():
+                    assembled = _cohere_args_by_index.get(idx, "{}")
+                    args_hash = _hashlib.sha256(assembled.encode()).hexdigest()[:16]
+                    found_tool_calls.append(_TC(
+                        function_name=name,
+                        arguments_hash=args_hash,
+                        arguments=assembled,
+                        provider_format="cohere",
+                        index=idx,
+                    ))
+
+            # Patch tool call arguments with fully-assembled args where available
+            for tc in found_tool_calls:
+                if tc.provider_format == "anthropic" and tc.index is not None:
+                    assembled = _anthropic_args_by_index.get(tc.index, "")
+                    if assembled:
+                        tc.arguments = assembled
+                elif tc.provider_format == "openai" and tc.index is not None:
+                    # Responses API done event takes priority over chat delta accumulation
+                    assembled = _responses_args_by_index.get(tc.index) or _openai_args_by_index.get(tc.index, "")
+                    if assembled:
+                        tc.arguments = assembled
 
             if found_tool_calls:
                 # Build a synthetic complete-format response so _evaluate_tool_permissions
