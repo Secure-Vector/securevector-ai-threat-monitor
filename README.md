@@ -22,8 +22,8 @@
 
 <div align="center">
   <h3>▶ Watch the Demo</h3>
-  <a href="https://www.youtube.com/watch?v=u3NWmBFbwwE">
-    <img src="https://img.youtube.com/vi/u3NWmBFbwwE/maxresdefault.jpg" alt="SecureVector Demo — AI firewall in action" width="480">
+  <a href="https://www.youtube.com/watch?v=tLVDvHIm-0c">
+    <img src="https://img.youtube.com/vi/tLVDvHIm-0c/maxresdefault.jpg" alt="SecureVector Demo — AI firewall in action" width="480">
   </a>
   <p><em>Threat detection, tool permissions, and cost tracking — running locally in real time.</em></p>
 </div>
