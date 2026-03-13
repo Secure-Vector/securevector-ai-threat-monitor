@@ -55,8 +55,12 @@ def _validate_one_path(v: str) -> str:
     if len(v) > 4096:
         raise ValueError("path must not exceed 4096 characters")
     expanded = str(Path(v).expanduser())
-    if expanded in ("/", "/etc", "/proc", "/sys", "/dev", "/root"):
-        raise ValueError(f"scanning '{expanded}' is not allowed")
+    # Reject root and all blocked system paths (must match _BLOCKED_SYSTEM_PATHS)
+    if expanded == "/":
+        raise ValueError("scanning '/' is not allowed")
+    for blocked in _BLOCKED_SYSTEM_PATHS:
+        if expanded == blocked or expanded.startswith(blocked + "/"):
+            raise ValueError(f"scanning '{expanded}' is not allowed")
     return v
 
 
@@ -149,6 +153,7 @@ def _record_to_detail(record: ScanRecord) -> ScanRecordDetail:
     except Exception:
         raw_findings = []
     findings = [FindingResponse(**f) for f in raw_findings]
+    # Use actual parsed findings length as authoritative count
     return ScanRecordDetail(
         id=record.id,
         scanned_path=record.scanned_path,
@@ -156,7 +161,7 @@ def _record_to_detail(record: ScanRecord) -> ScanRecordDetail:
         scan_timestamp=record.scan_timestamp,
         invocation_source=record.invocation_source,
         risk_level=record.risk_level,
-        findings_count=record.findings_count,
+        findings_count=len(findings),
         manifest_present=bool(record.manifest_present),
         findings=findings,
     )

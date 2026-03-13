@@ -231,11 +231,7 @@ class SkillScannerService:
         scanned_file_count = 0
 
         for file_path in sorted(skill_dir.rglob("*")):
-            # a. Skip non-files
-            if not file_path.is_file():
-                continue
-
-            # b. Symlink escape check (T019)
+            # a. Symlink escape check FIRST — before is_file() which follows links
             if file_path.is_symlink():
                 try:
                     resolved = file_path.resolve()
@@ -248,9 +244,13 @@ class SkillScannerService:
                             severity="medium",
                             rule_id="scanner.symlink_escape",
                         ))
-                        continue
                 except Exception:
-                    continue
+                    pass
+                continue  # Never follow symlinks — skip regardless of target
+
+            # b. Skip non-files
+            if not file_path.is_file():
+                continue
 
             # c. Binary / compiled file check
             if file_path.suffix in BINARY_EXTENSIONS:
@@ -484,10 +484,15 @@ class SkillScannerService:
         for match in _RE_FILE_WRITE.finditer(text):
             line_no = text[: match.start()].count("\n") + 1
             excerpt = lines[line_no - 1].strip() if line_no <= len(lines) else match.group(0)
-            if allowed_prefixes and any(
-                excerpt.find(prefix.lstrip("./")) >= 0 for prefix in allowed_prefixes
-            ):
-                continue
+            # Extract the file path argument from the matched code
+            # Only allow if the path argument itself starts with a declared prefix
+            if allowed_prefixes:
+                path_arg = self._extract_file_path_arg(match.group(0))
+                if path_arg and any(
+                    path_arg.startswith(prefix) or path_arg.startswith(prefix.lstrip("./"))
+                    for prefix in allowed_prefixes
+                ):
+                    continue
             findings.append(Finding(
                 file_path=rel_path,
                 line_number=line_no,
@@ -497,6 +502,13 @@ class SkillScannerService:
                 rule_id="scanner.file_write",
             ))
         return findings
+
+    @staticmethod
+    def _extract_file_path_arg(match_text: str) -> Optional[str]:
+        """Extract the file path string from an open() or Path().write call."""
+        # Match the first quoted string argument
+        m = re.search(r"""[\"']([^\"']+)[\"']""", match_text)
+        return m.group(1) if m else None
 
     # -----------------------------------------------------------------------
     # Detector: Base64 literals (T009)
