@@ -1,0 +1,5 @@
+permissions:
+  networks:
+    - "api.openai.com"
+  files: []
+  env_vars: []

@@ -281,8 +281,31 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 17
-SCHEMA_DESCRIPTION = "Default block_threats to disabled"
+CURRENT_SCHEMA_VERSION = 18
+SCHEMA_DESCRIPTION = "Add skill scan records table"
+
+# Migration SQL for v18
+MIGRATION_V18_SQL = """
+-- Schema Version 18: Add skill scan records for OpenClaw Skill Scanner
+
+CREATE TABLE IF NOT EXISTS skill_scan_records (
+    id                TEXT PRIMARY KEY,
+    scanned_path      TEXT NOT NULL,
+    skill_name        TEXT NOT NULL,
+    scan_timestamp    TEXT NOT NULL,
+    invocation_source TEXT NOT NULL DEFAULT 'cli' CHECK (invocation_source IN ('cli', 'ui')),
+    risk_level        TEXT NOT NULL CHECK (risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
+    findings_count    INTEGER NOT NULL DEFAULT 0,
+    findings_json     TEXT NOT NULL DEFAULT '[]',
+    manifest_present  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_scan_records_timestamp
+    ON skill_scan_records (scan_timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_skill_scan_records_risk_level
+    ON skill_scan_records (risk_level);
+"""
 
 # Migration SQL for v12
 MIGRATION_V12_SQL = """

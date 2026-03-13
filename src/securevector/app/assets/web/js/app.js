@@ -22,6 +22,7 @@ const App = {
         costs: { render: (c) => { CostsPage.mode = 'monitor'; CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = false; return CostsPage.render(c); } },
         'tool-activity': { render: (c) => { ToolPermissionsPage.activeTab = 'activity'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         'cost-settings': { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
+        'skill-scanner': SkillScannerPage,
     },
 
     /**

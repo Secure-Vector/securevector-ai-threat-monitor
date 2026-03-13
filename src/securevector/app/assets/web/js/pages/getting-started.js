@@ -57,6 +57,11 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'Skill Scanner', 'Scan OpenClaw skills for security risks before installing',
+            'section-skill-scanner', () => this.buildSkillScannerContent()
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'API Reference', 'REST API and interactive documentation',
             'section-api', () => this.buildAPIContent()
         ));
@@ -729,6 +734,346 @@ const GettingStartedPage = {
         costsBtn.textContent = 'Open Cost Tracking';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
+
+        return frag;
+    },
+
+    buildSkillScannerContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        // Helper: section heading
+        const sectionHead = (text, mt = '0') => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: ' + mt + ' 0 8px 0;';
+            el.textContent = text;
+            return el;
+        };
+
+        // Helper: small descriptive paragraph
+        const para = (text) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            el.textContent = text;
+            return el;
+        };
+
+        // Helper: callout note
+        const note = (strong, body, color) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'margin: 10px 0 14px 0; font-size: 12px; color: var(--text-secondary); padding: 8px 12px; background: var(--bg-secondary); border-radius: 6px; border-left: 2px solid ' + (color || 'var(--accent-primary)') + '; line-height: 1.5;';
+            if (strong) {
+                const s = document.createElement('strong');
+                s.style.color = 'var(--text-primary)';
+                s.textContent = strong;
+                el.appendChild(s);
+            }
+            el.appendChild(document.createTextNode(body));
+            return el;
+        };
+
+        // ── Intro ─────────────────────────────────────────────────────────
+        const intro = document.createElement('p');
+        intro.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px 0; font-size: 13px; line-height: 1.5;';
+        intro.textContent = 'The Skill Scanner performs static analysis on OpenClaw skill directories before you install them. No code is ever executed — every check runs purely on source files, making it safe to scan even untrusted skills. You can scan up to 20 skills at once from the UI, or one at a time from the CLI.';
+        frag.appendChild(intro);
+
+        // ── What it scans ─────────────────────────────────────────────────
+        frag.appendChild(sectionHead('What it scans'));
+        frag.appendChild(para('The scanner walks every file in the skill directory recursively and inspects source files with these extensions:'));
+        frag.appendChild(this.createCodeBlock('.py  .js  .mjs  .cjs  .ts  .sh  .bash'));
+        frag.appendChild(note('Limits: ', 'Stops after 500 source files or 1 MB per file to prevent hanging on large directories. Binary and compiled files (.pyc, .so, .dll, .whl, .egg, .class) are detected and flagged regardless of these limits.', '#f59e0b'));
+
+        // ── Finding categories ────────────────────────────────────────────
+        frag.appendChild(sectionHead('Finding categories', '6px'));
+
+        const categories = [
+            {
+                name: 'Undeclared network call',
+                id: 'network_domain',
+                severity: 'HIGH',
+                color: '#ef4444',
+                desc: 'HTTP/HTTPS calls to domains not declared in the skill manifest. A skill phoning home to an unknown domain is the primary exfiltration vector.',
+            },
+            {
+                name: 'Dynamic code execution',
+                id: 'code_exec',
+                severity: 'HIGH',
+                color: '#ef4444',
+                desc: 'eval() or exec() calls. These execute arbitrary code constructed at runtime and cannot be safely analysed statically.',
+            },
+            {
+                name: 'Obfuscated import',
+                id: 'dynamic_import',
+                severity: 'HIGH',
+                color: '#ef4444',
+                desc: '__import__(), importlib.import_module(), or getattr() chains targeting dangerous names. Used to load modules without a visible import statement to evade static scanners.',
+            },
+            {
+                name: 'Shell execution',
+                id: 'shell_exec',
+                severity: 'HIGH / LOW',
+                color: '#ef4444',
+                desc: 'subprocess, os.system, or os.popen calls. HIGH if the command argument is dynamic (f-string, concatenation, .format()); LOW if the argument is a static string literal.',
+            },
+            {
+                name: 'Out-of-scope file write',
+                id: 'file_write',
+                severity: 'HIGH',
+                color: '#ef4444',
+                desc: 'File write operations targeting paths not listed in the manifest. Skills should only write inside their own directory or declared output paths.',
+            },
+            {
+                name: 'Environment variable read',
+                id: 'env_var_read',
+                severity: 'MEDIUM',
+                color: '#f59e0b',
+                desc: 'os.environ, os.getenv (Python) or process.env (Node.js) accesses. Potential credential harvesting; legitimate if the skill documents which vars it needs.',
+            },
+            {
+                name: 'Base64 obfuscation',
+                id: 'base64_literal',
+                severity: 'MEDIUM',
+                color: '#f59e0b',
+                desc: 'base64 encode/decode calls or large base64-encoded string literals embedded in source code. Common in dropper malware; rare in legitimate skills.',
+            },
+            {
+                name: 'Compiled / binary file',
+                id: 'compiled_code',
+                severity: 'MEDIUM',
+                color: '#f59e0b',
+                desc: '.pyc, .so, .dll, .whl, .egg, .class, or .pyd files found in the skill directory. Pre-compiled code cannot be read by static analysis and may hide malicious behaviour.',
+            },
+            {
+                name: 'Community rule match',
+                id: 'rule_match',
+                severity: 'MEDIUM – HIGH',
+                color: '#f59e0b',
+                desc: 'Matched a pattern in SecureVector\'s community rule library — the same rules that protect live LLM proxy traffic. Covers known prompt-injection, command-injection, and credential-harvesting signatures.',
+            },
+            {
+                name: 'Missing manifest',
+                id: 'missing_manifest',
+                severity: 'MEDIUM',
+                color: '#f59e0b',
+                desc: 'No permissions manifest (skill.json, permissions.yml, permissions.yaml) found at the skill root. Without a manifest the scanner cannot distinguish declared from undeclared behaviour.',
+            },
+            {
+                name: 'Symlink escape',
+                id: 'symlink_escape',
+                severity: 'MEDIUM',
+                color: '#f59e0b',
+                desc: 'A symbolic link inside the skill directory resolves to a path outside it. Classic path-traversal technique; the linked file is skipped and the finding is reported.',
+            },
+        ];
+
+        const catGrid = document.createElement('div');
+        catGrid.style.cssText = 'display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px;';
+
+        categories.forEach(cat => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; background: var(--bg-secondary); border-radius: 7px;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'flex-shrink: 0; width: 130px;';
+
+            const nameEl = document.createElement('div');
+            nameEl.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 3px; line-height: 1.3;';
+            nameEl.textContent = cat.name;
+            left.appendChild(nameEl);
+
+            const idEl = document.createElement('div');
+            idEl.style.cssText = 'font-family: monospace; font-size: 10px; color: var(--text-secondary); margin-bottom: 3px;';
+            idEl.textContent = cat.id;
+            left.appendChild(idEl);
+
+            const badge = document.createElement('span');
+            badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; color: white; background: ' + cat.color + '; padding: 1px 5px; border-radius: 3px;';
+            badge.textContent = cat.severity;
+            left.appendChild(badge);
+            row.appendChild(left);
+
+            const descEl = document.createElement('div');
+            descEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+            descEl.textContent = cat.desc;
+            row.appendChild(descEl);
+
+            catGrid.appendChild(row);
+        });
+        frag.appendChild(catGrid);
+
+        // ── Risk aggregation ──────────────────────────────────────────────
+        frag.appendChild(sectionHead('How overall risk is determined'));
+        frag.appendChild(para('After scanning all files the scanner aggregates individual finding severities into one skill-level verdict:'));
+
+        const riskLevels = [
+            { level: 'HIGH',   color: '#ef4444', rule: 'One or more CRITICAL or HIGH severity findings present' },
+            { level: 'MEDIUM', color: '#f59e0b', rule: 'One or more MEDIUM findings and no CRITICAL or HIGH findings' },
+            { level: 'LOW',    color: '#10b981', rule: 'No findings, or only LOW severity findings (e.g. static shell call)' },
+        ];
+
+        const riskGrid = document.createElement('div');
+        riskGrid.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;';
+        riskLevels.forEach(r => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid ' + r.color + ';';
+            const lbl = document.createElement('span');
+            lbl.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 800; color: ' + r.color + '; min-width: 64px;';
+            lbl.textContent = r.level;
+            row.appendChild(lbl);
+            const ruleEl = document.createElement('div');
+            ruleEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            ruleEl.textContent = r.rule;
+            row.appendChild(ruleEl);
+            riskGrid.appendChild(row);
+        });
+        frag.appendChild(riskGrid);
+
+        // ── Install guidance ──────────────────────────────────────────────
+        frag.appendChild(sectionHead('When to install — and when NOT to'));
+
+        const decisions = [
+            {
+                risk: '⚠ HIGH — DO NOT INSTALL',
+                color: '#ef4444',
+                bg: 'rgba(239,68,68,0.07)',
+                border: '#ef4444',
+                points: [
+                    'Do not install under any circumstances.',
+                    'HIGH means at least one critical or high-severity finding: dynamic code execution, obfuscated imports, undeclared network exfiltration, or dynamic shell commands.',
+                    'Even trusted publishers can be compromised via supply-chain attacks. The pattern is the threat, not the author.',
+                    'Report the finding to the skill publisher and wait for a patched release with an explanation.',
+                ],
+            },
+            {
+                risk: '⚡ MEDIUM — REVIEW CAREFULLY',
+                color: '#f59e0b',
+                bg: 'rgba(245,158,11,0.07)',
+                border: '#f59e0b',
+                points: [
+                    'Do not install until you have manually reviewed every flagged finding.',
+                    'MEDIUM findings (missing manifest, base64 literals, env var reads, compiled files) each have legitimate uses but are also common abuse patterns.',
+                    'If the manifest is absent you cannot verify which domains or paths the skill accesses — treat this as higher risk.',
+                    'Verify each finding has a benign explanation before installing.',
+                ],
+            },
+            {
+                risk: '✅ LOW — SAFE TO INSTALL',
+                color: '#10b981',
+                bg: 'rgba(16,185,129,0.07)',
+                border: '#10b981',
+                points: [
+                    'No significant risks detected. The skill passed all high and medium severity checks.',
+                    'Static analysis cannot catch every threat — only install skills from publishers you trust.',
+                ],
+            },
+        ];
+
+        const decGrid = document.createElement('div');
+        decGrid.style.cssText = 'display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;';
+        decisions.forEach(d => {
+            const box = document.createElement('div');
+            box.style.cssText = 'padding: 12px 14px; background: ' + d.bg + '; border-radius: 8px; border-left: 3px solid ' + d.border + ';';
+            const rl = document.createElement('div');
+            rl.style.cssText = 'font-weight: 700; font-size: 13px; color: ' + d.color + '; margin-bottom: 8px;';
+            rl.textContent = d.risk;
+            box.appendChild(rl);
+            const ul = document.createElement('ul');
+            ul.style.cssText = 'margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 2px;';
+            d.points.forEach(pt => { const li = document.createElement('li'); li.textContent = pt; ul.appendChild(li); });
+            box.appendChild(ul);
+            decGrid.appendChild(box);
+        });
+        frag.appendChild(decGrid);
+
+        // ── Permissions manifest ──────────────────────────────────────────
+        frag.appendChild(sectionHead('Permissions manifest'));
+        frag.appendChild(para('Declare allowed domains, writable paths, and expected env vars in a permissions.yml at the skill root. The scanner uses this allowlist to distinguish legitimate calls from undeclared ones.'));
+        frag.appendChild(this.createCodeBlock(
+            'permissions:\n  networks:\n    - api.openai.com\n    - hooks.example.com\n  files:\n    - ./output/\n    - /tmp/my-skill-cache/\n  env_vars:\n    - OPENAI_API_KEY\n    - MY_SKILL_SECRET'
+        ));
+        frag.appendChild(note('Tip: ', 'Skills without a manifest always receive a MEDIUM finding. A minimal manifest with an empty networks list is enough to remove the finding and signals that the publisher is aware of the requirement.', 'var(--accent-primary)'));
+
+        // ── Scanning options ──────────────────────────────────────────────
+        frag.appendChild(sectionHead('Scanning options', '6px'));
+        frag.appendChild(para('There are two ways to scan skills: from the app UI or from the command line.'));
+
+        // App UI
+        const uiHead = document.createElement('div');
+        uiHead.style.cssText = 'font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        uiHead.textContent = 'App UI — up to 20 paths at once';
+        frag.appendChild(uiHead);
+
+        frag.appendChild(para('Enter one or more skill directory paths in the Skill Scanner page. Use the "+ Add path" button to add more rows. All scans run concurrently and each result is saved to history. Click any history row to open the full detail drawer.'));
+
+        const uiPaths = document.createElement('div');
+        uiPaths.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.6;';
+        [
+            '~/.openclaw/skills/my-skill',
+            '/absolute/path/to/skill',
+        ].forEach(ex => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 4px;';
+            const bullet = document.createElement('span');
+            bullet.style.cssText = 'color: var(--accent-primary); font-weight: 700;';
+            bullet.textContent = '•';
+            row.appendChild(bullet);
+            const code = document.createElement('code');
+            code.style.cssText = 'font-size: 11px; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);';
+            code.textContent = ex;
+            row.appendChild(code);
+            uiPaths.appendChild(row);
+        });
+        frag.appendChild(uiPaths);
+
+        // CLI
+        const cliHead = document.createElement('div');
+        cliHead.style.cssText = 'font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        cliHead.textContent = 'CLI — for scripts and CI/CD';
+        frag.appendChild(cliHead);
+
+        frag.appendChild(para('Run the scanner from a terminal. Results are written to the same SQLite database as the app and appear immediately in the history table.'));
+
+        frag.appendChild(this.createCodeBlock(
+            '# Scan a single skill\nsecurevector-app scan-skill ~/.openclaw/skills/my-skill\n\n# Human-readable output (default)\nsecurevector-app scan-skill ./my-skill\n\n# Machine-readable JSON (for CI/CD pipelines)\nsecurevector-app scan-skill ./my-skill --output json\n\n# Fail the build if risk is MEDIUM or above\nsecurevector-app scan-skill ./my-skill --fail-on medium\n\n# Fail only on HIGH risk\nsecurevector-app scan-skill ./my-skill --fail-on high\n\n# Exit codes\n# 0  risk is below the --fail-on threshold (safe)\n# 1  risk is at or above the threshold\n# 2  scanner error (path not found, permission denied, etc.)'
+        ));
+
+        // ── Safety limits ─────────────────────────────────────────────────
+        frag.appendChild(sectionHead('Safety limits and path restrictions', '14px'));
+
+        const limits = [
+            ['Max files per scan', '500 source files. A low-severity scan_limit finding is added if a directory is truncated.'],
+            ['Max file size', '1 MB per file. Larger files are silently skipped.'],
+            ['Max paths per UI scan', '20 skill directories per request. Duplicate paths are automatically removed.'],
+            ['Blocked system paths', '/etc, /proc, /sys, /dev, /root, /bin, /sbin, and /usr/bin are rejected outright. Scanning system directories is never allowed.'],
+            ['Null-byte injection', 'Paths containing null bytes (\x00) are rejected with a 400 error.'],
+            ['Path length', 'Paths longer than 4096 characters are rejected.'],
+        ];
+
+        const limitsGrid = document.createElement('div');
+        limitsGrid.style.cssText = 'display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px;';
+        limits.forEach(([label, desc]) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 12px; padding: 8px 12px; background: var(--bg-secondary); border-radius: 6px;';
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'flex-shrink: 0; width: 150px; font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.4;';
+            lbl.textContent = label;
+            row.appendChild(lbl);
+            const dsc = document.createElement('div');
+            dsc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            dsc.textContent = desc;
+            row.appendChild(dsc);
+            limitsGrid.appendChild(row);
+        });
+        frag.appendChild(limitsGrid);
+
+        // ── Nav button ────────────────────────────────────────────────────
+        const navBtn = document.createElement('button');
+        navBtn.className = 'btn btn-primary';
+        navBtn.style.cssText = 'font-size: 12px; padding: 6px 14px;';
+        navBtn.textContent = 'Open Skill Scanner';
+        navBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); });
+        frag.appendChild(navBtn);
 
         return frag;
     },
