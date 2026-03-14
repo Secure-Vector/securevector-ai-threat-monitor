@@ -57,7 +57,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Skill Scanner', 'Scan OpenClaw skills for security risks before installing',
+            'Skill Scanner', 'Static security analysis for skill directories and codebases',
             'section-skill-scanner', () => this.buildSkillScannerContent()
         ));
 
@@ -775,7 +775,7 @@ const GettingStartedPage = {
         // ── Intro ─────────────────────────────────────────────────────────
         const intro = document.createElement('p');
         intro.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px 0; font-size: 13px; line-height: 1.5;';
-        intro.textContent = 'The Skill Scanner performs static analysis on OpenClaw skill directories before you install them. No code is ever executed — every check runs purely on source files, making it safe to scan even untrusted skills. You can scan up to 20 skills at once from the UI, or one at a time from the CLI.';
+        intro.textContent = 'The Skill Scanner performs static security analysis on any directory containing Python, JavaScript, TypeScript, or shell scripts. It auto-discovers installed OpenClaw skills but works on any codebase. No code is ever executed — every check runs purely on source files. You can scan up to 20 paths at once from the UI, or one at a time from the CLI.';
         frag.appendChild(intro);
 
         // ── What it scans ─────────────────────────────────────────────────

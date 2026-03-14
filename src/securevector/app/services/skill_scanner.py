@@ -218,7 +218,11 @@ class SkillScannerService:
         manifest = self._load_manifest(skill_dir)
         findings = []
 
-        if manifest is None:
+        # Only flag missing manifest for OpenClaw skill directories
+        openclaw_skills_dir = Path("~/.openclaw/skills").expanduser().resolve()
+        is_openclaw_skill = str(skill_dir).startswith(str(openclaw_skills_dir))
+
+        if manifest is None and is_openclaw_skill:
             findings.append(Finding(
                 file_path="",
                 line_number=0,

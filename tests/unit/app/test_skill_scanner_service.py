@@ -187,12 +187,29 @@ class TestFileWriteDetection:
 # ---------------------------------------------------------------------------
 
 class TestManifestParsing:
-    def test_missing_manifest_yields_finding(self, tmp_path):
+    def test_missing_manifest_yields_finding(self):
+        # missing_manifest only fires for paths under ~/.openclaw/skills/
+        openclaw_dir = Path("~/.openclaw/skills").expanduser()
+        openclaw_dir.mkdir(parents=True, exist_ok=True)
+        test_skill = openclaw_dir / "_test_missing_manifest"
+        test_skill.mkdir(exist_ok=True)
+        try:
+            (test_skill / "main.py").write_text('print("hello")\n')
+            result = _scan_dir(test_skill)
+            assert result.manifest_present is False
+            cats = [f.category for f in result.findings]
+            assert "missing_manifest" in cats
+        finally:
+            import shutil
+            shutil.rmtree(test_skill, ignore_errors=True)
+
+    def test_missing_manifest_not_flagged_for_non_skill(self, tmp_path):
+        # Generic directories should NOT get missing_manifest
         _write(tmp_path, "main.py", 'print("hello")\n')
         result = _scan_dir(tmp_path)
         assert result.manifest_present is False
         cats = [f.category for f in result.findings]
-        assert "missing_manifest" in cats
+        assert "missing_manifest" not in cats
 
     def test_permissions_yml_parsed(self, tmp_path):
         _write(tmp_path, "permissions.yml", "permissions:\n  networks:\n    - api.openai.com\n  files: []\n  env_vars: []\n")
@@ -237,13 +254,13 @@ class TestRiskAggregation:
         assert result.risk_level == "HIGH"
 
     def test_medium_only_yields_medium_risk(self, tmp_path):
-        # Missing manifest only (MEDIUM) → MEDIUM risk
+        # Compiled code finding is MEDIUM severity → overall MEDIUM risk
+        (tmp_path / "helper.pyc").write_bytes(b"\x00\x00")
         _write(tmp_path, "main.py", 'print("hello")\n')
         result = _scan_dir(tmp_path)
-        # Only missing_manifest finding expected
-        non_manifest = [f for f in result.findings if f.category != "missing_manifest"]
-        if len(non_manifest) == 0:
-            assert result.risk_level == "MEDIUM"
+        compiled = [f for f in result.findings if f.category == "compiled_code"]
+        assert len(compiled) > 0
+        assert result.risk_level == "MEDIUM"
 
     def test_no_findings_yields_low_risk(self, tmp_path):
         _write(tmp_path, "permissions.yml", "permissions:\n  networks: []\n  files: []\n  env_vars: []\n")

@@ -9,7 +9,7 @@ const SkillScannerPage = {
 
     async render(container) {
         container.textContent = '';
-        if (window.Header) Header.setPageInfo('Skill Scanner', 'Scan OpenClaw skills for security risks before installing');
+        if (window.Header) Header.setPageInfo('Skill Scanner', 'Static security analysis for skill directories and codebases');
 
         // ── Scan form card ────────────────────────────────────────────────
         const formCard = document.createElement('div');
@@ -17,29 +17,136 @@ const SkillScannerPage = {
         formCard.style.cssText = 'margin-bottom: 20px;';
         container.appendChild(formCard);
 
-        // Title row
-        const titleRow = document.createElement('div');
-        titleRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;';
-        formCard.appendChild(titleRow);
+        // Status span (shared across scan buttons)
+        const statusSpan = document.createElement('span');
+        statusSpan.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: none;';
 
-        const formTitle = document.createElement('div');
-        formTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
-        formTitle.textContent = 'Skill directory paths';
-        titleRow.appendChild(formTitle);
+        // ── Auto-discover installed skills ────────────────────────────────
+        let discovered = [];
+        try {
+            const resp = await fetch('/api/skill-scans/discover');
+            if (resp.ok) {
+                const data = await resp.json();
+                discovered = data.skills || [];
+            }
+        } catch (e) { /* ignore */ }
+
+        if (discovered.length > 0) {
+            const discoverSection = document.createElement('div');
+            discoverSection.style.cssText = 'margin-bottom: 16px;';
+
+            const discLabel = document.createElement('div');
+            discLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px;';
+            discLabel.textContent = 'Installed skills';
+            discoverSection.appendChild(discLabel);
+
+            // Skill chips
+            const chipsRow = document.createElement('div');
+            chipsRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;';
+            const selectedPaths = new Set();
+
+            discovered.forEach(skill => {
+                const chip = document.createElement('button');
+                chip.className = 'btn';
+                chip.style.cssText = 'font-size: 12px; padding: 5px 14px; border-radius: 16px; transition: all 0.15s;';
+                chip.textContent = skill.name;
+                chip.title = skill.path;
+                // Start selected
+                selectedPaths.add(skill.path);
+                chip.style.background = 'var(--accent-primary)';
+                chip.style.color = '#fff';
+                chip.style.borderColor = 'var(--accent-primary)';
+
+                chip.addEventListener('click', () => {
+                    if (selectedPaths.has(skill.path)) {
+                        selectedPaths.delete(skill.path);
+                        chip.style.background = '';
+                        chip.style.color = '';
+                        chip.style.borderColor = '';
+                    } else {
+                        selectedPaths.add(skill.path);
+                        chip.style.background = 'var(--accent-primary)';
+                        chip.style.color = '#fff';
+                        chip.style.borderColor = 'var(--accent-primary)';
+                    }
+                });
+                chipsRow.appendChild(chip);
+            });
+            discoverSection.appendChild(chipsRow);
+
+            // Scan selected / Scan all buttons
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+
+            const scanSelectedBtn = document.createElement('button');
+            scanSelectedBtn.className = 'btn btn-primary';
+            scanSelectedBtn.textContent = 'Scan Selected';
+            scanSelectedBtn.addEventListener('click', () => {
+                const paths = Array.from(selectedPaths);
+                if (!paths.length) {
+                    if (window.Toast) Toast.show('Select at least one skill to scan', 'error');
+                    return;
+                }
+                this._runScan(paths, scanSelectedBtn, statusSpan, container);
+            });
+            btnRow.appendChild(scanSelectedBtn);
+
+            const scanAllBtn = document.createElement('button');
+            scanAllBtn.className = 'btn';
+            scanAllBtn.textContent = 'Scan All';
+            scanAllBtn.addEventListener('click', () => {
+                const paths = discovered.map(s => s.path);
+                this._runScan(paths, scanAllBtn, statusSpan, container);
+            });
+            btnRow.appendChild(scanAllBtn);
+
+            btnRow.appendChild(statusSpan);
+            discoverSection.appendChild(btnRow);
+            formCard.appendChild(discoverSection);
+
+            // Divider before manual input
+            const divider = document.createElement('div');
+            divider.style.cssText = 'border-top: 1px solid var(--border-default, #333); margin: 14px 0 10px;';
+            formCard.appendChild(divider);
+        }
+
+        // ── Manual path input (collapsible if skills were discovered) ─────
+        const manualSection = document.createElement('div');
+        formCard.appendChild(manualSection);
+
+        const manualToggle = document.createElement('div');
+        manualToggle.style.cssText = 'display: flex; align-items: center; justify-content: space-between; cursor: pointer;';
+        manualSection.appendChild(manualToggle);
+
+        const manualLabel = document.createElement('div');
+        manualLabel.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-secondary);';
+        manualLabel.textContent = discovered.length > 0 ? 'Scan a custom path' : 'Skill directory paths';
+        manualToggle.appendChild(manualLabel);
 
         const addBtn = document.createElement('button');
         addBtn.className = 'btn';
         addBtn.style.cssText = 'font-size: 11px; padding: 3px 10px;';
         addBtn.textContent = '+ Add path';
-        titleRow.appendChild(addBtn);
+        manualToggle.appendChild(addBtn);
 
-        // Dynamic path inputs container
+        const manualBody = document.createElement('div');
+        manualBody.style.cssText = discovered.length > 0 ? 'display: none; margin-top: 10px;' : 'margin-top: 10px;';
+        manualSection.appendChild(manualBody);
+
+        if (discovered.length > 0) {
+            manualToggle.addEventListener('click', (e) => {
+                if (e.target === addBtn) return;
+                manualBody.style.display = manualBody.style.display === 'none' ? 'block' : 'none';
+            });
+        }
+
+        // Dynamic path inputs
         const pathsContainer = document.createElement('div');
         pathsContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;';
-        formCard.appendChild(pathsContainer);
+        manualBody.appendChild(pathsContainer);
 
-        // Add a path input row and return its input element
         const addPathRow = (placeholder) => {
+            if (manualBody.style.display === 'none') manualBody.style.display = 'block';
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; align-items: center; gap: 6px;';
 
@@ -61,45 +168,43 @@ const SkillScannerPage = {
             row.appendChild(removeBtn);
 
             pathsContainer.appendChild(row);
-            input.addEventListener('keydown', e => { if (e.key === 'Enter') scanBtn.click(); });
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') manualScanBtn.click(); });
             return input;
         };
 
-        // Start with one input row
         addPathRow();
-        addBtn.addEventListener('click', () => {
+        addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             if (pathsContainer.children.length < 20) addPathRow();
         });
 
-        // Scan button + status
-        const actionRow = document.createElement('div');
-        actionRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-        formCard.appendChild(actionRow);
+        const manualActionRow = document.createElement('div');
+        manualActionRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+        manualBody.appendChild(manualActionRow);
 
-        const scanBtn = document.createElement('button');
-        scanBtn.className = 'btn btn-primary';
-        scanBtn.textContent = 'Scan Skills';
-        actionRow.appendChild(scanBtn);
+        const manualScanBtn = document.createElement('button');
+        manualScanBtn.className = 'btn btn-primary';
+        manualScanBtn.textContent = 'Scan';
+        manualActionRow.appendChild(manualScanBtn);
 
-        const statusSpan = document.createElement('span');
-        statusSpan.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: none;';
-        actionRow.appendChild(statusSpan);
+        if (discovered.length === 0) {
+            manualActionRow.appendChild(statusSpan);
+        }
 
         const hint = document.createElement('div');
         hint.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 8px;';
-        hint.textContent = 'Static analysis only \u2014 no code is executed. Up to 20 paths at once. Results are saved to history.';
-        formCard.appendChild(hint);
+        hint.textContent = 'Static analysis only \u2014 no code is executed.';
+        manualBody.appendChild(hint);
 
-        // ── History table ─────────────────────────────────────────────────
-        await this._renderHistoryTable(container);
-
-        // ── Wire up scan button ───────────────────────────────────────────
-        scanBtn.addEventListener('click', () => {
+        manualScanBtn.addEventListener('click', () => {
             const paths = Array.from(pathsContainer.querySelectorAll('input'))
                 .map(i => i.value.trim())
                 .filter(Boolean);
-            this._runScan(paths, scanBtn, statusSpan, container);
+            this._runScan(paths, manualScanBtn, statusSpan, container);
         });
+
+        // ── History table ─────────────────────────────────────────────────
+        await this._renderHistoryTable(container);
     },
 
     // =====================================================================

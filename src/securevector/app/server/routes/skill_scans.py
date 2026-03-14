@@ -185,6 +185,28 @@ def _check_blocked_path(skill_path: Path) -> None:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+class DiscoveredSkill(BaseModel):
+    name: str
+    path: str
+
+
+class DiscoverResponse(BaseModel):
+    skills_dir: str
+    skills: list[DiscoveredSkill]
+
+
+@router.get("/skill-scans/discover", response_model=DiscoverResponse)
+async def discover_skills():
+    """List OpenClaw skill directories found in ~/.openclaw/skills/."""
+    skills_dir = Path("~/.openclaw/skills").expanduser()
+    skills: list[DiscoveredSkill] = []
+    if skills_dir.is_dir():
+        for child in sorted(skills_dir.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                skills.append(DiscoveredSkill(name=child.name, path=str(child)))
+    return DiscoverResponse(skills_dir=str(skills_dir), skills=skills)
+
+
 @router.post("/skill-scans/scan", response_model=MultiScanResponse)
 async def trigger_scan(request: ScanRequest):
     """Scan one or more skill directories concurrently and persist all results."""
