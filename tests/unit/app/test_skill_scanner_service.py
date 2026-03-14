@@ -4,6 +4,7 @@ Unit tests for SkillScannerService.
 Covers all 11 detection categories, risk aggregation, manifest parsing,
 symlink escape, and compiled code detection. No database dependencies.
 """
+from __future__ import annotations
 
 import os
 import tempfile
