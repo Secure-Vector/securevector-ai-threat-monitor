@@ -195,29 +195,30 @@ async def trigger_scan(request: ScanRequest):
     openclaw_skills_dir = Path("~/.openclaw/skills").expanduser().resolve()
 
     async def _scan_one(path: str) -> ScanResultItem:
-        skill_path = Path(path).expanduser()
+        # Resolve to absolute path and validate before any filesystem access
         try:
-            _check_blocked_path(skill_path)
+            resolved_path = Path(path).expanduser().resolve(strict=False)
+        except (ValueError, OSError):
+            return ScanResultItem(path=path, success=False, error=f"Invalid path: {path}")
+
+        try:
+            _check_blocked_path(resolved_path)
         except HTTPException as exc:
             return ScanResultItem(path=path, success=False, error=exc.detail)
 
-        if not skill_path.exists() or not skill_path.is_dir():
+        if not resolved_path.exists() or not resolved_path.is_dir():
             return ScanResultItem(path=path, success=False, error=f"Path not found or not a directory: {path}")
 
         # Warn if path is outside the standard OpenClaw skills directory
         warning = None
-        try:
-            resolved = skill_path.resolve()
-            if not str(resolved).startswith(str(openclaw_skills_dir)):
-                warning = (
-                    "This path is outside the standard OpenClaw skills directory "
-                    f"({openclaw_skills_dir}). Verify the source before installing."
-                )
-        except Exception:
-            pass
+        if not str(resolved_path).startswith(str(openclaw_skills_dir)):
+            warning = (
+                "This path is outside the standard OpenClaw skills directory "
+                f"({openclaw_skills_dir}). Verify the source before installing."
+            )
 
         try:
-            result = await scanner.scan(str(skill_path), invocation_source="ui")
+            result = await scanner.scan(str(resolved_path), invocation_source="ui")
         except ValueError as exc:
             return ScanResultItem(path=path, success=False, error=str(exc))
         except Exception as exc:

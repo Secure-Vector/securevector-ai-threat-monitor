@@ -13,11 +13,17 @@ import pytest
 
 from unittest.mock import MagicMock
 
-from securevector.app.services.skill_scanner import (
-    SkillScannerService,
-    ScanResult,
-    Finding,
-)
+try:
+    from securevector.app.services.skill_scanner import (
+        SkillScannerService,
+        ScanResult,
+        Finding,
+    )
+    HAS_APP_DEPS = True
+except ImportError:
+    HAS_APP_DEPS = False
+
+pytestmark = pytest.mark.skipif(not HAS_APP_DEPS, reason="requires app extras (aiosqlite)")
 
 FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "skills"
 
