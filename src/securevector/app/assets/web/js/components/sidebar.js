@@ -7,6 +7,7 @@ const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        { id: 'skill-scanner', label: 'Skill Scanner', icon: 'shield', tooltip: 'Static security analysis for skill directories and codebases' },
         { id: 'tool-activity', label: 'Tool Activity', icon: 'history' },
         { id: 'costs', label: 'Cost Tracking', icon: 'costs' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
@@ -23,6 +24,7 @@ const Sidebar = {
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
             { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
+            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],

@@ -18,6 +18,7 @@ from securevector.app.database.models import (
     MIGRATION_V12_SQL,
     MIGRATION_V13_SQL,
     MIGRATION_V14_SQL,
+    MIGRATION_V18_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         15: migrate_to_v15,
         16: migrate_to_v16,
         17: migrate_to_v17,
+        18: migrate_to_v18,
     }
 
     if version in migrations:
@@ -664,6 +666,17 @@ async def migrate_to_v17(db: DatabaseConnection) -> None:
                 logger.info("Migration v17: patched svconfig.yml block_mode to false")
     except Exception as e:
         logger.warning(f"Migration v17: could not patch svconfig.yml: {e}")
+
+
+async def migrate_to_v18(db: DatabaseConnection) -> None:
+    """Migration v17 -> v18: Add skill scan records table for OpenClaw Skill Scanner."""
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V18_SQL)
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (18, CURRENT_TIMESTAMP, 'Add skill scan records table')"
+    )
+    logger.info("Applied migration v18: skill scan records table")
 
 
 # Future migration functions would be defined here:

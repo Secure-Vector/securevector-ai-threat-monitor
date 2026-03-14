@@ -1,0 +1,7 @@
+permissions:
+  networks:
+    - api.openai.com
+  files:
+    - ./output/
+  env_vars:
+    - OPENAI_API_KEY
