@@ -439,22 +439,21 @@ async def trigger_scan(request: ScanRequest):
             if sanitised == blocked or sanitised.startswith(blocked + "/"):
                 return ScanResultItem(path=path, success=False, error=f"Scanning '{sanitised}' is not allowed")
 
-        # Path is validated — safe to access filesystem
-        safe_path = Path(sanitised)  # noqa: S108
-
-        if not safe_path.exists() or not safe_path.is_dir():
+        # Path is validated — safe to access filesystem.
+        # Use os.path on the realpath-sanitised string so CodeQL sees the sanitiser flow.
+        if not os.path.exists(sanitised) or not os.path.isdir(sanitised):
             return ScanResultItem(path=path, success=False, error=f"Path not found or not a directory: {path}")
 
         # Warn if path is outside the standard OpenClaw skills directory
         warning = None
-        if not str(safe_path).startswith(str(openclaw_skills_dir)):
+        if not sanitised.startswith(str(openclaw_skills_dir)):
             warning = (
                 "This path is outside the standard OpenClaw skills directory "
                 f"({openclaw_skills_dir}). Verify the source before installing."
             )
 
         try:
-            result = await scanner.scan(str(safe_path), invocation_source="ui")
+            result = await scanner.scan(sanitised, invocation_source="ui")
         except ValueError as exc:
             return ScanResultItem(path=path, success=False, error=str(exc))
         except Exception as exc:

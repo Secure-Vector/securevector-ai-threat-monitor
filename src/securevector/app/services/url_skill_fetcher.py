@@ -8,6 +8,7 @@ to a temporary directory for scanning before installation.
 import asyncio
 import ipaddress
 import logging
+import os
 import re
 import shutil
 import socket
@@ -66,6 +67,20 @@ _NPM_REGISTRY_RE = re.compile(
 class UrlFetchError(Exception):
     """Raised when URL fetching fails."""
     pass
+
+
+def _confined_path(base: str, *parts: str) -> str:
+    """Build a path under *base*, verify it stays within *base* after resolution.
+
+    Returns the resolved absolute path string.  Raises UrlFetchError on traversal.
+    Uses os.path.realpath so CodeQL recognises the sanitisation.
+    """
+    joined = os.path.join(os.path.realpath(base), *parts)
+    resolved = os.path.realpath(joined)
+    base_real = os.path.realpath(base)
+    if not (resolved == base_real or resolved.startswith(base_real + os.sep)):
+        raise UrlFetchError("Path traversal detected")
+    return resolved
 
 
 @dataclass
@@ -201,7 +216,7 @@ class UrlSkillFetcher:
 
     async def _clone_github(self, url: str, temp_dir: str, skill_name: str) -> None:
         """Clone a GitHub repo with depth=1."""
-        target = str(Path(temp_dir) / skill_name)
+        target = _confined_path(temp_dir, skill_name)
 
         # Check if git is available
         git_available = shutil.which("git") is not None
@@ -220,8 +235,8 @@ class UrlSkillFetcher:
                     raise UrlFetchError(f"Git clone failed: {stderr[:200]}")
 
                 # Remove .git directory
-                git_dir = Path(target) / ".git"
-                if git_dir.is_dir():
+                git_dir = _confined_path(target, ".git")
+                if os.path.isdir(git_dir):
                     shutil.rmtree(git_dir, ignore_errors=True)
                 return
             except subprocess.TimeoutExpired:
@@ -246,52 +261,53 @@ class UrlSkillFetcher:
 
         # Try sparse checkout (requires git 2.27+)
         if shutil.which("git"):
-            clone_dir = Path(temp_dir) / f"{repo}-clone"
+            clone_dir = _confined_path(temp_dir, f"{repo}-clone")
             try:
                 r1 = await asyncio.to_thread(
                     subprocess.run,
                     ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
-                     "--branch", branch, repo_url, str(clone_dir)],
+                     "--branch", branch, repo_url, clone_dir],
                     capture_output=True, text=True, timeout=120,
                 )
                 if r1.returncode == 0:
                     r2 = await asyncio.to_thread(
                         subprocess.run,
-                        ["git", "-C", str(clone_dir), "sparse-checkout", "set", subpath],
+                        ["git", "-C", clone_dir, "sparse-checkout", "set", subpath],
                         capture_output=True, text=True, timeout=60,
                     )
                     if r2.returncode == 0:
-                        source = clone_dir / subpath
-                        if source.is_dir():
-                            target = Path(temp_dir) / skill_name
-                            shutil.copytree(str(source), str(target))
-                            shutil.rmtree(str(clone_dir), ignore_errors=True)
+                        source = _confined_path(clone_dir, subpath)
+                        if os.path.isdir(source):
+                            target = _confined_path(temp_dir, skill_name)
+                            shutil.copytree(source, target)
+                            shutil.rmtree(clone_dir, ignore_errors=True)
                             return
                 # Sparse checkout not supported or failed — clean up and fall through
-                shutil.rmtree(str(clone_dir), ignore_errors=True)
+                shutil.rmtree(clone_dir, ignore_errors=True)
             except subprocess.TimeoutExpired:
-                shutil.rmtree(str(clone_dir), ignore_errors=True)
+                shutil.rmtree(clone_dir, ignore_errors=True)
             except Exception:
-                shutil.rmtree(str(clone_dir), ignore_errors=True)
+                shutil.rmtree(clone_dir, ignore_errors=True)
 
         # Fallback: download repo zip and extract the subdirectory
         zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip"
         staging_name = f"{repo}-staging"
         await self._download_archive(zip_url, temp_dir, staging_name)
 
-        staging_root = Path(temp_dir) / staging_name
-        top_dirs = [d for d in staging_root.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        staging_root = _confined_path(temp_dir, staging_name)
+        staging_path = Path(staging_root)
+        top_dirs = [d for d in staging_path.iterdir() if d.is_dir() and not d.name.startswith(".")]
         if len(top_dirs) == 1:
-            subdir_path = top_dirs[0] / subpath
+            subdir_resolved = _confined_path(str(top_dirs[0]), subpath)
         else:
-            subdir_path = staging_root / subpath
+            subdir_resolved = _confined_path(staging_root, subpath)
 
-        if not subdir_path.is_dir():
+        if not os.path.isdir(subdir_resolved):
             raise UrlFetchError(f"Path '{subpath}' not found in repository")
 
-        target = Path(temp_dir) / skill_name
-        shutil.copytree(str(subdir_path), str(target))
-        shutil.rmtree(str(staging_root), ignore_errors=True)
+        target = _confined_path(temp_dir, skill_name)
+        shutil.copytree(subdir_resolved, target)
+        shutil.rmtree(staging_root, ignore_errors=True)
 
     async def _fetch_npm(self, url: str, temp_dir: str, skill_name: str) -> None:
         """Fetch an npm package tarball."""
@@ -325,20 +341,21 @@ class UrlSkillFetcher:
             is_zip = True
 
         ext = ".tar.gz" if is_tar else ".zip"
-        archive_path = Path(temp_dir) / f"{skill_name}{ext}"
+        archive_path = _confined_path(temp_dir, f"{skill_name}{ext}")
 
-        await asyncio.to_thread(self._download_file, url, str(archive_path))
+        await asyncio.to_thread(self._download_file, url, archive_path)
 
-        target = Path(temp_dir) / skill_name
-        target.mkdir(exist_ok=True)
+        target = _confined_path(temp_dir, skill_name)
+        os.makedirs(target, exist_ok=True)
 
         try:
             if is_tar:
-                await asyncio.to_thread(self._safe_extract_tar, str(archive_path), str(target))
+                await asyncio.to_thread(self._safe_extract_tar, archive_path, target)
             else:
-                await asyncio.to_thread(self._safe_extract_zip, str(archive_path), str(target))
+                await asyncio.to_thread(self._safe_extract_zip, archive_path, target)
         finally:
-            archive_path.unlink(missing_ok=True)
+            if os.path.exists(archive_path):
+                os.unlink(archive_path)
 
     def _download_bytes(self, url: str) -> bytes:
         """Download URL content as bytes with size limit."""
@@ -435,7 +452,7 @@ class UrlSkillFetcher:
     @staticmethod
     def cleanup(temp_dir: str) -> None:
         """Remove a temp directory."""
-        if temp_dir and Path(temp_dir).exists():
+        if temp_dir and os.path.exists(os.path.realpath(temp_dir)):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     @staticmethod
@@ -465,15 +482,14 @@ def install_skill(source_path: str, skill_name: str, skills_dir: str | None = No
     Returns the install path.
     Raises UrlFetchError on failure.
     """
-    source = Path(source_path)
-    if not source.is_dir():
+    # Sanitise source with os.path.realpath for CodeQL.
+    source = os.path.realpath(source_path)
+    if not os.path.isdir(source):
         raise UrlFetchError("Source path does not exist")
 
     # Verify source is under temp directory (security)
-    tmp_root = Path(tempfile.gettempdir())
-    try:
-        source.resolve().relative_to(tmp_root.resolve())
-    except ValueError:
+    tmp_root = os.path.realpath(tempfile.gettempdir())
+    if not (source == tmp_root or source.startswith(tmp_root + os.sep)):
         raise UrlFetchError("Source path must be in the system temp directory")
 
     # Sanitize skill name
@@ -481,16 +497,19 @@ def install_skill(source_path: str, skill_name: str, skills_dir: str | None = No
     if not safe_name:
         raise UrlFetchError("Invalid skill name")
 
-    target_root = Path(skills_dir) if skills_dir else Path.home() / ".openclaw" / "skills"
-    target = target_root / safe_name
+    if skills_dir:
+        target_root = os.path.realpath(skills_dir)
+    else:
+        target_root = os.path.realpath(os.path.join(Path.home(), ".openclaw", "skills"))
+    target = os.path.join(target_root, safe_name)
 
-    if target.exists():
+    if os.path.exists(target):
         raise UrlFetchError(f"Skill '{safe_name}' already exists at {target}")
 
-    target_root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(str(source), str(target))
+    os.makedirs(target_root, exist_ok=True)
+    shutil.copytree(source, target)
 
     # Cleanup temp source
-    shutil.rmtree(str(source), ignore_errors=True)
+    shutil.rmtree(source, ignore_errors=True)
 
-    return str(target)
+    return target

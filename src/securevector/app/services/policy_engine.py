@@ -191,7 +191,7 @@ class PolicyEngine:
             if match:
                 return match.group(1)
             # Try bare domain
-            match = re.search(r'[\w.-]+\.\w{2,}', excerpt)
+            match = re.search(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,60}[a-zA-Z0-9])?\.[a-zA-Z]{2,10}', excerpt)
             if match:
                 return match.group(0)
 
@@ -209,7 +209,7 @@ class PolicyEngine:
 
         elif category == "shell_exec":
             # Extract command from subprocess calls
-            match = re.search(r'(?:run|call|Popen|system)\(\s*(?:\[?\s*["\'])?([^"\')\]]+)', excerpt)
+            match = re.search(r'(?:run|call|Popen|system)\(\s{0,5}(?:\[?\s{0,5}["\'])?([^"\')\]]{1,200})', excerpt)
             if match:
                 return match.group(1).strip()
 
