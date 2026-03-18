@@ -7,9 +7,11 @@ const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        { id: 'skill-scanner', label: 'Skill Scanner', icon: 'scan', tooltip: 'Static security analysis for skill directories' },
         { id: 'tool-activity', label: 'Tool Activity', icon: 'history' },
         { id: 'costs', label: 'Cost Tracking', icon: 'costs' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
+        { id: 'skill-permissions', label: 'Skill Policy', icon: 'shield', tooltip: 'Manage scan policy permissions and trusted publishers' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
@@ -23,6 +25,7 @@ const Sidebar = {
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
             { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
+            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
@@ -184,6 +187,7 @@ const Sidebar = {
             }
 
             // Click handler — collapsible rows toggle on any click; others navigate
+            // Items with navigable: true both navigate AND toggle sub-items
             navItem.addEventListener('click', (e) => {
                 if (item.collapsible && hasSubItems) {
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
@@ -640,6 +644,12 @@ const Sidebar = {
             history: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
                 { tag: 'polyline', attrs: { points: '12 6 12 12 16 14' } },
+            ],
+            scan: [
+                { tag: 'circle', attrs: { cx: '11', cy: '11', r: '8' } },
+                { tag: 'line', attrs: { x1: '21', y1: '21', x2: '16.65', y2: '16.65' } },
+                { tag: 'line', attrs: { x1: '11', y1: '8', x2: '11', y2: '14' } },
+                { tag: 'line', attrs: { x1: '8', y1: '11', x2: '14', y2: '11' } },
             ],
             sliders: [
                 { tag: 'line', attrs: { x1: '4', y1: '21', x2: '4', y2: '14' } },

@@ -18,6 +18,8 @@ from securevector.app.database.models import (
     MIGRATION_V12_SQL,
     MIGRATION_V13_SQL,
     MIGRATION_V14_SQL,
+    MIGRATION_V18_SQL,
+    MIGRATION_V19_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +158,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         15: migrate_to_v15,
         16: migrate_to_v16,
         17: migrate_to_v17,
+        18: migrate_to_v18,
+        19: migrate_to_v19,
     }
 
     if version in migrations:
@@ -664,6 +668,82 @@ async def migrate_to_v17(db: DatabaseConnection) -> None:
                 logger.info("Migration v17: patched svconfig.yml block_mode to false")
     except Exception as e:
         logger.warning(f"Migration v17: could not patch svconfig.yml: {e}")
+
+
+async def migrate_to_v18(db: DatabaseConnection) -> None:
+    """Migration v17 -> v18: Add skill scan records table for OpenClaw Skill Scanner."""
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V18_SQL)
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (18, CURRENT_TIMESTAMP, 'Add skill scan records table')"
+    )
+    logger.info("Applied migration v18: skill scan records table")
+
+
+async def migrate_to_v19(db: DatabaseConnection) -> None:
+    """Migration v18 -> v19: Add skill permissions and policy engine tables."""
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V19_SQL)
+
+    # Seed default permissions from policy_defaults
+    await _seed_skill_permissions(db)
+    await _seed_trusted_publishers(db)
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (19, CURRENT_TIMESTAMP, 'Add skill permissions and policy engine tables')"
+    )
+    logger.info("Applied migration v19: skill permissions and policy engine tables")
+
+
+async def _seed_skill_permissions(db: DatabaseConnection) -> None:
+    """Seed skill_permissions table with defaults from policy_defaults.py."""
+    from securevector.app.services.policy_defaults import (
+        NETWORK_PERMISSIONS,
+        ENV_VAR_PERMISSIONS,
+        FILE_PATH_PERMISSIONS,
+        SHELL_COMMAND_PERMISSIONS,
+    )
+
+    category_map = [
+        ("network", NETWORK_PERMISSIONS),
+        ("env_var", ENV_VAR_PERMISSIONS),
+        ("file_path", FILE_PATH_PERMISSIONS),
+        ("shell_command", SHELL_COMMAND_PERMISSIONS),
+    ]
+
+    count = 0
+    for category, permissions in category_map:
+        for pattern, classification, label in permissions:
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO skill_permissions
+                    (category, pattern, classification, label, is_default, enabled)
+                VALUES (?, ?, ?, ?, 1, 1)
+                """,
+                (category, pattern, classification, label),
+            )
+            count += 1
+
+    logger.info(f"Seeded {count} default skill permissions")
+
+
+async def _seed_trusted_publishers(db: DatabaseConnection) -> None:
+    """Seed skill_trusted_publishers table with defaults."""
+    from securevector.app.services.policy_defaults import TRUSTED_PUBLISHERS
+
+    for publisher_name, trust_level in TRUSTED_PUBLISHERS:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO skill_trusted_publishers
+                (publisher_name, trust_level, is_default)
+            VALUES (?, ?, 1)
+            """,
+            (publisher_name, trust_level),
+        )
+
+    logger.info(f"Seeded {len(TRUSTED_PUBLISHERS)} trusted publishers")
 
 
 # Future migration functions would be defined here:

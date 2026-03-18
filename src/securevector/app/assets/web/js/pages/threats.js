@@ -559,12 +559,23 @@ const ThreatsPage = {
             typeCell.appendChild(typeBadge);
             row.appendChild(typeCell);
 
-            // Risk Score
+            // Risk Score with visual bar
             const riskCell = document.createElement('td');
+            const riskWrap = document.createElement('div');
+            riskWrap.style.cssText = 'display: flex; align-items: center; gap: 8px;';
             const riskBadge = document.createElement('span');
             riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
             riskBadge.textContent = (threat.risk_score || 0) + '%';
-            riskCell.appendChild(riskBadge);
+            riskWrap.appendChild(riskBadge);
+            const riskBar = document.createElement('div');
+            const riskPct = Math.min(threat.risk_score || 0, 100);
+            const riskBarColor = riskPct >= 70 ? '#ef4444' : riskPct >= 40 ? '#f59e0b' : '#10b981';
+            riskBar.style.cssText = `width: 40px; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; flex-shrink: 0;`;
+            const riskFill = document.createElement('div');
+            riskFill.style.cssText = `height: 100%; border-radius: 2px; background: ${riskBarColor}; width: ${riskPct}%;`;
+            riskBar.appendChild(riskFill);
+            riskWrap.appendChild(riskBar);
+            riskCell.appendChild(riskWrap);
             // LLM badge if reviewed
             if (threat.llm_reviewed) {
                 const llmBadge = document.createElement('span');

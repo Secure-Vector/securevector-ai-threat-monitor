@@ -1734,12 +1734,18 @@ html, body {
     justify-content: center;
     gap: 8px;
     padding: 10px 20px;
-    border: none;
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.btn:hover {
+    background: var(--bg-hover);
 }
 
 .btn-primary {

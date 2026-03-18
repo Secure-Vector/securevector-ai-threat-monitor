@@ -27,18 +27,8 @@ const GettingStartedPage = {
 
 
         container.appendChild(this.createCollapsibleCard(
-            'How Scanning Works', 'Input and output threat detection',
-            'section-scanning', () => this.buildScanningContent()
-        ));
-
-        container.appendChild(this.createCollapsibleCard(
-            'Threat Modes', 'Block Mode (default) and Log Mode',
-            'section-modes', () => this.buildModesContent()
-        ));
-
-        container.appendChild(this.createCollapsibleCard(
-            'AI Analysis (Optional)', 'Two-stage detection pipeline',
-            'section-ai-analysis', () => this.buildAIAnalysisContent()
+            'How Detection Works', 'Input/output scanning, threat modes, and AI analysis',
+            'section-scanning', () => this.buildDetectionContent()
         ));
 
         container.appendChild(this.createCollapsibleCard(
@@ -54,6 +44,11 @@ const GettingStartedPage = {
         container.appendChild(this.createCollapsibleCard(
             'Cost Tracking', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
+            'Skill Scanner', 'Static security analysis for skill directories',
+            'section-skill-scanner', () => this.buildSkillScannerContent()
         ));
 
         container.appendChild(this.createCollapsibleCard(
@@ -99,11 +94,11 @@ const GettingStartedPage = {
 
         const subtitle = document.createElement('div');
         subtitle.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;';
-        subtitle.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents';
+        subtitle.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents. Scan skills before you install or run them.';
         hero.appendChild(subtitle);
 
         const steps = document.createElement('div');
-        steps.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;';
+        steps.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;';
 
         const stepData = [
             {
@@ -115,13 +110,19 @@ const GettingStartedPage = {
             },
             {
                 num: '2',
-                title: 'Configure in the Sidebar',
-                desc: 'Go to Configure → Tool Permissions to block risky agent actions, and Cost Settings to set daily budgets.',
-                action: () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); },
+                title: 'Scan Skills First',
+                desc: 'Before installing any skill, paste its URL into the Skill Scanner to check for risky network calls, file writes, or shell commands.',
+                action: () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); },
             },
             {
                 num: '3',
-                title: "That's It — Start Monitoring",
+                title: 'Configure Permissions',
+                desc: 'Go to Configure \u2192 Tool Permissions to block risky agent actions, and Skill Policy to manage scan rules.',
+                action: () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); },
+            },
+            {
+                num: '4',
+                title: 'Start Monitoring',
                 desc: 'Run your agent and watch threats, tool calls, and costs appear live in the Monitor section.',
                 action: () => { if (window.Sidebar) Sidebar.navigate('threats'); },
             },
@@ -375,6 +376,76 @@ const GettingStartedPage = {
             ],
             'Open WebUI \u2192 SecureVector (scans) \u2192 Ollama'
         ));
+
+        return frag;
+    },
+
+    buildDetectionContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px; display: flex; flex-direction: column; gap: 20px;';
+
+        // Section 1: Input & Output scanning
+        const scanDesc = document.createElement('p');
+        scanDesc.style.cssText = 'color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;';
+        scanDesc.textContent = 'SecureVector scans traffic in both directions. Input scanning runs on every request by default. Output scanning is optional and can be toggled from the header.';
+        frag.appendChild(scanDesc);
+
+        const scanGrid = document.createElement('div');
+        scanGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;';
+
+        const inputCol = document.createElement('div');
+        inputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-primary);';
+        const inputTitle = document.createElement('div');
+        inputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
+        inputTitle.textContent = 'Input Scanning (User \u2192 LLM)';
+        inputCol.appendChild(inputTitle);
+        inputCol.appendChild(this.createBulletList(['Prompt injection', 'Jailbreak attempts', 'Data exfiltration requests', 'Social engineering']));
+        scanGrid.appendChild(inputCol);
+
+        const outputCol = document.createElement('div');
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #f44336);';
+        const outputTitle = document.createElement('div');
+        outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
+        outputTitle.textContent = 'Output Scanning (LLM \u2192 User)';
+        outputCol.appendChild(outputTitle);
+        outputCol.appendChild(this.createBulletList(['Credential leakage (API keys, tokens)', 'System prompt exposure', 'PII disclosure (SSN, credit cards)', 'Encoded malicious content']));
+        scanGrid.appendChild(outputCol);
+        frag.appendChild(scanGrid);
+
+        // Section 2: Threat modes (inline)
+        const modesGrid = document.createElement('div');
+        modesGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;';
+
+        const blockBox = document.createElement('div');
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #f44336);';
+        const blockTitle = document.createElement('div');
+        blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
+        blockTitle.textContent = 'Block Mode (Default)';
+        blockBox.appendChild(blockTitle);
+        const blockDesc = document.createElement('div');
+        blockDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+        blockDesc.textContent = 'Threats are actively blocked before reaching LLM or client. All threats are still logged.';
+        blockBox.appendChild(blockDesc);
+        modesGrid.appendChild(blockBox);
+
+        const logBox = document.createElement('div');
+        logBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-primary);';
+        const logTitle = document.createElement('div');
+        logTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
+        logTitle.textContent = 'Log Mode';
+        logBox.appendChild(logTitle);
+        const logDesc = document.createElement('div');
+        logDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+        logDesc.textContent = 'Threats are detected and recorded but traffic is not interrupted. Good for initial monitoring.';
+        logBox.appendChild(logDesc);
+        modesGrid.appendChild(logBox);
+        frag.appendChild(modesGrid);
+
+        // Section 3: Two-stage detection (AI Analysis)
+        const aiDesc = document.createElement('p');
+        aiDesc.style.cssText = 'color: var(--text-secondary); margin: 0; font-size: 13px; line-height: 1.5;';
+        aiDesc.textContent = 'Two-stage pipeline: Stage 1 (pattern matching, <5ms, always active) + Stage 2 (optional AI Analysis via secondary LLM, 1-3s, reduces false positives). Enable AI Analysis from the header bar.';
+        frag.appendChild(aiDesc);
 
         return frag;
     },
@@ -729,6 +800,252 @@ const GettingStartedPage = {
         costsBtn.textContent = 'Open Cost Tracking';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
+
+        return frag;
+    },
+
+    buildSkillScannerContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        // Helper: section heading
+        const sectionHead = (text, mt = '0') => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: ' + mt + ' 0 8px 0;';
+            el.textContent = text;
+            return el;
+        };
+
+        // Helper: small descriptive paragraph
+        const para = (text) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            el.textContent = text;
+            return el;
+        };
+
+        // Helper: callout note
+        const note = (strong, body, color) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'margin: 10px 0 14px 0; font-size: 12px; color: var(--text-secondary); padding: 8px 12px; background: var(--bg-secondary); border-radius: 6px; border-left: 2px solid ' + (color || 'var(--accent-primary)') + '; line-height: 1.5;';
+            if (strong) {
+                const s = document.createElement('strong');
+                s.style.color = 'var(--text-primary)';
+                s.textContent = strong;
+                el.appendChild(s);
+            }
+            el.appendChild(document.createTextNode(body));
+            return el;
+        };
+
+        // ── Intro ─────────────────────────────────────────────────────────
+        const intro = document.createElement('p');
+        intro.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px 0; font-size: 13px; line-height: 1.5;';
+        intro.textContent = 'The Skill Scanner performs static security analysis on skill directories before installation. It inspects Python, JavaScript, TypeScript, and shell scripts without executing any code. You can scan local paths, GitHub repos, npm packages, or archive URLs. After scanning, the Policy Engine classifies each finding using your permission rules and produces an ALLOW / WARN / BLOCK decision.';
+        frag.appendChild(intro);
+
+        // ── What it scans ─────────────────────────────────────────────────
+        frag.appendChild(sectionHead('What it scans'));
+        frag.appendChild(para('Walks every file recursively and inspects source files:'));
+        frag.appendChild(this.createCodeBlock('.py  .js  .mjs  .cjs  .ts  .sh  .bash'));
+        frag.appendChild(note('Limits: ', 'Max 500 source files, 1 MB per file. Binary files (.pyc, .so, .dll, .whl, .egg, .class) are flagged regardless.', '#f59e0b'));
+
+        // ── Finding categories ────────────────────────────────────────────
+        frag.appendChild(sectionHead('Finding categories', '6px'));
+
+        const categories = [
+            { name: 'Network call',       id: 'network_domain',   severity: 'HIGH',    color: '#ef4444', desc: 'HTTP/HTTPS calls to domains not in the manifest.' },
+            { name: 'Dynamic code',       id: 'code_exec',        severity: 'HIGH',    color: '#ef4444', desc: 'Dynamic code execution \u2014 arbitrary runtime code.' },
+            { name: 'Obfuscated import',  id: 'dynamic_import',   severity: 'HIGH',    color: '#ef4444', desc: '__import__(), importlib, or getattr() hiding module loads.' },
+            { name: 'Shell command',      id: 'shell_exec',       severity: 'HIGH/LOW', color: '#ef4444', desc: 'HIGH if dynamic args or unknown command, LOW if known safe tool (claude, git, npm, python).' },
+            { name: 'File write',         id: 'file_write',       severity: 'HIGH/LOW', color: '#ef4444', desc: 'HIGH for absolute paths or executables, LOW for relative paths with safe extensions (.json, .html, .log).' },
+            { name: 'Env variable read',  id: 'env_var_read',     severity: 'MED/LOW',  color: '#f59e0b', desc: 'MEDIUM for unknown vars, LOW for standard config (PATH, HOME) or env iteration.' },
+            { name: 'Base64 obfuscation', id: 'base64_literal',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Base64 encode/decode or large embedded strings (40+ chars).' },
+            { name: 'Compiled binary',    id: 'compiled_code',    severity: 'MEDIUM',  color: '#f59e0b', desc: 'Pre-compiled files that cannot be statically analysed.' },
+            { name: 'Symlink escape',     id: 'symlink_escape',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Symlink resolves outside the skill directory.' },
+            { name: 'Missing manifest',   id: 'missing_manifest', severity: 'INFO',    color: '#3b82f6', desc: 'No permissions.yml found. Informational \u2014 does not affect risk level.' },
+        ];
+
+        const catGrid = document.createElement('div');
+        catGrid.style.cssText = 'display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px;';
+
+        categories.forEach(cat => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; background: var(--bg-secondary); border-radius: 7px;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'flex-shrink: 0; width: 130px;';
+
+            const nameEl = document.createElement('div');
+            nameEl.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 3px; line-height: 1.3;';
+            nameEl.textContent = cat.name;
+            left.appendChild(nameEl);
+
+            const idEl = document.createElement('div');
+            idEl.style.cssText = 'font-family: monospace; font-size: 10px; color: var(--text-secondary); margin-bottom: 3px;';
+            idEl.textContent = cat.id;
+            left.appendChild(idEl);
+
+            const badge = document.createElement('span');
+            badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; color: white; background: ' + cat.color + '; padding: 1px 5px; border-radius: 3px;';
+            badge.textContent = cat.severity;
+            left.appendChild(badge);
+            row.appendChild(left);
+
+            const descEl = document.createElement('div');
+            descEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+            descEl.textContent = cat.desc;
+            row.appendChild(descEl);
+
+            catGrid.appendChild(row);
+        });
+        frag.appendChild(catGrid);
+
+        // ── Risk levels ───────────────────────────────────────────────────
+        frag.appendChild(sectionHead('Risk levels'));
+        frag.appendChild(para('Findings are aggregated into one risk level. INFO findings do not affect risk.'));
+
+        const riskLevels = [
+            { level: 'HIGH',   color: '#ef4444', rule: 'Any CRITICAL or HIGH severity finding' },
+            { level: 'MEDIUM', color: '#f59e0b', rule: 'MEDIUM findings only (no HIGH/CRITICAL)' },
+            { level: 'LOW',    color: '#10b981', rule: 'No findings, or only LOW/INFO findings' },
+        ];
+
+        const riskGrid = document.createElement('div');
+        riskGrid.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;';
+        riskLevels.forEach(r => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid ' + r.color + ';';
+            const lbl = document.createElement('span');
+            lbl.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 800; color: ' + r.color + '; min-width: 64px;';
+            lbl.textContent = r.level;
+            row.appendChild(lbl);
+            const ruleEl = document.createElement('div');
+            ruleEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            ruleEl.textContent = r.rule;
+            row.appendChild(ruleEl);
+            riskGrid.appendChild(row);
+        });
+        frag.appendChild(riskGrid);
+
+        // ── Policy Engine ─────────────────────────────────────────────────
+        frag.appendChild(sectionHead('Policy Engine'));
+        frag.appendChild(para('After scanning, the Policy Engine classifies findings against your permission rules and produces a decision:'));
+
+        const policyDecisions = [
+            { action: 'ALLOW', color: '#10b981', bg: 'rgba(16,185,129,0.07)', desc: 'Total score \u2264 3. Safe to install.' },
+            { action: 'WARN',  color: '#f59e0b', bg: 'rgba(245,158,11,0.07)', desc: 'Total score 4\u20136. Review findings before installing.' },
+            { action: 'BLOCK', color: '#ef4444', bg: 'rgba(239,68,68,0.07)',  desc: 'Total score 7+. Adjust your permission rules or do not install.' },
+        ];
+
+        const polGrid = document.createElement('div');
+        polGrid.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;';
+        policyDecisions.forEach(p => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: ' + p.bg + '; border-radius: 8px; border-left: 3px solid ' + p.color + ';';
+            const lbl = document.createElement('span');
+            lbl.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 800; color: ' + p.color + '; min-width: 64px;';
+            lbl.textContent = p.action;
+            row.appendChild(lbl);
+            const descEl = document.createElement('div');
+            descEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            descEl.textContent = p.desc;
+            row.appendChild(descEl);
+            polGrid.appendChild(row);
+        });
+        frag.appendChild(polGrid);
+
+        frag.appendChild(para('Each finding is matched against your permission rules (Safe +0, Review +2, Dangerous +5). Unclassified findings default to Review (+2). The total score across all findings determines the policy decision.'));
+
+        // ── Skill Permissions ─────────────────────────────────────────────
+        frag.appendChild(sectionHead('Your Permission Rules'));
+        frag.appendChild(para('Permission rules classify scan findings as Safe (+0), Review (+2), or Dangerous (+5). The total score determines the policy decision: ALLOW (\u22643), WARN (4\u20136), or BLOCK (7+). Rules use glob patterns organized by category: Network, Env Vars, File Paths, and Shell Commands. 218 defaults are pre-loaded.'));
+        frag.appendChild(para('Manage rules from the Skill Permissions page \u2014 add custom rules, toggle them, export/import as JSON, or reset to defaults.'));
+
+        // ── How to scan ───────────────────────────────────────────────────
+        frag.appendChild(sectionHead('How to scan'));
+        frag.appendChild(para('Skills installed in standard locations (~/.openclaw/skills, ~/.mcp/skills, ~/.claude/skills) are auto-detected and shown on the Scanner tab. Select any and click Scan Selected or Scan All. On WSL, Windows-side skill directories are also searched.'));
+        frag.appendChild(para('For other sources, use the unified scan input \u2014 paste a local path or a URL (GitHub repo, npm package, .zip/.tar.gz archive) and click Scan. URL skills are downloaded to a temp directory, scanned, and can be installed to ~/.openclaw/skills/ if the policy allows. Results show inline with policy badges. Click any result for the detail drawer. The History tab shows past scans.'));
+
+        frag.appendChild(this.createCodeBlock(
+            '# CLI usage\nsecurevector-app scan-skill ~/.openclaw/skills/my-skill\nsecurevector-app scan-skill ./my-skill --output json\nsecurevector-app scan-skill ./my-skill --fail-on medium'
+        ));
+
+        // ── Safety limits ─────────────────────────────────────────────────
+        frag.appendChild(sectionHead('Safety limits'));
+
+        const limits = [
+            ['Max files', '500 source files per scan'],
+            ['Max file size', '1 MB per file'],
+            ['Max UI paths', '20 directories per request'],
+            ['URL download', '50 MB max, HTTPS only, 60s timeout'],
+            ['Archive extract', '500 files max, path traversal protection'],
+            ['Blocked paths', '/etc, /proc, /sys, /dev, /root, /bin, /sbin, /usr/bin'],
+        ];
+
+        const limitsGrid = document.createElement('div');
+        limitsGrid.style.cssText = 'display: flex; flex-direction: column; gap: 5px; margin-bottom: 18px;';
+        limits.forEach(([label, desc]) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 12px; padding: 8px 12px; background: var(--bg-secondary); border-radius: 6px;';
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'flex-shrink: 0; width: 120px; font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.4;';
+            lbl.textContent = label;
+            row.appendChild(lbl);
+            const dsc = document.createElement('div');
+            dsc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+            dsc.textContent = desc;
+            row.appendChild(dsc);
+            limitsGrid.appendChild(row);
+        });
+        frag.appendChild(limitsGrid);
+
+        // ── Skill manifest ────────────────────────────────────────────────
+        frag.appendChild(sectionHead('Skill manifest (optional, by skill author)'));
+        frag.appendChild(para('Skill authors can ship a permissions.yml inside their skill directory declaring what the skill needs. When present, declared network domains and file paths are automatically allowed (not flagged as findings). Everything else is classified by your permission rules.'));
+        frag.appendChild(this.createCodeBlock(
+            '# <skill-dir>/permissions.yml\npermissions:\n  networks:\n    - api.openai.com\n  files:\n    - ./output/\n  env_vars:\n    - OPENAI_API_KEY'
+        ));
+        frag.appendChild(note('Note: ', 'A missing manifest produces an INFO finding only \u2014 it does not affect risk level. You don\'t create this file \u2014 it comes with the skill. Without a manifest, all behavior is classified by your permission rules.', 'var(--accent-primary)'));
+
+        // ── AI Analysis section ──────────────────────────────────────────
+        frag.appendChild(sectionHead('AI-Powered False-Positive Reduction'));
+        frag.appendChild(para('Static analysis is fast but context-blind \u2014 it flags patterns like subprocess.Popen or os.environ without understanding intent. Enable AI Analysis to have an LLM review each finding and mark false positives automatically.'));
+
+        const aiSteps = document.createElement('ol');
+        aiSteps.style.cssText = 'margin: 8px 0 8px 20px; font-size: 13px; color: var(--text-primary); line-height: 1.8;';
+        const stepTexts = [
+            ['Go to ', 'Settings \u2192 AI / LLM', ' and enable AI analysis'],
+            ['Choose a provider: Ollama (free, local), OpenAI, Anthropic, Azure, or Bedrock'],
+            ['Configure the model and API key (Ollama needs no key)'],
+            ['Scan a skill \u2014 AI review runs automatically on every scan'],
+        ];
+        stepTexts.forEach(parts => {
+            const li = document.createElement('li');
+            parts.forEach((p, i) => {
+                if (i === 1 && parts.length === 3) {
+                    const b = document.createElement('strong');
+                    b.textContent = p;
+                    li.appendChild(b);
+                } else {
+                    li.appendChild(document.createTextNode(p));
+                }
+            });
+            aiSteps.appendChild(li);
+        });
+        frag.appendChild(aiSteps);
+
+        frag.appendChild(para('When AI is enabled, you\u2019ll see \u201C\u2728 AI Analysis Enabled\u201D in the Skill Scanner and Threat Monitor headers. Each finding shows an AI verdict: CONFIRMED (real threat) or FALSE POSITIVE (struck through with explanation). The risk level is recalculated using only confirmed findings.'));
+
+        frag.appendChild(note('Tip: ', 'Use a local Ollama model (e.g. llama3) for zero-cost AI review. Cloud APIs cost ~$0.001 per scan.', '#10b981'));
+
+        // ── Nav button ────────────────────────────────────────────────────
+        const navBtn = document.createElement('button');
+        navBtn.className = 'btn btn-primary';
+        navBtn.style.cssText = 'font-size: 12px; padding: 6px 14px;';
+        navBtn.textContent = 'Open Skill Scanner';
+        navBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); });
+        frag.appendChild(navBtn);
 
         return frag;
     },

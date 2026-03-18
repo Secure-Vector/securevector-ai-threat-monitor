@@ -151,6 +151,11 @@ const CostsPage = {
         if (isFirstRender) {
             content.textContent = '';
 
+            // Budget progress bar at top (read-only summary)
+            const budgetBar = document.createElement('div');
+            budgetBar.id = 'sv-costs-budget-bar';
+            content.appendChild(budgetBar);
+
             // Scaffold the layout with stable IDs — never rebuilt on polls
             const cardsEl = document.createElement('div');
             cardsEl.id = 'sv-costs-cards';
@@ -184,9 +189,51 @@ const CostsPage = {
         }
 
         // Update each data section in-place — chart is untouched
+        this._updateBudgetBar();
         this._updateSummaryCards();
         this._updateGuardianAlerts();
         this._updateAgentsSection();
+    },
+
+    _updateBudgetBar() {
+        const el = document.getElementById('sv-costs-budget-bar');
+        if (!el) return;
+        el.textContent = '';
+        const budget = this.budgetData;
+        if (!budget || !budget.budget_usd) return;
+
+        const todaySpend = (this.summaryData && this.summaryData.totals && this.summaryData.totals.today_spend_usd) || 0;
+        const pct = budget.budget_usd > 0 ? Math.min(todaySpend / budget.budget_usd, 1) : 0;
+        const pctDisplay = Math.round(pct * 100);
+        const isOver = todaySpend >= budget.budget_usd;
+        const isWarn = pct >= 0.8;
+        const barColor = isOver ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px;';
+
+        const label = document.createElement('span');
+        label.style.cssText = 'color: var(--text-secondary); white-space: nowrap;';
+        label.textContent = `Daily budget: $${todaySpend.toFixed(4)} / $${budget.budget_usd.toFixed(2)} (${pctDisplay}%)`;
+        bar.appendChild(label);
+
+        const track = document.createElement('div');
+        track.style.cssText = 'flex: 1; height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; min-width: 80px;';
+        const fill = document.createElement('div');
+        fill.style.cssText = `height: 100%; border-radius: 3px; background: ${barColor}; width: ${pct * 100}%; transition: width 0.3s;`;
+        track.appendChild(fill);
+        bar.appendChild(track);
+
+        const editLink = document.createElement('a');
+        editLink.style.cssText = 'font-size: 11px; color: var(--accent-primary); cursor: pointer; text-decoration: none; white-space: nowrap;';
+        editLink.textContent = 'Edit';
+        editLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) Sidebar.navigate('cost-settings');
+        });
+        bar.appendChild(editLink);
+
+        el.appendChild(bar);
     },
 
     _updateSummaryCards() {

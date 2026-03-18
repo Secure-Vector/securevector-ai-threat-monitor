@@ -683,6 +683,7 @@ class RulesRepository:
 
         for row in community:
             patterns = json.loads(row["override_patterns"]) if row["override_patterns"] else json.loads(row["patterns"])
+            metadata = json.loads(row["metadata"]) if row.get("metadata") else None
             rules.append({
                 "id": row["id"],
                 "name": row["name"],
@@ -692,6 +693,7 @@ class RulesRepository:
                 "patterns": patterns,
                 "source": "community",
                 "has_override": row["override_enabled"] is not None or row["override_severity"] is not None,
+                "metadata": metadata,
             })
 
         # Get custom rules
