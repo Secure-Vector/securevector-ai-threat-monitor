@@ -413,25 +413,26 @@ async def trigger_scan(request: ScanRequest):
     openclaw_skills_dir = Path("~/.openclaw/skills").expanduser().resolve()
 
     # Allowlist of safe parent directories for scanning
-    home_dir = os.path.realpath(os.path.expanduser("~"))
-    _ALLOWED_ROOTS = [
-        home_dir,
-        os.path.realpath(tempfile.gettempdir()),
-    ]
+    _SAFE_HOME = os.path.realpath(os.path.expanduser("~"))
+    _SAFE_TMP = os.path.realpath(tempfile.gettempdir())
+
+    def _is_under_allowed_root(resolved: str) -> bool:
+        """Return True if *resolved* (already os.path.realpath'd) is under $HOME or $TMPDIR."""
+        if resolved.startswith(_SAFE_HOME + os.sep) or resolved == _SAFE_HOME:
+            return True
+        if resolved.startswith(_SAFE_TMP + os.sep) or resolved == _SAFE_TMP:
+            return True
+        return False
 
     async def _scan_one(path: str) -> ScanResultItem:  # noqa: C901
         # Sanitise user-supplied path before any filesystem access.
         sanitised = os.path.realpath(os.path.expanduser(path))
 
-        # Allowlist check: path must be under a known safe root.
-        # CodeQL recognises this as a path constraint guard.
-        if not any(  # lgtm[py/path-injection]
-            sanitised == allowed or sanitised.startswith(allowed + os.sep)
-            for allowed in _ALLOWED_ROOTS
-        ):
+        # Allowlist guard — must be under home or temp.
+        if not _is_under_allowed_root(sanitised):
             return ScanResultItem(
                 path=path, success=False,
-                error=f"Path must be under your home directory or temp directory",
+                error="Path must be under your home directory or temp directory",
             )
 
         # Double-check against blocked system paths
@@ -440,7 +441,6 @@ async def trigger_scan(request: ScanRequest):
                 return ScanResultItem(path=path, success=False, error=f"Scanning '{sanitised}' is not allowed")
 
         # Path is validated — safe to access filesystem.
-        # Use os.path on the realpath-sanitised string so CodeQL sees the sanitiser flow.
         if not os.path.exists(sanitised) or not os.path.isdir(sanitised):
             return ScanResultItem(path=path, success=False, error=f"Path not found or not a directory: {path}")
 

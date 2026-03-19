@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -61,6 +62,10 @@ _BLOCKED_SYSTEM_PATHS = {
     "/sbin",
     "/bin",
 }
+
+# Allowlist: only scan paths under $HOME or system temp.
+_SCAN_SAFE_HOME = os.path.realpath(os.path.expanduser("~"))
+_SCAN_SAFE_TMP = os.path.realpath(tempfile.gettempdir())
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns
@@ -248,7 +253,12 @@ class SkillScannerService:
         # Sanitise with os.path.realpath so CodeQL recognises the flow.
         sanitised = os.path.realpath(os.path.expanduser(path))
 
-        # Path restriction — reject system roots
+        # Allowlist guard — must be under $HOME or $TMPDIR.
+        if not (sanitised.startswith(_SCAN_SAFE_HOME + os.sep) or sanitised == _SCAN_SAFE_HOME
+                or sanitised.startswith(_SCAN_SAFE_TMP + os.sep) or sanitised == _SCAN_SAFE_TMP):
+            raise ValueError(f"Scanning system path is not allowed: {path}")
+
+        # Double-check against blocked system paths
         for blocked in _BLOCKED_SYSTEM_PATHS:
             if sanitised == blocked or sanitised.startswith(blocked + "/"):
                 raise ValueError(f"Scanning system path is not allowed: {path}")

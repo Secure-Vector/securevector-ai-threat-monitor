@@ -482,27 +482,33 @@ def install_skill(source_path: str, skill_name: str, skills_dir: str | None = No
     Returns the install path.
     Raises UrlFetchError on failure.
     """
-    # Sanitise source with os.path.realpath for CodeQL.
-    source = os.path.realpath(source_path)
-    if not os.path.isdir(source):
-        raise UrlFetchError("Source path does not exist")
-
-    # Verify source is under temp directory (security)
-    tmp_root = os.path.realpath(tempfile.gettempdir())
-    if not (source == tmp_root or source.startswith(tmp_root + os.sep)):
-        raise UrlFetchError("Source path must be in the system temp directory")
-
-    # Sanitize skill name
+    # Sanitize skill name first (no filesystem taint).
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "-", skill_name)[:100]
     if not safe_name:
         raise UrlFetchError("Invalid skill name")
 
+    # --- Source validation (must be under system temp) ---
+    tmp_root = os.path.realpath(tempfile.gettempdir())
+    source = os.path.realpath(source_path)
+
+    # Guard: source must be under $TMPDIR.
+    if not source.startswith(tmp_root + os.sep):
+        raise UrlFetchError("Source path must be in the system temp directory")
+    if not os.path.isdir(source):
+        raise UrlFetchError("Source path does not exist")
+
+    # --- Target construction (under home by default) ---
+    home_dir = os.path.realpath(os.path.expanduser("~"))
     if skills_dir:
         target_root = os.path.realpath(skills_dir)
     else:
-        target_root = os.path.realpath(os.path.join(Path.home(), ".openclaw", "skills"))
-    target = os.path.join(target_root, safe_name)
+        target_root = os.path.join(home_dir, ".openclaw", "skills")
 
+    # Guard: target must be under $HOME.
+    if not target_root.startswith(home_dir + os.sep) and target_root != home_dir:
+        raise UrlFetchError("Target directory must be under home directory")
+
+    target = os.path.join(target_root, safe_name)
     if os.path.exists(target):
         raise UrlFetchError(f"Skill '{safe_name}' already exists at {target}")
 
