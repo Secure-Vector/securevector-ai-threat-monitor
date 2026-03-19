@@ -96,7 +96,7 @@ class SkillScansRepository:
             "DELETE FROM skill_scan_records WHERE id = ?",
             (scan_id,),
         )
-        logger.debug(f"Deleted scan record {scan_id}")
+        logger.debug("Deleted scan record")
         return True
 
     @staticmethod

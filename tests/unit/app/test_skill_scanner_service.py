@@ -6,8 +6,6 @@ symlink escape, and compiled code detection. No database dependencies.
 """
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -18,7 +16,6 @@ try:
     from securevector.app.services.skill_scanner import (
         SkillScannerService,
         ScanResult,
-        Finding,
     )
     HAS_APP_DEPS = True
 except ImportError:

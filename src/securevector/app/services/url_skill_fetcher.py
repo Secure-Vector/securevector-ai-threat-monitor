@@ -337,8 +337,8 @@ class UrlSkillFetcher:
         is_zip = parsed_path.endswith(".zip")
 
         if not is_tar and not is_zip:
-            # Try as zip by default
-            is_zip = True
+            # Default to zip for unknown extensions
+            is_tar = False
 
         ext = ".tar.gz" if is_tar else ".zip"
         archive_path = _confined_path(temp_dir, f"{skill_name}{ext}")
@@ -470,9 +470,9 @@ class UrlSkillFetcher:
                             shutil.rmtree(entry, ignore_errors=True)
                             removed += 1
                     except OSError:
-                        pass
+                        pass  # Cannot stat entry — skip
         except OSError:
-            pass
+            pass  # Cannot list temp directory — skip
         return removed
 
 

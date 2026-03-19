@@ -263,7 +263,7 @@ def _wsl_win_home() -> Path | None:
             if wsl_path.is_dir():
                 return wsl_path
     except (OSError, subprocess.SubprocessError):
-        pass
+        pass  # WSL path conversion unavailable — fall through to fallback
 
     # Fallback: scan /mnt/c/Users — pick real user dirs (skip system dirs)
     _SYSTEM_USERS = {"Public", "Default", "Default User", "All Users", "desktop.ini"}
@@ -349,7 +349,7 @@ def _get_skill_search_paths() -> list[tuple[Path, str]]:
         if termux_home.is_dir() and termux_home != home:
             paths.append((termux_home / ".openclaw" / "skills", "openclaw"))
     except (PermissionError, OSError):
-        pass
+        pass  # Termux env not available — skip
 
     # iOS (iSH / a-Shell)
     try:
@@ -357,7 +357,7 @@ def _get_skill_search_paths() -> list[tuple[Path, str]]:
         if system != "Windows" and ish_docs.is_dir():
             paths.append((ish_docs / ".openclaw" / "skills", "openclaw"))
     except (PermissionError, OSError):
-        pass
+        pass  # iSH/a-Shell not available — skip
 
     return paths
 
@@ -457,7 +457,7 @@ async def trigger_scan(request: ScanRequest):
         except ValueError as exc:
             return ScanResultItem(path=path, success=False, error=str(exc))
         except Exception as exc:
-            logger.exception("Skill scan failed for %s", path)
+            logger.exception("Skill scan failed")
             return ScanResultItem(path=path, success=False, error=f"Scan failed: {exc}")
 
         # AI review — runs if LLM is enabled, silently skips otherwise
@@ -617,7 +617,7 @@ async def scan_from_url(request: ScanUrlRequest):
     except UrlFetchError as e:
         return ScanUrlResponse(success=False, error=str(e))
     except Exception as e:
-        logger.exception("URL fetch failed for %s", request.url)
+        logger.exception("URL fetch failed")
         return ScanUrlResponse(success=False, error=f"Fetch failed: {e}")
 
     # Scan the downloaded skill
@@ -629,7 +629,7 @@ async def scan_from_url(request: ScanUrlRequest):
         result = await scanner.scan(fetch_result.temp_dir, invocation_source="ui")
     except Exception as e:
         fetcher.cleanup(fetch_result.temp_dir)
-        logger.exception("Scan failed for URL %s", request.url)
+        logger.exception("Scan failed for fetched URL")
         return ScanUrlResponse(success=False, error=f"Scan failed: {e}")
 
     # AI review — runs if LLM is enabled, silently skips otherwise

@@ -309,7 +309,7 @@ class SkillScannerService:
                             rule_id="scanner.symlink_escape",
                         ))
                 except Exception:
-                    pass
+                    pass  # Symlink resolution failed — skip safely
                 continue  # Never follow symlinks — skip regardless of target
 
             # b. Skip non-files
@@ -697,7 +697,7 @@ class SkillScannerService:
                         line_no = text[: m.start()].count("\n") + 1
                         break
                 except re.error:
-                    pass
+                    pass  # Invalid regex in community rule — skip pattern
             excerpt = lines[line_no - 1].strip() if line_no and line_no <= len(lines) else ""
 
             # The community rule library was designed for prompt/text
