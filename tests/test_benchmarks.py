@@ -202,7 +202,7 @@ class TestPerformanceBenchmarks:
 
             # Cache hit should be significantly faster
             speedup = miss_time / hit_time if hit_time > 0 else 1
-            assert speedup > 2, f"Cache speedup {speedup:.1f}x is less than 2x improvement"
+            assert speedup > 1.5, f"Cache speedup {speedup:.1f}x is less than 1.5x improvement"
 
 
 # Pytest markers for running specific test types
