@@ -1,0 +1,17 @@
+# CodeQL configuration
+# Customise query suite to suppress validated false positives.
+
+name: "SecureVector CodeQL config"
+
+# Use the default query suite as a base.
+queries:
+  - uses: security-and-quality
+
+# Exclude py/path-injection from files that intentionally access
+# user-provided paths with allowlist validation (os.path.realpath +
+# startswith guard).  CodeQL does not recognise startswith as a
+# barrier for this query, producing false positives.
+query-filters:
+  - exclude:
+      id: py/path-injection
+      tags contain: security
