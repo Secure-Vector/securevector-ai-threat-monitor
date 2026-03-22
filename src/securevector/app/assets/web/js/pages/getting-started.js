@@ -14,16 +14,10 @@ const GettingStartedPage = {
 
         // === SECTIONS (all collapsible, collapsed by default) ===
 
-        const gettingStartedCard = this.createCollapsibleCard(
+        container.appendChild(this.createCollapsibleCard(
             'Getting Started', 'No code changes — just set an environment variable',
             'section-getting-started', () => this.buildProxyContent()
-        );
-        // Expand by default so new users see it immediately
-        const _gsBody = gettingStartedCard.querySelector('.gs-card-body');
-        const _gsInd = gettingStartedCard.querySelector('.gs-toggle-indicator');
-        if (_gsBody) _gsBody.style.display = 'block';
-        if (_gsInd) _gsInd.textContent = '\u2212';
-        container.appendChild(gettingStartedCard);
+        ));
 
 
         container.appendChild(this.createCollapsibleCard(
@@ -85,7 +79,7 @@ const GettingStartedPage = {
 
     buildWelcomeHero() {
         const hero = document.createElement('div');
-        hero.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 24px 28px; margin-bottom: 16px;';
+        hero.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 20px; margin-bottom: 16px;';
 
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;';
@@ -93,89 +87,117 @@ const GettingStartedPage = {
         hero.appendChild(title);
 
         const subtitle = document.createElement('div');
-        subtitle.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;';
-        subtitle.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents. Scan skills before you install or run them.';
+        subtitle.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.7; margin-bottom: 20px;';
+        subtitle.textContent = 'SecureVector is a local security proxy for your AI agents. It sits between your agent and the LLM, scanning every request and response for threats, tracking costs, and monitoring tool usage.';
         hero.appendChild(subtitle);
 
-        const steps = document.createElement('div');
-        steps.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;';
+        // Proxy status bar
+        const proxyBar = document.createElement('div');
+        proxyBar.style.cssText = 'padding: 14px 18px; background: var(--bg-secondary); border: 1px solid rgba(94,173,184,0.3); border-radius: 8px; margin-bottom: 20px;';
 
-        const stepData = [
-            {
-                num: '1',
-                title: 'Proxy Already Running',
-                badge: 'Active',
-                desc: 'Your AI Firewall is live. Point your agent\'s LLM calls to the proxy by setting one environment variable: OPENAI_BASE_URL=http://localhost:8742/openai/v1',
-                action: null,
-            },
-            {
-                num: '2',
-                title: 'Scan Skills First',
-                desc: 'Before installing any skill, paste its URL into the Skill Scanner to check for risky network calls, file writes, or shell commands.',
-                action: () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); },
-            },
-            {
-                num: '3',
-                title: 'Configure Permissions',
-                desc: 'Go to Configure \u2192 Tool Permissions to block risky agent actions, and Skill Policy to manage scan rules.',
-                action: () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); },
-            },
-            {
-                num: '4',
-                title: 'Start Monitoring',
-                desc: 'Run your agent and watch threats, tool calls, and costs appear live in the Monitor section.',
-                action: () => { if (window.Sidebar) Sidebar.navigate('threats'); },
-            },
-        ];
+        const proxyStatus = document.createElement('div');
+        proxyStatus.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        const proxyDot = document.createElement('span');
+        proxyDot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
+        const proxyLabel = document.createElement('span');
+        proxyLabel.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--success-text);';
+        proxyLabel.textContent = 'Proxy is running';
+        proxyStatus.appendChild(proxyDot);
+        proxyStatus.appendChild(proxyLabel);
+        proxyBar.appendChild(proxyStatus);
 
-        stepData.forEach((s, i) => {
-            const card = document.createElement('div');
-            card.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px;' + (s.action ? ' cursor: pointer;' : '');
-            if (s.action) {
-                card.addEventListener('mouseenter', () => card.style.background = 'var(--bg-hover)');
-                card.addEventListener('mouseleave', () => card.style.background = 'var(--bg-secondary)');
-                card.addEventListener('click', s.action);
-            }
-
-            // Step number circle
-            const numCircle = document.createElement('div');
-            numCircle.style.cssText = 'width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg,#00bcd4,#f44336); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; flex-shrink: 0;';
-            numCircle.textContent = s.num;
-            card.appendChild(numCircle);
-
-            // Title row
-            const titleRow = document.createElement('div');
-            titleRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;';
-
-            const stepTitle = document.createElement('div');
-            stepTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary);';
-            stepTitle.textContent = s.title;
-            titleRow.appendChild(stepTitle);
-
-            if (s.badge) {
-                const badge = document.createElement('span');
-                badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(0,188,212,0.12); color: var(--accent-primary); letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap;';
-                badge.textContent = s.badge;
-                titleRow.appendChild(badge);
-            }
-            card.appendChild(titleRow);
-
-            const stepDesc = document.createElement('div');
-            stepDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
-            stepDesc.textContent = s.desc;
-            card.appendChild(stepDesc);
-
-            if (s.action) {
-                const link = document.createElement('div');
-                link.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary); margin-top: 8px;';
-                link.textContent = 'Go →';
-                card.appendChild(link);
-            }
-
-            steps.appendChild(card);
+        const featureList = document.createElement('div');
+        featureList.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px;';
+        ['Threat Detection', 'Cost Tracking', 'Tool Monitoring'].forEach(f => {
+            const tag = document.createElement('span');
+            tag.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px;';
+            const check = document.createElement('span');
+            check.style.cssText = 'color: var(--success-text); font-size: 10px;';
+            check.textContent = '\u2713';
+            tag.appendChild(check);
+            tag.appendChild(document.createTextNode(f));
+            featureList.appendChild(tag);
         });
+        proxyBar.appendChild(featureList);
+        hero.appendChild(proxyBar);
 
-        hero.appendChild(steps);
+        // Two action cards — matching the popup structure
+        const columns = document.createElement('div');
+        columns.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; min-width: 0;';
+
+        // Shared env var value
+        const envValue = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
+
+        // --- LEFT: Set up your integration ---
+        const setupBox = document.createElement('div');
+        setupBox.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); min-width: 0; cursor: pointer; transition: border-color 0.15s; overflow: hidden;';
+        setupBox.addEventListener('mouseenter', () => setupBox.style.borderColor = 'rgba(94,173,184,0.3)');
+        setupBox.addEventListener('mouseleave', () => setupBox.style.borderColor = 'var(--border-default)');
+        setupBox.addEventListener('click', () => { if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); } });
+
+        const setupTitle = document.createElement('div');
+        setupTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        setupTitle.textContent = 'Set up your integration';
+        setupBox.appendChild(setupTitle);
+
+        const setupDesc = document.createElement('div');
+        setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+        setupDesc.textContent = 'Point your agent\u2019s base URL to the proxy. Step-by-step setup for each framework.';
+        setupBox.appendChild(setupDesc);
+
+        const codeWrap = document.createElement('div');
+        codeWrap.style.cssText = 'display: flex; align-items: center; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 10px; min-width: 0;';
+        const codeText = document.createElement('div');
+        codeText.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); padding: 6px 10px; word-break: break-all; flex: 1; min-width: 0;';
+        codeText.textContent = envValue;
+        const copyBtn = document.createElement('button');
+        copyBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px 8px; font-size: 11px; flex-shrink: 0; transition: color 0.15s;';
+        copyBtn.textContent = 'Copy';
+        copyBtn.title = 'Copy to clipboard';
+        copyBtn.addEventListener('mouseenter', () => copyBtn.style.color = 'var(--accent-primary)');
+        copyBtn.addEventListener('mouseleave', () => copyBtn.style.color = 'var(--text-muted)');
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(envValue).then(() => {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.color = '#10b981';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.color = 'var(--text-muted)'; }, 1500);
+            });
+        });
+        codeWrap.appendChild(codeText);
+        codeWrap.appendChild(copyBtn);
+        setupBox.appendChild(codeWrap);
+
+        const setupLink = document.createElement('span');
+        setupLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
+        setupLink.textContent = 'LangChain \u00b7 CrewAI \u00b7 OpenClaw \u00b7 Ollama \u00b7 more \u2192';
+        setupBox.appendChild(setupLink);
+
+        // --- RIGHT: Skill Scanner ---
+        const scanBox = document.createElement('div');
+        scanBox.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); min-width: 0; cursor: pointer; transition: border-color 0.15s; overflow: hidden;';
+        scanBox.addEventListener('mouseenter', () => scanBox.style.borderColor = 'rgba(94,173,184,0.3)');
+        scanBox.addEventListener('mouseleave', () => scanBox.style.borderColor = 'var(--border-default)');
+        scanBox.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); });
+
+        const scanTitle = document.createElement('div');
+        scanTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        scanTitle.textContent = 'Scan a skill before you install it';
+        scanBox.appendChild(scanTitle);
+
+        const scanDesc = document.createElement('div');
+        scanDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+        scanDesc.textContent = 'Check any skill for risky patterns \u2014 network calls, shell commands, file writes \u2014 before adding it to your agent.';
+        scanBox.appendChild(scanDesc);
+
+        const scanLink = document.createElement('span');
+        scanLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
+        scanLink.textContent = 'Open Skill Scanner \u2192';
+        scanBox.appendChild(scanLink);
+
+        columns.appendChild(setupBox);
+        columns.appendChild(scanBox);
+        hero.appendChild(columns);
         return hero;
     },
 
@@ -185,12 +207,12 @@ const GettingStartedPage = {
         const card = document.createElement('div');
         card.className = 'card';
         card.id = sectionId;
-        card.style.cssText = 'padding: 0; overflow: hidden; margin-bottom: 12px;' + (isNew ? ' border-color: rgba(6,182,212,0.35);' : '');
+        card.style.cssText = 'padding: 0; overflow: hidden; margin-bottom: 12px;' + (isNew ? ' border-color: rgba(94,173,184,0.35);' : '');
 
         // Clickable header
         const header = document.createElement('div');
         header.style.cssText = 'padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.15s;';
-        header.addEventListener('mouseenter', () => { header.style.background = 'rgba(0, 188, 212, 0.04)'; });
+        header.addEventListener('mouseenter', () => { header.style.background = 'rgba(94, 173, 184, 0.04)'; });
         header.addEventListener('mouseleave', () => { header.style.background = ''; });
 
         const headerLeft = document.createElement('div');
@@ -202,7 +224,7 @@ const GettingStartedPage = {
         titleRow.appendChild(headerTitle);
         if (isNew) {
             const badge = document.createElement('span');
-            badge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: linear-gradient(135deg,#06b6d4,#0ea5e9); color:#fff; letter-spacing:0.5px; line-height:1.6; box-shadow:0 1px 4px rgba(6,182,212,0.4);';
+            badge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(94,173,184,0.15); color: var(--accent-primary); letter-spacing:0.5px; line-height:1.6;';
             badge.textContent = 'NEW';
             titleRow.appendChild(badge);
         }
@@ -403,7 +425,7 @@ const GettingStartedPage = {
         scanGrid.appendChild(inputCol);
 
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #f44336);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
         outputTitle.textContent = 'Output Scanning (LLM \u2192 User)';
@@ -417,7 +439,7 @@ const GettingStartedPage = {
         modesGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;';
 
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #f44336);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
         blockTitle.textContent = 'Block Mode (Default)';
@@ -481,7 +503,7 @@ const GettingStartedPage = {
 
         // Output column
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #f44336);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
 
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
@@ -514,7 +536,7 @@ const GettingStartedPage = {
 
         // Block mode (default)
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #f44336);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
 
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
@@ -887,7 +909,7 @@ const GettingStartedPage = {
             left.appendChild(idEl);
 
             const badge = document.createElement('span');
-            badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; color: white; background: ' + cat.color + '; padding: 1px 5px; border-radius: 3px;';
+            badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; color: ' + cat.color + '; background: ' + cat.color + '1a; padding: 1px 5px; border-radius: 3px;';
             badge.textContent = cat.severity;
             left.appendChild(badge);
             row.appendChild(left);
@@ -1142,7 +1164,7 @@ const GettingStartedPage = {
             // Clickable header
             const header = document.createElement('div');
             header.style.cssText = 'padding: 10px 16px; display: flex; align-items: flex-start; justify-content: space-between; cursor: pointer; user-select: none; gap: 12px;';
-            header.addEventListener('mouseenter', () => { header.style.background = 'rgba(0,188,212,0.04)'; });
+            header.addEventListener('mouseenter', () => { header.style.background = 'rgba(94,173,184,0.04)'; });
             header.addEventListener('mouseleave', () => { header.style.background = ''; });
 
             const titleEl = document.createElement('div');
@@ -1205,7 +1227,7 @@ const GettingStartedPage = {
 
             if (issue.note) {
                 const noteEl = document.createElement('div');
-                noteEl.style.cssText = 'margin-top: 10px; font-size: 11.5px; color: var(--text-secondary); padding: 7px 10px; background: rgba(0,188,212,0.05); border-radius: 6px; border-left: 2px solid var(--accent-primary); line-height: 1.5;';
+                noteEl.style.cssText = 'margin-top: 10px; font-size: 11.5px; color: var(--text-secondary); padding: 7px 10px; background: rgba(94,173,184,0.05); border-radius: 6px; border-left: 2px solid var(--accent-primary); line-height: 1.5;';
                 const noteLabel = document.createElement('strong');
                 noteLabel.style.color = 'var(--accent-primary)';
                 noteLabel.textContent = 'Note: ';
@@ -1250,7 +1272,7 @@ const GettingStartedPage = {
         // ── OpenAPI docs — highlighted hero card ─────────────────────────
         const docsCard = document.createElement('div');
         docsCard.style.cssText = 'padding: 16px 20px; background: var(--bg-secondary); border: 1px solid var(--accent-primary); border-radius: 10px; margin-bottom: 14px; cursor: pointer; transition: background 0.15s;';
-        docsCard.addEventListener('mouseenter', () => { docsCard.style.background = 'rgba(0,188,212,0.06)'; });
+        docsCard.addEventListener('mouseenter', () => { docsCard.style.background = 'rgba(94,173,184,0.06)'; });
         docsCard.addEventListener('mouseleave', () => { docsCard.style.background = 'var(--bg-secondary)'; });
         docsCard.addEventListener('click', () => { window.open('/docs', '_blank'); });
 
@@ -1426,7 +1448,7 @@ const GettingStartedPage = {
         wrapper.style.cssText = 'display: flex; gap: 12px; margin-bottom: 4px;';
 
         const num = document.createElement('span');
-        num.style.cssText = 'width: 26px; height: 26px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 1px;';
+        num.style.cssText = 'width: 26px; height: 26px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 1px;';
         num.textContent = number;
         wrapper.appendChild(num);
 

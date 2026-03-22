@@ -143,28 +143,33 @@ const Sidebar = {
                 navItem.appendChild(badge);
             }
 
-            // NEW badge (dismissible) — only on Rules
-            const newBadgeItems = ['rules'];
-            if (newBadgeItems.includes(item.id) && !localStorage.getItem('sv-new-dismissed-' + item.id)) {
+            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
+            const persistNewItems = ['rules'];
+            const sessionNewItems = ['skill-scanner', 'skill-permissions'];
+            const isPersist = persistNewItems.includes(item.id);
+            const isSession = sessionNewItems.includes(item.id);
+            const shouldShow = isPersist
+                ? !localStorage.getItem('sv-new-dismissed-' + item.id)
+                : isSession && !sessionStorage.getItem('sv-new-seen-' + item.id);
+            if (shouldShow) {
                 const newBadge = document.createElement('span');
-                newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: #b45309; color: #fff; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: rgba(180,83,9,0.2); color: #d97706; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
                 const newText = document.createTextNode('NEW');
                 newBadge.appendChild(newText);
-                const closeX = document.createElement('span');
-                closeX.textContent = '×';
-                closeX.title = 'Dismiss';
-                closeX.style.cssText = 'font-size: 10px; line-height: 1; cursor: pointer; opacity: 0.85; margin-left: 1px;';
                 const dismissBadge = () => {
-                    localStorage.setItem('sv-new-dismissed-' + item.id, '1');
+                    if (isPersist) localStorage.setItem('sv-new-dismissed-' + item.id, '1');
+                    else sessionStorage.setItem('sv-new-seen-' + item.id, '1');
                     newBadge.remove();
                 };
-                closeX.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    dismissBadge();
-                });
-                newBadge.appendChild(closeX);
+                if (isPersist) {
+                    const closeX = document.createElement('span');
+                    closeX.textContent = '×';
+                    closeX.title = 'Dismiss';
+                    closeX.style.cssText = 'font-size: 10px; line-height: 1; cursor: pointer; opacity: 0.85; margin-left: 1px;';
+                    closeX.addEventListener('click', (e) => { e.stopPropagation(); dismissBadge(); });
+                    newBadge.appendChild(closeX);
+                }
                 navItem.appendChild(newBadge);
-                // Auto-dismiss after 30 seconds
                 setTimeout(dismissBadge, 30000);
             }
 
@@ -273,8 +278,8 @@ const Sidebar = {
         const proxyBanner = document.createElement('div');
         proxyBanner.id = 'integration-proxy-banner';
         proxyBanner.className = 'proxy-banner-pulse';
-        proxyBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(0,188,212,0.35); align-items: center; gap: 6px; transition: background 0.15s;';
-        proxyBanner.addEventListener('mouseenter', () => { proxyBanner.style.background = 'rgba(0,188,212,0.06)'; });
+        proxyBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(94,173,184,0.35); align-items: center; gap: 6px; transition: background 0.15s;';
+        proxyBanner.addEventListener('mouseenter', () => { proxyBanner.style.background = 'rgba(94,173,184,0.06)'; });
         proxyBanner.addEventListener('mouseleave', () => { proxyBanner.style.background = 'transparent'; });
 
         const bannerDot = document.createElement('span');
@@ -527,7 +532,7 @@ const Sidebar = {
         langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
         crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
         n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
-        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #00bcd4, #f44336)', page: 'integrations' },
+        default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #5eadb8, #c0655e)', page: 'integrations' },
     },
 
     async checkProxyStatus() {

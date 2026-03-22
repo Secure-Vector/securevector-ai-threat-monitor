@@ -73,7 +73,6 @@ const App = {
      */
     showWelcomeIfFirstLaunch() {
         const hasSeenWelcome = localStorage.getItem('sv-welcome-seen');
-        // Skip welcome popup if already seen or if ?no-welcome param is present (for screenshots)
         const urlParams = new URLSearchParams(window.location.search);
         if (hasSeenWelcome || urlParams.has('no-welcome')) return;
 
@@ -83,7 +82,24 @@ const App = {
 
         const modal = document.createElement('div');
         modal.className = 'modal welcome-modal';
-        modal.style.cssText = 'max-width: 500px;';
+        modal.style.cssText = 'max-width: 700px;';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+
+        // Dismiss helper — defined early so all handlers can reference it
+        const dismissModal = () => {
+            localStorage.setItem('sv-welcome-seen', 'true');
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.remove(), 150);
+        };
+
+        const navigateTo = (page, expandSection) => {
+            dismissModal();
+            if (window.Sidebar) {
+                if (expandSection) Sidebar.expandSection(expandSection);
+                Sidebar.navigate(page);
+            }
+        };
 
         // Header
         const header = document.createElement('div');
@@ -106,8 +122,8 @@ const App = {
         header.appendChild(title);
 
         const closeBtn = document.createElement('button');
-        closeBtn.style.cssText = 'background: none; border: none; font-size: 22px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 0; flex-shrink: 0;';
-        closeBtn.textContent = '×';
+        closeBtn.style.cssText = 'background: none; border: none; font-size: 22px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 4px 8px; flex-shrink: 0;';
+        closeBtn.textContent = '\u00d7';
         closeBtn.title = 'Close';
         closeBtn.addEventListener('click', () => dismissModal());
         header.appendChild(closeBtn);
@@ -117,151 +133,131 @@ const App = {
         // Content
         const content = document.createElement('div');
         content.className = 'modal-content';
-        content.style.cssText = 'padding: 20px 0;';
+        content.style.cssText = 'padding: 24px 20px;';
 
-        const intro = document.createElement('div');
-        intro.style.cssText = 'margin: 0 0 20px 0; padding: 12px 16px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border-radius: 8px; color: white; font-weight: 600; text-align: center;';
-        intro.textContent = '100% Local AI Threat Detection & Cost Intelligence for Your Agents';
-        content.appendChild(intro);
+        // What is SecureVector — clear, readable intro
+        const whatIs = document.createElement('div');
+        whatIs.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.7; margin-bottom: 20px;';
+        whatIs.textContent = 'SecureVector is a local security proxy for your AI agents. It sits between your agent and the LLM, scanning every request and response for threats, tracking costs, and monitoring tool usage.';
+        content.appendChild(whatIs);
 
-        // Instructions
-        const instructionBox = document.createElement('div');
-        instructionBox.style.cssText = 'padding: 16px; background: var(--bg-secondary); border-radius: 8px; display: flex; flex-direction: column; gap: 16px;';
+        // Proxy status bar with cyan border
+        const proxyBar = document.createElement('div');
+        proxyBar.style.cssText = 'padding: 14px 18px; background: var(--bg-secondary); border: 1px solid rgba(94,173,184,0.3); border-radius: 8px; margin-bottom: 20px;';
 
-        const _numStyle = 'width: 28px; height: 28px; background: linear-gradient(135deg, #00bcd4, #f44336); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; margin-top: 1px;';
-        const _titleStyle = 'font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;';
-        const _descStyle = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 3px;';
+        const proxyStatus = document.createElement('div');
+        proxyStatus.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        const proxyDot = document.createElement('span');
+        proxyDot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
+        const proxyLabel = document.createElement('span');
+        proxyLabel.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--success-text);';
+        proxyLabel.textContent = 'Proxy is running';
+        proxyStatus.appendChild(proxyDot);
+        proxyStatus.appendChild(proxyLabel);
+        proxyBar.appendChild(proxyStatus);
 
-        // Step 1 — Proxy already running
-        const step1 = document.createElement('div');
-        step1.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-        const step1Num = document.createElement('span');
-        step1Num.style.cssText = _numStyle;
-        step1Num.textContent = '1';
-        step1.appendChild(step1Num);
-        const step1Body = document.createElement('div');
-        const step1Title = document.createElement('div');
-        step1Title.style.cssText = _titleStyle;
-        step1Title.appendChild(document.createTextNode('Proxy Already Running'));
-        const step1Badge = document.createElement('span');
-        step1Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
-        step1Badge.textContent = '\u25CF Active';
-        step1Title.appendChild(step1Badge);
-        step1Body.appendChild(step1Title);
-        const step1Desc = document.createElement('div');
-        step1Desc.style.cssText = _descStyle;
-        step1Desc.textContent = "Your AI Firewall is live. Point your agent's LLM calls to the proxy by setting one environment variable:";
-        step1Body.appendChild(step1Desc);
-        const step1Code = document.createElement('div');
-        step1Code.style.cssText = 'margin-top: 5px; font-size: 12px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 4px 10px; border-radius: 4px; display: inline-block;';
-        step1Code.textContent = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
-        step1Body.appendChild(step1Code);
-        step1.appendChild(step1Body);
-        instructionBox.appendChild(step1);
+        // Feature list — structured, not inline
+        const featureList = document.createElement('div');
+        featureList.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px;';
+        ['Threat Detection', 'Cost Tracking', 'Tool Monitoring'].forEach(f => {
+            const tag = document.createElement('span');
+            tag.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px;';
+            const check = document.createElement('span');
+            check.style.cssText = 'color: var(--success-text); font-size: 10px;';
+            check.textContent = '\u2713';
+            tag.appendChild(check);
+            tag.appendChild(document.createTextNode(f));
+            featureList.appendChild(tag);
+        });
+        proxyBar.appendChild(featureList);
 
-        // Step 2 — Rules already enabled
-        const step2 = document.createElement('div');
-        step2.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-        const step2Num = document.createElement('span');
-        step2Num.style.cssText = _numStyle;
-        step2Num.textContent = '2';
-        step2.appendChild(step2Num);
-        const step2Body = document.createElement('div');
-        const step2Title = document.createElement('div');
-        step2Title.style.cssText = _titleStyle;
-        step2Title.appendChild(document.createTextNode('Threat Detection Rules Enabled'));
-        const step2Badge = document.createElement('span');
-        step2Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
-        step2Badge.textContent = '\u25CF Ready';
-        step2Title.appendChild(step2Badge);
-        step2Body.appendChild(step2Title);
-        const step2Desc = document.createElement('div');
-        step2Desc.style.cssText = _descStyle;
-        step2Desc.textContent = 'Prompt injection, jailbreak, data exfiltration, and 300+ other threat patterns are pre-loaded and scanning every request automatically.';
-        step2Body.appendChild(step2Desc);
-        step2.appendChild(step2Body);
-        instructionBox.appendChild(step2);
+        content.appendChild(proxyBar);
 
-        // Step 3 — Tool Permissions
-        const step3 = document.createElement('div');
-        step3.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-        const step3Num = document.createElement('span');
-        step3Num.style.cssText = _numStyle;
-        step3Num.textContent = '3';
-        step3.appendChild(step3Num);
-        const step3Body = document.createElement('div');
-        const step3Title = document.createElement('div');
-        step3Title.style.cssText = _titleStyle;
-        step3Title.textContent = 'Configure Tool Permissions & Budgets';
-        step3Body.appendChild(step3Title);
-        const step3Desc = document.createElement('div');
-        step3Desc.style.cssText = _descStyle;
-        const step3b1 = document.createElement('strong'); step3b1.textContent = 'Tool Permissions';
-        const step3b2 = document.createElement('strong'); step3b2.textContent = 'Cost Settings';
-        step3Desc.appendChild(document.createTextNode('Go to '));
-        step3Desc.appendChild(step3b1);
-        step3Desc.appendChild(document.createTextNode(' to block risky agent actions, and '));
-        step3Desc.appendChild(step3b2);
-        step3Desc.appendChild(document.createTextNode(' to set daily spend limits.'));
-        step3Body.appendChild(step3Desc);
-        step3.appendChild(step3Body);
-        instructionBox.appendChild(step3);
+        // Two action paths — side by side
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; min-width: 0;';
 
-        // Step 4 — Monitor
-        const step4 = document.createElement('div');
-        step4.style.cssText = 'font-size: 14px; line-height: 1.6; display: flex; align-items: flex-start; gap: 12px;';
-        const step4Num = document.createElement('span');
-        step4Num.style.cssText = _numStyle;
-        step4Num.textContent = '4';
-        step4.appendChild(step4Num);
-        const step4Body = document.createElement('div');
-        const step4Title = document.createElement('div');
-        step4Title.style.cssText = _titleStyle;
-        step4Title.textContent = "Run Your Agent \u2014 Watch It Live";
-        step4Body.appendChild(step4Title);
-        const step4Desc = document.createElement('div');
-        step4Desc.style.cssText = _descStyle;
-        const step4b1 = document.createElement('strong'); step4b1.textContent = 'Monitor';
-        step4Desc.appendChild(document.createTextNode('Threats, tool calls, and costs appear in real time in the '));
-        step4Desc.appendChild(step4b1);
-        step4Desc.appendChild(document.createTextNode(' section as your agent runs.'));
-        step4Body.appendChild(step4Desc);
-        step4.appendChild(step4Body);
-        instructionBox.appendChild(step4);
+        // --- Setup Integration ---
+        const setupCard = document.createElement('div');
+        setupCard.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); min-width: 0; cursor: pointer; transition: border-color 0.15s;';
+        setupCard.addEventListener('mouseenter', () => setupCard.style.borderColor = 'rgba(94,173,184,0.3)');
+        setupCard.addEventListener('mouseleave', () => setupCard.style.borderColor = 'var(--border-default)');
+        setupCard.addEventListener('click', () => navigateTo('proxy-openclaw', 'integrations'));
 
-        content.appendChild(instructionBox);
+        const setupTitle = document.createElement('div');
+        setupTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        setupTitle.textContent = 'Set up your integration';
+        setupCard.appendChild(setupTitle);
+        const setupDesc = document.createElement('div');
+        setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+        setupDesc.textContent = 'Point your agent\u2019s base URL to the proxy. Step-by-step setup for each framework.';
+        setupCard.appendChild(setupDesc);
+
+        // Env var with copy inside setup card
+        const codeWrap = document.createElement('div');
+        codeWrap.style.cssText = 'display: flex; align-items: center; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 10px; min-width: 0;';
+        const codeText = document.createElement('div');
+        codeText.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); padding: 6px 10px; word-break: break-all; flex: 1; min-width: 0;';
+        const envValue = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
+        codeText.textContent = envValue;
+        const copyBtn = document.createElement('button');
+        copyBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px 8px; font-size: 11px; flex-shrink: 0; transition: color 0.15s;';
+        copyBtn.textContent = 'Copy';
+        copyBtn.title = 'Copy to clipboard';
+        copyBtn.addEventListener('mouseenter', () => copyBtn.style.color = 'var(--accent-primary)');
+        copyBtn.addEventListener('mouseleave', () => copyBtn.style.color = 'var(--text-muted)');
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(envValue).then(() => {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.style.color = '#10b981';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.color = 'var(--text-muted)'; }, 1500);
+            });
+        });
+        codeWrap.appendChild(codeText);
+        codeWrap.appendChild(copyBtn);
+        setupCard.appendChild(codeWrap);
+
+        const setupLink = document.createElement('span');
+        setupLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
+        setupLink.textContent = 'LangChain \u00b7 CrewAI \u00b7 OpenClaw \u00b7 Ollama \u00b7 more \u2192';
+        setupCard.appendChild(setupLink);
+
+        // --- Skill Scanner ---
+        const scanCard = document.createElement('div');
+        scanCard.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); min-width: 0; cursor: pointer; transition: border-color 0.15s;';
+        scanCard.addEventListener('mouseenter', () => scanCard.style.borderColor = 'rgba(94,173,184,0.3)');
+        scanCard.addEventListener('mouseleave', () => scanCard.style.borderColor = 'var(--border-default)');
+        scanCard.addEventListener('click', () => navigateTo('skill-scanner'));
+
+        const scanTitle = document.createElement('div');
+        scanTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
+        scanTitle.textContent = 'Scan a skill before you install it';
+        scanCard.appendChild(scanTitle);
+        const scanDesc = document.createElement('div');
+        scanDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+        scanDesc.textContent = 'Check any skill for risky patterns \u2014 network calls, shell commands, file writes \u2014 before adding it to your agent.';
+        scanCard.appendChild(scanDesc);
+        const scanLink = document.createElement('span');
+        scanLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
+        scanLink.textContent = 'Open Skill Scanner \u2192';
+        scanCard.appendChild(scanLink);
+
+        actions.appendChild(setupCard);
+        actions.appendChild(scanCard);
+        content.appendChild(actions);
 
         modal.appendChild(content);
 
-        // Footer
-        const footer = document.createElement('div');
-        footer.className = 'modal-footer';
-        footer.style.cssText = 'border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; justify-content: flex-end; gap: 8px;';
-
-        const dismissModal = () => {
-            localStorage.setItem('sv-welcome-seen', 'true');
-            overlay.classList.remove('active');
-            setTimeout(() => overlay.remove(), 150);
-        };
-
-        const gotItBtn = document.createElement('button');
-        gotItBtn.className = 'btn btn-secondary';
-        gotItBtn.textContent = 'Close';
-        gotItBtn.addEventListener('click', dismissModal);
-        footer.appendChild(gotItBtn);
-
-        const configureBtn = document.createElement('button');
-        configureBtn.className = 'btn btn-primary';
-        configureBtn.textContent = 'Go to Configure';
-        configureBtn.addEventListener('click', () => {
-            dismissModal();
-            if (window.Sidebar) Sidebar.navigate('tool-permissions');
-        });
-        footer.appendChild(configureBtn);
-
-        modal.appendChild(footer);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
+
+        // Click outside to dismiss
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) dismissModal(); });
+
+        // Escape key to dismiss
+        const escHandler = (e) => { if (e.key === 'Escape') { dismissModal(); document.removeEventListener('keydown', escHandler); } };
+        document.addEventListener('keydown', escHandler);
 
         // Animate in
         requestAnimationFrame(() => overlay.classList.add('active'));

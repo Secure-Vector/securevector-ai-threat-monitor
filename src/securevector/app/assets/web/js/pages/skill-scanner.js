@@ -78,6 +78,7 @@ const SkillScannerPage = {
         // Skills Detected section — compact summary with expand toggle
         const section = document.createElement('div');
         section.style.cssText = 'margin-bottom: 20px;';
+        let summaryToggle = null;
 
         const sectionHeader = document.createElement('div');
         sectionHeader.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 12px;';
@@ -90,12 +91,12 @@ const SkillScannerPage = {
 
         if (discovered.length > 0) {
             // Compact summary row with expand toggle — prominent count badge
-            const summaryToggle = document.createElement('div');
+            summaryToggle = document.createElement('div');
             summaryToggle.style.cssText = 'display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 10px 16px; border-radius: 8px; background: var(--bg-card); border: 1px solid var(--border-default); transition: border-color 0.15s;';
             summaryToggle.addEventListener('mouseenter', () => { summaryToggle.style.borderColor = 'var(--accent-primary)'; });
             summaryToggle.addEventListener('mouseleave', () => { summaryToggle.style.borderColor = 'var(--border-default)'; });
             const countBubble = document.createElement('span');
-            countBubble.style.cssText = 'min-width: 28px; height: 28px; border-radius: var(--radius-full); background: var(--accent-primary); color: #fff; font-size: 13px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0;';
+            countBubble.style.cssText = 'min-width: 28px; height: 28px; border-radius: var(--radius-full); background: rgba(94,173,184,0.15); color: var(--accent-primary); border: 1px solid rgba(94,173,184,0.3); font-size: 13px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0;';
             countBubble.textContent = discovered.length;
             summaryToggle.appendChild(countBubble);
             const summaryText = document.createElement('span');
@@ -103,6 +104,7 @@ const SkillScannerPage = {
             summaryText.textContent = `skill${discovered.length !== 1 ? 's' : ''} detected`;
             summaryToggle.appendChild(summaryText);
             const chevron = document.createElement('span');
+            chevron.className = 'skills-chevron';
             chevron.style.cssText = 'font-size: 10px; color: var(--text-muted); transition: transform 0.2s; display: inline-block;';
             chevron.textContent = '\u25B6';
             summaryToggle.appendChild(chevron);
@@ -182,13 +184,13 @@ const SkillScannerPage = {
                 gridArea.appendChild(dirsHint);
             }
 
-            const sourceColors = { openclaw: '#00bcd4', mcp: '#8b5cf6', claude: '#f59e0b', custom: '#6b7280' };
+            const sourceColors = { openclaw: '#5eadb8', mcp: '#8b5cf6', claude: '#f59e0b', custom: '#6b7280' };
             const grid = document.createElement('div');
             grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 14px;';
 
             discovered.forEach(skill => {
                 const card = document.createElement('div');
-                card.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; border: 1.5px solid var(--accent-primary); background: rgba(0,188,212,0.06); cursor: pointer; transition: all 0.15s; user-select: none;';
+                card.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; border: 1.5px solid var(--accent-primary); background: rgba(94,173,184,0.06); cursor: pointer; transition: all 0.15s; user-select: none;';
                 selectedPaths.add(skill.path);
 
                 const check = document.createElement('span');
@@ -223,7 +225,7 @@ const SkillScannerPage = {
                 const setSelected = (sel) => {
                     if (sel) {
                         card.style.borderColor = 'var(--accent-primary)';
-                        card.style.background = 'rgba(0,188,212,0.06)';
+                        card.style.background = 'rgba(94,173,184,0.06)';
                         check.style.background = 'var(--accent-primary)';
                         check.style.borderColor = 'var(--accent-primary)';
                         check.textContent = '\u2713';
@@ -257,7 +259,7 @@ const SkillScannerPage = {
             sectionHeader.querySelector('div').addEventListener('click', () => {
                 const expanded = gridArea.style.display !== 'none';
                 gridArea.style.display = expanded ? 'none' : 'block';
-                const chev = sectionHeader.querySelector('span');
+                const chev = sectionHeader.querySelector('.skills-chevron');
                 if (chev) chev.style.transform = expanded ? '' : 'rotate(90deg)';
             });
         } else {
@@ -275,7 +277,7 @@ const SkillScannerPage = {
 
         // ── Scan (unified: URL or path) ──────────────────────────────
         const scanSection = document.createElement('div');
-        scanSection.style.cssText = 'margin-bottom: 20px;';
+        scanSection.style.cssText = 'margin-bottom: 20px; border-radius: 8px;';
 
         const scanHeader = document.createElement('div');
         scanHeader.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 10px;';
@@ -644,6 +646,24 @@ const SkillScannerPage = {
         if (this._lastScanResults) {
             this._renderScanResults(resultsArea, this._lastScanResults);
         }
+
+        // Flash cyan highlight on key sections — once per session, staggered
+        if (!sessionStorage.getItem('sv-scanner-flashed')) {
+            sessionStorage.setItem('sv-scanner-flashed', '1');
+            if (!document.getElementById('sv-flash-style')) {
+                const flashStyle = document.createElement('style');
+                flashStyle.id = 'sv-flash-style';
+                flashStyle.textContent = '@keyframes sv-cyan-flash { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 0 2px rgba(94,173,184,0.5), 0 0 12px rgba(94,173,184,0.2); } }';
+                document.head.appendChild(flashStyle);
+            }
+            const flashAnim = 'sv-cyan-flash 0.8s ease-in-out 3';
+            // Skills Detected first (after page settles)
+            if (summaryToggle) {
+                setTimeout(() => { summaryToggle.style.animation = flashAnim; }, 400);
+            }
+            // Scan section second (staggered)
+            setTimeout(() => { scanSection.style.animation = flashAnim; }, 1900);
+        }
     },
 
     _renderInstallSelection(container, allResults) {
@@ -1000,7 +1020,7 @@ const SkillScannerPage = {
         header.appendChild(nameEl);
 
         const typeBadge = document.createElement('span');
-        typeBadge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(0,188,212,0.1); color: var(--accent-primary); font-weight: 600;';
+        typeBadge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(94,173,184,0.1); color: var(--accent-primary); font-weight: 600;';
         typeBadge.textContent = (data.url_type || 'url').toUpperCase();
         header.appendChild(typeBadge);
 
@@ -1441,7 +1461,7 @@ const SkillScannerPage = {
         const isCli = rec.invocation_source === 'cli';
         srcBadge.style.cssText = 'font-size: 10px; font-weight: 600; border-radius: 3px; padding: 1px 6px; ' +
             (isCli ? 'background: rgba(99,102,241,0.15); color: #818cf8;'
-                   : 'background: rgba(0,188,212,0.1); color: var(--accent-primary);');
+                   : 'background: rgba(94,173,184,0.1); color: var(--accent-primary);');
         srcBadge.textContent = rec.invocation_source.toUpperCase();
         tdSrc.appendChild(srcBadge);
         tr.appendChild(tdSrc);
@@ -2091,7 +2111,7 @@ const SkillScannerPage = {
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.style.borderColor = 'var(--accent-primary)';
-            dropZone.style.background = 'rgba(0,188,212,0.04)';
+            dropZone.style.background = 'rgba(94,173,184,0.04)';
         });
         dropZone.addEventListener('dragleave', () => {
             dropZone.style.borderColor = 'var(--border-default)';
@@ -2291,7 +2311,7 @@ const SkillScannerPage = {
         // AI Analysis card (if reviewed)
         if (aiReview && aiReview.reviewed) {
             const aiCard = document.createElement('div');
-            aiCard.style.cssText = 'padding: 12px 16px; border-radius: 8px; background: rgba(0, 188, 212, 0.06); border: 1px solid rgba(0, 188, 212, 0.2);';
+            aiCard.style.cssText = 'padding: 12px 16px; border-radius: 8px; background: rgba(94, 173, 184, 0.06); border: 1px solid rgba(94, 173, 184, 0.2);';
 
             const aiHeader = document.createElement('div');
             aiHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;';

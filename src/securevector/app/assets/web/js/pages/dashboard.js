@@ -184,7 +184,7 @@ const DashboardPage = {
             metricsGrid.appendChild(makeMetric(
                 this.data.total_threats.toLocaleString(),
                 'Requests scanned',
-                '#06b6d4', 'threats'
+                '#5eadb8', 'threats'
             ));
             metricsGrid.appendChild(makeMetric(
                 this.data.critical_count || 0,
@@ -204,7 +204,7 @@ const DashboardPage = {
             metricsGrid.appendChild(makeMetric(
                 skillScans,
                 'Skills scanned',
-                '#06b6d4', 'skill-scanner'
+                '#5eadb8', 'skill-scanner'
             ));
             metricsGrid.appendChild(makeMetric(
                 latencyStr,
@@ -256,9 +256,9 @@ const DashboardPage = {
 
             const makeFeatureCard = (title, desc, page) => {
                 const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(0,188,212,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
-                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(0,188,212,0.5)');
-                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(0,188,212,0.22)');
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(94,173,184,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
+                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(94,173,184,0.5)');
+                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(94,173,184,0.22)');
 
                 const badge = document.createElement('div');
                 badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; background: rgba(249,115,22,0.12); color: #f97316; border-radius: 3px; padding: 1px 6px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
