@@ -107,6 +107,11 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
 <td width="33%"><img src="docs/screenshots/custom-rules-light.png" alt="Custom Rules" width="100%"><br><em>Custom Rules — create and manage detection rules by category and severity</em></td>
 </tr>
+<tr>
+<td width="33%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static security analysis for AI agent skills with scan history and risk levels</em></td>
+<td width="33%"><img src="docs/screenshots/skill-policy.png" alt="Skill Policy" width="100%"><br><em>Skill Policy — network permissions, trusted publishers, and policy thresholds</em></td>
+<td width="33%"></td>
+</tr>
 </table>
 
 <br>
