@@ -299,7 +299,7 @@ class SkillScannerService:
             if file_path.is_symlink():
                 try:
                     resolved = file_path.resolve()
-                    if not str(resolved).startswith(str(skill_dir)):
+                    if not (str(resolved) == str(skill_dir) or str(resolved).startswith(str(skill_dir) + os.sep)):
                         findings.append(Finding(
                             file_path=str(file_path.relative_to(skill_dir)),
                             line_number=0,
@@ -864,8 +864,11 @@ class SkillScannerService:
                 f"    Code: {f.excerpt[:150]}"
             )
 
+        safe_name = re.sub(r'[^a-zA-Z0-9._\- ]', '', scan_result.skill_name)[:80]
+        safe_path = re.sub(r'[^a-zA-Z0-9._/\-~: ]', '', scan_result.scanned_path)[:200]
+
         return f"""You are a security analyst reviewing static analysis findings from a skill/plugin scanner.
-The skill "{scan_result.skill_name}" was scanned from: {scan_result.scanned_path}
+The skill "{safe_name}" was scanned from: {safe_path}
 
 FINDINGS TO REVIEW:
 {chr(10).join(findings_text)}

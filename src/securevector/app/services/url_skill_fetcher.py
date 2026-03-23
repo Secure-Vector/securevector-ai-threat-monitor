@@ -110,6 +110,13 @@ class UrlSkillFetcher:
         if len(url) > 2048:
             raise UrlFetchError("URL is too long (max 2048 characters)")
 
+        # Enforce host allowlist
+        if parsed.hostname not in ALLOWED_HOSTS:
+            raise UrlFetchError(
+                f"Host not allowed: {parsed.hostname}. "
+                f"Supported: {', '.join(sorted(ALLOWED_HOSTS))}"
+            )
+
         # Reject private/internal IPs
         try:
             for info in socket.getaddrinfo(parsed.hostname, None):
@@ -328,6 +335,12 @@ class UrlSkillFetcher:
         except (json.JSONDecodeError, KeyError) as e:
             raise UrlFetchError(f"Failed to parse npm registry response: {e}")
 
+        # Validate the tarball URL from the registry response (untrusted data)
+        try:
+            self.validate_url(tarball_url)
+        except UrlFetchError as e:
+            raise UrlFetchError(f"npm tarball URL is unsafe: {e}") from e
+
         await self._download_archive(tarball_url, temp_dir, skill_name)
 
     async def _download_archive(self, url: str, temp_dir: str, skill_name: str) -> None:
@@ -407,11 +420,19 @@ class UrlSkillFetcher:
 
     def _safe_extract_zip(self, archive_path: str, dest: str) -> None:
         """Extract zip with path traversal protection."""
+        dest_real = os.path.realpath(dest)
         with zipfile.ZipFile(archive_path) as zf:
             file_count = 0
             for info in zf.infolist():
                 if info.filename.startswith("/") or ".." in info.filename:
                     raise UrlFetchError(f"Unsafe path in archive: {info.filename}")
+                # Reject symlink entries in zip archives (prevents symlink-directory escape)
+                if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise UrlFetchError(f"Symlink entry in zip archive: {info.filename}")
+                # Post-extraction confinement check (zip-slip protection for Python <3.12)
+                target_path = os.path.realpath(os.path.join(dest, info.filename))
+                if not (target_path == dest_real or target_path.startswith(dest_real + os.sep)):
+                    raise UrlFetchError(f"Zip slip detected: {info.filename}")
                 if info.is_dir():
                     continue
                 file_count += 1
@@ -421,11 +442,16 @@ class UrlSkillFetcher:
 
     def _safe_extract_tar(self, archive_path: str, dest: str) -> None:
         """Extract tar with path traversal protection."""
+        dest_real = os.path.realpath(dest)
         with tarfile.open(archive_path) as tf:
             file_count = 0
             for member in tf.getmembers():
                 if member.name.startswith("/") or ".." in member.name:
                     raise UrlFetchError(f"Unsafe path in archive: {member.name}")
+                # Post-extraction confinement check
+                target_path = os.path.realpath(os.path.join(dest, member.name))
+                if not (target_path == dest_real or target_path.startswith(dest_real + os.sep)):
+                    raise UrlFetchError(f"Tar slip detected: {member.name}")
                 if member.issym() or member.islnk():
                     continue  # skip symlinks
                 if member.isfile():
@@ -442,6 +468,11 @@ class UrlSkillFetcher:
         # If there's exactly one subdirectory containing the skill, descend into it
         if len(children) == 1:
             inner = children[0]
+            # Confinement check: verify resolved path stays inside temp_dir
+            resolved_inner = os.path.realpath(str(inner))
+            root_real = os.path.realpath(temp_dir)
+            if not (resolved_inner == root_real or resolved_inner.startswith(root_real + os.sep)):
+                return temp_dir
             inner_children = [c for c in inner.iterdir() if not c.name.startswith(".")]
             # If the inner dir has actual content (files/dirs), use it as root
             if inner_children:

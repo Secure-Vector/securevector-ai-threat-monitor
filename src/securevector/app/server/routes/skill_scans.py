@@ -706,7 +706,7 @@ async def install_skill_from_temp(request: InstallSkillRequest):
     sanitised_source = os.path.realpath(request.source_path)
     source = Path(sanitised_source)
     try:
-        source.relative_to(Path(tempfile.gettempdir()).resolve())
+        source.relative_to(Path(os.path.realpath(tempfile.gettempdir())))
     except ValueError:
         raise HTTPException(status_code=403, detail="Source path must be in the system temp directory")
 
