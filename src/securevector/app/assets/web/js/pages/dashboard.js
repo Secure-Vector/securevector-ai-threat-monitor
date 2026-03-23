@@ -107,6 +107,120 @@ const DashboardPage = {
             }
         } catch (e) { /* budget alerts are non-critical */ }
 
+        // ── Compact status bar + metrics grid ──────────────────────────────
+        try {
+            const valueSection = document.createElement('div');
+            valueSection.style.cssText = 'margin-bottom: 18px;';
+
+            // Fetch additional data in parallel
+            const [toolsData, settings, scanHistory, costData] = await Promise.all([
+                API.getEssentialTools().catch(() => null),
+                API.getSettings().catch(() => null),
+                fetch('/api/skill-scans/history?limit=10&offset=0').then(r => r.ok ? r.json() : null).catch(() => null),
+                API.getDashboardCostSummary().catch(() => null),
+            ]);
+
+            const blockedTools = toolsData ? toolsData.tools.filter(t => t.effective_action === 'block').length : 0;
+            const totalTools = toolsData ? toolsData.tools.length : 0;
+            const toolEnforcement = settings && settings.tool_permissions_enabled;
+            const blockMode = settings && settings.block_threats;
+            const outputScan = settings && settings.scan_llm_responses;
+            const skillScans = scanHistory ? (scanHistory.total || (scanHistory.records || []).length) : 0;
+            const todayCost = costData ? '$' + (costData.today_cost_usd || 0).toFixed(4) : '$0.0000';
+
+            const avgLatencyMs = this.data.avg_latency_ms;
+            let latencyStr = '\u2014';
+            if (avgLatencyMs != null) {
+                latencyStr = avgLatencyMs >= 1000
+                    ? (avgLatencyMs / 1000).toFixed(1) + 's'
+                    : Math.round(avgLatencyMs) + 'ms';
+            }
+
+            // Compact status bar
+            const statusBar = document.createElement('div');
+            statusBar.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 13px;';
+            const statusDot = document.createElement('span');
+            statusDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
+            statusBar.appendChild(statusDot);
+            const statusLabel = document.createElement('span');
+            statusLabel.style.cssText = 'font-weight: 600; color: var(--text-primary);';
+            statusLabel.textContent = 'Active';
+            statusBar.appendChild(statusLabel);
+            const statusSep = document.createElement('span');
+            statusSep.style.cssText = 'color: var(--text-muted);';
+            statusSep.textContent = '\u2014';
+            statusBar.appendChild(statusSep);
+            const statusSummary = document.createElement('span');
+            statusSummary.style.cssText = 'color: var(--text-secondary);';
+            const blockedCount = this.data.blocked_count || 0;
+            statusSummary.textContent = `${this.data.total_threats.toLocaleString()} requests scanned, ${blockedCount} threat${blockedCount !== 1 ? 's' : ''} blocked, ${skillScans} skill${skillScans !== 1 ? 's' : ''} scanned`;
+            statusBar.appendChild(statusSummary);
+            valueSection.appendChild(statusBar);
+
+            // Value metrics grid
+            const metricsGrid = document.createElement('div');
+            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;';
+
+            const makeMetric = (value, label, color, navPage) => {
+                const card = document.createElement('div');
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
+                card.addEventListener('mouseenter', () => { card.style.borderColor = color + '66'; card.style.transform = 'translateY(-1px)'; });
+                card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border-default)'; card.style.transform = ''; });
+                if (navPage) card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
+
+                const valEl = document.createElement('div');
+                valEl.style.cssText = 'font-size: 20px; font-weight: 800; color: ' + color + '; line-height: 1.1; margin-bottom: 4px;';
+                valEl.textContent = value;
+                card.appendChild(valEl);
+
+                const lblEl = document.createElement('div');
+                lblEl.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; line-height: 1.3;';
+                lblEl.textContent = label;
+                card.appendChild(lblEl);
+
+                return card;
+            };
+
+            metricsGrid.appendChild(makeMetric(
+                this.data.total_threats.toLocaleString(),
+                'Requests scanned',
+                '#5eadb8', 'threats'
+            ));
+            metricsGrid.appendChild(makeMetric(
+                this.data.critical_count || 0,
+                'Critical threats',
+                this.data.critical_count > 0 ? '#ef4444' : '#10b981', 'threats'
+            ));
+            metricsGrid.appendChild(makeMetric(
+                this.data.blocked_count || 0,
+                'Threats blocked',
+                this.data.blocked_count > 0 ? '#ef4444' : '#10b981', 'threats'
+            ));
+            metricsGrid.appendChild(makeMetric(
+                blockedTools + '/' + totalTools,
+                'Risky tools blocked',
+                blockedTools > 0 ? '#f59e0b' : '#94a3b8', 'tool-permissions'
+            ));
+            metricsGrid.appendChild(makeMetric(
+                skillScans,
+                'Skills scanned',
+                '#5eadb8', 'skill-scanner'
+            ));
+            metricsGrid.appendChild(makeMetric(
+                latencyStr,
+                'Avg analysis time',
+                '#8b5cf6', null
+            ));
+            metricsGrid.appendChild(makeMetric(
+                todayCost,
+                "Today's cost",
+                '#f59e0b', 'costs'
+            ));
+
+            valueSection.appendChild(metricsGrid);
+
+            container.appendChild(valueSection);
+        } catch (e) { /* value section is non-critical */ }
 
         // "What's New" feature discovery strip — shown until dismissed
         if (!localStorage.getItem('sv-newfeatures-dismissed')) {
@@ -142,9 +256,9 @@ const DashboardPage = {
 
             const makeFeatureCard = (title, desc, page) => {
                 const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(0,188,212,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
-                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(0,188,212,0.5)');
-                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(0,188,212,0.22)');
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(94,173,184,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
+                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(94,173,184,0.5)');
+                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(94,173,184,0.22)');
 
                 const badge = document.createElement('div');
                 badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; background: rgba(249,115,22,0.12); color: #f97316; border-radius: 3px; padding: 1px 6px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
@@ -189,118 +303,7 @@ const DashboardPage = {
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
 
-        // 2. Stats row — Analyzed Requests, Critical, Today's Cost
-        const statsGrid = document.createElement('div');
-        statsGrid.className = 'stats-grid';
-
-        let todayCostStr = '—';
-        let totalCostStr = '—';
-        try {
-            const [summary, costSummary] = await Promise.all([
-                API.getDashboardCostSummary(),
-                API.getCostSummary().catch(() => null),
-            ]);
-            todayCostStr = '$' + (summary.today_cost_usd || 0).toFixed(4);
-            if (costSummary && costSummary.totals && costSummary.totals.monthly_cost_usd != null) {
-                totalCostStr = '$' + Number(costSummary.totals.monthly_cost_usd).toFixed(4);
-            }
-        } catch (e) {}
-
-        const avgLatencyMs = this.data.avg_latency_ms;
-        let latencyStr = '—';
-        if (avgLatencyMs != null) {
-            latencyStr = avgLatencyMs >= 1000
-                ? (avgLatencyMs / 1000).toFixed(1) + 's'
-                : Math.round(avgLatencyMs) + 'ms';
-        }
-
-        const stats = [
-            { value: this.data.total_threats || 0, label: 'Analyzed Requests', icon: 'shield', color: 'primary', tooltip: 'Total number of LLM requests intercepted and scanned by SecureVector since installation.' },
-            { value: this.data.critical_count || 0, label: 'Critical', icon: 'alert', color: 'danger', tooltip: 'Requests flagged as high-risk (risk score ≥ 75). These may indicate prompt injection, jailbreak attempts, or data exfiltration.' },
-            { value: latencyStr, label: 'Avg Analysis Time', icon: 'activity', color: 'primary', raw: true, tooltip: 'Average time SecureVector adds per request (rule-based only). Typically 10–50ms. Enabling AI analysis adds 1–3s per request.' },
-            { value: todayCostStr, label: "Today's Cost", icon: 'clock', color: 'primary', raw: true, tooltip: "Estimated LLM provider cost (USD) for today's requests, based on token usage and model pricing." },
-            { value: totalCostStr, label: 'Monthly Cost', icon: 'gauge', color: 'primary', raw: true, tooltip: 'Estimated LLM provider cost (USD) for the current calendar month.' },
-        ];
-
-        statsGrid.style.marginBottom = '16px';
-        stats.forEach(stat => statsGrid.appendChild(this.createStatCard(stat)));
-        container.appendChild(statsGrid);
-
-        // 2b. Tool Permissions quick-stats widget
-        try {
-            const [toolsData, settings] = await Promise.all([
-                API.getEssentialTools().catch(() => null),
-                API.getSettings().catch(() => null),
-            ]);
-            if (toolsData && toolsData.tools) {
-                const tools = toolsData.tools;
-                const blocked = tools.filter(t => t.effective_action === 'block').length;
-                const allowed = tools.filter(t => t.effective_action === 'allow').length;
-                const enforcementOn = settings && settings.tool_permissions_enabled;
-
-                const toolWidget = document.createElement('div');
-                toolWidget.style.cssText = 'margin-bottom: 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; cursor: pointer; transition: border-color 0.15s;';
-                toolWidget.addEventListener('mouseenter', () => { toolWidget.style.borderColor = 'rgba(6,182,212,0.4)'; });
-                toolWidget.addEventListener('mouseleave', () => { toolWidget.style.borderColor = 'var(--border-default)'; });
-                toolWidget.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); });
-
-                // Icon + title
-                const titlePart = document.createElement('div');
-                titlePart.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-shrink: 0;';
-                const toolIcon = document.createElement('span');
-                toolIcon.style.cssText = 'font-size: 18px;';
-                toolIcon.textContent = '🎛️';
-                const titleText = document.createElement('div');
-                titleText.style.cssText = 'font-size: 12px; font-weight: 700; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;';
-                titleText.textContent = 'Tool Permissions';
-                titlePart.appendChild(toolIcon);
-                titlePart.appendChild(titleText);
-                toolWidget.appendChild(titlePart);
-
-                // Divider
-                const div1 = document.createElement('div');
-                div1.style.cssText = 'width: 1px; height: 28px; background: var(--border-default); flex-shrink: 0;';
-                toolWidget.appendChild(div1);
-
-                // Enforcement badge
-                const enfBadge = document.createElement('span');
-                enfBadge.style.cssText = 'font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid; flex-shrink: 0; ' +
-                    (enforcementOn
-                        ? 'color: #06b6d4; background: rgba(6,182,212,0.1); border-color: rgba(6,182,212,0.3);'
-                        : 'color: var(--text-muted); background: var(--bg-secondary); border-color: var(--border-default);');
-                enfBadge.textContent = enforcementOn ? '⚡ Enforcement ON' : '○ Enforcement OFF';
-                toolWidget.appendChild(enfBadge);
-
-                // Stats pills
-                const statsRow = document.createElement('div');
-                statsRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap;';
-                [
-                    { label: tools.length + ' Total', color: '#94a3b8', bg: 'var(--bg-secondary)' },
-                    { label: blocked + ' Blocked',   color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
-                    { label: allowed + ' Allowed',   color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
-                ].forEach(item => {
-                    const pill = document.createElement('span');
-                    pill.style.cssText = 'font-size: 12px; font-weight: 700; color: ' + item.color + '; padding: 2px 10px; border-radius: var(--radius-full); background: ' + item.bg + '; border: 1px solid ' + item.color + '33;';
-                    pill.textContent = item.label;
-                    statsRow.appendChild(pill);
-                });
-                toolWidget.appendChild(statsRow);
-
-                // Spacer + link
-                const spacerEl = document.createElement('div');
-                spacerEl.style.cssText = 'flex: 1;';
-                toolWidget.appendChild(spacerEl);
-
-                const linkEl = document.createElement('span');
-                linkEl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary); flex-shrink: 0; white-space: nowrap;';
-                linkEl.textContent = 'Manage →';
-                toolWidget.appendChild(linkEl);
-
-                container.appendChild(toolWidget);
-            }
-        } catch (_) {}
-
-        // 3. Charts row — threat trend + cost trend side by side
+        // Charts row — threat trend + cost trend side by side
         const chartsRow = document.createElement('div');
         chartsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;';
 

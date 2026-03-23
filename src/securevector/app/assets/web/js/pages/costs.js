@@ -151,6 +151,11 @@ const CostsPage = {
         if (isFirstRender) {
             content.textContent = '';
 
+            // Budget progress bar at top (read-only summary)
+            const budgetBar = document.createElement('div');
+            budgetBar.id = 'sv-costs-budget-bar';
+            content.appendChild(budgetBar);
+
             // Scaffold the layout with stable IDs — never rebuilt on polls
             const cardsEl = document.createElement('div');
             cardsEl.id = 'sv-costs-cards';
@@ -184,9 +189,51 @@ const CostsPage = {
         }
 
         // Update each data section in-place — chart is untouched
+        this._updateBudgetBar();
         this._updateSummaryCards();
         this._updateGuardianAlerts();
         this._updateAgentsSection();
+    },
+
+    _updateBudgetBar() {
+        const el = document.getElementById('sv-costs-budget-bar');
+        if (!el) return;
+        el.textContent = '';
+        const budget = this.budgetData;
+        if (!budget || !budget.budget_usd) return;
+
+        const todaySpend = (this.summaryData && this.summaryData.totals && this.summaryData.totals.today_spend_usd) || 0;
+        const pct = budget.budget_usd > 0 ? Math.min(todaySpend / budget.budget_usd, 1) : 0;
+        const pctDisplay = Math.round(pct * 100);
+        const isOver = todaySpend >= budget.budget_usd;
+        const isWarn = pct >= 0.8;
+        const barColor = isOver ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px;';
+
+        const label = document.createElement('span');
+        label.style.cssText = 'color: var(--text-secondary); white-space: nowrap;';
+        label.textContent = `Daily budget: $${todaySpend.toFixed(4)} / $${budget.budget_usd.toFixed(2)} (${pctDisplay}%)`;
+        bar.appendChild(label);
+
+        const track = document.createElement('div');
+        track.style.cssText = 'flex: 1; height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; min-width: 80px;';
+        const fill = document.createElement('div');
+        fill.style.cssText = `height: 100%; border-radius: 3px; background: ${barColor}; width: ${pct * 100}%; transition: width 0.3s;`;
+        track.appendChild(fill);
+        bar.appendChild(track);
+
+        const editLink = document.createElement('a');
+        editLink.style.cssText = 'font-size: 11px; color: var(--accent-primary); cursor: pointer; text-decoration: none; white-space: nowrap;';
+        editLink.textContent = 'Edit';
+        editLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) Sidebar.navigate('cost-settings');
+        });
+        bar.appendChild(editLink);
+
+        el.appendChild(bar);
     },
 
     _updateSummaryCards() {
@@ -607,7 +654,7 @@ const CostsPage = {
 
             // Cost banner
             const banner = document.createElement('div');
-            banner.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px; background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.25);';
+            banner.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.25);';
             const costVal = document.createElement('div');
             costVal.style.cssText = 'font-size: 28px; font-weight: 800; color: var(--accent-primary); font-family: monospace;';
             costVal.textContent = '$' + r.total_cost_usd.toFixed(6);
@@ -1386,7 +1433,7 @@ const CostsPage = {
 
         const widget = document.createElement('div');
         widget.id = 'global-budget-widget';
-        widget.style.cssText = 'margin-bottom: 1.5rem; background: var(--bg-secondary); border: 2px solid rgba(6,182,212,0.35); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 4px rgba(6,182,212,0.06);';
+        widget.style.cssText = 'margin-bottom: 1.5rem; background: var(--bg-secondary); border: 2px solid rgba(94,173,184,0.35); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 4px rgba(94,173,184,0.06);';
 
         // ── Header ──────────────────────────────────────────────────────
         const topRow = document.createElement('div');
@@ -1427,7 +1474,7 @@ const CostsPage = {
 
         // Edit button (right — only when limit is set) — gradient so it's visible
         const editBtn = document.createElement('button');
-        editBtn.style.cssText = 'display: ' + (hasLimit ? 'inline-flex' : 'none') + '; align-items: center; gap: 5px; padding: 4px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #06b6d4, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s;';
+        editBtn.style.cssText = 'display: ' + (hasLimit ? 'inline-flex' : 'none') + '; align-items: center; gap: 5px; padding: 4px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #5eadb8, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s;';
         editBtn.textContent = '✏ Edit';
         editBtn.addEventListener('mouseenter', () => { editBtn.style.opacity = '0.85'; });
         editBtn.addEventListener('mouseleave', () => { editBtn.style.opacity = '1'; });
@@ -1825,7 +1872,7 @@ const CostsPage = {
 
         const applyBtn = document.createElement('button');
         applyBtn.textContent = 'Apply';
-        applyBtn.style.cssText = 'background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.4); border-radius: 6px; color: rgba(6,182,212,1); cursor: pointer; padding: 4px 12px; font-size: 12px; white-space: nowrap;';
+        applyBtn.style.cssText = 'background: rgba(94,173,184,0.15); border: 1px solid rgba(94,173,184,0.4); border-radius: 6px; color: rgba(94,173,184,1); cursor: pointer; padding: 4px 12px; font-size: 12px; white-space: nowrap;';
 
         const clearBtn = document.createElement('button');
         clearBtn.textContent = 'Clear';
@@ -1911,13 +1958,13 @@ const CostsPage = {
             const bar = document.createElement('div');
             bar.style.cssText = `width: 100%; height: ${pct}px; border-radius: 2px 2px 0 0; transition: background 0.1s; box-sizing: border-box;`;
             bar.style.background = d.future
-                ? 'rgba(6,182,212,0.08)'
-                : isToday ? 'rgba(6,182,212,0.85)' : 'rgba(6,182,212,0.4)';
+                ? 'rgba(94,173,184,0.08)'
+                : isToday ? 'rgba(94,173,184,0.85)' : 'rgba(94,173,184,0.4)';
             bar.title = d.future ? `${d.dateKey}: —` : `${d.dateKey}: $${d.cost.toFixed(4)}`;
 
             if (!d.future) {
-                bar.addEventListener('mouseenter', () => { bar.style.background = 'rgba(6,182,212,0.9)'; });
-                bar.addEventListener('mouseleave', () => { bar.style.background = isToday ? 'rgba(6,182,212,0.85)' : 'rgba(6,182,212,0.4)'; });
+                bar.addEventListener('mouseenter', () => { bar.style.background = 'rgba(94,173,184,0.9)'; });
+                bar.addEventListener('mouseleave', () => { bar.style.background = isToday ? 'rgba(94,173,184,0.85)' : 'rgba(94,173,184,0.4)'; });
             }
             col.appendChild(bar);
 
@@ -1925,7 +1972,7 @@ const CostsPage = {
             const dayNum = parseInt(d.label.split('-').pop() || d.label, 10);
             if (dayNum === 1 || dayNum % 5 === 0 || isToday) {
                 const lbl = document.createElement('div');
-                lbl.style.cssText = `position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); font-size: 9px; line-height: 14px; white-space: nowrap; color: ${isToday ? 'rgba(6,182,212,0.9)' : 'var(--text-secondary)'};`;
+                lbl.style.cssText = `position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); font-size: 9px; line-height: 14px; white-space: nowrap; color: ${isToday ? 'rgba(94,173,184,0.9)' : 'var(--text-secondary)'};`;
                 lbl.textContent = d.label;
                 col.appendChild(lbl);
             }

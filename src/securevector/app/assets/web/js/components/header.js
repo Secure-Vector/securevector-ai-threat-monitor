@@ -183,146 +183,10 @@ const Header = {
             btn.style.color = 'var(--text-secondary)';
         });
 
-        btn.addEventListener('click', () => this.showHelpModal());
-        return btn;
-    },
-
-    showHelpModal() {
-        const content = document.createElement('div');
-        content.style.cssText = 'padding: 8px 0;';
-
-        const stepsList = document.createElement('div');
-        stepsList.className = 'cloud-steps';
-
-        // Step 1 — Proxy already running
-        const step1El = document.createElement('div');
-        step1El.className = 'cloud-step';
-        const step1Num = document.createElement('span');
-        step1Num.className = 'step-number';
-        step1Num.textContent = '1';
-        step1El.appendChild(step1Num);
-        const step1Text = document.createElement('div');
-        step1Text.className = 'step-text';
-        const step1Title = document.createElement('div');
-        step1Title.style.cssText = 'font-weight: 600; display: flex; align-items: center; gap: 6px;';
-        step1Title.appendChild(document.createTextNode('Proxy Already Running'));
-        const step1Badge = document.createElement('span');
-        step1Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
-        step1Badge.textContent = '\u25CF Active';
-        step1Title.appendChild(step1Badge);
-        step1Text.appendChild(step1Title);
-        const step1Desc = document.createElement('p');
-        step1Desc.textContent = "Your AI Firewall is live. Point your agent's LLM calls to the proxy by setting one environment variable:";
-        step1Text.appendChild(step1Desc);
-        const step1Code = document.createElement('div');
-        step1Code.style.cssText = 'font-size: 11px; font-family: monospace; background: var(--bg-tertiary); color: var(--accent-primary); padding: 3px 8px; border-radius: 4px; display: inline-block; margin-top: 2px;';
-        step1Code.textContent = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
-        step1Text.appendChild(step1Code);
-        step1El.appendChild(step1Text);
-        stepsList.appendChild(step1El);
-
-        // Step 2 — Rules already enabled
-        const step2El = document.createElement('div');
-        step2El.className = 'cloud-step';
-        const step2Num = document.createElement('span');
-        step2Num.className = 'step-number';
-        step2Num.textContent = '2';
-        step2El.appendChild(step2Num);
-        const step2Text = document.createElement('div');
-        step2Text.className = 'step-text';
-        const step2Title = document.createElement('div');
-        step2Title.style.cssText = 'font-weight: 600; display: flex; align-items: center; gap: 6px;';
-        step2Title.appendChild(document.createTextNode('Threat Detection Rules Enabled'));
-        const step2Badge = document.createElement('span');
-        step2Badge.style.cssText = 'font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(16,185,129,0.15); color: #10b981; letter-spacing: 0.4px; text-transform: uppercase;';
-        step2Badge.textContent = '\u25CF Ready';
-        step2Title.appendChild(step2Badge);
-        step2Text.appendChild(step2Title);
-        const step2Desc = document.createElement('p');
-        step2Desc.textContent = 'Prompt injection, jailbreak, data exfiltration, and 300+ other threat patterns are pre-loaded and scanning every request automatically.';
-        step2Text.appendChild(step2Desc);
-        step2El.appendChild(step2Text);
-        stepsList.appendChild(step2El);
-
-        // Step 3 — Tool Permissions & Budgets
-        const step3El = document.createElement('div');
-        step3El.className = 'cloud-step';
-        const step3Num = document.createElement('span');
-        step3Num.className = 'step-number';
-        step3Num.textContent = '3';
-        step3El.appendChild(step3Num);
-        const step3Text = document.createElement('div');
-        step3Text.className = 'step-text';
-        const step3Title = document.createElement('strong');
-        step3Title.textContent = 'Configure Tool Permissions & Budgets';
-        step3Text.appendChild(step3Title);
-        const step3Desc = document.createElement('p');
-        const step3b1 = document.createElement('strong'); step3b1.textContent = 'Tool Permissions';
-        const step3b2 = document.createElement('strong'); step3b2.textContent = 'Cost Settings';
-        step3Desc.appendChild(document.createTextNode('Go to '));
-        step3Desc.appendChild(step3b1);
-        step3Desc.appendChild(document.createTextNode(' to block risky agent actions, and '));
-        step3Desc.appendChild(step3b2);
-        step3Desc.appendChild(document.createTextNode(' to set daily spend limits.'));
-        step3Text.appendChild(step3Desc);
-        step3El.appendChild(step3Text);
-        stepsList.appendChild(step3El);
-
-        // Step 4 — Monitor
-        const step4El = document.createElement('div');
-        step4El.className = 'cloud-step';
-        const step4Num = document.createElement('span');
-        step4Num.className = 'step-number';
-        step4Num.textContent = '4';
-        step4El.appendChild(step4Num);
-        const step4Text = document.createElement('div');
-        step4Text.className = 'step-text';
-        const step4Title = document.createElement('strong');
-        step4Title.textContent = "Run Your Agent \u2014 Watch It Live";
-        step4Text.appendChild(step4Title);
-        const step4Desc = document.createElement('p');
-        const step4b1 = document.createElement('strong'); step4b1.textContent = 'Monitor';
-        step4Desc.appendChild(document.createTextNode('Threats, tool calls, and costs appear in real time in the '));
-        step4Desc.appendChild(step4b1);
-        step4Desc.appendChild(document.createTextNode(' section as your agent runs.'));
-        step4Text.appendChild(step4Desc);
-        step4El.appendChild(step4Text);
-        stepsList.appendChild(step4El);
-
-        content.appendChild(stepsList);
-
-        // Link to Docs
-        const docsLink = document.createElement('div');
-        docsLink.style.cssText = 'margin-top: 12px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 16px;';
-        const docsBtn = document.createElement('a');
-        docsBtn.style.cssText = 'color: var(--accent-primary); cursor: pointer; font-size: 13px; font-weight: 500;';
-        docsBtn.textContent = 'View Guide \u2192';
-        docsBtn.addEventListener('click', () => {
-            Modal.close();
+        btn.addEventListener('click', () => {
             if (window.Sidebar) Sidebar.navigate('guide');
         });
-        docsLink.appendChild(docsBtn);
-
-        const issuesSep = document.createElement('span');
-        issuesSep.style.cssText = 'color: var(--text-muted); font-size: 13px;';
-        issuesSep.textContent = '·';
-        docsLink.appendChild(issuesSep);
-
-        const issuesBtn = document.createElement('a');
-        issuesBtn.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues';
-        issuesBtn.target = '_blank';
-        issuesBtn.rel = 'noopener noreferrer';
-        issuesBtn.style.cssText = 'color: var(--text-secondary); font-size: 13px; font-weight: 500; text-decoration: none;';
-        issuesBtn.textContent = 'Report an Issue';
-        docsLink.appendChild(issuesBtn);
-
-        content.appendChild(docsLink);
-
-        Modal.show({
-            title: 'Welcome to SecureVector',
-            content: content,
-            size: 'small',
-        });
+        return btn;
     },
 
     createBlockModeToggle() {
@@ -1265,7 +1129,7 @@ const Header = {
         localNote.className = 'local-mode-highlight';
         localNote.style.marginTop = '20px';
         localNote.style.padding = '12px 16px';
-        localNote.style.background = 'linear-gradient(135deg, rgba(0, 188, 212, 0.1), rgba(244, 67, 54, 0.1))';
+        localNote.style.background = 'linear-gradient(135deg, rgba(94, 173, 184, 0.1), rgba(244, 67, 54, 0.1))';
         localNote.style.border = '1px solid var(--accent-primary)';
         localNote.style.borderRadius = '8px';
         localNote.style.fontSize = '13px';
@@ -1520,7 +1384,7 @@ const Header = {
         if (instructions.note) {
             const noteEl = document.createElement('div');
             noteEl.className = 'local-mode-highlight';
-            noteEl.style.cssText = 'margin-top:20px;padding:12px 16px;background:linear-gradient(135deg, rgba(0, 188, 212, 0.1), rgba(244, 67, 54, 0.1));border:1px solid var(--accent-primary);border-radius:8px;font-size:13px;';
+            noteEl.style.cssText = 'margin-top:20px;padding:12px 16px;background:linear-gradient(135deg, rgba(94, 173, 184, 0.1), rgba(244, 67, 54, 0.1));border:1px solid var(--accent-primary);border-radius:8px;font-size:13px;';
 
             const noteIcon = document.createElement('span');
             noteIcon.textContent = '💡 ';

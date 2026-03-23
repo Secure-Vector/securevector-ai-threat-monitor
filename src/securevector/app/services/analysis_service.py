@@ -195,6 +195,7 @@ class AnalysisService:
                     continue
                 try:
                     compiled = re.compile(pattern_str, re.IGNORECASE)
+                    metadata = rule.get("metadata") or {}
                     self._compiled_patterns.append({
                         "compiled": compiled,
                         "original": pattern_str,
@@ -205,6 +206,7 @@ class AnalysisService:
                         "risk_score": base_score,
                         "confidence": 0.8,
                         "source": rule["source"],
+                        "direction": metadata.get("direction", "input"),
                     })
                 except re.error as e:
                     logger.warning(f"Invalid regex in {rule['id']}: {pattern_str} - {e}")
@@ -216,7 +218,7 @@ class AnalysisService:
         self._rules_loaded = False
         await self.ensure_rules_loaded()
 
-    async def analyze(self, text: str) -> AnalysisResult:
+    async def analyze(self, text: str, direction: str = None) -> AnalysisResult:
         """
         Analyze text for threats using database rules.
 
@@ -235,6 +237,9 @@ class AnalysisService:
         threat_type = None
 
         for pattern_info in self._compiled_patterns:
+            # Skip rules that don't match the requested direction
+            if direction and pattern_info.get("direction", "input") != direction:
+                continue
             try:
                 if pattern_info["compiled"].search(text):
                     matched_rules.append({

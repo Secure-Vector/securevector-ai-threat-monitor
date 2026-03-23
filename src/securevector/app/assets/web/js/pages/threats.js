@@ -309,7 +309,7 @@ const ThreatsPage = {
             }
             details += '</div>';
         });
-        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #00bcd4;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
+        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #5eadb8;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
     },
 
     getUniqueCategories() {
@@ -559,12 +559,23 @@ const ThreatsPage = {
             typeCell.appendChild(typeBadge);
             row.appendChild(typeCell);
 
-            // Risk Score
+            // Risk Score with visual bar
             const riskCell = document.createElement('td');
+            const riskWrap = document.createElement('div');
+            riskWrap.style.cssText = 'display: flex; align-items: center; gap: 8px;';
             const riskBadge = document.createElement('span');
             riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
             riskBadge.textContent = (threat.risk_score || 0) + '%';
-            riskCell.appendChild(riskBadge);
+            riskWrap.appendChild(riskBadge);
+            const riskBar = document.createElement('div');
+            const riskPct = Math.min(threat.risk_score || 0, 100);
+            const riskBarColor = riskPct >= 70 ? '#ef4444' : riskPct >= 40 ? '#f59e0b' : '#10b981';
+            riskBar.style.cssText = `width: 40px; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; flex-shrink: 0;`;
+            const riskFill = document.createElement('div');
+            riskFill.style.cssText = `height: 100%; border-radius: 2px; background: ${riskBarColor}; width: ${riskPct}%;`;
+            riskBar.appendChild(riskFill);
+            riskWrap.appendChild(riskBar);
+            riskCell.appendChild(riskWrap);
             // LLM badge if reviewed
             if (threat.llm_reviewed) {
                 const llmBadge = document.createElement('span');
