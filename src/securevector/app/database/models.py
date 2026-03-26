@@ -318,18 +318,18 @@ CREATE TABLE IF NOT EXISTS skill_policy_config (
     id                      INTEGER PRIMARY KEY CHECK (id = 1),
     policy_enabled          INTEGER NOT NULL DEFAULT 1,
     risk_weight_network     INTEGER NOT NULL DEFAULT 2,
-    risk_weight_env_var     INTEGER NOT NULL DEFAULT 2,
+    risk_weight_env_var     INTEGER NOT NULL DEFAULT 1,
     risk_weight_shell_exec  INTEGER NOT NULL DEFAULT 5,
     risk_weight_code_exec   INTEGER NOT NULL DEFAULT 5,
     risk_weight_dynamic_import INTEGER NOT NULL DEFAULT 4,
     risk_weight_file_write  INTEGER NOT NULL DEFAULT 3,
-    risk_weight_base64      INTEGER NOT NULL DEFAULT 1,
+    risk_weight_base64      INTEGER NOT NULL DEFAULT 0,
     risk_weight_compiled    INTEGER NOT NULL DEFAULT 3,
     risk_weight_rule_match  INTEGER NOT NULL DEFAULT 3,
-    risk_weight_missing_manifest INTEGER NOT NULL DEFAULT 1,
+    risk_weight_missing_manifest INTEGER NOT NULL DEFAULT 0,
     risk_weight_symlink     INTEGER NOT NULL DEFAULT 3,
-    threshold_allow         INTEGER NOT NULL DEFAULT 3,
-    threshold_warn          INTEGER NOT NULL DEFAULT 6,
+    threshold_allow         INTEGER NOT NULL DEFAULT 8,
+    threshold_warn          INTEGER NOT NULL DEFAULT 15,
     updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

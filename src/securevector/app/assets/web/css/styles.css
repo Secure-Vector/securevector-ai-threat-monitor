@@ -14,9 +14,9 @@
     --bg-card: #0a0a0a;
     --bg-hover: #1a1a1a;
 
-    --text-primary: #e5e5e5;
-    --text-secondary: #a3a3a3;
-    --text-muted: #737373;
+    --text-primary: #f5f5f5;
+    --text-secondary: #b0b0b0;
+    --text-muted: #808080;
 
     --border-default: #1f1f1f;
     --border-light: #2e2e2e;
@@ -73,14 +73,14 @@
     --bg-secondary: #f1f5f9;
     --bg-tertiary: #e2e8f0;
     --bg-card: #ffffff;
-    --bg-hover: #e2e8f0;
+    --bg-hover: #dde5ed;
 
     --text-primary: #020617;
     --text-secondary: #334155;
     --text-muted: #64748b;
 
-    --border-default: #cbd5e1;
-    --border-light: #e2e8f0;
+    --border-default: #94a3b8;
+    --border-light: #cbd5e1;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -2866,8 +2866,9 @@ html, body {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border-default);
+    background: var(--bg-secondary);
 }
 
 .activity-row {
@@ -3294,8 +3295,8 @@ html, body {
 .side-drawer {
     position: fixed;
     top: 0;
-    right: -400px;
-    width: 400px;
+    right: -480px;
+    width: 480px;
     max-width: 90vw;
     height: 100vh;
     background: var(--bg-secondary);
@@ -3309,6 +3310,12 @@ html, body {
 
 .side-drawer.open {
     right: 0;
+}
+
+@keyframes drawerShimmer {
+    0% { left: -100%; }
+    50% { left: 100%; }
+    100% { left: 100%; }
 }
 
 .side-drawer-header {
@@ -3742,43 +3749,59 @@ html, body {
     border-color: var(--accent-primary);
 }
 
-/* Table */
-.table-wrapper {
+/* ------------------------------------------------------------------ */
+/* DataTable — shared table component                                  */
+/* ------------------------------------------------------------------ */
+
+.table-wrapper,
+.table-container {
     overflow-x: auto;
 }
 
 .data-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     background: var(--bg-card);
     border-radius: var(--radius-lg);
     overflow: hidden;
+    border: 1px solid var(--border-light);
+    font-size: 13px;
 }
 
 .data-table th,
 .data-table td {
-    padding: 14px 16px;
+    padding: 12px 16px;
     text-align: left;
+    white-space: nowrap;
 }
 
-.data-table th {
-    background: var(--bg-tertiary);
+/* Header — visually distinct from body */
+.data-table thead th {
+    background: var(--bg-secondary);
     font-weight: 600;
-    font-size: 12px;
+    font-size: 11px;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border-default);
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
-.data-table td {
-    border-bottom: 1px solid var(--border-default);
+/* Body rows */
+.data-table tbody td {
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-primary);
+    transition: background var(--transition-fast);
 }
 
-.data-table tr:last-child td {
+.data-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.data-table tr:hover td {
+.data-table tbody tr:hover td {
     background: var(--bg-hover);
 }
 
@@ -3788,20 +3811,22 @@ html, body {
     color: var(--text-primary);
 }
 
-/* Sortable column headers */
-.data-table th.sortable {
+/* Sortable header (used by makeTableSortable and DataTable component) */
+.data-table th.sortable,
+.data-table th.sv-table-th-sort {
     cursor: pointer;
     user-select: none;
     position: relative;
     padding-right: 24px;
     transition: color 0.15s, background 0.15s;
 }
-.data-table th.sortable:hover {
+.data-table th.sortable:hover,
+.data-table th.sv-table-th-sort:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
 }
 .data-table th.sortable::after {
-    content: '↕';
+    content: '\u2195';
     position: absolute;
     right: 8px;
     top: 50%;
@@ -3810,14 +3835,58 @@ html, body {
     font-size: 10px;
 }
 .data-table th.sort-asc::after {
-    content: '↑';
+    content: '\u2191';
     opacity: 1;
     color: var(--accent-primary);
 }
 .data-table th.sort-desc::after {
-    content: '↓';
+    content: '\u2193';
     opacity: 1;
     color: var(--accent-primary);
+}
+
+/* DataTable component sort arrows (inline span) */
+.sv-sort-arrow {
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.35;
+}
+.sv-sort-arrow.active {
+    opacity: 1;
+    color: var(--accent-primary);
+}
+
+/* DataTable checkbox columns */
+.sv-table-th-cb,
+.sv-table-td-cb {
+    width: 40px;
+    text-align: center !important;
+}
+
+/* DataTable pagination */
+.sv-table-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+.sv-table-page-info {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* DataTable empty state */
+.sv-table-empty {
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+/* Disabled row */
+.data-table tbody tr.disabled-row td {
+    opacity: 0.5;
 }
 
 .type-badge {
