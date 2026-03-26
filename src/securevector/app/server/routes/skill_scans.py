@@ -88,6 +88,11 @@ class ScanRequest(BaseModel):
         max_length=20,
         description="One or more skill directory paths to scan (max 20). Each may use ~ for home directory.",
     )
+    invocation_source: str = Field(
+        default="ui",
+        pattern=r"^(ui|cli)$",
+        description="Source of the scan invocation: 'ui' or 'cli'.",
+    )
 
     @field_validator("paths")
     @classmethod
@@ -194,7 +199,12 @@ def _record_to_detail(record: ScanRecord) -> ScanRecordDetail:
         raw_findings = json.loads(record.findings_json)
     except Exception:
         raw_findings = []
-    findings = [FindingResponse(**f) for f in raw_findings]
+    findings = []
+    for f in raw_findings:
+        try:
+            findings.append(FindingResponse(**f))
+        except Exception:
+            logger.debug("Skipping malformed finding: %s", f)
     # Use actual parsed findings length as authoritative count
     return ScanRecordDetail(
         id=record.id,
@@ -453,7 +463,7 @@ async def trigger_scan(request: ScanRequest):
             )
 
         try:
-            result = await scanner.scan(sanitised, invocation_source="ui")
+            result = await scanner.scan(sanitised, invocation_source=request.invocation_source)
         except ValueError as exc:
             return ScanResultItem(path=path, success=False, error=str(exc))
         except Exception as exc:
@@ -481,7 +491,7 @@ async def trigger_scan(request: ScanRequest):
             scanned_path=result.scanned_path,
             skill_name=result.skill_name,
             scan_timestamp=result.scan_timestamp,
-            invocation_source="ui",
+            invocation_source=request.invocation_source,
             risk_level=result.ai_risk_level if result.ai_reviewed else result.risk_level,
             findings_count=result.findings_count,
             findings_json=result.findings_json_str(),
@@ -498,7 +508,7 @@ async def trigger_scan(request: ScanRequest):
                  "file_path": f.file_path, "line_number": f.line_number, "rule_id": f.rule_id}
                 for f in result.findings
             ]
-            decision = await engine.evaluate(findings_dicts, publisher_name=result.skill_name)
+            decision = await engine.evaluate(findings_dicts, publisher_name=result.publisher or result.skill_name)
             policy_summary = PolicySummary(
                 action=decision.action,
                 risk_score=decision.risk_score,
@@ -578,6 +588,11 @@ async def delete_scan_record(scan_id: str):
 
 class ScanUrlRequest(BaseModel):
     url: str = Field(..., max_length=2048, description="GitHub repo, archive, or npm package URL")
+    invocation_source: str = Field(
+        default="ui",
+        pattern=r"^(ui|cli)$",
+        description="Source of the scan invocation: 'ui' or 'cli'.",
+    )
 
 
 class ScanUrlResponse(BaseModel):
@@ -626,7 +641,7 @@ async def scan_from_url(request: ScanUrlRequest):
     repo = SkillScansRepository(db)
 
     try:
-        result = await scanner.scan(fetch_result.temp_dir, invocation_source="ui")
+        result = await scanner.scan(fetch_result.temp_dir, invocation_source=request.invocation_source)
     except Exception as e:
         fetcher.cleanup(fetch_result.temp_dir)
         logger.exception("Scan failed for fetched URL")
@@ -654,7 +669,7 @@ async def scan_from_url(request: ScanUrlRequest):
         scanned_path=request.url,  # Store URL as path for history display
         skill_name=result.skill_name,
         scan_timestamp=result.scan_timestamp,
-        invocation_source="ui",
+        invocation_source=request.invocation_source,
         risk_level=result.ai_risk_level if result.ai_reviewed else result.risk_level,
         findings_count=result.findings_count,
         findings_json=result.findings_json_str(),
@@ -671,7 +686,7 @@ async def scan_from_url(request: ScanUrlRequest):
              "file_path": f.file_path, "line_number": f.line_number, "rule_id": f.rule_id}
             for f in result.findings
         ]
-        decision = await engine.evaluate(findings_dicts, publisher_name=result.skill_name)
+        decision = await engine.evaluate(findings_dicts, publisher_name=result.publisher or result.skill_name)
         policy_summary = PolicySummary(
             action=decision.action,
             risk_score=decision.risk_score,

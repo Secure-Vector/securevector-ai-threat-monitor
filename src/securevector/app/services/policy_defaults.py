@@ -142,6 +142,37 @@ ENV_VAR_PERMISSIONS = [
     ("SENTRY_DSN", "safe", "Sentry DSN"),
     ("LANGCHAIN_API_KEY", "safe", "LangChain key"),
     ("LANGSMITH_API_KEY", "safe", "LangSmith key"),
+    # --- SAFE: Common non-sensitive env vars (wildcard) ---
+    ("*_PORT", "safe", "Port config"),
+    ("*_HOST", "safe", "Host config"),
+    ("*_DIR", "safe", "Directory config"),
+    ("*_PATH", "safe", "Path config"),
+    ("*_LEVEL", "safe", "Level config"),
+    ("*_MODE", "safe", "Mode config"),
+    ("*_ENV", "safe", "Environment config"),
+    ("*_TIMEOUT", "safe", "Timeout config"),
+    ("*_RETRIES", "safe", "Retry config"),
+    ("*_ENABLED", "safe", "Feature flag"),
+    ("*_DISABLED", "safe", "Feature flag"),
+    ("*_FORMAT", "safe", "Format config"),
+    ("*_LIMIT", "safe", "Limit config"),
+    ("*_SIZE", "safe", "Size config"),
+    ("*_COUNT", "safe", "Count config"),
+    ("WIDTH", "safe", "Display width"),
+    ("HEIGHT", "safe", "Display height"),
+    ("DISPLAY", "safe", "Display config"),
+    ("VERBOSE", "safe", "Verbose flag"),
+    ("LANG", "safe", "Locale"),
+    ("TZ", "safe", "Timezone"),
+    ("HOME", "safe", "Home directory"),
+    ("USER", "safe", "Current user"),
+    ("SHELL", "safe", "Shell path"),
+    ("TERM", "safe", "Terminal type"),
+    ("PYTHONPATH", "safe", "Python path"),
+    ("PYTHONDONTWRITEBYTECODE", "safe", "Python config"),
+    ("VIRTUAL_ENV", "safe", "Virtual env path"),
+    ("CI", "safe", "CI flag"),
+    ("GITHUB_ACTIONS", "safe", "GitHub Actions flag"),
     # --- REVIEW: Cloud/Infra ---
     ("AWS_ACCESS_KEY_ID", "review", "AWS access key"),
     ("AWS_SECRET_ACCESS_KEY", "review", "AWS secret key"),
@@ -265,29 +296,59 @@ SHELL_COMMAND_PERMISSIONS = [
 ]
 
 TRUSTED_PUBLISHERS = [
-    ("openclaw", "trusted"),
+    # Platform
     ("securevector", "trusted"),
+    # Major LLM providers
+    ("anthropic", "trusted"),
+    ("anthropics", "trusted"),
+    ("openai", "trusted"),
+    ("google", "trusted"),
+    ("google-deepmind", "trusted"),
+    ("googleapis", "trusted"),
+    ("meta-llama", "trusted"),
+    ("meta-research", "trusted"),
+    ("facebookresearch", "trusted"),
+    ("microsoft", "trusted"),
+    ("azure", "trusted"),
+    ("mistralai", "trusted"),
+    ("cohere-ai", "trusted"),
+    ("huggingface", "trusted"),
+    ("xai-org", "trusted"),
+    ("deepseek-ai", "trusted"),
+    ("groq", "trusted"),
+    ("together-ai", "trusted"),
+    ("fireworks-ai", "trusted"),
+    ("replicate", "trusted"),
+    ("perplexity-ai", "trusted"),
+    ("ai21labs", "trusted"),
+    ("sambanova", "trusted"),
+    ("stability-ai", "trusted"),
+    # Major infra/tools
+    ("langchain-ai", "trusted"),
+    ("langgenius", "trusted"),
+    ("run-llama", "trusted"),
+    ("aws", "trusted"),
 ]
 
 # Risk score weights per finding category
 RISK_SCORE_WEIGHTS = {
     "network_domain": 2,
-    "env_var_read": 2,
+    "env_var_read": 1,
     "shell_exec": 5,
     "code_exec": 5,
     "dynamic_import": 4,
     "file_write": 3,
-    "base64_literal": 1,
+    "base64_literal": 0,
     "compiled_code": 3,
     "rule_match": 3,
-    "missing_manifest": 1,
+    "missing_manifest": 0,
     "symlink_escape": 3,
     "scan_limit": 0,
 }
 
 # Risk score thresholds
 RISK_SCORE_THRESHOLDS = {
-    "allow": 3,     # 0-3: allow
-    "warn": 6,      # 4-6: warn
-    # 7+: block
+    "allow": 8,     # 0-8: allow
+    "warn": 15,     # 9-15: warn
+    # 16+: block
 }

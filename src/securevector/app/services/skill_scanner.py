@@ -77,7 +77,13 @@ _RE_NETWORK = re.compile(
     r"(?:[\"'](?P<url_py>[^\"'\n]+)[\"'])"
     r"|urllib\.request\.urlopen\s*\(\s*[\"'](?P<url_urllib>[^\"'\n]+)[\"']"
     r"|fetch\s*\(\s*[\"'`](?P<url_fetch>[^\"'`\n]+)[\"'`]"
-    r"|axios\s*\.\s*(?:get|post|put|delete|patch)\s*\(\s*[\"'`](?P<url_axios>[^\"'`\n]+)[\"'`]",
+    r"|axios\s*\.\s*(?:get|post|put|delete|patch)\s*\(\s*[\"'`](?P<url_axios>[^\"'`\n]+)[\"'`]"
+    # Additional HTTP libraries
+    r"|aiohttp\.ClientSession\s*\("
+    r"|http\.client\.\s*HTTP[S]?Connection\s*\("
+    r"|urllib3\.\s*(?:PoolManager|HTTPConnectionPool)\s*\("
+    r"|socket\.\s*(?:connect|create_connection)\s*\("
+    r"|XMLHttpRequest\s*\(",
     re.IGNORECASE,
 )
 
@@ -93,15 +99,27 @@ _RE_ENV = re.compile(
 # Shell execution calls — subprocess and os.system/os.popen only
 _RE_SHELL_CALL = re.compile(
     r"subprocess\s*\.\s*(?:run|Popen|call|check_output|check_call)\s*\("
-    r"|os\s*\.\s*(?:system|popen)\s*\(",
+    r"|os\s*\.\s*(?:system|popen|execvp?|spawnl?[pe]?)\s*\("
+    r"|child_process\s*\.\s*(?:exec|spawn|fork|execFile|execSync|spawnSync)\s*\(",
     re.IGNORECASE,
 )
 _RE_DYNAMIC_ARG = re.compile(r'[+]|f["\']|\$\{|%\s*[a-zA-Z]|\.format\s*\(')
 
 # Code execution via eval/exec (separate from shell_exec)
 _RE_CODE_EXEC = re.compile(
+    # Python eval/exec
     r"\beval\s*\("
-    r"|\bexec\s*\(",
+    r"|\bexec\s*\("
+    r"|\bcompile\s*\([^)]+['\"]exec['\"]"
+    # Deserialization (code exec risk)
+    r"|(?:pickle|cPickle)\s*\.\s*(?:loads?|Unpickler)\s*\("
+    r"|yaml\s*\.\s*(?:load|unsafe_load)\s*\("
+    r"|marshal\s*\.\s*loads?\s*\("
+    # Native code loading
+    r"|ctypes\s*\.\s*(?:CDLL|cdll|windll|oledll)\s*\("
+    # JS code exec
+    r"|\bnew\s+Function\s*\("
+    r"|vm\s*\.\s*(?:runInNewContext|runInThisContext|createContext)\s*\(",
     re.IGNORECASE,
 )
 
@@ -200,6 +218,7 @@ class PermissionsManifest:
     files: list
     env_vars: frozenset
     source_file: str
+    publisher: str = ""
 
 
 @dataclass
@@ -214,6 +233,7 @@ class ScanResult:
     risk_level: str
     findings: list = field(default_factory=list)
     manifest_present: bool = False
+    publisher: str = ""
 
     ai_reviewed: bool = False
     ai_risk_level: str = ""          # AI-adjusted risk level (may differ from static)
@@ -389,6 +409,7 @@ class SkillScannerService:
             risk_level=risk_level,
             findings=findings,
             manifest_present=(manifest is not None),
+            publisher=manifest.publisher if manifest else "",
         )
 
     # -----------------------------------------------------------------------
@@ -413,11 +434,18 @@ class SkillScannerService:
                     raw = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
                     perms = raw.get("permissions", {})
 
+                # Publisher can be at top level of json or yaml
+                if fmt == "json":
+                    publisher = str(data.get("publisher", ""))
+                else:
+                    publisher = str(raw.get("publisher", ""))
+
                 return PermissionsManifest(
                     networks=frozenset(str(n).lower().strip() for n in (perms.get("networks") or [])),
                     files=[str(f) for f in (perms.get("files") or [])],
                     env_vars=frozenset(str(e) for e in (perms.get("env_vars") or [])),
                     source_file=candidate.name,
+                    publisher=publisher,
                 )
             except Exception as exc:
                 logger.warning("Manifest %s is malformed, treating as absent: %s", candidate.name, exc)
@@ -433,29 +461,41 @@ class SkillScannerService:
         findings = []
         allowed = manifest.networks if manifest else frozenset()
         for match in _RE_NETWORK.finditer(text):
-            url = (
-                match.group("url_py")
-                or match.group("url_urllib")
-                or match.group("url_fetch")
-                or match.group("url_axios")
-            )
-            if not url:
-                continue
+            url = None
             try:
-                parsed = urlparse(url if "://" in url else "https://" + url)
-                domain = (parsed.hostname or "").lower()
-            except Exception:
-                continue
-            if not domain or domain in allowed:
-                continue
+                url = (
+                    match.group("url_py")
+                    or match.group("url_urllib")
+                    or match.group("url_fetch")
+                    or match.group("url_axios")
+                )
+            except IndexError:
+                pass
+
             line_no = text[: match.start()].count("\n") + 1
-            excerpt = lines[line_no - 1].strip() if line_no <= len(lines) else url
+            excerpt = lines[line_no - 1].strip() if line_no <= len(lines) else match.group(0)
+
+            if url:
+                # URL-based match — extract domain for classification
+                try:
+                    parsed = urlparse(url if "://" in url else "https://" + url)
+                    domain = (parsed.hostname or "").lower()
+                except Exception:
+                    domain = ""
+                if not domain:
+                    continue
+                sev = "low" if domain in allowed else "high"
+            else:
+                # Library-usage match (aiohttp, socket, etc.) — no URL to extract
+                domain = ""
+                sev = "medium"
+
             findings.append(Finding(
                 file_path=rel_path,
                 line_number=line_no,
                 category="network_domain",
                 excerpt=excerpt,
-                severity="high",
+                severity=sev,
                 rule_id="scanner.network_domain",
             ))
         return findings
@@ -588,18 +628,20 @@ class SkillScannerService:
             # Extract the file path argument from the matched code
             # Only allow if the path argument itself starts with a declared prefix
             path_arg = self._extract_file_path_arg(match.group(0))
+            # Declared file paths get reduced severity but are still reported
+            is_declared = False
             if allowed_prefixes and path_arg:
-                if any(
+                is_declared = any(
                     path_arg.startswith(prefix) or path_arg.startswith(prefix.lstrip("./"))
                     for prefix in allowed_prefixes
-                ):
-                    continue
+                )
 
             # Downgrade severity for safe write patterns:
+            # - declared in manifest → low
             # - relative paths (within skill dir) writing safe extensions
             # - variable-based paths writing to safe extensions (.json, .html, etc.)
-            severity = "high"
-            if path_arg:
+            severity = "low" if is_declared else "high"
+            if not is_declared and path_arg:
                 ext = Path(path_arg).suffix.lower() if "." in path_arg else ""
                 is_absolute = path_arg.startswith("/") or path_arg.startswith("~")
                 if not is_absolute and ext in _SAFE_WRITE_EXTENSIONS:
