@@ -185,9 +185,11 @@ class SkillPermissionsRepository:
         for row in rows:
             pattern = row["pattern"]
             if "*" in pattern or "?" in pattern:
-                # Use fnmatch-style matching
                 import fnmatch
                 if fnmatch.fnmatch(value, pattern) or fnmatch.fnmatch(value, f"*{pattern}"):
+                    return row["classification"]
+                # Bare domain match: "openai.com" should match "*.openai.com"
+                if pattern.startswith("*.") and value == pattern[2:]:
                     return row["classification"]
             else:
                 # Exact match or domain-suffix match (e.g., "api.openai.com" matches "openai.com")
@@ -234,6 +236,8 @@ class SkillPermissionsRepository:
         )
         if not existing:
             return False
+        if bool(existing["is_default"]):
+            raise ValueError("Default publishers cannot be deleted — change trust level instead")
         await self.db.execute("DELETE FROM skill_trusted_publishers WHERE id = ?", (publisher_id,))
         return True
 

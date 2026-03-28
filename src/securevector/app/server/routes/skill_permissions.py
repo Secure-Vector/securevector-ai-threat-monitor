@@ -91,6 +91,16 @@ class UpdatePolicyConfigRequest(BaseModel):
     risk_weights: Optional[dict[str, int]] = None
 
     @model_validator(mode="after")
+    def _check_risk_weights(self) -> "UpdatePolicyConfigRequest":
+        if self.risk_weights:
+            for cat, w in self.risk_weights.items():
+                if w < 0:
+                    raise ValueError(f"Risk weight for '{cat}' must be non-negative")
+                if w > 100:
+                    raise ValueError(f"Risk weight for '{cat}' must be <= 100")
+        return self
+
+    @model_validator(mode="after")
     def _check_threshold_order(self) -> "UpdatePolicyConfigRequest":
         if (
             self.threshold_allow is not None
@@ -335,7 +345,10 @@ async def add_publisher(request: AddPublisherRequest):
 async def delete_publisher(pub_id: int):
     db = get_database()
     repo = SkillPermissionsRepository(db)
-    deleted = await repo.delete_publisher(pub_id)
+    try:
+        deleted = await repo.delete_publisher(pub_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     if not deleted:
         raise HTTPException(status_code=404, detail="Publisher not found")
     return Response(status_code=204)

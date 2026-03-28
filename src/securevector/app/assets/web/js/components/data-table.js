@@ -148,8 +148,10 @@ class DataTable {
                 cb.type = 'checkbox';
                 cb.className = 'sv-select-all';
                 cb.title = 'Select all';
-                cb.checked = this.data.length > 0 && this.selectedIds.size === this.data.length;
-                cb.indeterminate = this.selectedIds.size > 0 && this.selectedIds.size < this.data.length;
+                const paged = this._getPagedData(this._getSortedData());
+                const pagedSelected = paged.filter(item => this.selectedIds.has(item[this.idField])).length;
+                cb.checked = paged.length > 0 && pagedSelected === paged.length;
+                cb.indeterminate = pagedSelected > 0 && pagedSelected < paged.length;
                 cb.addEventListener('change', (e) => {
                     e.stopPropagation();
                     this._toggleSelectAll(e.target.checked);
@@ -383,8 +385,12 @@ class DataTable {
     }
 
     _toggleSelectAll(checked) {
-        this.selectedIds.clear();
-        if (checked) this.data.forEach(item => this.selectedIds.add(item[this.idField]));
+        const paged = this._getPagedData(this._getSortedData());
+        if (checked) {
+            paged.forEach(item => this.selectedIds.add(item[this.idField]));
+        } else {
+            paged.forEach(item => this.selectedIds.delete(item[this.idField]));
+        }
         if (this.onSelectChange) this.onSelectChange(this.selectedIds);
         this._render();
     }

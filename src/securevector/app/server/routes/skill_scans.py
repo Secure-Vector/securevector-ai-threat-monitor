@@ -264,7 +264,7 @@ def _wsl_win_home() -> Path | None:
         result = subprocess.run(
             ["wslpath", "-u", subprocess.check_output(
                 ["cmd.exe", "/C", "echo", "%USERPROFILE%"],
-                stderr=subprocess.DEVNULL, text=True,
+                stderr=subprocess.DEVNULL, text=True, timeout=5,
             ).strip()],
             capture_output=True, text=True, timeout=5,
         )
