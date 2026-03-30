@@ -351,47 +351,39 @@ const CostsPage = {
             return;
         }
 
-        const agentWrap = document.createElement('div');
-        agentWrap.className = 'table-container';
-        const agentTable = document.createElement('table');
-        agentTable.className = 'data-table';
-        const agentThead = document.createElement('thead');
-        const agentHrow = document.createElement('tr');
-        ['Agent ID', 'Requests', 'Input Tokens', 'Output Tokens', 'Total Cost', 'Daily Budget', 'Providers', 'Last Seen'].forEach(h => {
-            const th = document.createElement('th'); th.textContent = h; agentHrow.appendChild(th);
+        const self = this;
+        const agentDt = new DataTable({
+            columns: [
+                { key: 'agent_id', label: 'Agent ID', sortable: true, render: (val, row) => {
+                    const wrap = document.createDocumentFragment();
+                    const code = document.createElement('code');
+                    code.textContent = val.length > 28 ? val.slice(0, 28) + '\u2026' : val;
+                    code.title = val;
+                    wrap.appendChild(code);
+                    if (row.has_unknown_pricing) {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge badge-warning'; badge.title = 'Some requests have unknown pricing'; badge.textContent = '~';
+                        wrap.appendChild(badge);
+                    }
+                    return wrap;
+                }},
+                { key: 'total_requests', label: 'Requests', sortable: true, render: v => (v || 0).toLocaleString() },
+                { key: 'total_input_tokens', label: 'Input Tokens', sortable: true, render: v => self._fmtTokens(v) },
+                { key: 'total_output_tokens', label: 'Output Tokens', sortable: true, render: v => self._fmtTokens(v) },
+                { key: 'total_cost_usd', label: 'Total Cost', sortable: true, render: v => {
+                    const s = document.createElement('strong'); s.textContent = `$${(v || 0).toFixed(6)}`; return s;
+                }},
+                { key: null, label: 'Daily Budget', render: (_, row) => self._buildAgentBudgetCell(row, true) },
+                { key: 'providers_used', label: 'Providers', render: v => (v || []).join(', ') },
+                { key: 'last_seen', label: 'Last Seen', sortable: true, defaultDir: 'desc', render: v => v ? new Date(v).toLocaleString() : '\u2014' },
+            ],
+            data: agents,
+            sortKey: 'total_cost_usd',
+            sortDir: 'desc',
+            idField: 'agent_id',
+            emptyText: 'No agent cost data yet.',
         });
-        agentThead.appendChild(agentHrow);
-        agentTable.appendChild(agentThead);
-
-        const agentTbody = document.createElement('tbody');
-        agents.forEach(agent => {
-            const tr = document.createElement('tr');
-            const tdAgent = document.createElement('td');
-            const code = document.createElement('code');
-            code.textContent = agent.agent_id.length > 28 ? agent.agent_id.slice(0, 28) + '…' : agent.agent_id;
-            code.title = agent.agent_id;
-            tdAgent.appendChild(code);
-            if (agent.has_unknown_pricing) {
-                const badge = document.createElement('span');
-                badge.className = 'badge badge-warning'; badge.title = 'Some requests have unknown pricing'; badge.textContent = '~';
-                tdAgent.appendChild(badge);
-            }
-            tr.appendChild(tdAgent);
-            [agent.total_requests.toLocaleString(), this._fmtTokens(agent.total_input_tokens), this._fmtTokens(agent.total_output_tokens)].forEach(text => {
-                const td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
-            });
-            const tdCost = document.createElement('td');
-            const strong = document.createElement('strong'); strong.textContent = `$${agent.total_cost_usd.toFixed(6)}`;
-            tdCost.appendChild(strong); tr.appendChild(tdCost);
-            tr.appendChild(this._buildAgentBudgetCell(agent));
-            const tdProviders = document.createElement('td'); tdProviders.textContent = (agent.providers_used || []).join(', '); tr.appendChild(tdProviders);
-            const tdLast = document.createElement('td'); tdLast.textContent = agent.last_seen ? new Date(agent.last_seen).toLocaleString() : '—'; tr.appendChild(tdLast);
-            agentTbody.appendChild(tr);
-        });
-        agentTable.appendChild(agentTbody);
-        agentWrap.appendChild(agentTable);
-        el.appendChild(agentWrap);
-        makeTableSortable(agentTable);
+        el.appendChild(agentDt.el);
 
         const actionsRow = document.createElement('div');
         actionsRow.style.cssText = 'display: flex; gap: 10px; margin-top: 0.75rem; align-items: center;';
@@ -602,181 +594,118 @@ const CostsPage = {
             return;
         }
 
-        const tableWrap = document.createElement('div');
-        tableWrap.className = 'table-container';
-
-        const table = document.createElement('table');
-        table.className = 'data-table';
-        table.id = 'costs-records-table';
-
-        const thead = document.createElement('thead');
-        const hrow = document.createElement('tr');
-
-        // Select-all checkbox column
-        const selectAllTh = document.createElement('th');
-        selectAllTh.style.width = '36px';
-        const selectAllCb = document.createElement('input');
-        selectAllCb.type = 'checkbox';
-        selectAllCb.id = 'records-select-all';
-        selectAllCb.addEventListener('change', (e) => this._toggleSelectAll(e.target.checked, records));
-        selectAllTh.appendChild(selectAllCb);
-        hrow.appendChild(selectAllTh);
-
-        ['Time', 'Agent', 'Provider', 'Model', 'Input', 'Cached', 'Output', 'Cost', 'Pricing'].forEach(h => {
-            const th = document.createElement('th');
-            th.textContent = h;
-            hrow.appendChild(th);
-        });
-        thead.appendChild(hrow);
-        table.appendChild(thead);
-
-        const buildCostDrawerContent = (r) => {
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
-
-            const section = (label, node) => {
-                const row = document.createElement('div');
-                row.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px;';
-                lbl.textContent = label;
-                row.appendChild(lbl);
-                if (typeof node === 'string') {
-                    const val = document.createElement('div');
-                    val.style.cssText = 'font-size: 13px; color: var(--text-primary);';
-                    val.textContent = node;
-                    row.appendChild(val);
-                } else {
-                    row.appendChild(node);
-                }
-                return row;
-            };
-
-            // Cost banner
-            const banner = document.createElement('div');
-            banner.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.25);';
-            const costVal = document.createElement('div');
-            costVal.style.cssText = 'font-size: 28px; font-weight: 800; color: var(--accent-primary); font-family: monospace;';
-            costVal.textContent = '$' + r.total_cost_usd.toFixed(6);
-            banner.appendChild(costVal);
-            const pricingBadge = document.createElement('span');
-            pricingBadge.className = r.pricing_known ? 'badge badge-success' : 'badge badge-warning';
-            pricingBadge.textContent = r.pricing_known ? 'Pricing known' : 'Pricing estimated';
-            banner.appendChild(pricingBadge);
-            wrap.appendChild(banner);
-
-            // Timestamp
-            wrap.appendChild(section('Time', new Date(r.recorded_at).toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })));
-
-            // Agent + Provider + Model grid
-            const metaGrid = document.createElement('div');
-            metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
-            const agentEl = document.createElement('code');
-            agentEl.style.cssText = 'font-size: 12px; color: var(--text-primary); word-break: break-all;';
-            agentEl.textContent = r.agent_id || '—';
-            metaGrid.appendChild(section('Agent ID', agentEl));
-            metaGrid.appendChild(section('Provider', r.provider || '—'));
-            wrap.appendChild(metaGrid);
-
-            const modelEl = document.createElement('code');
-            modelEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
-            modelEl.textContent = r.model_id || '—';
-            wrap.appendChild(section('Model', modelEl));
-
-            // Token breakdown
-            const tokenGrid = document.createElement('div');
-            tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;';
-
-            const tokenCard = (label, value, color) => {
-                const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; text-align: center;';
-                const v = document.createElement('div');
-                v.style.cssText = 'font-size: 18px; font-weight: 700; color: ' + (color || 'var(--text-primary)') + '; font-family: monospace;';
-                v.textContent = value;
-                const l = document.createElement('div');
-                l.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 2px;';
-                l.textContent = label;
-                card.appendChild(v);
-                card.appendChild(l);
-                return card;
-            };
-
-            tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
-            const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
-                ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
-            tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '—', '#10b981'));
-            tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), '#f59e0b'));
-            wrap.appendChild(section('Token Usage', tokenGrid));
-
-            return wrap;
-        };
-
-        const tbody = document.createElement('tbody');
-        records.forEach(r => {
-            const tr = document.createElement('tr');
-            tr.style.cursor = 'pointer';
-            tr.title = 'Click to view details';
-            if (this.recordsSelectedIds.has(r.id)) tr.classList.add('selected');
-            tr.addEventListener('click', () => {
-                SideDrawer.show({ title: 'Request Detail', content: buildCostDrawerContent(r) });
-            });
-
-            // Checkbox cell — stop click from bubbling to row
-            const cbTd = document.createElement('td');
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = 'record-checkbox';
-            cb.checked = this.recordsSelectedIds.has(r.id);
-            cb.addEventListener('click', (e) => e.stopPropagation());
-            cb.addEventListener('change', (e) => this._toggleSelectRecord(r.id, e.target.checked, records));
-            cbTd.appendChild(cb);
-            tr.appendChild(cbTd);
-
-            const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
-                ? ` (${Math.round(r.input_cached_tokens / r.input_tokens * 100)}%)`
-                : '';
-            const cells = [
-                { text: new Date(r.recorded_at).toLocaleString() },
-                { text: r.agent_id, code: true, truncate: 28 },
-                { text: r.provider },
-                { text: r.model_id },
-                { text: r.input_tokens.toLocaleString() },
-                { text: r.input_cached_tokens > 0 ? `${r.input_cached_tokens.toLocaleString()}${cachedPct}` : '—' },
-                { text: r.output_tokens.toLocaleString() },
-                { text: `$${r.total_cost_usd.toFixed(6)}` },
-            ];
-            cells.forEach(({ text, code, truncate }) => {
-                const td = document.createElement('td');
-                if (code) {
+        const self = this;
+        const recordsDt = new DataTable({
+            columns: [
+                { key: 'recorded_at', label: 'Time', sortable: true, defaultDir: 'desc', render: v => new Date(v).toLocaleString() },
+                { key: 'agent_id', label: 'Agent', sortable: true, render: v => {
                     const c = document.createElement('code');
-                    if (truncate && text && text.length > truncate) {
-                        c.textContent = text.slice(0, truncate) + '…';
-                        c.title = text;
-                    } else {
-                        c.textContent = text;
-                    }
-                    td.appendChild(c);
-                } else {
-                    td.textContent = text;
-                }
-                tr.appendChild(td);
-            });
-
-            const tdPricing = document.createElement('td');
-            const badge = document.createElement('span');
-            badge.className = r.pricing_known ? 'badge badge-success' : 'badge badge-warning';
-            badge.textContent = r.pricing_known ? 'Known' : 'Unknown';
-            tdPricing.appendChild(badge);
-            tr.appendChild(tdPricing);
-
-            tbody.appendChild(tr);
+                    if (v && v.length > 28) { c.textContent = v.slice(0, 28) + '\u2026'; c.title = v; }
+                    else c.textContent = v || '\u2014';
+                    return c;
+                }},
+                { key: 'provider', label: 'Provider', sortable: true },
+                { key: 'model_id', label: 'Model', sortable: true },
+                { key: 'input_tokens', label: 'Input', sortable: true, render: v => (v || 0).toLocaleString() },
+                { key: 'input_cached_tokens', label: 'Cached', sortable: true, render: (v, row) => {
+                    if (!v || v <= 0) return '\u2014';
+                    const pct = row.input_tokens > 0 ? ` (${Math.round(v / row.input_tokens * 100)}%)` : '';
+                    return v.toLocaleString() + pct;
+                }},
+                { key: 'output_tokens', label: 'Output', sortable: true, render: v => (v || 0).toLocaleString() },
+                { key: 'total_cost_usd', label: 'Cost', sortable: true, render: v => `$${(v || 0).toFixed(6)}` },
+                { key: 'pricing_known', label: 'Pricing', render: v => {
+                    const b = document.createElement('span');
+                    b.className = v ? 'badge badge-success' : 'badge badge-warning';
+                    b.textContent = v ? 'Known' : 'Unknown';
+                    return b;
+                }},
+            ],
+            data: records,
+            selectable: true,
+            bulkActions: [
+                { label: 'Delete', className: 'btn btn-sm btn-danger', onClick: (ids) => self._bulkDeleteRecords(ids) },
+            ],
+            idField: 'id',
+            sortKey: 'recorded_at',
+            sortDir: 'desc',
+            onRowClick: (r) => SideDrawer.show({ title: 'Request Detail', content: self._buildCostDrawerContent(r) }),
+            onSelectChange: (ids) => {
+                self.recordsSelectedIds = ids;
+                self._updateRecordsDeleteBtn();
+            },
+            tableId: 'costs-records-table',
+            emptyText: 'No cost records found.',
         });
-        table.appendChild(tbody);
-        tableWrap.appendChild(table);
-        container.appendChild(tableWrap);
-        makeTableSortable(table);
+        // Sync initial selection
+        recordsDt.selectedIds = new Set(this.recordsSelectedIds);
+        container.appendChild(recordsDt.el);
 
         this._renderPagination(container, total);
+    },
+
+    _buildCostDrawerContent(r) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
+        const section = (label, node) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+            const lbl = document.createElement('div');
+            lbl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px;';
+            lbl.textContent = label;
+            row.appendChild(lbl);
+            if (typeof node === 'string') {
+                const val = document.createElement('div');
+                val.style.cssText = 'font-size: 13px; color: var(--text-primary);';
+                val.textContent = node;
+                row.appendChild(val);
+            } else { row.appendChild(node); }
+            return row;
+        };
+        const banner = document.createElement('div');
+        banner.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.25);';
+        const costVal = document.createElement('div');
+        costVal.style.cssText = 'font-size: 28px; font-weight: 800; color: var(--accent-primary); font-family: monospace;';
+        costVal.textContent = '$' + r.total_cost_usd.toFixed(6);
+        banner.appendChild(costVal);
+        const pricingBadge = document.createElement('span');
+        pricingBadge.className = r.pricing_known ? 'badge badge-success' : 'badge badge-warning';
+        pricingBadge.textContent = r.pricing_known ? 'Pricing known' : 'Pricing estimated';
+        banner.appendChild(pricingBadge);
+        wrap.appendChild(banner);
+        wrap.appendChild(section('Time', new Date(r.recorded_at).toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })));
+        const metaGrid = document.createElement('div');
+        metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
+        const agentEl = document.createElement('code');
+        agentEl.style.cssText = 'font-size: 12px; color: var(--text-primary); word-break: break-all;';
+        agentEl.textContent = r.agent_id || '\u2014';
+        metaGrid.appendChild(section('Agent ID', agentEl));
+        metaGrid.appendChild(section('Provider', r.provider || '\u2014'));
+        wrap.appendChild(metaGrid);
+        const modelEl = document.createElement('code');
+        modelEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
+        modelEl.textContent = r.model_id || '\u2014';
+        wrap.appendChild(section('Model', modelEl));
+        const tokenGrid = document.createElement('div');
+        tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;';
+        const tokenCard = (label, value, color) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; text-align: center;';
+            const v = document.createElement('div');
+            v.style.cssText = 'font-size: 18px; font-weight: 700; color: ' + (color || 'var(--text-primary)') + '; font-family: monospace;';
+            v.textContent = value;
+            const l = document.createElement('div');
+            l.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 2px;';
+            l.textContent = label;
+            card.appendChild(v); card.appendChild(l); return card;
+        };
+        tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
+        const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
+            ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
+        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '\u2014', '#10b981'));
+        tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), '#f59e0b'));
+        wrap.appendChild(section('Token Usage', tokenGrid));
+        return wrap;
     },
 
     _renderPagination(container, total) {
@@ -1648,8 +1577,8 @@ const CostsPage = {
 
     // ==================== Per-Agent Budget Cell ====================
 
-    _buildAgentBudgetCell(agent) {
-        const td = document.createElement('td');
+    _buildAgentBudgetCell(agent, contentOnly) {
+        const td = document.createElement(contentOnly ? 'div' : 'td');
         const budget = (this.agentBudgets || []).find(b => b.agent_id === agent.agent_id) || null;
         this._renderAgentBudgetCellContent(td, agent.agent_id, budget);
         return td;

@@ -22,7 +22,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.skill_permissions import SkillPermissionsRepository
@@ -89,6 +89,28 @@ class UpdatePolicyConfigRequest(BaseModel):
     threshold_allow: Optional[int] = Field(default=None, ge=0, le=100)
     threshold_warn: Optional[int] = Field(default=None, ge=0, le=100)
     risk_weights: Optional[dict[str, int]] = None
+
+    @model_validator(mode="after")
+    def _check_risk_weights(self) -> "UpdatePolicyConfigRequest":
+        if self.risk_weights:
+            for cat, w in self.risk_weights.items():
+                if w < 0:
+                    raise ValueError(f"Risk weight for '{cat}' must be non-negative")
+                if w > 100:
+                    raise ValueError(f"Risk weight for '{cat}' must be <= 100")
+        return self
+
+    @model_validator(mode="after")
+    def _check_threshold_order(self) -> "UpdatePolicyConfigRequest":
+        if (
+            self.threshold_allow is not None
+            and self.threshold_warn is not None
+            and self.threshold_allow > self.threshold_warn
+        ):
+            raise ValueError(
+                "threshold_allow must be <= threshold_warn"
+            )
+        return self
 
 
 VALID_CATEGORIES = {"network", "env_var", "file_path", "shell_command"}
@@ -222,7 +244,10 @@ async def update_permission(perm_id: int, request: UpdatePermissionRequest):
 async def delete_permission(perm_id: int):
     db = get_database()
     repo = SkillPermissionsRepository(db)
-    deleted = await repo.delete_permission(perm_id)
+    try:
+        deleted = await repo.delete_permission(perm_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     if not deleted:
         raise HTTPException(status_code=404, detail="Permission not found")
     return Response(status_code=204)
@@ -320,7 +345,10 @@ async def add_publisher(request: AddPublisherRequest):
 async def delete_publisher(pub_id: int):
     db = get_database()
     repo = SkillPermissionsRepository(db)
-    deleted = await repo.delete_publisher(pub_id)
+    try:
+        deleted = await repo.delete_publisher(pub_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     if not deleted:
         raise HTTPException(status_code=404, detail="Publisher not found")
     return Response(status_code=204)
@@ -347,6 +375,18 @@ async def get_policy_config():
 async def update_policy_config(request: UpdatePolicyConfigRequest):
     db = get_database()
     repo = SkillPermissionsRepository(db)
+
+    # Cross-validate against current config when only one threshold is provided
+    if (request.threshold_allow is not None) != (request.threshold_warn is not None):
+        current = await repo.get_policy_config()
+        new_allow = request.threshold_allow if request.threshold_allow is not None else current.threshold_allow
+        new_warn = request.threshold_warn if request.threshold_warn is not None else current.threshold_warn
+        if new_allow > new_warn:
+            raise HTTPException(
+                status_code=422,
+                detail=f"threshold_allow ({new_allow}) must be <= threshold_warn ({new_warn})",
+            )
+
     kwargs = {}
     if request.policy_enabled is not None:
         kwargs["policy_enabled"] = request.policy_enabled

@@ -128,10 +128,25 @@ class PolicyEngine:
                 unknown_count += 1
 
         # Calculate risk score: sum weights of non-safe findings
+        # Severity multiplier: critical/high = 1.0, medium = 0.6, low = 0.3
+        # Unknown boost: unrecognised high/critical patterns are suspicious — double weight
+        severity_multiplier = {
+            "critical": 1.0,
+            "high": 1.0,
+            "medium": 0.6,
+            "low": 0.3,
+        }
         risk_score = 0
+        unknown_high_count = 0
         for cf in classified:
             if cf.classification != "safe":
-                risk_score += cf.weight
+                mult = severity_multiplier.get(cf.severity, 0.6)
+                base = cf.weight * mult
+                # Unknown patterns at high/critical severity get double weight
+                if cf.classification is None and cf.severity in ("critical", "high"):
+                    base *= 2
+                    unknown_high_count += 1
+                risk_score += int(base + 0.5)  # round
 
         # Trusted publisher shortcut: if trusted and score <= threshold_warn, allow
         if is_trusted and risk_score <= config.threshold_warn and dangerous_count == 0:
@@ -143,9 +158,13 @@ class PolicyEngine:
         else:
             action = "block"
 
-        # Dangerous findings always escalate to at least warn
-        if dangerous_count > 0 and action == "allow":
-            action = "warn"
+        # Dangerous or unknown-high findings escalate to at least warn
+        # (trusted publishers are exempt from unknown-high escalation)
+        if action == "allow":
+            if dangerous_count > 0:
+                action = "warn"
+            elif unknown_high_count > 0 and not is_trusted:
+                action = "warn"
 
         return PolicyDecision(
             action=action,

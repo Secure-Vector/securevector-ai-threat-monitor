@@ -160,6 +160,8 @@ class SkillPermissionsRepository:
         existing = await self.get_permission_by_id(perm_id)
         if not existing:
             return False
+        if existing.is_default:
+            raise ValueError("Default permissions cannot be deleted — disable them instead")
         await self.db.execute("DELETE FROM skill_permissions WHERE id = ?", (perm_id,))
         return True
 
@@ -183,12 +185,15 @@ class SkillPermissionsRepository:
         for row in rows:
             pattern = row["pattern"]
             if "*" in pattern or "?" in pattern:
-                # Use fnmatch-style matching
                 import fnmatch
                 if fnmatch.fnmatch(value, pattern) or fnmatch.fnmatch(value, f"*{pattern}"):
                     return row["classification"]
+                # Bare domain match: "openai.com" should match "*.openai.com"
+                if pattern.startswith("*.") and value == pattern[2:]:
+                    return row["classification"]
             else:
-                if value == pattern or value.endswith(f".{pattern}") or pattern in value:
+                # Exact match or domain-suffix match (e.g., "api.openai.com" matches "openai.com")
+                if value == pattern or value.endswith(f".{pattern}"):
                     return row["classification"]
         return None
 
@@ -231,6 +236,8 @@ class SkillPermissionsRepository:
         )
         if not existing:
             return False
+        if bool(existing["is_default"]):
+            raise ValueError("Default publishers cannot be deleted — change trust level instead")
         await self.db.execute("DELETE FROM skill_trusted_publishers WHERE id = ?", (publisher_id,))
         return True
 
@@ -262,8 +269,8 @@ class SkillPermissionsRepository:
             return PolicyConfig(
                 policy_enabled=True,
                 risk_weights=_default_risk_weights(),
-                threshold_allow=3,
-                threshold_warn=6,
+                threshold_allow=8,
+                threshold_warn=15,
             )
         return PolicyConfig(
             policy_enabled=bool(row["policy_enabled"]),
@@ -329,14 +336,14 @@ class SkillPermissionsRepository:
 def _default_risk_weights() -> dict[str, int]:
     return {
         "network_domain": 2,
-        "env_var_read": 2,
+        "env_var_read": 1,
         "shell_exec": 5,
         "code_exec": 5,
         "dynamic_import": 4,
         "file_write": 3,
-        "base64_literal": 1,
+        "base64_literal": 0,
         "compiled_code": 3,
         "rule_match": 3,
-        "missing_manifest": 1,
+        "missing_manifest": 0,
         "symlink_escape": 3,
     }
