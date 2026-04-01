@@ -811,6 +811,41 @@ def _auto_setup_proxy_if_needed(provider: str) -> None:
         setup_proxy(provider=provider)
 
 
+def _auto_setup_proxy_multi() -> None:
+    """Auto-patch all provider files for multi-provider proxy mode."""
+    all_files = set()
+    for files in _PROVIDER_PATCH_MAP.values():
+        all_files.update(files)
+    patches_to_apply = [p for p in _ALL_PATCHES if p["file"] in all_files]
+
+    try:
+        pi_ai_path = _find_pi_ai_path()
+    except SystemExit:
+        return
+
+    import shutil
+    for patch in patches_to_apply:
+        try:
+            filepath = _secure_path_join(pi_ai_path, patch["file"])
+        except ValueError:
+            continue
+        if not os.path.isfile(filepath):
+            continue
+        with open(filepath, "r") as f:
+            content = f.read()
+        if patch["replace"] in content:
+            continue
+        if patch["search"] not in content:
+            continue
+        backup_path = filepath + ".securevector.bak"
+        if not os.path.exists(backup_path):
+            shutil.copy2(filepath, backup_path)
+        new_content = content.replace(patch["search"], patch["replace"])
+        with open(filepath, "w") as f:
+            f.write(new_content)
+        logger.info(f"[proxy] Auto-patched: {patch['desc']}")
+
+
 def revert_proxy() -> None:
     """Revert proxy setup: restore ALL pi-ai files from backups."""
     import shutil
@@ -1048,6 +1083,14 @@ Examples:
         _proxy_mode_cfg = _proxy_cfg_data.get("mode", "")
         _proxy_integration_cfg = _proxy_cfg_data.get("integration", "openclaw")
         _config_wants_proxy = _proxy_mode_cfg in VALID_PROXY_MODES
+
+        # OpenClaw/ClawdBot: plugin handles monitoring; proxy needed only
+        # when block_mode is enabled for active threat/tool blocking.
+        if _config_wants_proxy and _proxy_integration_cfg in ("openclaw", "clawdbot"):
+            _security_cfg = _cfg_data.get("security", {})
+            _block_mode = bool(_security_cfg.get("block_mode", False))
+            if not _block_mode:
+                _config_wants_proxy = False
     except Exception:
         pass
 
@@ -1206,10 +1249,18 @@ Examples:
 
     if args.web:
         if _config_wants_proxy:
+            _is_openclaw = _proxy_integration_cfg in ("openclaw", "clawdbot")
+            # Auto-patch pi-ai files when integration is openclaw and block_mode is on
+            if _is_openclaw:
+                if (_proxy_mode_cfg == "multi-provider"):
+                    _auto_setup_proxy_multi()
+                else:
+                    _auto_setup_proxy_if_needed(_proxy_integration_cfg)
             run_web_with_llm_proxy(
                 args.host, args.port, _proxy_integration_cfg, args.proxy_port,
                 args.verbose, args.mode,
                 multi=(_proxy_mode_cfg == "multi-provider"),
+                openclaw=_is_openclaw,
                 proxy_host=_proxy_host_cfg,
             )
         else:

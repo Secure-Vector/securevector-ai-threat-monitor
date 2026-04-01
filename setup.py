@@ -118,6 +118,7 @@ setup(
             "app/assets/web/css/*",
             "app/assets/web/js/**/*",
             "app/assets/web/icons/*",
+            "plugins/openclaw/*",
         ],
         "": ["NOTICE"],
     },

@@ -1,0 +1,18 @@
+{
+  "name": "securevector-guard",
+  "version": "1.0.0",
+  "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents — powered by SecureVector",
+  "license": "MIT",
+  "author": "Secure Vector <hello@securevector.io>",
+  "keywords": ["openclaw", "openclaw-plugin", "security", "threat-detection", "ai-safety"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Secure-Vector/securevector-ai-threat-monitor"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

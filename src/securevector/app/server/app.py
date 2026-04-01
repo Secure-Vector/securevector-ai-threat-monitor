@@ -51,23 +51,44 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await apply_config_to_db(db)
 
     # Auto-start proxy if configured in svconfig.yml
+    # For OpenClaw/ClawdBot: proxy only starts when block_mode is enabled
+    # (plugin-only mode handles monitoring without proxy overhead).
+    # For other integrations (langchain, crewai, ollama): proxy starts as before.
     try:
         import os as _os
         _cfg = load_config()
         _proxy_cfg = _cfg.get("proxy", {})
         _proxy_mode = _proxy_cfg.get("mode", "")
+        _integration = _proxy_cfg.get("integration", "openclaw")
+        _security_cfg = _cfg.get("security", {})
+        _block_mode = bool(_security_cfg.get("block_mode", False))
+
         if _proxy_mode in ("multi-provider", "single"):
-            from securevector.app.server.routes.proxy import auto_start_from_config
-            # Use SV_PROXY_PORT (set by main.py from --port + 1) rather than the
-            # svconfig default of 8742, so the proxy respects the --port flag.
-            _proxy_port = int(_os.environ.get('SV_PROXY_PORT', _proxy_cfg.get("port", 8742)))
-            auto_start_from_config(
-                integration=_proxy_cfg.get("integration", "openclaw"),
-                mode=_proxy_mode,
-                host=_proxy_cfg.get("host", "127.0.0.1"),
-                port=_proxy_port,
-                provider=_proxy_cfg.get("provider") or None,
-            )
+            _needs_proxy = True
+            # OpenClaw/ClawdBot: plugin handles monitoring (threat scanning,
+            # cost tracking, context injection). Proxy handles blocking
+            # (tool stripping, threat blocking) when block_mode is enabled.
+            if _integration in ("openclaw", "clawdbot"):
+                _needs_proxy = _block_mode
+                if not _block_mode:
+                    logger.info(
+                        "[svconfig] OpenClaw integration in monitor mode — "
+                        "plugin handles monitoring, proxy not started. "
+                        "Enable block_mode in svconfig.yml to start the proxy for active blocking."
+                    )
+
+            if _needs_proxy:
+                from securevector.app.server.routes.proxy import auto_start_from_config
+                # Use SV_PROXY_PORT (set by main.py from --port + 1) rather than the
+                # svconfig default of 8742, so the proxy respects the --port flag.
+                _proxy_port = int(_os.environ.get('SV_PROXY_PORT', _proxy_cfg.get("port", 8742)))
+                auto_start_from_config(
+                    integration=_integration,
+                    mode=_proxy_mode,
+                    host=_proxy_cfg.get("host", "127.0.0.1"),
+                    port=_proxy_port,
+                    provider=_proxy_cfg.get("provider") or None,
+                )
     except Exception as _e:
         logger.warning(f"Could not auto-start proxy from svconfig.yml: {_e}")
 
@@ -164,6 +185,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         proxy,
         tool_permissions,
         costs,
+        hooks,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -178,6 +200,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
+    app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():
