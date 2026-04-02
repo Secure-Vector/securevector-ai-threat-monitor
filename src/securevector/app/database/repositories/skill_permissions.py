@@ -186,11 +186,14 @@ class SkillPermissionsRepository:
             pattern = row["pattern"]
             if "*" in pattern or "?" in pattern:
                 import fnmatch
-                if fnmatch.fnmatch(value, pattern) or fnmatch.fnmatch(value, f"*{pattern}"):
+                if fnmatch.fnmatch(value, pattern):
                     return row["classification"]
-                # Bare domain match: "openai.com" should match "*.openai.com"
-                if pattern.startswith("*.") and value == pattern[2:]:
-                    return row["classification"]
+                # Subdomain match: "*.openai.com" should match "openai.com" (bare)
+                # and "api.openai.com" (subdomain) but NOT "evil-openai.com"
+                if pattern.startswith("*."):
+                    base = pattern[2:]
+                    if value == base or value.endswith(f".{base}"):
+                        return row["classification"]
             else:
                 # Exact match or domain-suffix match (e.g., "api.openai.com" matches "openai.com")
                 if value == pattern or value.endswith(f".{pattern}"):

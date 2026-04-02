@@ -221,6 +221,40 @@ async def add_permission(request: AddPermissionRequest):
     )
 
 
+@router.put("/skill-permissions/policy-config", response_model=PolicyConfigResponse)
+async def update_policy_config(request: UpdatePolicyConfigRequest):
+    db = get_database()
+    repo = SkillPermissionsRepository(db)
+
+    # Cross-validate against current config when only one threshold is provided
+    if (request.threshold_allow is not None) != (request.threshold_warn is not None):
+        current = await repo.get_policy_config()
+        new_allow = request.threshold_allow if request.threshold_allow is not None else current.threshold_allow
+        new_warn = request.threshold_warn if request.threshold_warn is not None else current.threshold_warn
+        if new_allow > new_warn:
+            raise HTTPException(
+                status_code=422,
+                detail=f"threshold_allow ({new_allow}) must be <= threshold_warn ({new_warn})",
+            )
+
+    kwargs = {}
+    if request.policy_enabled is not None:
+        kwargs["policy_enabled"] = request.policy_enabled
+    if request.threshold_allow is not None:
+        kwargs["threshold_allow"] = request.threshold_allow
+    if request.threshold_warn is not None:
+        kwargs["threshold_warn"] = request.threshold_warn
+    if request.risk_weights is not None:
+        kwargs["risk_weights"] = request.risk_weights
+    config = await repo.update_policy_config(**kwargs)
+    return PolicyConfigResponse(
+        policy_enabled=config.policy_enabled,
+        risk_weights=config.risk_weights,
+        threshold_allow=config.threshold_allow,
+        threshold_warn=config.threshold_warn,
+    )
+
+
 @router.put("/skill-permissions/{perm_id}", response_model=PermissionResponse)
 async def update_permission(perm_id: int, request: UpdatePermissionRequest):
     db = get_database()
@@ -363,40 +397,6 @@ async def get_policy_config():
     db = get_database()
     repo = SkillPermissionsRepository(db)
     config = await repo.get_policy_config()
-    return PolicyConfigResponse(
-        policy_enabled=config.policy_enabled,
-        risk_weights=config.risk_weights,
-        threshold_allow=config.threshold_allow,
-        threshold_warn=config.threshold_warn,
-    )
-
-
-@router.put("/skill-permissions/policy-config", response_model=PolicyConfigResponse)
-async def update_policy_config(request: UpdatePolicyConfigRequest):
-    db = get_database()
-    repo = SkillPermissionsRepository(db)
-
-    # Cross-validate against current config when only one threshold is provided
-    if (request.threshold_allow is not None) != (request.threshold_warn is not None):
-        current = await repo.get_policy_config()
-        new_allow = request.threshold_allow if request.threshold_allow is not None else current.threshold_allow
-        new_warn = request.threshold_warn if request.threshold_warn is not None else current.threshold_warn
-        if new_allow > new_warn:
-            raise HTTPException(
-                status_code=422,
-                detail=f"threshold_allow ({new_allow}) must be <= threshold_warn ({new_warn})",
-            )
-
-    kwargs = {}
-    if request.policy_enabled is not None:
-        kwargs["policy_enabled"] = request.policy_enabled
-    if request.threshold_allow is not None:
-        kwargs["threshold_allow"] = request.threshold_allow
-    if request.threshold_warn is not None:
-        kwargs["threshold_warn"] = request.threshold_warn
-    if request.risk_weights is not None:
-        kwargs["risk_weights"] = request.risk_weights
-    config = await repo.update_policy_config(**kwargs)
     return PolicyConfigResponse(
         policy_enabled=config.policy_enabled,
         risk_weights=config.risk_weights,

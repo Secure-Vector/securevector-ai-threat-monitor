@@ -683,7 +683,7 @@ class RulesRepository:
 
         for row in community:
             patterns = json.loads(row["override_patterns"]) if row["override_patterns"] else json.loads(row["patterns"])
-            metadata = json.loads(row["metadata"]) if row.get("metadata") else None
+            metadata = json.loads(row["metadata"]) if row["metadata"] else None
             rules.append({
                 "id": row["id"],
                 "name": row["name"],
