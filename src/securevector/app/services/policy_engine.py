@@ -186,6 +186,10 @@ class PolicyEngine:
         if not value:
             return None
 
+        # Inherently dangerous categories — no DB lookup needed
+        if category in ("code_exec", "dynamic_import", "symlink_escape"):
+            return "dangerous"
+
         # Map finding categories to permission categories
         category_map = {
             "network_domain": "network",
@@ -215,8 +219,8 @@ class PolicyEngine:
                 return match.group(0)
 
         elif category == "env_var_read":
-            # Extract env var name from os.environ["X"], os.getenv("X"), process.env.X
-            match = re.search(r'(?:environ\[|getenv\(|env\.)[\"\']?(\w+)', excerpt)
+            # Extract env var name from os.environ["X"], os.environ.get("X"), os.getenv("X"), process.env.X
+            match = re.search(r'(?:environ\[|environ\.get\(|getenv\(|env\.)[\s"\']*(\w+)', excerpt)
             if match:
                 return match.group(1)
 

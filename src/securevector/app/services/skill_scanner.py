@@ -168,9 +168,8 @@ _RE_ENV_ITERATION = re.compile(
 
 # Known safe commands for subprocess calls
 _SAFE_COMMANDS = {
-    "claude", "git", "npm", "npx", "node", "python", "python3",
-    "pip", "pip3", "uv", "ruff", "black", "pytest", "cargo", "go",
-    "yarn", "pnpm", "bun", "deno", "tsc", "eslint", "prettier",
+    "claude", "git", "ruff", "black", "pytest", "cargo", "go",
+    "tsc", "eslint", "prettier",
 }
 
 # Safe file write targets — extensions that are non-executable output
@@ -543,8 +542,12 @@ class SkillScannerService:
 
             # Check if the command target is a known safe tool
             uses_safe_cmd = self._line_invokes_safe_command(line_text)
+            # Interpreter commands with -c/-e flags are code execution vectors
+            runs_interpreter = self._line_runs_interpreter(line_text)
 
-            if uses_safe_cmd:
+            if runs_interpreter:
+                severity = "high"
+            elif uses_safe_cmd:
                 severity = "low"
             elif has_dynamic:
                 severity = "high"
@@ -561,6 +564,17 @@ class SkillScannerService:
                 rule_id="scanner.shell_exec",
             ))
         return findings
+
+    @staticmethod
+    def _line_runs_interpreter(line_text: str) -> bool:
+        """Detect interpreter commands with code-execution flags (-c, -e, --eval)."""
+        _INTERPRETERS = {"python", "python3", "node", "ruby", "perl", "bash", "sh", "powershell", "pwsh"}
+        cmd_match = re.search(r"""[\"'](\w[\w-]*)[\"']""", line_text)
+        cmd_name = cmd_match.group(1) if cmd_match else None
+        if cmd_name and cmd_name in _INTERPRETERS:
+            if re.search(r"""[\"']\s*-[ce]\s*[\"']|--eval""", line_text):
+                return True
+        return False
 
     @staticmethod
     def _line_invokes_safe_command(line_text: str) -> bool:

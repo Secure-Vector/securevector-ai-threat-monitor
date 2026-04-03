@@ -862,11 +862,11 @@ const SkillScannerPage = {
                     if (f.ai_verdict) {
                         const aiTag = document.createElement('span');
                         if (isFP) {
-                            aiTag.style.cssText = 'background: #6b728822; color: #6b7280; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700; text-decoration: line-through;';
+                            aiTag.style.cssText = 'background: #6b728822; color: #6b7280; border-radius: 3px; padding: 2px 6px; font-size: 11px; font-weight: 700; text-decoration: line-through;';
                             aiTag.textContent = 'FALSE POSITIVE';
                             aiTag.title = f.ai_explanation || 'AI determined this is not a genuine threat';
                         } else {
-                            aiTag.style.cssText = 'background: #ef444422; color: #ef4444; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700;';
+                            aiTag.style.cssText = 'background: #ef444422; color: #ef4444; border-radius: 3px; padding: 2px 6px; font-size: 11px; font-weight: 700;';
                             aiTag.textContent = 'CONFIRMED';
                             aiTag.title = f.ai_explanation || 'AI confirmed this finding';
                         }
@@ -886,7 +886,7 @@ const SkillScannerPage = {
                     // Rule ID — clickable, navigates to Skill Policy
                     if (f.rule_id) {
                         const ruleTag = document.createElement('span');
-                        ruleTag.style.cssText = 'font-size: 10px; color: var(--accent-primary); background: var(--bg-tertiary); border-radius: 3px; padding: 1px 5px; font-family: monospace; cursor: pointer;';
+                        ruleTag.style.cssText = 'font-size: 11px; color: var(--accent-primary); background: var(--bg-tertiary); border-radius: 3px; padding: 2px 6px; font-family: monospace; cursor: pointer;';
                         ruleTag.textContent = f.rule_id;
                         ruleTag.title = 'Click to manage this rule in Skill Policy';
                         ruleTag.addEventListener('click', (e) => {
@@ -899,7 +899,7 @@ const SkillScannerPage = {
                     const loc = f.line_number ? `${f.file_path}:${f.line_number}` : (f.file_path || '');
                     if (loc) {
                         const locEl = document.createElement('span');
-                        locEl.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-left: auto;';
+                        locEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-left: auto;';
                         locEl.textContent = loc;
                         topRow.appendChild(locEl);
                     }
@@ -908,14 +908,14 @@ const SkillScannerPage = {
                     // AI explanation
                     if (f.ai_explanation) {
                         const aiReason = document.createElement('div');
-                        aiReason.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-top: 2px; font-style: italic;';
+                        aiReason.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 2px; font-style: italic;';
                         aiReason.textContent = `AI: ${f.ai_explanation}`;
                         item.appendChild(aiReason);
                     }
 
                     if (f.excerpt) {
                         const exc = document.createElement('code');
-                        exc.style.cssText = 'display: block; font-size: 11px; color: var(--text-secondary); margin-top: 3px; white-space: pre-wrap; word-break: break-all;';
+                        exc.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-top: 3px; white-space: pre-wrap; word-break: break-all;';
                         exc.textContent = f.excerpt;
                         item.appendChild(exc);
                     }
@@ -923,7 +923,7 @@ const SkillScannerPage = {
                     // Fix guidance for missing_manifest
                     if (f.category === 'missing_manifest') {
                         const hint = document.createElement('div');
-                        hint.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;';
+                        hint.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;';
                         const hintText = document.createTextNode('Fix: Add a permissions.yml manifest to the skill, or ');
                         hint.appendChild(hintText);
                         const policyLink = document.createElement('span');
@@ -2237,7 +2237,11 @@ const SkillScannerPage = {
             MEDIUM: 'REVIEW CAREFULLY \u2014 inspect all findings before installing',
             LOW:    'SAFE TO INSTALL',
         };
-        const rc = RISK_COLOR[data.risk_level] || '#888';
+        // Policy-adjusted risk: if policy allows, override raw risk to LOW
+        const effectiveRisk = (policy && policy.action === 'allow') ? 'LOW'
+            : (policy && policy.action === 'block') ? 'HIGH'
+            : data.risk_level;
+        const rc = RISK_COLOR[effectiveRisk] || '#888';
 
         const wrap = document.createElement('div');
         wrap.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
@@ -2246,12 +2250,12 @@ const SkillScannerPage = {
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
             const lbl = document.createElement('div');
-            lbl.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
+            lbl.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
             lbl.textContent = label;
             row.appendChild(lbl);
             if (typeof node === 'string') {
                 const val = document.createElement('div');
-                val.style.cssText = 'font-size: 13px; color: var(--text-primary);';
+                val.style.cssText = 'font-size: 14px; color: var(--text-primary);';
                 val.textContent = node;
                 row.appendChild(val);
             } else {
@@ -2274,7 +2278,7 @@ const SkillScannerPage = {
         const ringStroke = 4;
         const ringRadius = (ringSize - ringStroke) / 2;
         const ringCirc = 2 * Math.PI * ringRadius;
-        const riskPct = data.risk_level === 'HIGH' ? 0.9 : data.risk_level === 'MEDIUM' ? 0.55 : 0.2;
+        const riskPct = effectiveRisk === 'HIGH' ? 0.9 : effectiveRisk === 'MEDIUM' ? 0.55 : 0.2;
         const ringOffset = ringCirc * (1 - riskPct);
 
         const ringSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -2308,8 +2312,8 @@ const SkillScannerPage = {
         ringWrap.style.cssText = 'position: relative; flex-shrink: 0;';
         ringWrap.appendChild(ringSvg);
         const ringText = document.createElement('div');
-        ringText.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 11px; font-weight: 800; color: ${rc}; letter-spacing: 0.5px;`;
-        ringText.textContent = data.risk_level;
+        ringText.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: 800; color: ${rc}; letter-spacing: 0.5px;`;
+        ringText.textContent = effectiveRisk;
         ringWrap.appendChild(ringText);
         banner.appendChild(ringWrap);
 
@@ -2317,20 +2321,120 @@ const SkillScannerPage = {
         const bannerRight = document.createElement('div');
         bannerRight.style.cssText = 'flex: 1; min-width: 0;';
         const recBadge = document.createElement('div');
-        recBadge.style.cssText = `font-size: 13px; font-weight: 700; color: ${rc}; margin-bottom: 2px;`;
-        recBadge.textContent = RECS[data.risk_level];
+        recBadge.style.cssText = `font-size: 14px; font-weight: 700; color: ${rc}; margin-bottom: 2px;`;
+        recBadge.textContent = RECS[effectiveRisk];
         bannerRight.appendChild(recBadge);
         if (policy) {
             const scoreHint = document.createElement('div');
-            scoreHint.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+            scoreHint.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
             scoreHint.textContent = `Risk score: ${policy.risk_score ?? 0} / threshold: ${policy.threshold_warn ?? '?'}`;
             bannerRight.appendChild(scoreHint);
         }
         banner.appendChild(bannerRight);
         wrap.appendChild(banner);
 
-        // Resolution Options — blue box at top for MEDIUM/HIGH
-        if ((data.risk_level === 'MEDIUM' || data.risk_level === 'HIGH') && data.findings && data.findings.length > 0) {
+        // AI Review — compact card below banner (check LLM state)
+        if (!data.ai_reviewed) {
+            const aiBox = document.createElement('div');
+            aiBox.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; border: 1px dashed rgba(94, 173, 184, 0.4); background: rgba(94, 173, 184, 0.05);';
+
+            const aiLeft = document.createElement('div');
+            aiLeft.style.cssText = 'flex: 1; min-width: 0;';
+            const aiTitle = document.createElement('div');
+            aiTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--accent-primary); margin-bottom: 2px;';
+            aiTitle.textContent = '\u2726 AI Review (optional)';
+            aiLeft.appendChild(aiTitle);
+            const aiHint = document.createElement('div');
+            aiHint.style.cssText = 'font-size: 12px; color: var(--text-muted); line-height: 1.4;';
+            aiLeft.appendChild(aiHint);
+            aiBox.appendChild(aiLeft);
+
+            const aiBtn = document.createElement('button');
+            aiBtn.className = 'btn';
+            aiBtn.style.cssText = 'padding: 6px 16px; font-size: 13px; font-weight: 600; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; flex-shrink: 0;';
+
+            // Check if AI Analysis is enabled
+            API.getLLMSettings().then(llm => {
+                if (llm.enabled) {
+                    aiHint.textContent = 'Re-scan with AI to filter false positives and refine risk';
+                    aiBtn.textContent = 'Re-scan';
+                    aiBtn.style.background = 'var(--accent-primary)';
+                    aiBtn.style.color = '#fff';
+                    aiBtn.addEventListener('mouseenter', () => { aiBtn.style.opacity = '0.85'; });
+                    aiBtn.addEventListener('mouseleave', () => { aiBtn.style.opacity = '1'; });
+                    aiBtn.addEventListener('click', async () => {
+                        aiBtn.disabled = true; aiBtn.textContent = 'Scanning\u2026'; aiBtn.style.opacity = '0.6';
+                        try {
+                            const resp = await fetch('/api/skill-scans/scan', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ paths: [data.scanned_path], ai_review: true }),
+                            });
+                            if (resp.ok) {
+                                aiBtn.textContent = 'Done \u2713'; aiBtn.style.background = '#10b981';
+                                if (window.Toast) Toast.show('AI review complete — refresh for updated results', 'success');
+                            } else {
+                                const err = await resp.json().catch(() => ({}));
+                                aiBtn.textContent = 'Failed'; aiBtn.disabled = false; aiBtn.style.opacity = '1';
+                                if (window.Toast) Toast.show(err.detail || 'AI review failed', 'error');
+                            }
+                        } catch { aiBtn.textContent = 'Error'; aiBtn.disabled = false; aiBtn.style.opacity = '1'; }
+                    });
+                } else {
+                    aiHint.textContent = 'Turn on AI Analysis from the header to enable';
+                    aiBtn.textContent = 'AI Off';
+                    aiBtn.style.background = 'var(--bg-tertiary)';
+                    aiBtn.style.color = 'var(--text-muted)';
+                    aiBtn.style.cursor = 'not-allowed';
+                    aiBtn.disabled = true;
+                    aiBtn.style.opacity = '0.6';
+                }
+            });
+
+            aiBox.appendChild(aiBtn);
+            wrap.appendChild(aiBox);
+        }
+
+        // Helper: rescan and refresh drawer after resolution action
+        const rescanAndRefresh = async (btn, successMsg) => {
+            if (!data.scanned_path) return;
+            btn.disabled = true; btn.textContent = 'Re-scanning\u2026';
+            try {
+                const isUrl = /^https?:\/\//.test(data.scanned_path);
+                let s;
+                if (isUrl) {
+                    const resp = await fetch('/api/skill-scans/scan-url', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: data.scanned_path }),
+                    });
+                    if (resp.ok) {
+                        const urlData = await resp.json();
+                        s = { success: urlData.success, result: urlData.result, policy: urlData.policy, ai_review: urlData.ai_review };
+                    }
+                } else {
+                    const resp = await fetch('/api/skill-scans/scan', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ paths: [data.scanned_path] }),
+                    });
+                    if (resp.ok) {
+                        const scanData = await resp.json();
+                        s = scanData.results?.[0];
+                    }
+                }
+                if (s?.success && s.result) {
+                    if (window.Toast) Toast.show(successMsg, 'success');
+                    if (window.SideDrawer) SideDrawer.close();
+                    await this._openDrawer(s.result, s.policy, s.ai_review);
+                    return;
+                }
+            } catch { /* fall through */ }
+            btn.textContent = 'Done \u2713'; btn.style.background = '#10b981'; btn.style.color = '#fff';
+        };
+
+        // Resolution Options — blue box for MEDIUM/HIGH (uses effective risk)
+        if ((effectiveRisk === 'MEDIUM' || effectiveRisk === 'HIGH') && data.findings && data.findings.length > 0) {
             const CATEGORY_TO_PERM = {
                 network_domain: 'network', env_var_read: 'env_var',
                 file_write: 'file_path', shell_exec: 'shell_command',
@@ -2346,7 +2450,7 @@ const SkillScannerPage = {
             resIcon.textContent = '\u26A1';
             resHeader.appendChild(resIcon);
             const resTitle = document.createElement('span');
-            resTitle.style.cssText = 'font-size: 12px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;';
+            resTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;';
             resTitle.textContent = 'Resolution Options';
             resHeader.appendChild(resTitle);
             resBox.appendChild(resHeader);
@@ -2354,31 +2458,36 @@ const SkillScannerPage = {
             const resOptions = document.createElement('div');
             resOptions.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
 
-            // Trust publisher (from URL)
+            // Trust publisher (from URL) — check if already trusted
             const publisherMatch = (data.scanned_path || '').match(/github\.com\/([^/]+)/);
+            const isTrusted = policy && policy.trusted_publisher;
             if (publisherMatch) {
                 const pubName = publisherMatch[1];
-                resOptions.appendChild(this._buildResolutionOption(
-                    '\u2713', '#10b981',
-                    `Trust publisher "${pubName}"`,
-                    'Auto-allow all future scans from this publisher',
-                    async (btn) => {
-                        btn.disabled = true; btn.textContent = 'Adding\u2026';
-                        try {
-                            const resp = await fetch('/api/skill-permissions/publishers', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ publisher_name: pubName, trust_level: 'trusted' }),
-                            });
-                            if (resp.ok) {
-                                btn.textContent = 'Trusted \u2713'; btn.style.background = '#10b981'; btn.style.color = '#fff';
-                                if (window.Toast) Toast.show(`Publisher "${pubName}" trusted`, 'success');
-                            } else if (resp.status === 409) {
-                                btn.textContent = 'Already trusted'; btn.style.opacity = '0.5';
-                            } else { btn.textContent = 'Failed'; btn.disabled = false; }
-                        } catch { btn.textContent = 'Error'; btn.disabled = false; }
-                    }
-                ));
+                if (isTrusted) {
+                    resOptions.appendChild(this._buildAppliedOption(
+                        `Publisher "${pubName}" is trusted`,
+                        'Auto-allowing scans from this publisher'
+                    ));
+                } else {
+                    resOptions.appendChild(this._buildResolutionOption(
+                        '\u2713', '#10b981',
+                        `Trust publisher "${pubName}"`,
+                        'Auto-allow all future scans from this publisher',
+                        async (btn) => {
+                            btn.disabled = true; btn.textContent = 'Adding\u2026';
+                            try {
+                                const resp = await fetch('/api/skill-permissions/publishers', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ publisher_name: pubName, trust_level: 'trusted' }),
+                                });
+                                if (resp.ok || resp.status === 409) {
+                                    await rescanAndRefresh(btn, `Publisher "${pubName}" trusted — re-evaluated`);
+                                } else { btn.textContent = 'Failed'; btn.disabled = false; }
+                            } catch { btn.textContent = 'Error'; btn.disabled = false; }
+                        }
+                    ));
+                }
             }
 
             // Mark finding categories as safe (deduplicated)
@@ -2392,7 +2501,7 @@ const SkillScannerPage = {
                     m = excerpt.match(/[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,60}[a-zA-Z0-9])?\.[a-zA-Z]{2,10}/);
                     if (m) return m[0];
                 } else if (category === 'env_var_read') {
-                    m = excerpt.match(/(?:environ\[|getenv\(|env\.)["']?(\w+)/);
+                    m = excerpt.match(/(?:environ\[|environ\.get\(|getenv\(|env\.)[\s"']*(\w+)/);
                     if (m) return m[1];
                 } else if (category === 'file_write') {
                     m = excerpt.match(/open\(\s*["']([^"']+)["']/);
@@ -2422,30 +2531,40 @@ const SkillScannerPage = {
                     if (p) patterns.add(p);
                 });
 
-                resOptions.appendChild(this._buildResolutionOption(
-                    '\u2691', '#f59e0b',
-                    `Mark "${catLabel}" as safe (${catCount})`,
-                    `Add permission rules classifying these patterns as safe`,
-                    async (btn) => {
-                        btn.disabled = true; btn.textContent = 'Adding\u2026';
-                        let added = 0;
-                        let skipped = 0;
-                        for (const pattern of patterns) {
-                            try {
-                                const resp = await fetch('/api/skill-permissions', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ category: permCat, pattern, classification: 'safe', label: `Auto: ${f.category} from ${data.skill_name}` }),
-                                });
-                                if (resp.ok) added++;
-                                else if (resp.status === 409) skipped++;
-                            } catch { /* skip */ }
+                // If policy already allows, these patterns are effectively resolved
+                if (policy && policy.action === 'allow') {
+                    resOptions.appendChild(this._buildAppliedOption(
+                        `"${catLabel}" patterns are safe (${catCount})`,
+                        'Permission rules already classify these as safe'
+                    ));
+                } else {
+                    resOptions.appendChild(this._buildResolutionOption(
+                        '\u2691', '#f59e0b',
+                        `Mark "${catLabel}" as safe (${catCount})`,
+                        `Add permission rules classifying these patterns as safe`,
+                        async (btn) => {
+                            btn.disabled = true; btn.textContent = 'Adding\u2026';
+                            let added = 0;
+                            let skipped = 0;
+                            for (const pattern of patterns) {
+                                try {
+                                    const resp = await fetch('/api/skill-permissions', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ category: permCat, pattern, classification: 'safe', label: `Auto: ${f.category} from ${data.skill_name}` }),
+                                    });
+                                    if (resp.ok) added++;
+                                    else if (resp.status === 409) skipped++;
+                                } catch { /* skip */ }
+                            }
+                            if (added > 0 || skipped > 0) {
+                                await rescanAndRefresh(btn, added > 0 ? `${added} permission${added !== 1 ? 's' : ''} added — re-evaluated` : 'Patterns already safe — re-evaluated');
+                            } else {
+                                btn.textContent = 'No patterns found'; btn.disabled = false;
+                            }
                         }
-                        btn.textContent = `${added} added \u2713`; btn.style.background = '#10b981'; btn.style.color = '#fff';
-                        if (added > 0 && window.Toast) Toast.show(`${added} permission${added !== 1 ? 's' : ''} added`, 'success');
-                        else if (skipped > 0 && added === 0 && window.Toast) Toast.show('Patterns already exist as permissions', 'info');
-                    }
-                ));
+                    ));
+                }
             });
 
             // Configure in Skill Policy
@@ -2455,29 +2574,6 @@ const SkillScannerPage = {
                 'Adjust thresholds, weights, and per-pattern rules',
                 () => { SideDrawer.close(); if (window.Sidebar) Sidebar.navigate('skill-permissions'); }
             ));
-
-            // Re-scan with AI review
-            if (!data.ai_reviewed) {
-                resOptions.appendChild(this._buildResolutionOption(
-                    '\u2726', '#3b82f6',
-                    'Re-scan with AI review',
-                    'Use AI to filter false positives and refine risk',
-                    async (btn) => {
-                        btn.disabled = true; btn.textContent = 'Scanning\u2026';
-                        try {
-                            const resp = await fetch('/api/skill-scans/scan', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ paths: [data.scanned_path], ai_review: true }),
-                            });
-                            if (resp.ok) {
-                                btn.textContent = 'Done \u2713'; btn.style.background = '#3b82f6'; btn.style.color = '#fff';
-                                if (window.Toast) Toast.show('AI review complete — refresh for updated results', 'success');
-                            } else { btn.textContent = 'Failed'; btn.disabled = false; }
-                        } catch { btn.textContent = 'Error'; btn.disabled = false; }
-                    }
-                ));
-            }
 
             resBox.appendChild(resOptions);
             wrap.appendChild(resBox);
@@ -2501,19 +2597,19 @@ const SkillScannerPage = {
             const policyTitle = document.createElement('div');
             policyTitle.style.cssText = 'display: flex; align-items: center; gap: 6px;';
             const policyLabel = document.createElement('span');
-            policyLabel.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
+            policyLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
             policyLabel.textContent = 'Policy Decision';
             policyTitle.appendChild(policyLabel);
             if (policy.trusted_publisher) {
                 const trustBadge = document.createElement('span');
-                trustBadge.style.cssText = 'font-size: 9px; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 1px 5px; border-radius: 3px; font-weight: 600;';
+                trustBadge.style.cssText = 'font-size: 11px; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 6px; border-radius: 3px; font-weight: 600;';
                 trustBadge.textContent = 'TRUSTED';
                 policyTitle.appendChild(trustBadge);
             }
             policyHeader.appendChild(policyTitle);
 
             const actionLabel = document.createElement('span');
-            actionLabel.style.cssText = `font-size: 16px; font-weight: 800; color: ${ps.color};`;
+            actionLabel.style.cssText = `font-size: 18px; font-weight: 800; color: ${ps.color};`;
             actionLabel.textContent = ps.label;
             policyHeader.appendChild(actionLabel);
 
@@ -2521,7 +2617,7 @@ const SkillScannerPage = {
 
             // Score breakdown
             const scoreRow = document.createElement('div');
-            scoreRow.style.cssText = 'display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px;';
+            scoreRow.style.cssText = 'display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px;';
 
             const makeCount = (label, count, color) => {
                 const el = document.createElement('span');
@@ -2547,7 +2643,7 @@ const SkillScannerPage = {
 
             // Why blocked/warned/allowed
             const whyEl = document.createElement('div');
-            whyEl.style.cssText = 'font-size: 11px; color: var(--text-primary); line-height: 1.6; margin-bottom: 6px;';
+            whyEl.style.cssText = 'font-size: 13px; color: var(--text-primary); line-height: 1.6; margin-bottom: 6px;';
             const whyBold = document.createElement('strong');
             whyBold.style.color = ps.color;
             if (policy.action === 'block') {
@@ -2585,7 +2681,7 @@ const SkillScannerPage = {
                 issuesList.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
                 issues.forEach(iss => {
                     const issRow = document.createElement('div');
-                    issRow.style.cssText = 'display: flex; align-items: flex-start; gap: 6px; font-size: 11px; line-height: 1.5;';
+                    issRow.style.cssText = 'display: flex; align-items: flex-start; gap: 6px; font-size: 13px; line-height: 1.5;';
                     const issIcon = document.createElement('span');
                     issIcon.style.cssText = `color: ${iss.color}; flex-shrink: 0; font-weight: 700; margin-top: 1px;`;
                     issIcon.textContent = iss.icon;
@@ -2602,7 +2698,7 @@ const SkillScannerPage = {
             // How to fix hint
             if (policy.action !== 'allow') {
                 const fixHint = document.createElement('div');
-                fixHint.style.cssText = 'margin-top: 8px; font-size: 11px; color: var(--text-secondary); line-height: 1.5; padding: 6px 8px; background: var(--bg-tertiary); border-radius: 4px;';
+                fixHint.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; padding: 8px 10px; background: var(--bg-tertiary); border-radius: 4px;';
                 const fixLabel = document.createElement('strong');
                 fixLabel.style.cssText = 'color: var(--text-primary);';
                 fixLabel.textContent = 'To resolve: ';
@@ -2627,7 +2723,7 @@ const SkillScannerPage = {
             const aiHeader = document.createElement('div');
             aiHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;';
             const aiTitle = document.createElement('div');
-            aiTitle.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary);';
+            aiTitle.style.cssText = 'font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary);';
             aiTitle.textContent = 'AI Analysis';
             aiHeader.appendChild(aiTitle);
 
@@ -2641,14 +2737,14 @@ const SkillScannerPage = {
             // Assessment text
             if (aiReview.ai_assessment) {
                 const assessEl = document.createElement('div');
-                assessEl.style.cssText = 'font-size: 12px; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px;';
+                assessEl.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px;';
                 assessEl.textContent = aiReview.ai_assessment;
                 aiCard.appendChild(assessEl);
             }
 
             // Stats row
             const aiStats = document.createElement('div');
-            aiStats.style.cssText = 'display: flex; gap: 16px; font-size: 11px; color: var(--text-secondary);';
+            aiStats.style.cssText = 'display: flex; gap: 16px; font-size: 13px; color: var(--text-secondary);';
 
             const fpStat = document.createElement('span');
             fpStat.style.cssText = aiReview.false_positives > 0 ? 'color: #10b981; font-weight: 600;' : '';
@@ -2668,12 +2764,12 @@ const SkillScannerPage = {
         }
 
         const metaGrid = document.createElement('div');
-        metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px 12px; background: var(--bg-tertiary); border-radius: 6px; font-size: 12px;';
+        metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; padding: 12px 14px; background: var(--bg-tertiary); border-radius: 6px; font-size: 13px;';
         const metaItem = (label, value) => {
             const el = document.createElement('div');
             el.style.cssText = 'display: flex; gap: 6px; align-items: baseline;';
             const lbl = document.createElement('span');
-            lbl.style.cssText = 'color: var(--text-muted); font-size: 10px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.4px; min-width: 55px;';
+            lbl.style.cssText = 'color: var(--text-muted); font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.4px; min-width: 55px;';
             lbl.textContent = label;
             el.appendChild(lbl);
             const val = document.createElement('span');
@@ -2688,7 +2784,7 @@ const SkillScannerPage = {
         metaGrid.appendChild(metaItem('Manifest', data.manifest_present === true ? 'Present \u2713' : 'Absent'));
         const pathItem = metaItem('Path', '');
         const pathCode = document.createElement('code');
-        pathCode.style.cssText = 'font-size: 10px; color: var(--text-secondary); word-break: break-all;';
+        pathCode.style.cssText = 'font-size: 12px; color: var(--text-secondary); word-break: break-all;';
         pathCode.textContent = data.scanned_path;
         pathCode.title = data.scanned_path;
         pathItem.querySelector('span:last-child').textContent = '';
@@ -2704,11 +2800,11 @@ const SkillScannerPage = {
             const findingsToggle = document.createElement('div');
             findingsToggle.style.cssText = 'display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 6px 0; user-select: none;';
             const findingsLabel = document.createElement('div');
-            findingsLabel.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
+            findingsLabel.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px;';
             findingsLabel.textContent = `Findings (${data.findings.length})`;
             findingsToggle.appendChild(findingsLabel);
             const findingsArrow = document.createElement('span');
-            findingsArrow.style.cssText = 'font-size: 10px; color: var(--text-muted); transition: transform 0.2s;';
+            findingsArrow.style.cssText = 'font-size: 12px; color: var(--text-muted); transition: transform 0.2s;';
             findingsArrow.textContent = '\u25BC';
             findingsToggle.appendChild(findingsArrow);
             findingsWrap.appendChild(findingsToggle);
@@ -2743,10 +2839,10 @@ const SkillScannerPage = {
                 if (f.ai_verdict) {
                     const aiTag = document.createElement('span');
                     if (isFP) {
-                        aiTag.style.cssText = 'background: #6b728822; color: #6b7280; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700; text-decoration: line-through;';
+                        aiTag.style.cssText = 'background: #6b728822; color: #6b7280; border-radius: 3px; padding: 2px 6px; font-size: 11px; font-weight: 700; text-decoration: line-through;';
                         aiTag.textContent = 'FALSE POSITIVE';
                     } else {
-                        aiTag.style.cssText = 'background: #ef444422; color: #ef4444; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700;';
+                        aiTag.style.cssText = 'background: #ef444422; color: #ef4444; border-radius: 3px; padding: 2px 6px; font-size: 11px; font-weight: 700;';
                         aiTag.textContent = 'CONFIRMED';
                     }
                     aiTag.title = f.ai_explanation || '';
@@ -2754,7 +2850,7 @@ const SkillScannerPage = {
                 }
 
                 const sevBadge = document.createElement('span');
-                sevBadge.style.cssText = `background: ${sevColor}; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: 700;${isFP ? ' text-decoration: line-through;' : ''}`;
+                sevBadge.style.cssText = `background: ${sevColor}; color: #fff; border-radius: 3px; padding: 2px 6px; font-size: 12px; font-weight: 700;${isFP ? ' text-decoration: line-through;' : ''}`;
                 sevBadge.textContent = (f.severity || 'unknown').toUpperCase();
                 topRow.appendChild(sevBadge);
 
@@ -2762,20 +2858,20 @@ const SkillScannerPage = {
                 const catIcon = CATEGORY_ICON[f.category];
                 if (catIcon) {
                     const ico = document.createElement('span');
-                    ico.style.cssText = 'font-size: 12px; flex-shrink: 0;';
+                    ico.style.cssText = 'font-size: 14px; flex-shrink: 0;';
                     ico.textContent = catIcon;
                     ico.title = f.category;
                     topRow.appendChild(ico);
                 }
                 const cat = document.createElement('strong');
-                cat.style.cssText = `font-size: 12px; color: var(--text-primary);${isFP ? ' text-decoration: line-through;' : ''}`;
+                cat.style.cssText = `font-size: 13px; color: var(--text-primary);${isFP ? ' text-decoration: line-through;' : ''}`;
                 cat.textContent = f.category.replace(/_/g, ' ');
                 topRow.appendChild(cat);
 
                 // Rule ID — clickable, navigates to Skill Policy
                 if (f.rule_id) {
                     const ruleTag = document.createElement('span');
-                    ruleTag.style.cssText = 'font-size: 10px; color: var(--accent-primary); background: var(--bg-tertiary); border-radius: 3px; padding: 1px 5px; font-family: monospace; cursor: pointer;';
+                    ruleTag.style.cssText = 'font-size: 11px; color: var(--accent-primary); background: var(--bg-tertiary); border-radius: 3px; padding: 2px 6px; font-family: monospace; cursor: pointer;';
                     ruleTag.textContent = f.rule_id;
                     ruleTag.title = 'Click to manage this rule in Skill Policy';
                     ruleTag.addEventListener('click', (e) => {
@@ -2788,7 +2884,7 @@ const SkillScannerPage = {
 
                 if (loc) {
                     const locEl = document.createElement('span');
-                    locEl.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-left: auto;';
+                    locEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-left: auto;';
                     locEl.textContent = loc;
                     topRow.appendChild(locEl);
                 }
@@ -2797,14 +2893,14 @@ const SkillScannerPage = {
                 // AI explanation
                 if (f.ai_explanation) {
                     const aiReason = document.createElement('div');
-                    aiReason.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-top: 2px; font-style: italic;';
+                    aiReason.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 2px; font-style: italic;';
                     aiReason.textContent = `AI: ${f.ai_explanation}`;
                     item.appendChild(aiReason);
                 }
 
                 if (f.excerpt) {
                     const exc = document.createElement('code');
-                    exc.style.cssText = 'display: block; font-size: 11px; color: var(--text-secondary); margin-top: 3px; white-space: pre-wrap; word-break: break-all;';
+                    exc.style.cssText = 'display: block; font-size: 12px; color: var(--text-secondary); margin-top: 3px; white-space: pre-wrap; word-break: break-all;';
                     exc.textContent = f.excerpt;
                     item.appendChild(exc);
                 }
@@ -2812,7 +2908,7 @@ const SkillScannerPage = {
                 // Fix guidance for missing_manifest
                 if (f.category === 'missing_manifest') {
                     const hint = document.createElement('div');
-                    hint.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;';
+                    hint.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;';
                     const hintText = document.createTextNode('Fix: Add a permissions.yml manifest to the skill, or ');
                     hint.appendChild(hintText);
                     const policyLink = document.createElement('span');
@@ -2958,6 +3054,37 @@ const SkillScannerPage = {
     // Helpers
     // =====================================================================
 
+    _buildAppliedOption(title, subtitle) {
+        const opt = document.createElement('div');
+        opt.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; opacity: 0.7;';
+
+        const iconEl = document.createElement('span');
+        iconEl.style.cssText = 'font-size: 14px; color: #10b981; flex-shrink: 0; width: 24px; text-align: center; font-weight: 700;';
+        iconEl.textContent = '\u2713';
+        opt.appendChild(iconEl);
+
+        const textWrap = document.createElement('div');
+        textWrap.style.cssText = 'flex: 1; min-width: 0;';
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = 'font-size: 13px; font-weight: 600; color: #10b981;';
+        titleEl.textContent = title;
+        textWrap.appendChild(titleEl);
+        if (subtitle) {
+            const subEl = document.createElement('div');
+            subEl.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-top: 1px;';
+            subEl.textContent = subtitle;
+            textWrap.appendChild(subEl);
+        }
+        opt.appendChild(textWrap);
+
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size: 11px; font-weight: 600; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 3px 8px; border-radius: 4px; flex-shrink: 0;';
+        badge.textContent = 'Applied';
+        opt.appendChild(badge);
+
+        return opt;
+    },
+
     _buildResolutionOption(icon, iconColor, title, subtitle, onClick) {
         const opt = document.createElement('div');
         opt.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s;';
@@ -2972,12 +3099,12 @@ const SkillScannerPage = {
         const textWrap = document.createElement('div');
         textWrap.style.cssText = 'flex: 1; min-width: 0;';
         const titleEl = document.createElement('div');
-        titleEl.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-primary);';
+        titleEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
         titleEl.textContent = title;
         textWrap.appendChild(titleEl);
         if (subtitle) {
             const subEl = document.createElement('div');
-            subEl.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-top: 1px;';
+            subEl.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 1px;';
             subEl.textContent = subtitle;
             textWrap.appendChild(subEl);
         }
@@ -2985,7 +3112,7 @@ const SkillScannerPage = {
 
         const actionBtn = document.createElement('button');
         actionBtn.className = 'btn';
-        actionBtn.style.cssText = 'font-size: 10px; padding: 3px 10px; flex-shrink: 0;';
+        actionBtn.style.cssText = 'font-size: 12px; padding: 4px 12px; flex-shrink: 0;';
         actionBtn.textContent = 'Apply';
         const doAction = () => {
             if (window.Modal) {

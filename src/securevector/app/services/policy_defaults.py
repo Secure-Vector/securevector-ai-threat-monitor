@@ -205,7 +205,7 @@ ENV_VAR_PERMISSIONS = [
 ]
 
 FILE_PATH_PERMISSIONS = [
-    # --- SAFE ---
+    # --- SAFE (cross-platform) ---
     ("/tmp/", "safe", "System temp directory"),
     ("./output/", "safe", "Project output directory"),
     ("./outputs/", "safe", "Project outputs directory"),
@@ -218,7 +218,11 @@ FILE_PATH_PERMISSIONS = [
     ("~/.cache/", "safe", "User cache directory"),
     ("~/.cache/huggingface/", "safe", "HuggingFace cache"),
     ("~/.cache/torch/", "safe", "PyTorch cache"),
-    # --- REVIEW ---
+    # Windows safe
+    ("%TEMP%", "safe", "Windows temp directory"),
+    ("%TMP%", "safe", "Windows temp directory"),
+    ("%LOCALAPPDATA%\\Temp", "safe", "Windows local temp"),
+    # --- REVIEW (cross-platform) ---
     ("~/Documents/", "review", "User documents"),
     ("~/Desktop/", "review", "User desktop"),
     ("~/Downloads/", "review", "User downloads"),
@@ -227,7 +231,16 @@ FILE_PATH_PERMISSIONS = [
     ("./.github/", "review", "CI/CD config"),
     ("~/.gitconfig", "review", "Git global config"),
     ("~/.aws/config", "review", "AWS config"),
-    # --- DANGEROUS ---
+    # Windows review
+    ("%USERPROFILE%\\Documents", "review", "Windows user documents"),
+    ("%USERPROFILE%\\Desktop", "review", "Windows user desktop"),
+    ("%USERPROFILE%\\Downloads", "review", "Windows user downloads"),
+    ("%APPDATA%", "review", "Windows roaming app data"),
+    ("%LOCALAPPDATA%", "review", "Windows local app data"),
+    # macOS review
+    ("~/Library/Preferences/", "review", "macOS app preferences"),
+    ("~/Library/Application Support/", "review", "macOS app data"),
+    # --- DANGEROUS (Linux/macOS) ---
     ("/etc/shadow", "dangerous", "System password hashes"),
     ("/etc/passwd", "dangerous", "System user database"),
     ("/etc/sudoers", "dangerous", "Sudo config"),
@@ -245,10 +258,25 @@ FILE_PATH_PERMISSIONS = [
     ("~/.zshrc", "dangerous", "Shell startup script"),
     ("~/.bash_profile", "dangerous", "Shell login script"),
     ("/etc/ld.so.preload", "dangerous", "Shared lib injection"),
+    # --- DANGEROUS (Windows) ---
+    ("C:\\Windows\\System32\\config\\SAM", "dangerous", "Windows password hashes"),
+    ("C:\\Windows\\System32\\config\\SYSTEM", "dangerous", "Windows system registry"),
+    ("C:\\Windows\\System32\\drivers\\etc\\hosts", "dangerous", "Windows DNS override"),
+    ("%USERPROFILE%\\.ssh\\", "dangerous", "Windows SSH credentials"),
+    ("%USERPROFILE%\\.aws\\credentials", "dangerous", "Windows AWS credentials"),
+    ("%USERPROFILE%\\.kube\\config", "dangerous", "Windows Kubernetes credentials"),
+    ("%USERPROFILE%\\.docker\\config.json", "dangerous", "Windows Docker registry auth"),
+    ("%USERPROFILE%\\.npmrc", "dangerous", "Windows npm auth tokens"),
+    ("%USERPROFILE%\\.git-credentials", "dangerous", "Windows Git stored passwords"),
+    ("%APPDATA%\\Microsoft\\Windows\\PowerShell\\profile.ps1", "dangerous", "PowerShell profile script"),
+    # --- DANGEROUS (macOS) ---
+    ("/Library/LaunchDaemons/", "dangerous", "macOS system launch daemon"),
+    ("~/Library/LaunchAgents/", "dangerous", "macOS user launch agent"),
+    ("~/Library/Keychains/", "dangerous", "macOS keychain"),
 ]
 
 SHELL_COMMAND_PERMISSIONS = [
-    # --- SAFE ---
+    # --- SAFE (cross-platform) ---
     ("echo", "safe", "Print text"),
     ("cat", "safe", "Read file"),
     ("ls", "safe", "List directory"),
@@ -262,7 +290,11 @@ SHELL_COMMAND_PERMISSIONS = [
     ("git status", "safe", "Git status"),
     ("git log", "safe", "Git log"),
     ("git diff", "safe", "Git diff"),
-    # --- REVIEW ---
+    # Windows safe
+    ("dir", "safe", "Windows list directory"),
+    ("type", "safe", "Windows read file"),
+    ("hostname", "safe", "Show hostname"),
+    # --- REVIEW (cross-platform) ---
     ("curl", "review", "HTTP requests"),
     ("wget", "review", "HTTP downloads"),
     ("pip install", "review", "Install Python package"),
@@ -275,7 +307,12 @@ SHELL_COMMAND_PERMISSIONS = [
     ("node", "review", "Node.js interpreter"),
     ("ssh", "review", "Remote shell"),
     ("scp", "review", "Remote file copy"),
-    # --- DANGEROUS ---
+    # Windows review
+    ("Invoke-WebRequest", "review", "PowerShell HTTP download"),
+    ("Invoke-RestMethod", "review", "PowerShell REST call"),
+    ("Start-Process", "review", "PowerShell launch process"),
+    ("iwr", "review", "PowerShell HTTP download (alias)"),
+    # --- DANGEROUS (Linux/macOS) ---
     ("rm -rf /", "dangerous", "Recursive delete root"),
     ("sudo", "dangerous", "Privilege escalation"),
     ("su", "dangerous", "Switch user"),
@@ -293,6 +330,31 @@ SHELL_COMMAND_PERMISSIONS = [
     ("nmap", "dangerous", "Network scanning"),
     ("tcpdump", "dangerous", "Packet capture"),
     ("base64 -d | sh", "dangerous", "Encoded shell execution"),
+    # --- DANGEROUS (Windows) ---
+    ("reg.exe", "dangerous", "Windows registry editor"),
+    ("reg add", "dangerous", "Windows registry modification"),
+    ("reg delete", "dangerous", "Windows registry deletion"),
+    ("schtasks", "dangerous", "Windows scheduled task creation"),
+    ("net user", "dangerous", "Windows user management"),
+    ("net localgroup administrators", "dangerous", "Windows admin group modification"),
+    ("runas", "dangerous", "Windows privilege escalation"),
+    ("icacls", "dangerous", "Windows permission modification"),
+    ("takeown", "dangerous", "Windows take file ownership"),
+    ("powershell -enc", "dangerous", "Encoded PowerShell execution"),
+    ("powershell -e", "dangerous", "Encoded PowerShell execution"),
+    ("cmd.exe /c", "dangerous", "Windows shell execution"),
+    ("certutil -urlcache", "dangerous", "Windows download via certutil"),
+    ("bitsadmin /transfer", "dangerous", "Windows background download"),
+    ("wmic process", "dangerous", "Windows process manipulation"),
+    ("sc create", "dangerous", "Windows service creation"),
+    ("bcdedit", "dangerous", "Windows boot config modification"),
+    ("vssadmin delete shadows", "dangerous", "Delete volume shadow copies"),
+    ("del /f /s /q C:\\", "dangerous", "Recursive delete Windows drive"),
+    # --- DANGEROUS (macOS) ---
+    ("osascript", "dangerous", "macOS AppleScript execution"),
+    ("launchctl", "dangerous", "macOS launch daemon control"),
+    ("security dump-keychain", "dangerous", "macOS keychain dump"),
+    ("dscl", "dangerous", "macOS directory service (user mgmt)"),
 ]
 
 TRUSTED_PUBLISHERS = [
@@ -338,10 +400,10 @@ RISK_SCORE_WEIGHTS = {
     "code_exec": 5,
     "dynamic_import": 4,
     "file_write": 3,
-    "base64_literal": 0,
+    "base64_literal": 1,
     "compiled_code": 3,
     "rule_match": 3,
-    "missing_manifest": 0,
+    "missing_manifest": 2,
     "symlink_escape": 3,
     "scan_limit": 0,
 }
