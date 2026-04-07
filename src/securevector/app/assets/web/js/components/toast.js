@@ -25,8 +25,13 @@ const Toast = {
      * @param {string} options.type - Toast type (success, error, warning, info)
      * @param {number} options.duration - Duration in ms (default: 3000)
      */
-    show(options = {}) {
+    show(msgOrOpts = {}, typeArg) {
         this.init();
+
+        // Support both Toast.show('msg', 'error') and Toast.show({ message, type })
+        const options = typeof msgOrOpts === 'string'
+            ? { message: msgOrOpts, type: typeArg || 'info' }
+            : msgOrOpts;
 
         const toast = document.createElement('div');
         toast.className = 'toast toast-' + (options.type || 'info');

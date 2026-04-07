@@ -186,6 +186,8 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         tool_permissions,
         costs,
         hooks,
+        skill_scans,
+        skill_permissions,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -201,6 +203,8 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
+    app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
+    app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

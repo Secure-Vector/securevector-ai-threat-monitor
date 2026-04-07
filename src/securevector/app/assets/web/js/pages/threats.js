@@ -309,7 +309,7 @@ const ThreatsPage = {
             }
             details += '</div>';
         });
-        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #00bcd4;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
+        return '<!DOCTYPE html><html><head><title>SecureVector Threat Report</title><style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a1a2e;border-bottom:2px solid #5eadb8;padding-bottom:10px}h2{color:#16213e;margin-top:30px}.threat{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px}.threat-header{display:flex;justify-content:space-between;margin-bottom:10px}.risk-high{color:#ef4444;font-weight:bold}.risk-medium{color:#f59e0b;font-weight:bold}.risk-low{color:#22c55e;font-weight:bold}.label{color:#666;font-size:12px}.llm-section{background:#f5f5f5;padding:10px;margin-top:10px;border-radius:4px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#1a1a2e;color:white}.summary{background:#e8f4f8;padding:15px;border-radius:8px;margin-bottom:20px}</style></head><body><h1>SecureVector Threat Report</h1><p>Generated: ' + new Date().toLocaleString() + '</p><div class="summary"><strong>Summary:</strong> ' + threats.length + ' threats<br>Critical: ' + threats.filter(t => t.risk_score >= 80).length + ' | High: ' + threats.filter(t => t.risk_score >= 60 && t.risk_score < 80).length + ' | Medium: ' + threats.filter(t => t.risk_score >= 40 && t.risk_score < 60).length + ' | Low: ' + threats.filter(t => t.risk_score < 40).length + '</div><table><thead><tr><th>Content</th><th>Type</th><th>Risk</th><th>LLM</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table><h2>High Risk Details</h2>' + details + '</body></html>';
     },
 
     getUniqueCategories() {
@@ -411,223 +411,121 @@ const ThreatsPage = {
         container.appendChild(statsBar);
 
         // Threats table
-        const tableWrapper = document.createElement('div');
-        tableWrapper.className = 'table-wrapper';
-
-        const table = document.createElement('table');
-        table.className = 'data-table';
-        table.id = 'threats-data-table';
-
-        // Header
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-
-        // Checkbox header
-        const checkboxTh = document.createElement('th');
-        checkboxTh.style.width = '40px';
-        const selectAllCb = document.createElement('input');
-        selectAllCb.type = 'checkbox';
-        selectAllCb.id = 'select-all-checkbox';
-        selectAllCb.className = 'threat-select-all';
-        selectAllCb.title = 'Select all';
-        selectAllCb.addEventListener('change', (e) => this.toggleSelectAll(e.target.checked));
-        checkboxTh.appendChild(selectAllCb);
-        headerRow.appendChild(checkboxTh);
-
-        const headers = [
-            { label: 'Content', key: 'indicator', sortable: true },
-            { label: 'Type', key: 'threat_type', sortable: true },
-            { label: 'Risk Score', key: 'risk_score', sortable: true },
-            { label: 'Client', key: 'user_agent', sortable: true },
-            { label: 'Time', key: 'first_seen', sortable: true },
-            { label: 'Actions', key: null, sortable: false },
-        ];
-        headers.forEach(col => {
-            const th = document.createElement('th');
-            if (col.sortable) {
-                th.style.cursor = 'pointer';
-                th.style.userSelect = 'none';
-                const labelSpan = document.createElement('span');
-                labelSpan.textContent = col.label;
-                th.appendChild(labelSpan);
-                const arrow = document.createElement('span');
-                arrow.style.cssText = 'margin-left: 4px; font-size: 10px; opacity: 0.4;';
-                if (this.sortColumn === col.key) {
-                    arrow.textContent = this.sortDirection === 'asc' ? '\u25B2' : '\u25BC';
-                    arrow.style.opacity = '1';
-                    arrow.style.color = 'var(--accent-primary)';
-                } else {
-                    arrow.textContent = '\u25B4';
-                }
-                th.appendChild(arrow);
-                th.addEventListener('click', () => {
-                    if (this.sortColumn === col.key) {
-                        this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        this.sortColumn = col.key;
-                        this.sortDirection = col.key === 'risk_score' ? 'desc' : 'asc';
+        const self = this;
+        const threatsDt = new DataTable({
+            columns: [
+                { key: 'indicator', label: 'Content', sortable: true, render: (_, threat) => {
+                    const code = document.createElement('code');
+                    code.className = 'indicator';
+                    const text = threat.indicator || threat.name || threat.text_preview || threat.text || 'Unknown';
+                    code.textContent = text.length > 60 ? text.substring(0, 60) + '...' : text;
+                    code.title = text;
+                    return code;
+                }},
+                { key: 'threat_type', label: 'Type', sortable: true, render: (_, threat) => {
+                    const wrap = document.createDocumentFragment();
+                    const threatType = threat.threat_type || 'No Threat Detected';
+                    const isOutput = threatType.startsWith('output_');
+                    if (isOutput) {
+                        const lbl = document.createElement('span');
+                        lbl.className = 'output-scan-label'; lbl.textContent = 'OUTPUT';
+                        wrap.appendChild(lbl);
                     }
-                    this.renderContent(document.getElementById('threats-content'));
+                    const badge = document.createElement('span');
+                    badge.className = 'type-badge' + (isOutput ? ' output-scan' : '');
+                    badge.textContent = isOutput ? threatType.replace('output_', '') : threatType;
+                    wrap.appendChild(badge);
+                    return wrap;
+                }},
+                { key: 'risk_score', label: 'Risk Score', sortable: true, defaultDir: 'desc', render: (_, threat) => {
+                    const wrap = document.createDocumentFragment();
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+                    const badge = document.createElement('span');
+                    badge.className = 'risk-badge risk-' + self.getRiskLevel(threat.risk_score);
+                    badge.textContent = (threat.risk_score || 0) + '%';
+                    row.appendChild(badge);
+                    const pct = Math.min(threat.risk_score || 0, 100);
+                    const barColor = pct >= 70 ? '#ef4444' : pct >= 40 ? '#f59e0b' : '#10b981';
+                    const bar = document.createElement('div');
+                    bar.style.cssText = 'width: 40px; height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; flex-shrink: 0;';
+                    const fill = document.createElement('div');
+                    fill.style.cssText = `height: 100%; border-radius: 2px; background: ${barColor}; width: ${pct}%;`;
+                    bar.appendChild(fill); row.appendChild(bar); wrap.appendChild(row);
+                    if (threat.llm_reviewed) {
+                        const llm = document.createElement('span'); llm.className = 'llm-badge'; llm.textContent = 'LLM';
+                        llm.title = 'Reviewed by ' + (threat.llm_model_used || 'LLM'); wrap.appendChild(llm);
+                        if (threat.llm_tokens_used > 0) {
+                            const tok = document.createElement('span'); tok.className = 'tokens-badge';
+                            tok.textContent = threat.llm_tokens_used.toLocaleString() + ' tokens'; wrap.appendChild(tok);
+                        }
+                    }
+                    return wrap;
+                }},
+                { key: 'user_agent', label: 'Client', sortable: true, render: (_, threat) => {
+                    const name = self.parseUserAgent(threat.user_agent);
+                    if (name) {
+                        const b = document.createElement('span'); b.className = 'client-badge';
+                        b.textContent = name; b.title = threat.user_agent || ''; return b;
+                    }
+                    return '-';
+                }},
+                { key: 'first_seen', label: 'Time', sortable: true, defaultDir: 'desc', render: (_, threat) =>
+                    self.formatDate(threat.first_seen || threat.created_at)
+                },
+                { key: 'action_taken', label: 'Action', render: (_, threat) => {
+                    const action = threat.action_taken || 'logged';
+                    const ab = document.createElement('span');
+                    ab.className = 'action-badge action-' + action;
+                    ab.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+                    return ab;
+                }},
+            ],
+            data: threats,
+            selectable: true,
+            rowActions: [
+                { icon: '\u{1F441}', title: 'View details', onClick: (t) => self.showThreatDetails(t) },
+            ],
+            bulkActions: [
+                { label: 'Delete', className: 'btn btn-sm btn-danger', onClick: (ids) => self.bulkDelete(ids) },
+            ],
+            idField: 'id',
+            sortKey: this.sortColumn,
+            sortDir: this.sortDirection,
+            customSort: (data, key, dir) => {
+                const d = dir === 'asc' ? 1 : -1;
+                return data.sort((a, b) => {
+                    let va, vb;
+                    if (key === 'indicator') {
+                        va = (a.indicator || a.name || a.text_preview || a.text || '').toLowerCase();
+                        vb = (b.indicator || b.name || b.text_preview || b.text || '').toLowerCase();
+                    } else if (key === 'risk_score') {
+                        return ((a.risk_score || 0) - (b.risk_score || 0)) * d;
+                    } else if (key === 'first_seen') {
+                        return (new Date(a.first_seen || a.created_at || 0).getTime() - new Date(b.first_seen || b.created_at || 0).getTime()) * d;
+                    } else {
+                        va = (a[key] || '').toString().toLowerCase();
+                        vb = (b[key] || '').toString().toLowerCase();
+                    }
+                    if (va < vb) return -1 * d;
+                    if (va > vb) return 1 * d;
+                    return 0;
                 });
-            } else {
-                th.textContent = col.label;
-            }
-            headerRow.appendChild(th);
+            },
+            onSort: (key, dir) => {
+                self.sortColumn = key; self.sortDirection = dir;
+                self.renderContent(document.getElementById('threats-content'));
+            },
+            onRowClick: (threat) => self.showThreatDetails(threat),
+            onSelectChange: (ids) => {
+                self.selectedIds = ids;
+                self.updateDeleteButton();
+            },
+            tableId: 'threats-data-table',
+            emptyText: 'No threats detected.',
         });
-
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        // Body
-        const tbody = document.createElement('tbody');
-
-        // Sort threats
-        const sortedThreats = [...threats].sort((a, b) => {
-            const dir = this.sortDirection === 'asc' ? 1 : -1;
-            const col = this.sortColumn;
-            let valA, valB;
-            if (col === 'indicator') {
-                valA = (a.indicator || a.name || a.text_preview || a.text || '').toLowerCase();
-                valB = (b.indicator || b.name || b.text_preview || b.text || '').toLowerCase();
-            } else if (col === 'risk_score') {
-                valA = a.risk_score || 0;
-                valB = b.risk_score || 0;
-                return (valA - valB) * dir;
-            } else if (col === 'first_seen') {
-                valA = new Date(a.first_seen || a.created_at || 0).getTime();
-                valB = new Date(b.first_seen || b.created_at || 0).getTime();
-                return (valA - valB) * dir;
-            } else {
-                valA = (a[col] || '').toString().toLowerCase();
-                valB = (b[col] || '').toString().toLowerCase();
-            }
-            if (valA < valB) return -1 * dir;
-            if (valA > valB) return 1 * dir;
-            return 0;
-        });
-
-        sortedThreats.forEach(threat => {
-            const row = document.createElement('tr');
-            row.className = 'clickable-row';
-            row.style.cursor = 'pointer';
-            row.addEventListener('click', (e) => {
-                // Don't trigger if clicking checkbox or button
-                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-                this.showThreatDetails(threat);
-            });
-
-            // Checkbox cell
-            const checkboxCell = document.createElement('td');
-            checkboxCell.className = 'checkbox-cell';
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'threat-checkbox';
-            checkbox.checked = this.selectedIds.has(threat.id);
-            checkbox.addEventListener('change', (e) => {
-                e.stopPropagation();
-                this.toggleSelect(threat.id, e.target.checked);
-            });
-            checkbox.addEventListener('click', (e) => e.stopPropagation());
-            checkboxCell.appendChild(checkbox);
-            row.appendChild(checkboxCell);
-
-            // Content (use text content if available)
-            const indicatorCell = document.createElement('td');
-            indicatorCell.className = 'indicator-cell';
-            const indicator = document.createElement('code');
-            indicator.className = 'indicator';
-            const indicatorText = threat.indicator || threat.name || threat.text_preview || threat.text || 'Unknown';
-            indicator.textContent = indicatorText.length > 60 ? indicatorText.substring(0, 60) + '...' : indicatorText;
-            indicator.title = indicatorText;
-            indicatorCell.appendChild(indicator);
-            row.appendChild(indicatorCell);
-
-            // Type
-            const typeCell = document.createElement('td');
-            const typeBadge = document.createElement('span');
-            const threatType = threat.threat_type || 'No Threat Detected';
-            const isOutputScan = threatType.startsWith('output_');
-            typeBadge.className = 'type-badge' + (isOutputScan ? ' output-scan' : '');
-            // Format: remove output_ prefix and display nicely
-            typeBadge.textContent = isOutputScan ? threatType.replace('output_', '') : threatType;
-            if (isOutputScan) {
-                const outputLabel = document.createElement('span');
-                outputLabel.className = 'output-scan-label';
-                outputLabel.textContent = 'OUTPUT';
-                typeCell.appendChild(outputLabel);
-            }
-            typeCell.appendChild(typeBadge);
-            row.appendChild(typeCell);
-
-            // Risk Score
-            const riskCell = document.createElement('td');
-            const riskBadge = document.createElement('span');
-            riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
-            riskBadge.textContent = (threat.risk_score || 0) + '%';
-            riskCell.appendChild(riskBadge);
-            // LLM badge if reviewed
-            if (threat.llm_reviewed) {
-                const llmBadge = document.createElement('span');
-                llmBadge.className = 'llm-badge';
-                llmBadge.textContent = 'LLM';
-                llmBadge.title = 'Reviewed by ' + (threat.llm_model_used || 'LLM');
-                riskCell.appendChild(llmBadge);
-                // Tokens badge
-                if (threat.llm_tokens_used && threat.llm_tokens_used > 0) {
-                    const tokensBadge = document.createElement('span');
-                    tokensBadge.className = 'tokens-badge';
-                    tokensBadge.textContent = threat.llm_tokens_used.toLocaleString() + ' tokens';
-                    riskCell.appendChild(tokensBadge);
-                }
-            }
-            row.appendChild(riskCell);
-
-            // Client (User Agent)
-            const clientCell = document.createElement('td');
-            const clientName = this.parseUserAgent(threat.user_agent);
-            if (clientName) {
-                const clientBadge = document.createElement('span');
-                clientBadge.className = 'client-badge';
-                clientBadge.textContent = clientName;
-                clientBadge.title = threat.user_agent || '';
-                clientCell.appendChild(clientBadge);
-            } else {
-                clientCell.textContent = '-';
-            }
-            row.appendChild(clientCell);
-
-            // Time
-            const dateCell = document.createElement('td');
-            dateCell.textContent = this.formatDate(threat.first_seen || threat.created_at);
-            row.appendChild(dateCell);
-
-            // Actions
-            const actionsCell = document.createElement('td');
-            actionsCell.className = 'actions-cell';
-            // Show action badge based on action_taken
-            const action = threat.action_taken || 'logged';
-            const actionBadge = document.createElement('span');
-            actionBadge.className = 'action-badge action-' + action;
-            actionBadge.textContent = action.charAt(0).toUpperCase() + action.slice(1);
-            actionsCell.appendChild(actionBadge);
-            // View button
-            const viewBtn = document.createElement('button');
-            viewBtn.className = 'btn btn-small btn-icon';
-            viewBtn.textContent = '\u{1F441}'; // Eye icon (Unicode)
-            viewBtn.title = 'View details';
-            viewBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.showThreatDetails(threat);
-            });
-            actionsCell.appendChild(viewBtn);
-            row.appendChild(actionsCell);
-
-            tbody.appendChild(row);
-        });
-
-        table.appendChild(tbody);
-        tableWrapper.appendChild(table);
-        container.appendChild(tableWrapper);
+        threatsDt.selectedIds = new Set(this.selectedIds);
+        container.appendChild(threatsDt.el);
 
         // Pagination
         if (this.data.total_pages > 1) {

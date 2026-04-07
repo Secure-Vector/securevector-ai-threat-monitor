@@ -30,7 +30,9 @@
 
 <br>
 
-> 🆕 **New in v3.0.1:**
+> 🆕 **New in v3.2.0:**
+> - **Skill Scanner** — static analysis for AI agent skills with optional AI-powered review
+> - **Skill Scan Policy Engine** — risk scoring, trusted publishers, and per-category allow/block rules
 > - **Tool Permissions** — allow/block agent tool calls
 > - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
 > - **28 new threat detection rules**
@@ -73,7 +75,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-v3.0.1-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-3.0.1-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-3.0.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/securevector_3.0.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/securevector-3.0.1-1.x86_64.rpm)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-v3.2.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector_3.2.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector-3.2.0-1.x86_64.rpm)
 
 **Step 2 — Open the app**
 
@@ -105,6 +107,11 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
 <td width="33%"><img src="docs/screenshots/custom-rules-light.png" alt="Custom Rules" width="100%"><br><em>Custom Rules — create and manage detection rules by category and severity</em></td>
 </tr>
+<tr>
+<td width="33%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static security analysis for AI agent skills with scan history and risk levels</em></td>
+<td width="33%"><img src="docs/screenshots/skill-policy.png" alt="Skill Policy" width="100%"><br><em>Skill Policy — network permissions, trusted publishers, and policy thresholds</em></td>
+<td width="33%"></td>
+</tr>
 </table>
 
 <br>
@@ -129,16 +136,26 @@ Tracks every token and dollar per agent in real time. Set daily budget limits �
 </td>
 </tr>
 <tr>
+<th align="left">Skill Scanner</th>
 <th align="left">Full Visibility</th>
-<th align="left">100% Local</th>
 </tr>
 <tr>
+<td valign="top">
+
+Scan agent skills and tool packages before installing. Static analysis across 10 categories detects shell access, network calls, env var reads, and more. Optional AI review filters false positives automatically.
+
+</td>
 <td valign="top">
 
 Live dashboard showing every LLM request, tool call, token count, and threat event. See exactly what your agents are doing.
 
 </td>
-<td valign="top">
+</tr>
+<tr>
+<th align="left" colspan="2">100% Local</th>
+</tr>
+<tr>
+<td valign="top" colspan="2">
 
 Runs entirely on your machine. No accounts. No cloud. No data leaves your infrastructure. Open source under Apache 2.0.
 
@@ -155,6 +172,9 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 | **Monitor** | Threat Monitor | Live feed of every detected threat — prompt injection, jailbreaks, data leaks, tool abuse |
 | | Tool Activity | Full audit log of every tool call your agents make, with args, decision, and timestamp |
 | | Cost Tracking | Per-agent, per-model token spend and USD cost in real time, with request history |
+| **Scan** | Skill Scanner | Static analysis of AI agent skills — detects shell exec, network access, env var reads, code injection, and 6 more categories |
+| | AI Review | Optional LLM-powered false-positive filtering — works with OpenAI, Anthropic, Ollama, Azure, Bedrock |
+| | Scan Policy | Risk scoring with per-category allow/block rules, trusted publishers, and severity thresholds |
 | **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule |
 | | Cost Settings | Set daily budget limits and choose whether to warn or hard-block at the cap |
 | | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
@@ -260,6 +280,56 @@ Built from real attack chains observed against production agent frameworks:
 
 <br>
 
+## Skill Scanner
+
+Scan AI agent skills and tool packages **before** you install them. SecureVector performs static analysis across 10 detection categories, assigns a risk score, and optionally runs an AI review to filter false positives.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Skill Scanner Flow                           │
+│                                                                     │
+│   ┌─────────────┐     ┌──────────────────┐     ┌────────────────┐  │
+│   │  Skill Dir   │────>│  Static Analysis  │────>│  Risk Scoring  │  │
+│   │  or URL      │     │  (10 categories)  │     │  LOW/MED/HIGH  │  │
+│   └─────────────┘     └──────────────────┘     └───────┬────────┘  │
+│                                                         │           │
+│                              ┌───────────────────────── │           │
+│                              v                          v           │
+│                     ┌─────────────────┐     ┌────────────────────┐  │
+│                     │  AI Review      │     │  Policy Engine     │  │
+│                     │  (optional LLM) │     │  allow/block rules │  │
+│                     │  FP filtering   │     │  trusted publishers│  │
+│                     └────────┬────────┘     └─────────┬──────────┘  │
+│                              │                        │             │
+│                              v                        v             │
+│                     ┌──────────────────────────────────────┐        │
+│                     │  Verdict: PASS / WARN / BLOCK        │        │
+│                     │  + detailed findings per category     │        │
+│                     └──────────────────────────────────────┘        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Detection Categories
+
+| Category | What It Finds |
+|----------|--------------|
+| `shell_exec` | Subprocess calls, system commands |
+| `network_domain` | HTTP requests, socket connections, DNS lookups |
+| `env_var_read` | Access to environment variables (API keys, secrets) |
+| `code_exec` | eval, dynamic code generation |
+| `dynamic_import` | Runtime module loading |
+| `file_write` | Writing to disk outside expected paths |
+| `base64_literal` | Obfuscated payloads in base64 strings |
+| `compiled_code` | .pyc, .so, .dll binaries embedded in the skill |
+| `symlink_escape` | Symlinks pointing outside the skill directory |
+| `missing_manifest` | No permissions.yml declaring required capabilities |
+
+### AI-Powered Review
+
+Enable AI analysis (OpenAI, Anthropic, Ollama, Azure, or Bedrock) to automatically review findings and filter false positives. The AI examines each finding in context and adjusts the risk level — reducing noise without hiding real threats.
+
+<br>
+
 ## Open Source
 
 SecureVector is fully open source. No cloud required. No accounts. No tracking. Run it, fork it, contribute to it.
@@ -299,13 +369,13 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v3.0.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-v3.0.1-Windows-Setup.exe) |
-| macOS | [SecureVector-3.0.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-3.0.1-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-3.0.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SecureVector-3.0.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_3.0.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/securevector_3.0.1_amd64.deb) |
-| Linux (RPM) | [securevector-3.0.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/securevector-3.0.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v3.2.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-v3.2.0-Windows-Setup.exe) |
+| macOS | [SecureVector-3.2.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-3.2.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_3.2.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector_3.2.0_amd64.deb) |
+| Linux (RPM) | [securevector-3.2.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector-3.2.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.0.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 

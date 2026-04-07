@@ -97,8 +97,8 @@ const ToolPermissionsPage = {
     },
 
     SOURCE_META: {
-        official:     { label: 'Official MCP',  bg: 'rgba(6,182,212,0.12)',  text: '#06b6d4', border: 'rgba(6,182,212,0.3)',  icon: '\u2713' },
-        openclaw:     { label: 'Google Workspace MCP', bg: 'rgba(0,188,212,0.12)', text: '#00bcd4', border: 'rgba(0,188,212,0.3)', icon: '\uD83D\uDCE7' },
+        official:     { label: 'Official MCP',  bg: 'rgba(94,173,184,0.12)',  text: '#5eadb8', border: 'rgba(94,173,184,0.3)',  icon: '\u2713' },
+        openclaw:     { label: 'Google Workspace MCP', bg: 'rgba(94,173,184,0.12)', text: '#5eadb8', border: 'rgba(94,173,184,0.3)', icon: '\uD83D\uDCE7' },
         community:    { label: 'Community MCP',  bg: 'rgba(16,185,129,0.12)', text: '#10b981', border: 'rgba(16,185,129,0.3)', icon: '\u2665' },
         conventional: { label: 'Conventional',   bg: 'rgba(100,116,139,0.1)', text: '#94a3b8', border: 'rgba(100,116,139,0.2)', icon: '~' },
     },
@@ -411,7 +411,7 @@ const ToolPermissionsPage = {
         // Add Custom Tool button
         const topAddBtn = document.createElement('button');
         topAddBtn.id = 'top-add-custom-tool-btn';
-        topAddBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #06b6d4, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
+        topAddBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #5eadb8, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
         const topAddPlus = document.createElement('span');
         topAddPlus.textContent = '+';
         const topAddLabel = document.createElement('span');
@@ -520,8 +520,8 @@ const ToolPermissionsPage = {
             pill.textContent = '\uD83D\uDCE6 ' + toolCount + ' local tools';
             pill.title = 'Enable Cloud Mode in Settings';
             pill.addEventListener('mouseenter', () => {
-                pill.style.borderColor = 'rgba(6,182,212,0.4)';
-                pill.style.color = '#06b6d4';
+                pill.style.borderColor = 'rgba(94,173,184,0.4)';
+                pill.style.color = '#5eadb8';
             });
             pill.addEventListener('mouseleave', () => {
                 pill.style.borderColor = 'var(--border-default)';
@@ -571,12 +571,12 @@ const ToolPermissionsPage = {
         // Category accent colors for left border + icon background
         const categoryAccents = {
             openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-            communication: { color: '#00bcd4', bg: 'rgba(0,188,212,0.12)' },
+            communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
             file_system: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-            database: { color: '#22d3ee', bg: 'rgba(34,211,238,0.12)' },
-            cloud_infra: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+            database: { color: '#7cc0c9', bg: 'rgba(34,211,238,0.12)' },
+            cloud_infra: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             payment: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
             social_media: { color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
             security: { color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' },
@@ -797,7 +797,7 @@ const ToolPermissionsPage = {
                     }
                     if (pctAllow > 0) {
                         const seg = document.createElement('div');
-                        seg.style.cssText = 'background: #06b6d4; flex: ' + bucket.allowed + ';';
+                        seg.style.cssText = 'background: #5eadb8; flex: ' + bucket.allowed + ';';
                         stack.appendChild(seg);
                     }
                     if (pctLogged > 0) {
@@ -829,7 +829,7 @@ const ToolPermissionsPage = {
             // Legend
             const legend = document.createElement('div');
             legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary);';
-            [['#ef4444', 'Blocked'], ['#06b6d4', 'Allowed'], ['#475569', 'Logged']]
+            [['#ef4444', 'Blocked'], ['#5eadb8', 'Allowed'], ['#475569', 'Logged']]
                 .forEach(([color, label]) => {
                     const item = document.createElement('span');
                     item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
@@ -866,7 +866,7 @@ const ToolPermissionsPage = {
         };
         makeStatCard('total',   'Total Calls',    '');
         makeStatCard('blocked', 'Blocked',        '#ef4444');
-        makeStatCard('allowed', 'Allowed',        '#06b6d4');
+        makeStatCard('allowed', 'Allowed',        '#5eadb8');
         makeStatCard('logged',  'Logged (Pass)',  '#94a3b8');
 
         // Toolbar: filter buttons + refresh
@@ -876,7 +876,7 @@ const ToolPermissionsPage = {
         const filters = [
             { label: 'All',     value: null,       color: '#94a3b8' },
             { label: 'Blocked', value: 'block',    color: '#ef4444' },
-            { label: 'Allowed', value: 'allow',    color: '#06b6d4' },
+            { label: 'Allowed', value: 'allow',    color: '#5eadb8' },
             { label: 'Logged',  value: 'log_only', color: '#64748b' },
         ];
         let activeFilter = null;
@@ -1079,7 +1079,7 @@ const ToolPermissionsPage = {
         // Action badge configs — cyan for allowed, red for blocked
         const ACTION_CFG = {
             block:    { icon: '🔒', label: 'Blocked', color: '#ef4444', bg: 'rgba(239,68,68,0.12)'   },
-            allow:    { icon: '✓',  label: 'Allowed', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)'   },
+            allow:    { icon: '✓',  label: 'Allowed', color: '#5eadb8', bg: 'rgba(94,173,184,0.12)'   },
             log_only: { icon: '~',  label: 'Logged',  color: '#94a3b8', bg: 'rgba(148,163,184,0.1)'  },
         };
 
@@ -1162,7 +1162,7 @@ const ToolPermissionsPage = {
                 metaRow.appendChild(section('Risk Level', riskEl));
             }
 
-            const typeColor = entry.is_essential ? '#06b6d4' : 'var(--text-secondary)';
+            const typeColor = entry.is_essential ? '#5eadb8' : 'var(--text-secondary)';
             const typeText = entry.is_essential ? 'Essential' : (entry.action !== 'log_only' ? 'Custom' : 'Unknown');
             const typeEl = document.createElement('span');
             typeEl.style.cssText = 'font-size: 13px; font-weight: 600; color: ' + typeColor + ';';
@@ -1198,9 +1198,9 @@ const ToolPermissionsPage = {
             tr.title = 'Click to view details';
             const rowBg = idx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent';
             tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + '; cursor: pointer;';
-            if (self.auditSelectedIds.has(entry.id)) { tr.classList.add('sv-selected'); tr.style.background = 'rgba(6,182,212,0.06)'; }
+            if (self.auditSelectedIds.has(entry.id)) { tr.classList.add('sv-selected'); tr.style.background = 'rgba(94,173,184,0.06)'; }
             tr.addEventListener('mouseenter', () => { if (!tr.classList.contains('sv-selected')) tr.style.background = 'var(--bg-tertiary)'; });
-            tr.addEventListener('mouseleave', () => { tr.style.background = tr.classList.contains('sv-selected') ? 'rgba(6,182,212,0.06)' : rowBg; });
+            tr.addEventListener('mouseleave', () => { tr.style.background = tr.classList.contains('sv-selected') ? 'rgba(94,173,184,0.06)' : rowBg; });
 
             // Checkbox cell
             const tdCb = document.createElement('td');
@@ -1211,7 +1211,7 @@ const ToolPermissionsPage = {
             cb.checked = self.auditSelectedIds.has(entry.id);
             cb.addEventListener('click', (e) => e.stopPropagation());
             cb.addEventListener('change', () => {
-                if (cb.checked) tr.style.background = 'rgba(6,182,212,0.06)';
+                if (cb.checked) tr.style.background = 'rgba(94,173,184,0.06)';
                 else tr.style.background = rowBg;
                 tr.classList.toggle('sv-selected', cb.checked);
                 self._toggleSelectAuditRecord(entry.id, cb.checked, lastEntries);
@@ -1272,7 +1272,7 @@ const ToolPermissionsPage = {
             // Type
             const tdType = document.createElement('td');
             tdType.style.cssText = 'padding: 8px 12px; white-space: nowrap; font-size: 12px;';
-            const typeColor = entry.is_essential ? '#06b6d4' : (entry.action !== 'log_only' ? '#00bcd4' : 'var(--text-muted)');
+            const typeColor = entry.is_essential ? '#5eadb8' : (entry.action !== 'log_only' ? '#5eadb8' : 'var(--text-muted)');
             const typeText = entry.is_essential ? 'Essential' : (entry.action !== 'log_only' ? 'Custom' : 'Unknown');
             const typeSpan = document.createElement('span');
             typeSpan.style.color = typeColor;
@@ -1490,7 +1490,7 @@ const ToolPermissionsPage = {
     // ==================== Custom Tools ====================
 
     renderCustomToolsSection(container) {
-        const customAccent = { color: '#00bcd4', bg: 'rgba(0,188,212,0.12)' };
+        const customAccent = { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' };
 
         // Section wrapper — either a grid item or nested under code_devops
         const section = document.createElement('div');
@@ -1517,7 +1517,7 @@ const ToolPermissionsPage = {
         // Add Tool button — compact to fit column header
         const addBtn = document.createElement('button');
         addBtn.id = 'custom-tools-add-btn';
-        addBtn.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; border: none; background: linear-gradient(135deg, #06b6d4, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
+        addBtn.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; border: none; background: linear-gradient(135deg, #5eadb8, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
         addBtn.textContent = '+ Add';
         addBtn.addEventListener('mouseenter', () => { addBtn.style.opacity = '0.85'; });
         addBtn.addEventListener('mouseleave', () => { addBtn.style.opacity = '1'; });

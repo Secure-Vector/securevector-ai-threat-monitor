@@ -243,6 +243,9 @@ api_keys.txt
 secrets.json
 config/secrets/
 
+# Test fixtures with intentionally suspicious code (scanner test data)
+tests/fixtures/skills/
+
 # Test outputs and logs
 test_logs/
 *.test.log

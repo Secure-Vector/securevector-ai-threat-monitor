@@ -281,8 +281,83 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 17
-SCHEMA_DESCRIPTION = "Default block_threats to disabled"
+CURRENT_SCHEMA_VERSION = 19
+SCHEMA_DESCRIPTION = "Add skill permissions and policy engine tables"
+
+# Migration SQL for v19
+MIGRATION_V19_SQL = """
+-- Schema Version 19: Skill Scanner Policy Engine
+
+CREATE TABLE IF NOT EXISTS skill_permissions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    category        TEXT NOT NULL CHECK (category IN ('network', 'env_var', 'file_path', 'shell_command')),
+    pattern         TEXT NOT NULL,
+    classification  TEXT NOT NULL CHECK (classification IN ('safe', 'review', 'dangerous')),
+    label           TEXT NOT NULL DEFAULT '',
+    is_default      INTEGER NOT NULL DEFAULT 1,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(category, pattern)
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_permissions_category
+    ON skill_permissions (category, classification);
+
+CREATE INDEX IF NOT EXISTS idx_skill_permissions_enabled
+    ON skill_permissions (enabled);
+
+CREATE TABLE IF NOT EXISTS skill_trusted_publishers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    publisher_name  TEXT NOT NULL UNIQUE,
+    trust_level     TEXT NOT NULL DEFAULT 'trusted' CHECK (trust_level IN ('trusted', 'untrusted')),
+    is_default      INTEGER NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS skill_policy_config (
+    id                      INTEGER PRIMARY KEY CHECK (id = 1),
+    policy_enabled          INTEGER NOT NULL DEFAULT 1,
+    risk_weight_network     INTEGER NOT NULL DEFAULT 2,
+    risk_weight_env_var     INTEGER NOT NULL DEFAULT 1,
+    risk_weight_shell_exec  INTEGER NOT NULL DEFAULT 5,
+    risk_weight_code_exec   INTEGER NOT NULL DEFAULT 5,
+    risk_weight_dynamic_import INTEGER NOT NULL DEFAULT 4,
+    risk_weight_file_write  INTEGER NOT NULL DEFAULT 3,
+    risk_weight_base64      INTEGER NOT NULL DEFAULT 0,
+    risk_weight_compiled    INTEGER NOT NULL DEFAULT 3,
+    risk_weight_rule_match  INTEGER NOT NULL DEFAULT 3,
+    risk_weight_missing_manifest INTEGER NOT NULL DEFAULT 0,
+    risk_weight_symlink     INTEGER NOT NULL DEFAULT 3,
+    threshold_allow         INTEGER NOT NULL DEFAULT 8,
+    threshold_warn          INTEGER NOT NULL DEFAULT 15,
+    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO skill_policy_config (id) VALUES (1);
+"""
+
+# Migration SQL for v18
+MIGRATION_V18_SQL = """
+-- Schema Version 18: Add skill scan records for OpenClaw Skill Scanner
+
+CREATE TABLE IF NOT EXISTS skill_scan_records (
+    id                TEXT PRIMARY KEY,
+    scanned_path      TEXT NOT NULL,
+    skill_name        TEXT NOT NULL,
+    scan_timestamp    TEXT NOT NULL,
+    invocation_source TEXT NOT NULL DEFAULT 'cli' CHECK (invocation_source IN ('cli', 'ui')),
+    risk_level        TEXT NOT NULL CHECK (risk_level IN ('HIGH', 'MEDIUM', 'LOW')),
+    findings_count    INTEGER NOT NULL DEFAULT 0,
+    findings_json     TEXT NOT NULL DEFAULT '[]',
+    manifest_present  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_scan_records_timestamp
+    ON skill_scan_records (scan_timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_skill_scan_records_risk_level
+    ON skill_scan_records (risk_level);
+"""
 
 # Migration SQL for v12
 MIGRATION_V12_SQL = """

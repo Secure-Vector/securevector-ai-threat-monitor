@@ -951,8 +951,136 @@ def revert_provider_proxy(provider: str, quiet: bool = False) -> None:
         print(f"\n  [proxy] Reverted pi-ai files for {provider} ({restored} file{'s' if restored > 1 else ''})")
 
 
+def _handle_scan_skill() -> None:
+    """Handle the `securevector-app scan-skill` subcommand."""
+    import asyncio
+
+    sub = argparse.ArgumentParser(
+        prog="securevector-app scan-skill",
+        description="Scan an OpenClaw skill directory for security risks before installing.",
+    )
+    sub.add_argument("path", help="Path to the skill directory to scan")
+    sub.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format: human-readable text (default) or machine-readable JSON",
+    )
+    sub.add_argument(
+        "--fail-on",
+        choices=["low", "medium", "high"],
+        default="medium",
+        dest="fail_on",
+        help="Exit with code 1 if risk level is at or above this threshold (default: medium)",
+    )
+
+    args = sub.parse_args(sys.argv[2:])
+
+    async def _run():
+        from securevector.app.database.connection import DatabaseConnection
+        from securevector.app.database.migrations import init_database_schema
+        from securevector.app.database.repositories.skill_scans import (
+            SkillScansRepository,
+            ScanRecord,
+        )
+        from securevector.app.services.skill_scanner import SkillScannerService
+
+        db = DatabaseConnection()
+        await db.connect()
+        await init_database_schema(db)
+
+        scanner = SkillScannerService(db)
+        result = await scanner.scan(args.path, invocation_source="cli")
+
+        # Persist the scan record
+        repo = SkillScansRepository(db)
+        record = ScanRecord(
+            id=result.id,
+            scanned_path=result.scanned_path,
+            skill_name=result.skill_name,
+            scan_timestamp=result.scan_timestamp,
+            invocation_source="cli",
+            risk_level=result.risk_level,
+            findings_count=result.findings_count,
+            findings_json=result.findings_json_str(),
+            manifest_present=1 if result.manifest_present else 0,
+        )
+        try:
+            await repo.insert_scan(record)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"Could not persist scan record: {exc}")
+
+        return result
+
+    try:
+        result = asyncio.run(_run())
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except Exception as exc:
+        print(f"Scan failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    if args.output == "json":
+        import json as _json
+        output = {
+            "id": result.id,
+            "scanned_path": result.scanned_path,
+            "skill_name": result.skill_name,
+            "scan_timestamp": result.scan_timestamp,
+            "invocation_source": "cli",
+            "risk_level": result.risk_level,
+            "findings_count": result.findings_count,
+            "manifest_present": result.manifest_present,
+            "findings": [f.to_dict() for f in result.findings],
+        }
+        print(_json.dumps(output, indent=2))
+    else:
+        if result.risk_level == "HIGH":
+            banner = "\u26a0\ufe0f  RISK: HIGH"
+            recommendation = "Recommendation: DO NOT INSTALL"
+        elif result.risk_level == "MEDIUM":
+            banner = "\u26a1 RISK: MEDIUM"
+            recommendation = "Recommendation: REVIEW CAREFULLY \u2014 inspect all findings before installing"
+        else:
+            banner = "\u2705 RISK: LOW"
+            recommendation = "Recommendation: SAFE TO INSTALL"
+
+        print(f"\n{banner}")
+        print(f"Skill: {result.skill_name}  ({result.scanned_path})")
+        print(f"Scanned: {result.scan_timestamp}")
+
+        if result.findings:
+            print(f"\nFindings ({result.findings_count}):")
+            for f in result.findings:
+                loc = (
+                    f"{f.file_path}:{f.line_number}"
+                    if f.line_number
+                    else f.file_path or "(manifest)"
+                )
+                print(f"  \u2022 [{f.severity.upper()}] {f.category}  {loc}")
+                if f.excerpt:
+                    print(f"    {f.excerpt[:120]}")
+        else:
+            print("\nNo suspicious patterns detected.")
+
+        print(f"\n{recommendation}\n")
+
+    # Exit code logic (T030)
+    risk_order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+    threshold_map = {"low": 0, "medium": 1, "high": 2}
+    if risk_order[result.risk_level] >= threshold_map[args.fail_on]:
+        sys.exit(1)
+    sys.exit(0)
+
+
 def main() -> None:
     """Main entry point."""
+    # Dispatch scan-skill subcommand before the main parser runs
+    if len(sys.argv) > 1 and sys.argv[1] == "scan-skill":
+        _handle_scan_skill()
+        return
+
     parser = argparse.ArgumentParser(
         description="SecureVector Local Threat Monitor Desktop Application",
         formatter_class=argparse.RawDescriptionHelpFormatter,
