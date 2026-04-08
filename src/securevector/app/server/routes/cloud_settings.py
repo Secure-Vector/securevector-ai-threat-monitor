@@ -221,8 +221,8 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
                                 loop = asyncio.get_event_loop()
                                 await loop.run_in_executor(None, _do_revert)
                                 proxy_action = "patches_reverted"
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning("Could not revert proxy patches when stopping proxy: %s", e)
             except Exception as e:
                 logger.warning(f"Could not auto-toggle proxy for block_mode: {e}")
 

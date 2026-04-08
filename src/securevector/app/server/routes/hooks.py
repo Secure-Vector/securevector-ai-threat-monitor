@@ -83,8 +83,8 @@ def _resolve_sv_url() -> str:
         server_cfg = cfg.get("server", {})
         sv_host = server_cfg.get("host", "127.0.0.1")
         sv_port = str(server_cfg.get("port", sv_port))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not load svconfig, using defaults: %s", e)
     return f"http://{sv_host}:{sv_port}"
 
 
@@ -337,7 +337,7 @@ async def install_plugin(request: Optional[InstallRequest] = None):
         logger.error(f"Failed to prepare plugin files: {e}")
         return {
             "status": "error",
-            "message": f"Failed to prepare plugin files: {e}",
+            "message": "Failed to prepare plugin files. Check server logs for details.",
             "path": str(STAGING_DIR),
             "hook_name": PLUGIN_NAME,
             "files_written": [],
@@ -398,9 +398,9 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             registered = False
             status = "partial"
             cli_error = (stderr or stdout).strip()
+            logger.warning("OpenClaw CLI install failed (code %d): %s", code, cli_error)
             message = (
-                f"Plugin files staged at {STAGING_DIR}, but OpenClaw CLI registration failed: "
-                f"{cli_error}. "
+                f"Plugin files staged, but OpenClaw CLI registration failed. "
                 f"Try manually: openclaw plugins install --link {install_path}"
             )
 
@@ -412,11 +412,11 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             "files_written": files_written,
             "registered": registered,
         }
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to install plugin")
         return {
             "status": "error",
-            "message": f"Installation failed: {e}",
+            "message": "Installation failed. Check server logs for details.",
             "path": str(STAGING_DIR),
             "hook_name": PLUGIN_NAME,
             "files_written": [],
@@ -441,16 +441,18 @@ async def uninstall_plugin():
     _cleanup_stale_config_entry()
 
     if code == 0:
+        logger.info("Plugin uninstalled via OpenClaw CLI: %s", cli_result)
         return {
             "status": "removed",
-            "message": f"SecureVector plugin uninstalled via OpenClaw CLI. {cli_result}",
+            "message": "SecureVector plugin uninstalled successfully.",
         }
     else:
+        logger.warning("OpenClaw CLI uninstall returned code %d: %s", code, cli_result)
         return {
             "status": "removed",
             "message": (
-                f"Staged files removed. OpenClaw CLI returned: {cli_result or 'no output'}. "
-                "The plugin may have already been unregistered."
+                "Staged files removed. The plugin may have already been unregistered. "
+                "Check server logs for details."
             ),
         }
 

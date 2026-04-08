@@ -3,8 +3,17 @@
  * Proxy control and settings for Block Mode and Output Scan
  */
 
-/** Show env vars modal for OpenClaw users when block mode is enabled. */
-function showOpenClawProxyModal() {
+/** Auto-start multi-provider proxy and show env vars modal for OpenClaw users when block mode is enabled. */
+async function showOpenClawProxyModal() {
+    // Start the multi-provider proxy automatically
+    try {
+        await fetch('/api/proxy/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'openai', multi: true, integration: 'openclaw' })
+        });
+    } catch { /* proxy start failed — modal still useful */ }
+
     const providers = [
         ['OPENAI_BASE_URL', 'http://127.0.0.1:8742/openai/v1'],
         ['ANTHROPIC_BASE_URL', 'http://127.0.0.1:8742/anthropic'],
@@ -48,7 +57,14 @@ function showOpenClawProxyModal() {
         title: 'Restart OpenClaw with Proxy Environment Variables',
         content: modalContent,
         size: 'medium',
-        actions: [{ label: 'Got it', primary: true }]
+        actions: [
+            {
+                label: 'Go to Proxy Settings',
+                primary: false,
+                onClick: () => { if (window.Sidebar) Sidebar.navigate('proxy-openclaw'); }
+            },
+            { label: 'Got it', primary: true }
+        ]
     });
 }
 
@@ -867,13 +883,13 @@ const ProxyPage = {
                 await API.updateSettings({ block_threats: newState });
                 Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
 
-                // If enabling and OpenClaw plugin is installed, show env vars modal
+                // If enabling and OpenClaw plugin is installed, auto-start proxy and show env vars modal
                 if (newState) {
                     try {
                         const hookRes = await fetch('/api/hooks/status');
                         const hookStatus = await hookRes.json();
                         if (hookStatus.installed) {
-                            showOpenClawProxyModal();
+                            await showOpenClawProxyModal();
                         }
                     } catch { /* hooks status unavailable */ }
                 }
