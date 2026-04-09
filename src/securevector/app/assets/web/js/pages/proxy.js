@@ -3,6 +3,71 @@
  * Proxy control and settings for Block Mode and Output Scan
  */
 
+/** Auto-start multi-provider proxy and show env vars modal for OpenClaw users when block mode is enabled. */
+async function showOpenClawProxyModal() {
+    // Start the multi-provider proxy automatically
+    try {
+        await fetch('/api/proxy/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'openai', multi: true, integration: 'openclaw' })
+        });
+    } catch { /* proxy start failed — modal still useful */ }
+
+    const providers = [
+        ['OPENAI_BASE_URL', 'http://127.0.0.1:8742/openai/v1'],
+        ['ANTHROPIC_BASE_URL', 'http://127.0.0.1:8742/anthropic'],
+        ['GEMINI_BASE_URL', 'http://127.0.0.1:8742/gemini'],
+        ['GROQ_BASE_URL', 'http://127.0.0.1:8742/groq'],
+        ['MISTRAL_BASE_URL', 'http://127.0.0.1:8742/mistral'],
+        ['XAI_BASE_URL', 'http://127.0.0.1:8742/xai'],
+    ];
+
+    const modalContent = document.createElement('div');
+
+    const intro = document.createElement('p');
+    intro.style.marginBottom = '12px';
+    intro.textContent = 'The proxy is now running. To route LLM traffic through SecureVector for threat blocking, restart OpenClaw with these environment variables set:';
+    modalContent.appendChild(intro);
+
+    const codeBlock = document.createElement('div');
+    codeBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; margin-bottom: 12px; line-height: 1.8;';
+
+    const addLine = (text, color) => {
+        const div = document.createElement('div');
+        if (color) div.style.color = color;
+        div.textContent = text;
+        codeBlock.appendChild(div);
+    };
+
+    addLine('# Linux / macOS', 'var(--text-secondary)');
+    providers.forEach(([k, v]) => addLine(`export ${k}=${v}`));
+    addLine('');
+    addLine('# Windows (PowerShell)', 'var(--text-secondary)');
+    providers.forEach(([k, v]) => addLine(`$env:${k}="${v}"`));
+
+    modalContent.appendChild(codeBlock);
+
+    const note = document.createElement('p');
+    note.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+    note.textContent = 'Only set the variables for the providers you use. The proxy auto-patches pi-ai files, but OpenClaw needs a restart to pick up the changes.';
+    modalContent.appendChild(note);
+
+    Modal.show({
+        title: 'Restart OpenClaw with Proxy Environment Variables',
+        content: modalContent,
+        size: 'medium',
+        actions: [
+            {
+                label: 'Go to Proxy Settings',
+                primary: false,
+                onClick: () => { if (window.Sidebar) Sidebar.navigate('proxy-openclaw'); }
+            },
+            { label: 'Got it', primary: true }
+        ]
+    });
+}
+
 const ProxyPage = {
     settings: null,
     proxyStatus: 'stopped', // 'stopped', 'starting', 'running', 'stopping'
@@ -817,6 +882,17 @@ const ProxyPage = {
             try {
                 await API.updateSettings({ block_threats: newState });
                 Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
+
+                // If enabling and OpenClaw plugin is installed, auto-start proxy and show env vars modal
+                if (newState) {
+                    try {
+                        const hookRes = await fetch('/api/hooks/status');
+                        const hookStatus = await hookRes.json();
+                        if (hookStatus.installed) {
+                            await showOpenClawProxyModal();
+                        }
+                    } catch { /* hooks status unavailable */ }
+                }
             } catch (err) {
                 Toast.error('Failed to update setting');
                 e.target.checked = !newState;

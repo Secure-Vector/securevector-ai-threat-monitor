@@ -45,8 +45,8 @@ setup(
     python_requires=">=3.9",  # Base SDK supports 3.9+; MCP extras require 3.10+
     install_requires=[
         "PyYAML>=5.1",
-        "requests>=2.25.0",
-        "aiohttp>=3.12.14",  # Security fix for CVE-2025-53643 (request smuggling) and earlier CVEs
+        "requests>=2.32.4",  # Security fix for CVE-2025-47083 (insecure temp file reuse)
+        "aiohttp>=3.13.5",  # Security fixes for duplicate Host headers, SSRF, header injection, and DoS vulnerabilities
         "typing-extensions>=4.0.0",
         "urllib3>=2.6.3",  # Security fix for CVE-2025-66418, CVE-2025-66471, CVE-2026-21441 (decompression bombs)
     ],
@@ -118,6 +118,7 @@ setup(
             "app/assets/web/css/*",
             "app/assets/web/js/**/*",
             "app/assets/web/icons/*",
+            "plugins/openclaw/*",
         ],
         "": ["NOTICE"],
     },

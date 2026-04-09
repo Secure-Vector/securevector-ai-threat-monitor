@@ -41,7 +41,7 @@
 
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
-**SecureVector** sits between your AI agent and the LLM provider, scanning every request and response for security threats, controlling tool permissions, and tracking spend in real time. Runs entirely on your machine — nothing leaves your infrastructure.
+**SecureVector** monitors your AI agent traffic for security threats, controls tool permissions, and tracks spend in real time. For OpenClaw/ClawdBot, the native plugin runs inside the agent with zero latency — no proxy needed. For other frameworks, the LLM proxy intercepts traffic between your agent and the provider. Runs entirely on your machine — nothing leaves your infrastructure.
 
 <br>
 
@@ -60,7 +60,7 @@ Every prompt your AI agent sends, every secret it handles, every piece of user d
 </td>
 <td valign="top">
 
-SecureVector runs on your machine, between your AI agents and LLM providers. It starts with a multi-provider proxy mode for routing across OpenAI, Anthropic, Ollama, and more — all through a single endpoint. It blocks threats, enforces tool permissions, and hard-stops agents that blow their budget. 100% local. No accounts.
+SecureVector runs on your machine. For OpenClaw/ClawdBot, the native plugin handles everything — zero latency, no proxy overhead. For LangChain, CrewAI, and other frameworks, the multi-provider proxy routes traffic across OpenAI, Anthropic, Ollama, and more. It blocks threats, enforces tool permissions, and hard-stops agents that blow their budget. 100% local. No accounts.
 
 </td>
 </tr>
@@ -126,7 +126,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Detects and logs threats by default — enable block mode when you're ready to hard-stop them.
+Scans every prompt and response for prompt injection, jailbreaks, PII leaks, and tool abuse. 50+ detection rules covering the OWASP LLM Top 10. Monitors and alerts by default with zero latency (plugin mode) — enable block mode when you're ready to hard-stop threats via proxy.
 
 </td>
 <td valign="top">
@@ -187,7 +187,7 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 
 | ❌ Without SecureVector | ✅ With SecureVector |
 |---|---|
-| Prompt injections pass straight through | Detected and logged by default; blocked when you enable block mode |
+| Prompt injections pass straight through | Detected and alerted by default (zero latency); blocked when you enable block mode |
 | API keys and PII leak in prompts | Automatically redacted |
 | No control over what tools agents can use | Fine-grained allow/block rules per tool |
 | No audit trail of tool calls | Full tool call history with decisions and reasons |
@@ -225,11 +225,31 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 | **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
 | **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
 | **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
-| **OpenClaw / ClawdBot** *(LLM gateway agent)* | LLM Proxy — see Integrations in UI |
+| **OpenClaw / ClawdBot** *(LLM gateway agent)* | Native plugin (zero latency) — proxy only for block mode |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
 | **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
 | **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
 | **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
+
+### OpenClaw / ClawdBot Plugin
+
+The SecureVector Guard plugin runs natively inside OpenClaw with zero latency. Install from the UI (Integrations tab) or via the API:
+
+```bash
+# Install plugin (copies files + registers in openclaw.json)
+curl -X POST http://localhost:8741/api/hooks/install
+
+# Check status
+curl http://localhost:8741/api/hooks/status
+
+# Reinstall / update
+curl -X POST http://localhost:8741/api/hooks/install -H "Content-Type: application/json" -d '{"force": true}'
+
+# Uninstall (removes files + unregisters from openclaw.json)
+curl -X POST http://localhost:8741/api/hooks/uninstall
+```
+
+The installer reads your `svconfig.yml` port and writes it into the plugin config automatically. If your app runs on a custom port (e.g. `8800`), the plugin connects to the right address without manual configuration.
 
 <br>
 
@@ -409,7 +429,9 @@ tools:
   enforcement: true           # default: true
 
 proxy:
-  # Proxy auto-starts with securevector-app --web when mode is set below.
+  # OpenClaw/ClawdBot: proxy only starts when block_mode is enabled (above).
+  #   Plugin-only mode handles monitoring with zero latency — no proxy needed.
+  # LangChain/CrewAI/Ollama/other: proxy auto-starts as the only integration path.
   integration: openclaw       # or: langchain, langgraph, crewai, ollama
   mode: multi-provider        # or: single (add provider: below)
   provider: null              # required only when mode is "single"
@@ -421,7 +443,7 @@ The UI keeps this file in sync — changes in the dashboard are written back to 
 
 ### Pointing Your Agent at the Proxy
 
-Point any application to SecureVector's proxy instead of the provider's API.
+For **LangChain, CrewAI, Ollama**, and other non-OpenClaw frameworks, point your application to SecureVector's proxy instead of the provider's API. OpenClaw/ClawdBot users only need this when block mode is enabled.
 
 <table>
 <tr>
@@ -462,7 +484,7 @@ source ~/.bashrc</pre>
 </tr>
 </table>
 
-Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked.
+Every request is scanned for prompt injection. Every response is scanned for data leaks. Every dollar is tracked — whether via native plugin (OpenClaw) or proxy (all other frameworks).
 
 **Supported providers (13):** `openai` `anthropic` `gemini` `ollama` `groq` `deepseek` `mistral` `xai` `together` `cohere` `cerebras` `moonshot` `minimax`
 

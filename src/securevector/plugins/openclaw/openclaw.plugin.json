@@ -1,0 +1,40 @@
+{
+  "id": "securevector-guard",
+  "name": "SecureVector Guard",
+  "version": "1.0.0",
+  "description": "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents",
+  "entry": "index.ts",
+  "kind": "security",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "SecureVector API base URL (auto-detected from svconfig.yml if not set)"
+      },
+      "apiKey": {
+        "type": ["string", "object"],
+        "description": "API key for SecureVector (supports secret references)"
+      },
+      "threshold": {
+        "type": "number",
+        "default": 50,
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Minimum risk score to surface threat alerts"
+      }
+    }
+  },
+  "uiHints": {
+    "url": {
+      "label": "SecureVector URL",
+      "help": "Base URL of the SecureVector instance (fallback: SECUREVECTOR_URL env var)."
+    },
+    "apiKey": {
+      "label": "API Key",
+      "help": "Optional API key for remote SecureVector instances (fallback: SECUREVECTOR_API_KEY env var).",
+      "sensitive": true
+    }
+  }
+}

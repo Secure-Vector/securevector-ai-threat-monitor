@@ -1592,6 +1592,10 @@ class LLMProxy:
                     return {}
 
             if found_tool_calls:
+                print(f"[llm-proxy] 🔧 Tool permission check: {len(found_tool_calls)} tool call(s)")
+            if found_tool_calls:
+                for tc in found_tool_calls:
+                    print(f"[llm-proxy]   → {tc.function_name} ({tc.provider_format})")
                 # Build a synthetic complete-format response so _evaluate_tool_permissions
                 # can apply its full logic (rate limiting, logging, denial construction).
                 is_anthropic = any(tc.provider_format == "anthropic" for tc in found_tool_calls)
