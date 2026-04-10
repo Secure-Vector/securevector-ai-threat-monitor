@@ -62,10 +62,14 @@ const IntegrationPage = {
             if (stopBtn1) { stopBtn1.style.display = 'inline-block'; }
             if (stopBtn2) { stopBtn2.style.display = 'inline-block'; }
             if (status1) {
-                status1.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status1.textContent = '';
+                const s1 = document.createElement('strong'); s1.style.color = 'var(--success)'; s1.textContent = 'ACTIVE: ';
+                status1.appendChild(s1); status1.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
             if (status2) {
-                status2.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status2.textContent = '';
+                const s2 = document.createElement('strong'); s2.style.color = 'var(--success)'; s2.textContent = 'ACTIVE: ';
+                status2.appendChild(s2); status2.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
         } else {
             if (btn1) { btn1.disabled = false; btn1.textContent = 'Start Proxy'; btn1.style.background = 'var(--accent-primary)'; }
@@ -89,7 +93,9 @@ const IntegrationPage = {
             if (btn) { btn.disabled = true; btn.textContent = 'Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
             if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; stopBtn.textContent = 'Stop Proxy'; }
             if (status) {
-                status.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status.textContent = '';
+                const s3 = document.createElement('strong'); s3.style.color = 'var(--success)'; s3.textContent = 'ACTIVE: ';
+                status.appendChild(s3); status.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
         } else {
             if (btn) { btn.disabled = false; btn.textContent = 'Start Multi-Provider Proxy'; btn.style.background = 'var(--accent-primary)'; }

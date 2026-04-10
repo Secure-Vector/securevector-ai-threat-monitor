@@ -166,6 +166,13 @@ class SVClient {
 
   /** Fire-and-forget: record a tool call decision for audit trail. */
   recordToolAudit(toolName: string, verdict: ToolVerdict, sessionKey: string, argsPreview: string): void {
+    // Redact common secret patterns before persisting to audit log
+    const redacted = argsPreview.slice(0, 200)
+      .replace(/sk-[a-zA-Z0-9]{20,}/g, "sk-[REDACTED]")
+      .replace(/Bearer\s+[a-zA-Z0-9._\-]+/gi, "Bearer [REDACTED]")
+      .replace(/AKIA[A-Z0-9]{16}/g, "AKIA[REDACTED]")
+      .replace(/ghp_[a-zA-Z0-9]{36}/g, "ghp_[REDACTED]")
+      .replace(/password["']?\s*[:=]\s*["'][^"']+["']/gi, 'password: "[REDACTED]"');
     this.post("/api/tool-permissions/call-audit", {
       tool_id: toolName,
       function_name: sessionKey,
@@ -173,7 +180,7 @@ class SVClient {
       risk: verdict.risk,
       reason: verdict.reason,
       is_essential: verdict.is_essential,
-      args_preview: argsPreview.slice(0, 200),
+      args_preview: redacted,
     }, 3_000).catch(() => {});
   }
 

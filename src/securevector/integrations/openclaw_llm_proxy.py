@@ -67,14 +67,12 @@ ALLOWED_TARGET_HOSTS = {
     # Local development
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
 }
 
 # Security: Allowed hosts for SecureVector URL
 ALLOWED_SECUREVECTOR_HOSTS = {
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
     "scan.securevector.io",  # Cloud API
 }
 
@@ -972,7 +970,7 @@ class LLMProxy:
                 elif tc.provider_format == "anthropic":
                     blocked_indices_anthropic.add(tc.index)
 
-                args_preview = (tc.arguments or "")[:200]
+                args_preview = self._SENSITIVE_TOKEN_PATTERNS.sub("[REDACTED]", (tc.arguments or "")[:200])
                 print(f"[llm-proxy] ┌─ 🔒 BLOCKED ──────────────────────────────────────")
                 print(f"[llm-proxy] │  tool   : {tc.function_name}")
                 print(f"[llm-proxy] │  reason : {decision.reason}")
@@ -997,7 +995,7 @@ class LLMProxy:
 
                 action_label = "allowed" if decision.action == "allow" else "logged"
                 if decision.is_essential or (decision.tool_name and decision.action == "allow"):
-                    args_preview = (tc.arguments or "")[:200]
+                    args_preview = self._SENSITIVE_TOKEN_PATTERNS.sub("[REDACTED]", (tc.arguments or "")[:200])
                     print(f"[llm-proxy] ┌─ ✓ {action_label.upper()} ──────────────────────────────────────")
                     print(f"[llm-proxy] │  tool   : {tc.function_name}")
                     print(f"[llm-proxy] │  args   : {args_preview}")

@@ -200,8 +200,9 @@ def _run_openclaw_cmd(args: list[str]) -> tuple[int, str, str]:
     binary = _find_openclaw_binary()
     cmd = [binary] + args
 
-    # Windows .cmd/.ps1 wrappers require shell=True
-    use_shell = os.name == "nt" and any(binary.endswith(ext) for ext in (".cmd", ".ps1"))
+    # Windows .cmd wrappers need cmd.exe /c prefix instead of shell=True
+    if os.name == "nt" and binary.endswith(".cmd"):
+        cmd = ["cmd.exe", "/c", binary] + args
 
     try:
         result = subprocess.run(
@@ -210,7 +211,7 @@ def _run_openclaw_cmd(args: list[str]) -> tuple[int, str, str]:
             timeout=30,
             encoding="utf-8",
             errors="replace",
-            shell=use_shell,
+            shell=False,
         )
         return result.returncode, result.stdout, result.stderr
     except FileNotFoundError:
@@ -693,6 +694,12 @@ class SVClient {
 
   /** Fire-and-forget: record a tool call decision for audit trail. */
   recordToolAudit(toolName: string, verdict: ToolVerdict, sessionKey: string, argsPreview: string): void {
+    const redacted = argsPreview.slice(0, 200)
+      .replace(/sk-[a-zA-Z0-9]{20,}/g, "sk-[REDACTED]")
+      .replace(/Bearer\\s+[a-zA-Z0-9._\\-]+/gi, "Bearer [REDACTED]")
+      .replace(/AKIA[A-Z0-9]{16}/g, "AKIA[REDACTED]")
+      .replace(/ghp_[a-zA-Z0-9]{36}/g, "ghp_[REDACTED]")
+      .replace(/password["']?\\s*[:=]\\s*["'][^"']+["']/gi, 'password: "[REDACTED]"');
     this.post("/api/tool-permissions/call-audit", {
       tool_id: toolName,
       function_name: sessionKey,
@@ -700,7 +707,7 @@ class SVClient {
       risk: verdict.risk,
       reason: verdict.reason,
       is_essential: verdict.is_essential,
-      args_preview: argsPreview.slice(0, 200),
+      args_preview: redacted,
     }, 3_000).catch(() => {});
   }
 
