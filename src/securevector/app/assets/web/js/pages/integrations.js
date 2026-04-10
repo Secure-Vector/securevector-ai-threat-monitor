@@ -1041,47 +1041,38 @@ def chat_with_protection(user_input):
         };
         pluginContent.appendChild(manualToggle);
 
-        const manualSteps = document.createElement('div');
-        manualSteps.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
-        manualSteps.textContent = 'Create the plugin directory and copy the files:';
-        manualDiv.appendChild(manualSteps);
+        const manualDesc = document.createElement('div');
+        manualDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
+        manualDesc.textContent = 'If the Install button doesn\'t work, copy the plugin files manually:';
+        manualDiv.appendChild(manualDesc);
+
+        const filesNote = document.createElement('div');
+        filesNote.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.5;';
+        filesNote.textContent = 'The plugin files are bundled with SecureVector at: <site-packages>/securevector/plugins/openclaw/. Copy openclaw.plugin.json and index.ts to the OpenClaw plugins directory:';
+        manualDiv.appendChild(filesNote);
+
         manualDiv.appendChild(this.createCodeBlock(
             '# Linux / macOS\n' +
-            'mkdir -p ~/.openclaw/plugins/securevector-guard\n\n' +
-            '# Windows (PowerShell)\n' +
-            'New-Item -ItemType Directory -Force -Path "$env:APPDATA\\openclaw\\plugins\\securevector-guard"'
+            'mkdir -p ~/.openclaw/plugins/securevector-guard\n' +
+            'cp <path-to-securevector>/plugins/openclaw/openclaw.plugin.json \\\n' +
+            '   <path-to-securevector>/plugins/openclaw/index.ts \\\n' +
+            '   ~/.openclaw/plugins/securevector-guard/\n' +
+            'openclaw plugins install --link ~/.openclaw/plugins/securevector-guard'
         ));
 
-        const manifestLabel = document.createElement('div');
-        manifestLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
-        manifestLabel.textContent = 'openclaw.plugin.json:';
-        manualDiv.appendChild(manifestLabel);
-        manualDiv.appendChild(this.createCodeBlock(JSON.stringify({
-            id: "securevector-guard",
-            name: "SecureVector Guard",
-            version: "1.0.0",
-            description: "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents",
-            entry: "index.ts",
-            kind: "security",
-            configSchema: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                    url: { type: "string", description: "SecureVector API base URL (auto-detected from svconfig.yml if not set)" },
-                    threshold: { type: "number", default: 50, minimum: 0, maximum: 100, description: "Minimum risk score to surface threat alerts" }
-                }
-            }
-        }, null, 2)));
+        manualDiv.appendChild(this.createCodeBlock(
+            '# Windows (PowerShell)\n' +
+            'mkdir -Force "$HOME\\.openclaw\\plugins\\securevector-guard"\n' +
+            'copy <path-to-securevector>\\plugins\\openclaw\\openclaw.plugin.json,\n' +
+            '     <path-to-securevector>\\plugins\\openclaw\\index.ts `\n' +
+            '     "$HOME\\.openclaw\\plugins\\securevector-guard\\"\n' +
+            'openclaw plugins install --link "$HOME\\.openclaw\\plugins\\securevector-guard"'
+        ));
 
-        const indexLabel = document.createElement('div');
-        indexLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
-        indexLabel.textContent = 'index.ts \u2014 full source on GitHub or use the Install button above.';
-        manualDiv.appendChild(indexLabel);
-
-        const verifyLabel = document.createElement('div');
-        verifyLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
-        verifyLabel.textContent = 'Verify:';
-        manualDiv.appendChild(verifyLabel);
+        const verifyDesc = document.createElement('div');
+        verifyDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
+        verifyDesc.textContent = 'Verify:';
+        manualDiv.appendChild(verifyDesc);
         manualDiv.appendChild(this.createCodeBlock('openclaw plugins list'));
 
         pluginContent.appendChild(manualDiv);
