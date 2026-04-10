@@ -67,14 +67,12 @@ ALLOWED_TARGET_HOSTS = {
     # Local development
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
 }
 
 # Security: Allowed hosts for SecureVector URL
 ALLOWED_SECUREVECTOR_HOSTS = {
     "localhost",
     "127.0.0.1",
-    "0.0.0.0",
     "scan.securevector.io",  # Cloud API
 }
 
@@ -154,6 +152,23 @@ class LLMProxy:
         "together": "https://api.together.xyz",
         "cohere": "https://api.cohere.ai",
     }
+
+    # Pre-compiled regexes for context/prompt separation (hot path)
+    _META_PREFIX_RE = re.compile(
+        r'^\[(?:Telegram|Discord|Slack|WhatsApp|Web)\s+.*?\]\s*'
+    )
+    _GUARD_BLOCK_RE = re.compile(
+        r'This session is monitored by SecureVector AI Threat Monitor\.'
+        r'.*?SecureVector is actively scanning all messages for threats\.',
+        re.DOTALL,
+    )
+    _SENDER_BLOCK_RE = re.compile(
+        r'Sender\s+\(untrusted metadata\):\s*```json\s*\{.*?\}\s*```',
+        re.DOTALL,
+    )
+    _TS_PREFIX_RE = re.compile(
+        r'^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*'
+    )
 
     # API version prefix each provider expects (auto-prepended if missing from request)
     API_PREFIXES = {
@@ -524,8 +539,8 @@ class LLMProxy:
         if not text:
             return {"is_threat": False}
 
-        # Strip metadata prefix to avoid false positives (user IDs trigger PII detection)
-        scan_text = self._strip_metadata_prefix(text)
+        # Separate injected context from actual prompt to avoid false positives
+        scan_text, context_text = self._separate_context_and_prompt(text)
 
         # Truncate if text exceeds analyzer's limit (102,400 chars)
         MAX_SCAN_LENGTH = 102400
@@ -546,16 +561,20 @@ class LLMProxy:
             logger.info("[llm-proxy] Cloud direct scan failed, falling back to local /analyze")
             skip_cloud = True
 
+        scan_metadata = {
+            "source": "llm-proxy",
+            "target": self.target_url,
+            "scan_type": "output" if is_llm_response else "input",
+            "action_taken": action_taken,
+            "skip_cloud": skip_cloud,
+        }
+        if context_text:
+            scan_metadata["context_text"] = context_text
+
         scan_payload = {
             "text": scan_text,
             "llm_response": is_llm_response,
-            "metadata": {
-                "source": "llm-proxy",
-                "target": self.target_url,
-                "scan_type": "output" if is_llm_response else "input",
-                "action_taken": action_taken,
-                "skip_cloud": skip_cloud,
-            }
+            "metadata": scan_metadata,
         }
 
         # Try scan with one retry on failure
@@ -599,18 +618,43 @@ class LLMProxy:
         # Fail-open when block mode is OFF: log only, allow through
         return {"is_threat": False}
 
-    @staticmethod
-    def _strip_metadata_prefix(text: str) -> str:
-        """Strip OpenClaw metadata prefix from message text.
+    @classmethod
+    def _separate_context_and_prompt(cls, text: str) -> tuple[str, str]:
+        """Separate injected context from the actual user prompt.
 
-        OpenClaw wraps messages like: [Telegram Username id:123456 +2m 2026-02-09 16:05 CST] actual message
-        The metadata (user IDs, timestamps) can trigger false positive PII detection.
-        Returns the actual message content without the prefix.
+        Extracts OpenClaw platform prefixes, SecureVector Context Guard
+        directives, sender metadata, and timestamp prefixes — all of which
+        can trigger false-positive threat detection.
+
+        Returns (prompt, context) — the clean prompt for scanning and the
+        extracted context for metadata storage.
         """
-        import re
-        # Match [Platform Username id:NNNNN ...] prefix
-        stripped = re.sub(r'^\[(?:Telegram|Discord|Slack|WhatsApp|Web)\s+.*?\]\s*', '', text, count=1)
-        return stripped if stripped else text
+        context_parts = []
+        remaining = text
+
+        meta_match = cls._META_PREFIX_RE.match(remaining)
+        if meta_match:
+            context_parts.append(meta_match.group(0).strip())
+            remaining = remaining[meta_match.end():]
+
+        guard_match = cls._GUARD_BLOCK_RE.search(remaining)
+        if guard_match:
+            context_parts.append(guard_match.group(0).strip())
+            remaining = remaining[:guard_match.start()] + remaining[guard_match.end():]
+
+        sender_match = cls._SENDER_BLOCK_RE.search(remaining)
+        if sender_match:
+            context_parts.append(sender_match.group(0).strip())
+            remaining = remaining[:sender_match.start()] + remaining[sender_match.end():]
+
+        ts_match = cls._TS_PREFIX_RE.match(remaining)
+        if ts_match:
+            context_parts.append(ts_match.group(0).strip())
+            remaining = remaining[ts_match.end():]
+
+        prompt = remaining.strip()
+        context = '\n'.join(context_parts) if context_parts else ''
+        return (prompt if prompt else text, context)
 
     def _extract_content_parts(self, content) -> list:
         """Extract text from content that can be a string or structured list."""
@@ -926,7 +970,7 @@ class LLMProxy:
                 elif tc.provider_format == "anthropic":
                     blocked_indices_anthropic.add(tc.index)
 
-                args_preview = (tc.arguments or "")[:200]
+                args_preview = self._SENSITIVE_TOKEN_PATTERNS.sub("[REDACTED]", (tc.arguments or "")[:200])
                 print(f"[llm-proxy] ┌─ 🔒 BLOCKED ──────────────────────────────────────")
                 print(f"[llm-proxy] │  tool   : {tc.function_name}")
                 print(f"[llm-proxy] │  reason : {decision.reason}")
@@ -951,7 +995,7 @@ class LLMProxy:
 
                 action_label = "allowed" if decision.action == "allow" else "logged"
                 if decision.is_essential or (decision.tool_name and decision.action == "allow"):
-                    args_preview = (tc.arguments or "")[:200]
+                    args_preview = self._SENSITIVE_TOKEN_PATTERNS.sub("[REDACTED]", (tc.arguments or "")[:200])
                     print(f"[llm-proxy] ┌─ ✓ {action_label.upper()} ──────────────────────────────────────")
                     print(f"[llm-proxy] │  tool   : {tc.function_name}")
                     print(f"[llm-proxy] │  args   : {args_preview}")

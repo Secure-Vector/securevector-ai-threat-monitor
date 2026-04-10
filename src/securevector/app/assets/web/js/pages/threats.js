@@ -773,15 +773,36 @@ const ThreatsPage = {
             content.appendChild(llmSection);
         }
 
-        // Content preview
+        // Content preview — show Context and Prompt separately when available
         const textContent = threat.text_content || threat.text_preview || threat.indicator || threat.name || '';
+        const contextText = threat.metadata && threat.metadata.context_text;
+
+        if (contextText) {
+            // Show Context section (injected by plugins / platform metadata)
+            const ctxSection = document.createElement('div');
+            ctxSection.className = 'threat-detail-section';
+
+            const ctxLabel = document.createElement('div');
+            ctxLabel.className = 'detail-section-label';
+            ctxLabel.textContent = 'Context (injected by plugin)';
+            ctxSection.appendChild(ctxLabel);
+
+            const ctxBox = document.createElement('div');
+            ctxBox.className = 'threat-detail-text';
+            ctxBox.style.cssText = 'opacity: 0.7; font-size: 12px;';
+            ctxBox.textContent = contextText;
+            ctxSection.appendChild(ctxBox);
+
+            content.appendChild(ctxSection);
+        }
+
         if (textContent) {
             const textSection = document.createElement('div');
             textSection.className = 'threat-detail-section';
 
             const textLabel = document.createElement('div');
             textLabel.className = 'detail-section-label';
-            textLabel.textContent = 'Analyzed Content';
+            textLabel.textContent = contextText ? 'Prompt (scanned)' : 'Analyzed Content';
             textSection.appendChild(textLabel);
 
             const textBox = document.createElement('div');

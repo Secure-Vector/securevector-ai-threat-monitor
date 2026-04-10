@@ -62,10 +62,14 @@ const IntegrationPage = {
             if (stopBtn1) { stopBtn1.style.display = 'inline-block'; }
             if (stopBtn2) { stopBtn2.style.display = 'inline-block'; }
             if (status1) {
-                status1.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status1.textContent = '';
+                const s1 = document.createElement('strong'); s1.style.color = 'var(--success)'; s1.textContent = 'ACTIVE: ';
+                status1.appendChild(s1); status1.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
             if (status2) {
-                status2.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status2.textContent = '';
+                const s2 = document.createElement('strong'); s2.style.color = 'var(--success)'; s2.textContent = 'ACTIVE: ';
+                status2.appendChild(s2); status2.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
         } else {
             if (btn1) { btn1.disabled = false; btn1.textContent = 'Start Proxy'; btn1.style.background = 'var(--accent-primary)'; }
@@ -89,7 +93,9 @@ const IntegrationPage = {
             if (btn) { btn.disabled = true; btn.textContent = 'Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
             if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; stopBtn.textContent = 'Stop Proxy'; }
             if (status) {
-                status.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status.textContent = '';
+                const s3 = document.createElement('strong'); s3.style.color = 'var(--success)'; s3.textContent = 'ACTIVE: ';
+                status.appendChild(s3); status.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
             }
         } else {
             if (btn) { btn.disabled = false; btn.textContent = 'Start Multi-Provider Proxy'; btn.style.background = 'var(--accent-primary)'; }
@@ -770,6 +776,9 @@ def chat_with_protection(user_input):
         installBtn.id = 'install-plugin-btn';
         installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
         installBtn.textContent = 'Install Plugin';
+        installBtn.disabled = true;
+        installBtn.style.opacity = '0.6';
+        installBtn.style.cursor = 'not-allowed';
 
         const uninstallBtn = document.createElement('button');
         uninstallBtn.id = 'uninstall-plugin-btn';
@@ -976,6 +985,9 @@ def chat_with_protection(user_input):
             } catch {
                 statusText.textContent = 'Status unknown';
             }
+            installBtn.disabled = false;
+            installBtn.style.opacity = '1';
+            installBtn.style.cursor = 'pointer';
         }, 0);
 
         // --- Restart note ---
@@ -1002,13 +1014,33 @@ def chat_with_protection(user_input):
         manualSteps.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
         manualSteps.textContent = 'Create the plugin directory and copy the files:';
         manualDiv.appendChild(manualSteps);
-        manualDiv.appendChild(this.createCodeBlock('mkdir -p ~/.openclaw/plugins/securevector-guard'));
+        manualDiv.appendChild(this.createCodeBlock(
+            '# Linux / macOS\n' +
+            'mkdir -p ~/.openclaw/plugins/securevector-guard\n\n' +
+            '# Windows (PowerShell)\n' +
+            'New-Item -ItemType Directory -Force -Path "$env:APPDATA\\openclaw\\plugins\\securevector-guard"'
+        ));
 
         const manifestLabel = document.createElement('div');
         manifestLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
         manifestLabel.textContent = 'openclaw.plugin.json:';
         manualDiv.appendChild(manifestLabel);
-        manualDiv.appendChild(this.createCodeBlock('{\n  "id": "securevector-guard",\n  "name": "SecureVector Guard",\n  "version": "1.0.0",\n  "description": "AI security monitoring, cost tracking, and tool permissions",\n  "entry": "index.ts"\n}'));
+        manualDiv.appendChild(this.createCodeBlock(JSON.stringify({
+            id: "securevector-guard",
+            name: "SecureVector Guard",
+            version: "1.0.0",
+            description: "Real-time AI threat monitoring and tool permission enforcement for OpenClaw agents",
+            entry: "index.ts",
+            kind: "security",
+            configSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    url: { type: "string", description: "SecureVector API base URL (auto-detected from svconfig.yml if not set)" },
+                    threshold: { type: "number", default: 50, minimum: 0, maximum: 100, description: "Minimum risk score to surface threat alerts" }
+                }
+            }
+        }, null, 2)));
 
         const indexLabel = document.createElement('div');
         indexLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
@@ -1219,16 +1251,12 @@ def chat_with_protection(user_input):
         toggleInput.onchange = async () => {
             const enable = toggleInput.checked;
             toggleInput.disabled = true;
+            updateToggleVisual(enable);
+            blockingStatus.style.color = 'var(--text-secondary)';
+            blockingStatus.textContent = enable ? 'Enabling...' : 'Disabling...';
 
             try {
-                // Update block_threats setting
-                await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ block_threats: enable })
-                });
-
-                updateToggleVisual(enable);
+                await API.updateSettings({ block_threats: enable });
 
                 if (enable) {
                     content.style.display = 'block';
@@ -1269,11 +1297,33 @@ def chat_with_protection(user_input):
                         ]
                     });
                 } else {
-                    // Stop proxy when block mode is disabled
+                    // Stop proxy and show unset instructions
                     try {
                         await fetch('/api/proxy/stop', { method: 'POST' });
-                    } catch { /* proxy may not be running */ }
+                    } catch { /* proxy may not be running or in-process */ }
                     content.style.display = 'none';
+
+                    const vars = ['OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', 'GEMINI_BASE_URL', 'GROQ_BASE_URL', 'MISTRAL_BASE_URL', 'XAI_BASE_URL'];
+                    const modalContent = document.createElement('div');
+                    modalContent.innerHTML = `
+                        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                            <strong style="color: #92400e;">Important:</strong>
+                            <span style="color: #92400e; font-size: 13px;">Restart OpenClaw after unsetting these variables. The SecureVector plugin will continue monitoring without the proxy.</span>
+                        </div>
+                        <p style="margin-bottom: 12px;">To avoid connection errors, unset the proxy environment variables:</p>
+                        <div style="background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; margin-bottom: 12px; line-height: 1.8;">
+                            <div style="color: var(--text-secondary); margin-bottom: 8px;"># Linux / macOS</div>
+                            ${vars.map(v => `<div>unset ${v}</div>`).join('')}
+                            <div style="color: var(--text-secondary); margin-top: 12px; margin-bottom: 8px;"># Windows (PowerShell)</div>
+                            ${vars.map(v => `<div>Remove-Item Env:\\${v} -ErrorAction SilentlyContinue</div>`).join('')}
+                        </div>
+                    `;
+                    Modal.show({
+                        title: 'Block Mode Disabled \u2014 Restart OpenClaw',
+                        content: modalContent,
+                        size: 'medium',
+                        actions: [{ label: 'Got it', primary: true }]
+                    });
                 }
             } catch {
                 blockingStatus.style.color = 'var(--error)';
@@ -1302,10 +1352,12 @@ def chat_with_protection(user_input):
         };
 
         // --- Check initial state ---
-        setTimeout(async () => {
+        toggleInput.disabled = true;
+        blockingStatus.textContent = 'Loading...';
+        blockingStatus.style.color = 'var(--text-secondary)';
+        (async () => {
             try {
-                const res = await fetch('/api/settings');
-                const settings = await res.json();
+                const settings = await API.getSettings();
                 const blockEnabled = !!settings.block_threats;
                 toggleInput.checked = blockEnabled;
                 updateToggleVisual(blockEnabled);
@@ -1314,11 +1366,15 @@ def chat_with_protection(user_input):
                     blockingStatus.style.color = 'var(--success)';
                     blockingStatus.textContent = 'Block mode active \u2014 multi-provider proxy is intercepting and scanning all LLM traffic.';
                     await refreshProxyStatus();
+                } else {
+                    blockingStatus.textContent = '';
                 }
             } catch {
                 updateToggleVisual(false);
+                blockingStatus.textContent = '';
             }
-        }, 0);
+            toggleInput.disabled = false;
+        })();
 
         return card;
     },
