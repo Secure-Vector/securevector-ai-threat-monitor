@@ -295,7 +295,38 @@ def chat_with_protection(user_input):
             // OpenClaw: Plugin card + separate block mode card
             container.appendChild(this.createOpenClawPluginCard());
             container.appendChild(this.createOpenClawBlockModeCard());
-            container.appendChild(this.createRevertCard());
+            // Revert card: only show when block mode is on and proxy is running
+            const revertCard = this.createRevertCard();
+            revertCard.style.display = 'none';
+            container.appendChild(revertCard);
+            // Proxy status indicator (bottom of page)
+            const statusBar = document.createElement('div');
+            statusBar.style.cssText = 'position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 16px; font-size: 12px; font-weight: 600; text-align: center; z-index: 100; display: none;';
+            container.appendChild(statusBar);
+
+            (async () => {
+                try {
+                    const [settings, proxyStatus] = await Promise.all([
+                        API.getSettings(),
+                        fetch('/api/proxy/status').then(r => r.json()),
+                    ]);
+                    if (settings.block_threats && proxyStatus.running) {
+                        revertCard.style.display = '';
+                    }
+                    // Show proxy status bar
+                    statusBar.style.display = '';
+                    if (proxyStatus.running) {
+                        statusBar.style.background = 'var(--success)';
+                        statusBar.style.color = '#fff';
+                        const port = proxyStatus.port || 8742;
+                        statusBar.textContent = `Proxy running on port ${port}`;
+                    } else {
+                        statusBar.style.background = 'var(--bg-tertiary)';
+                        statusBar.style.color = 'var(--text-secondary)';
+                        statusBar.textContent = 'Proxy not running — monitoring via plugin only';
+                    }
+                } catch {}
+            })();
         } else if (integration.proxyOnly) {
             // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
             container.appendChild(this.createMultiProviderCard());
