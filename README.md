@@ -88,7 +88,26 @@ Open [http://localhost:8741](http://localhost:8741) in your browser, or double-c
 
 **Step 3 — Connect your agent**
 
-**Go to the Integrations tab for step-by-step setup guides** — OpenClaw, LangChain, CrewAI, LangGraph, n8n, Ollama, OpenAI, Anthropic, and more.
+<table>
+<tr>
+<th align="left" width="50%">OpenClaw / ClawdBot (plugin, zero latency)</th>
+<th align="left" width="50%">LangChain, CrewAI, Ollama, n8n (proxy)</th>
+</tr>
+<tr>
+<td valign="top">
+
+**Observability & Monitoring** — Go to **Integrations → OpenClaw**, click **Install Plugin**, restart OpenClaw. Done. No proxy, no env vars.
+
+</td>
+<td valign="top">
+
+**Observability & Monitoring** — Go to **Integrations**, pick your framework, click **Start Proxy**, and set the env var shown on the page.
+
+</td>
+</tr>
+</table>
+
+> **Block Mode (only if you want to enforce blocking)** — Toggle **Block Mode** on the dashboard. The proxy starts automatically and blocks threats before they reach the LLM. Adds ~10–50ms latency per request. Applies to both plugin and proxy integrations.
 
 If the app fails to launch because ports 8741/8742 are already in use, use `--port <port>` of your choice — the proxy starts automatically on port+1.
 See [Configuration](#configuration) for proxy or web/api port settings.
