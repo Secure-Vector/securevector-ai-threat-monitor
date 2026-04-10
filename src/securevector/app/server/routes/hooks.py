@@ -237,6 +237,7 @@ def _cleanup_stale_config_entry():
     import json
     config_path = OPENCLAW_DIR / "openclaw.json"
     if not config_path.is_file():
+        logger.debug(f"openclaw.json not found at {config_path}")
         return
     try:
         raw = config_path.read_text(encoding="utf-8")
@@ -425,35 +426,44 @@ async def install_plugin(request: Optional[InstallRequest] = None):
 
 @router.post("/uninstall")
 async def uninstall_plugin():
-    """Remove the SecureVector plugin via `openclaw plugins uninstall`."""
-    # Uninstall via OpenClaw CLI
-    code, stdout, stderr = _run_openclaw_cmd(["plugins", "uninstall", PLUGIN_NAME])
-    cli_result = (stdout or stderr).strip()
+    """Remove the SecureVector plugin — files + config entries."""
+    import asyncio
 
-    # Also remove staged files
-    if STAGING_DIR.exists():
+    def _do_uninstall():
+        removed_files = False
+        removed_config = False
+
+        # 1. Remove plugin files
+        if STAGING_DIR.exists():
+            try:
+                shutil.rmtree(STAGING_DIR)
+                logger.info(f"Removed plugin dir: {STAGING_DIR}")
+                removed_files = True
+            except Exception as e:
+                logger.warning(f"Could not remove plugin dir: {e}")
+
+        # 2. Clean stale entries from openclaw.json
         try:
-            shutil.rmtree(STAGING_DIR)
+            _cleanup_stale_config_entry()
+            removed_config = True
         except Exception as e:
-            logger.warning(f"Could not remove staging dir: {e}")
+            logger.warning(f"Config cleanup failed: {e}")
 
-    # Clean up any stale manual config entries
-    _cleanup_stale_config_entry()
+        return removed_files, removed_config
 
-    if code == 0:
-        logger.info("Plugin uninstalled via OpenClaw CLI: %s", cli_result)
+    # Run in executor to avoid blocking the event loop
+    loop = asyncio.get_event_loop()
+    removed_files, removed_config = await loop.run_in_executor(None, _do_uninstall)
+
+    if removed_files or removed_config:
         return {
             "status": "removed",
             "message": "SecureVector plugin uninstalled successfully.",
         }
     else:
-        logger.warning("OpenClaw CLI uninstall returned code %d: %s", code, cli_result)
         return {
             "status": "removed",
-            "message": (
-                "Staged files removed. The plugin may have already been unregistered. "
-                "Check server logs for details."
-            ),
+            "message": "Plugin files not found. It may have already been uninstalled.",
         }
 
 
@@ -476,10 +486,6 @@ _PLUGIN_JSON = """{
         "type": "string",
         "description": "SecureVector API base URL (auto-detected from svconfig.yml if not set)"
       },
-      "apiKey": {
-        "type": ["string", "object"],
-        "description": "API key for SecureVector (supports secret references)"
-      },
       "threshold": {
         "type": "number",
         "default": 50,
@@ -494,11 +500,6 @@ _PLUGIN_JSON = """{
       "label": "SecureVector URL",
       "help": "Base URL of the SecureVector instance (fallback: SECUREVECTOR_URL env var)."
     },
-    "apiKey": {
-      "label": "API Key",
-      "help": "Optional API key for remote SecureVector instances (fallback: SECUREVECTOR_API_KEY env var).",
-      "sensitive": true
-    }
   }
 }
 """

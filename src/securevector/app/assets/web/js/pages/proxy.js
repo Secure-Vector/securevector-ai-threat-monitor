@@ -25,9 +25,21 @@ async function showOpenClawProxyModal() {
 
     const modalContent = document.createElement('div');
 
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background: color-mix(in srgb, #f59e0b 15%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border-default)); border-radius: 8px; padding: 12px; margin-bottom: 12px;';
+    const bannerStrong = document.createElement('strong');
+    bannerStrong.style.color = '#d97706';
+    bannerStrong.textContent = 'Action required: ';
+    banner.appendChild(bannerStrong);
+    const bannerText = document.createElement('span');
+    bannerText.style.cssText = 'color: var(--text-primary); font-size: 13px;';
+    bannerText.textContent = 'Set the environment variables below, then restart OpenClaw for traffic to route through the proxy.';
+    banner.appendChild(bannerText);
+    modalContent.appendChild(banner);
+
     const intro = document.createElement('p');
     intro.style.marginBottom = '12px';
-    intro.textContent = 'The proxy is now running. To route LLM traffic through SecureVector for threat blocking, restart OpenClaw with these environment variables set:';
+    intro.textContent = 'Set these variables before starting OpenClaw:';
     modalContent.appendChild(intro);
 
     const codeBlock = document.createElement('div');
@@ -65,6 +77,59 @@ async function showOpenClawProxyModal() {
             },
             { label: 'Got it', primary: true }
         ]
+    });
+}
+
+/** Stop proxy and show instructions to unset env vars and restart OpenClaw. */
+async function showOpenClawProxyStopModal() {
+    try {
+        await fetch('/api/proxy/stop', { method: 'POST' });
+    } catch { /* proxy may not be running or in-process */ }
+
+    const modalContent = document.createElement('div');
+
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background: color-mix(in srgb, #f59e0b 15%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border-default)); border-radius: 8px; padding: 12px; margin-bottom: 12px;';
+    const bannerStrong = document.createElement('strong');
+    bannerStrong.style.color = '#d97706';
+    bannerStrong.textContent = 'Action required: ';
+    banner.appendChild(bannerStrong);
+    const bannerText = document.createElement('span');
+    bannerText.style.cssText = 'color: var(--text-primary); font-size: 13px;';
+    bannerText.textContent = 'Unset the proxy variables below, then restart OpenClaw. The plugin will continue monitoring without the proxy.';
+    banner.appendChild(bannerText);
+    modalContent.appendChild(banner);
+
+    const intro = document.createElement('p');
+    intro.style.marginBottom = '12px';
+    intro.textContent = 'Unset these variables to avoid connection errors:';
+    modalContent.appendChild(intro);
+
+    const codeBlock = document.createElement('div');
+    codeBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; margin-bottom: 12px; line-height: 1.8;';
+
+    const addLine = (text, color) => {
+        const div = document.createElement('div');
+        if (color) div.style.color = color;
+        div.textContent = text;
+        codeBlock.appendChild(div);
+    };
+
+    const vars = ['OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', 'GEMINI_BASE_URL', 'GROQ_BASE_URL', 'MISTRAL_BASE_URL', 'XAI_BASE_URL'];
+
+    addLine('# Linux / macOS', 'var(--text-secondary)');
+    vars.forEach(v => addLine(`unset ${v}`));
+    addLine('');
+    addLine('# Windows (PowerShell)', 'var(--text-secondary)');
+    vars.forEach(v => addLine(`Remove-Item Env:\\${v} -ErrorAction SilentlyContinue`));
+
+    modalContent.appendChild(codeBlock);
+
+    Modal.show({
+        title: 'Block Mode Disabled — Restart OpenClaw',
+        content: modalContent,
+        size: 'medium',
+        actions: [{ label: 'Got it', primary: true }]
     });
 }
 
@@ -879,24 +944,20 @@ const ProxyPage = {
                 return;
             }
 
-            try {
-                await API.updateSettings({ block_threats: newState });
-                Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
+            // Show modal immediately
+            if (newState) {
+                showOpenClawProxyModal();
+            } else {
+                showOpenClawProxyStopModal();
+            }
 
-                // If enabling and OpenClaw plugin is installed, auto-start proxy and show env vars modal
-                if (newState) {
-                    try {
-                        const hookRes = await fetch('/api/hooks/status');
-                        const hookStatus = await hookRes.json();
-                        if (hookStatus.installed) {
-                            await showOpenClawProxyModal();
-                        }
-                    } catch { /* hooks status unavailable */ }
-                }
-            } catch (err) {
+            // Save settings in background
+            API.updateSettings({ block_threats: newState }).then(() => {
+                Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
+            }).catch(() => {
                 Toast.error('Failed to update setting');
                 e.target.checked = !newState;
-            }
+            });
         });
         toggle.appendChild(checkbox);
 

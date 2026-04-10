@@ -30,18 +30,23 @@
 
 <br>
 
-> 🆕 **New in v3.2.0:**
+> **New in v3.4.0:**
+> - **OpenClaw Plugin (ZERO latency)** — native integration that runs inside the agent: input scanning, tool audit with arguments, output guard, cost tracking. No proxy needed for monitoring.
+> - **Block Mode for OpenClaw** — optional proxy that actively blocks attacks and stops unauthorized tool calls before they reach the LLM. Only needed when you want to enforce blocking, not just monitoring.
 > - **Skill Scanner** — static analysis for AI agent skills with optional AI-powered review
-> - **Skill Scan Policy Engine** — risk scoring, trusted publishers, and per-category allow/block rules
-> - **Tool Permissions** — allow/block agent tool calls
+> - **Tool Permissions** — allow/block agent tool calls with full audit trail
 > - **Cost Tracking & Budget Limits** — per-agent spend tracking and global daily budget
-> - **28 new threat detection rules**
 
 ## How It Works
 
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
-**SecureVector** monitors your AI agent traffic for security threats, controls tool permissions, and tracks spend in real time. For OpenClaw/ClawdBot, the native plugin runs inside the agent with zero latency — no proxy needed. For other frameworks, the LLM proxy intercepts traffic between your agent and the provider. Runs entirely on your machine — nothing leaves your infrastructure.
+**SecureVector** protects your AI agents at two layers:
+
+- **Runtime** — scans every prompt, response, and tool call for injection attacks, data leaks, and unauthorized access
+- **Pre-install** — the Skill Scanner analyzes agent skill packages for shell access, network calls, and hidden risks before you install them
+
+For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — nothing leaves your machine.
 
 <br>
 
@@ -75,7 +80,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-v3.2.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector_3.2.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector-3.2.0-1.x86_64.rpm)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-v3.4.0-Windows-Setup.exe) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-macOS.dmg) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector_3.4.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector-3.4.0-1.x86_64.rpm)
 
 **Step 2 — Open the app**
 
@@ -231,25 +236,11 @@ OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 | **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
 | **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
 
-### OpenClaw / ClawdBot Plugin
+### OpenClaw / ClawdBot
 
-The SecureVector Guard plugin runs natively inside OpenClaw with zero latency. Install from the UI (Integrations tab) or via the API:
+Native plugin with **ZERO latency** — runs inside the agent, no proxy needed. Install from the Integrations tab or `curl -X POST http://localhost:8741/api/hooks/install`. Enable block mode from the dashboard when you want to actively stop threats via proxy.
 
-```bash
-# Install plugin (copies files + registers in openclaw.json)
-curl -X POST http://localhost:8741/api/hooks/install
-
-# Check status
-curl http://localhost:8741/api/hooks/status
-
-# Reinstall / update
-curl -X POST http://localhost:8741/api/hooks/install -H "Content-Type: application/json" -d '{"force": true}'
-
-# Uninstall (removes files + unregisters from openclaw.json)
-curl -X POST http://localhost:8741/api/hooks/uninstall
-```
-
-The installer reads your `svconfig.yml` port and writes it into the plugin config automatically. If your app runs on a custom port (e.g. `8800`), the plugin connects to the right address without manual configuration.
+[Full setup guide](docs/OPENCLAW.md)
 
 <br>
 
@@ -336,21 +327,6 @@ SecureVector is fully open source. No cloud required. No accounts. No tracking. 
 
 **Built for** solo developers and small teams who ship AI agents without a security team or a FinOps budget. If you are building with LangChain, CrewAI, OpenClaw, or any agent framework — and you do not have someone watching your agent traffic and API spend — SecureVector is for you.
 
-## Open Source vs Cloud
-
-| Open Source (100% Free) | Cloud (Optional) |
-|-------------------------|------------------|
-| Apache 2.0 license | Expert-curated rule library |
-| Community detection rules | Multi-stage ML threat analysis |
-| Custom YAML rules | Real-time cloud dashboard |
-| 100% local by default, no data sharing | Team collaboration |
-| Desktop app + local API | Priority support |
-
-> **Cloud is optional.** SecureVector runs entirely locally by default. Connect to [app.securevector.io](https://app.securevector.io) only if you want enterprise-grade threat intelligence with specialized algorithms designed to minimize false positives.
-
-[**Try Free**](https://app.securevector.io)
-
-<br>
 
 ## Install
 
@@ -369,13 +345,13 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v3.2.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-v3.2.0-Windows-Setup.exe) |
-| macOS | [SecureVector-3.2.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-3.2.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SecureVector-3.2.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_3.2.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector_3.2.0_amd64.deb) |
-| Linux (RPM) | [securevector-3.2.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/securevector-3.2.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v3.4.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-v3.4.0-Windows-Setup.exe) |
+| macOS | [SecureVector-3.4.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-3.4.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_3.4.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector_3.4.0_amd64.deb) |
+| Linux (RPM) | [securevector-3.4.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector-3.4.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.2.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 

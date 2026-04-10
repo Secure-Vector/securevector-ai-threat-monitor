@@ -61,19 +61,41 @@ Your API key passes through — SecureVector never stores it. All LLM traffic is
 
 ### Examples
 
-**OpenClaw + Telegram**
+**OpenClaw / ClawdBot (Monitor Mode — no proxy needed)**
 
-You run OpenClaw as a Claude-powered gateway agent. Users chat with your bot on Telegram. SecureVector sits between OpenClaw and Claude, scanning every message for prompt injection before it reaches the LLM.
+The SecureVector Guard plugin runs inside OpenClaw natively. It scans prompts, audits tool calls, tracks costs, and logs everything to the dashboard — with zero latency and no proxy.
 
 ```bash
-# Terminal 1: Start SecureVector with OpenClaw
-securevector-app --proxy --provider anthropic --web --openclaw
+# Terminal 1: Start SecureVector
+securevector-app --web
 
-# Terminal 2: Start OpenClaw gateway
-ANTHROPIC_BASE_URL=http://localhost:8742/anthropic openclaw gateway
+# Install the plugin from the Integrations tab, or:
+curl -X POST http://localhost:8741/api/hooks/install
+
+# Terminal 2: Start OpenClaw — the plugin loads automatically
+openclaw gateway
 ```
 
-Flow: `Telegram → OpenClaw gateway → SecureVector (scans) → Claude`
+Flow: `Telegram → OpenClaw (SecureVector plugin scans inline) → LLM Provider`
+
+**OpenClaw (Block Mode — proxy intercepts threats)**
+
+Enable block mode from the dashboard to actively block threats before they reach the LLM. The proxy starts automatically.
+
+```bash
+# 1. Enable block mode from the dashboard toggle
+# 2. Restart OpenClaw with proxy env vars:
+
+# Linux / macOS
+OPENAI_BASE_URL=http://localhost:8742/openai/v1 openclaw gateway
+
+# Windows (PowerShell)
+$env:OPENAI_BASE_URL="http://localhost:8742/openai/v1"; openclaw gateway
+```
+
+Flow: `Telegram → OpenClaw (plugin monitors) → SecureVector proxy (blocks threats) → LLM Provider`
+
+> When you disable block mode, unset the env vars and restart OpenClaw. The plugin continues monitoring without the proxy.
 
 **Ollama + Open WebUI**
 
@@ -208,7 +230,7 @@ SecureVector has dedicated integration pages for popular AI agent frameworks. Go
 | **CrewAI** | Agent orchestration — proxy integration |
 | **n8n** | Workflow automation — published [n8n community node](https://www.npmjs.com/package/n8n-nodes-securevector) |
 | **Ollama** | Local LLMs — proxy with OpenAI-compatible API |
-| **OpenClaw** | AI gateway agent — proxy integration |
+| **OpenClaw** | AI gateway agent — native plugin (monitor mode) + optional proxy (block mode) |
 
 Each integration page shows how to set up the proxy and configure your app.
 
@@ -228,6 +250,7 @@ SecureVector exposes a full REST API with interactive documentation:
 
 ## Further Reading
 
+- [OpenClaw Setup](OPENCLAW.md) — Plugin install, monitor mode, block mode
 - [API Specification](API_SPECIFICATION.md) — Full REST API reference with schemas
 - [Use Cases & Examples](USECASES.md) — Real-world integration examples
 - [MCP Server Guide](MCP_GUIDE.md) — Claude Desktop and Cursor setup

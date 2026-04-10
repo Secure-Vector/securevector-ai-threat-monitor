@@ -13,10 +13,6 @@
         "type": "string",
         "description": "SecureVector API base URL (auto-detected from svconfig.yml if not set)"
       },
-      "apiKey": {
-        "type": ["string", "object"],
-        "description": "API key for SecureVector (supports secret references)"
-      },
       "threshold": {
         "type": "number",
         "default": 50,
@@ -30,11 +26,6 @@
     "url": {
       "label": "SecureVector URL",
       "help": "Base URL of the SecureVector instance (fallback: SECUREVECTOR_URL env var)."
-    },
-    "apiKey": {
-      "label": "API Key",
-      "help": "Optional API key for remote SecureVector instances (fallback: SECUREVECTOR_API_KEY env var).",
-      "sensitive": true
     }
   }
 }
