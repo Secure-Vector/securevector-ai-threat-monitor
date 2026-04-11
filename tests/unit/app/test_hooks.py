@@ -1,8 +1,6 @@
 """Tests for plugin install/uninstall and config management in hooks.py."""
 
 import json
-import shutil
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
