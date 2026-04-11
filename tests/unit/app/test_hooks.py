@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 import pytest
 
-from securevector.app.server.routes.hooks import (
-    _register_plugin_in_config,
-    _cleanup_stale_config_entry,
-    PLUGIN_NAME,
-)
+try:
+    from securevector.app.server.routes.hooks import (
+        _register_plugin_in_config,
+        _cleanup_stale_config_entry,
+        PLUGIN_NAME,
+    )
+except ImportError:
+    pytest.skip("aiosqlite or app dependencies not installed", allow_module_level=True)
 
 
 @pytest.fixture
