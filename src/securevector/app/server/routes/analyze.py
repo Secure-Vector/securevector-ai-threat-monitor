@@ -180,7 +180,21 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         from securevector.app.services.analysis_service import get_analysis_service
 
         service = get_analysis_service()
-        result = await service.analyze(request.text)
+
+        # Strip SecureVector's own context guard directives before scanning.
+        # The plugin injects these into every prompt — they contain phrases
+        # like "prompt injection" and "jailbreak" that trigger our own rules.
+        # Uses string search instead of regex to avoid polynomial regex risk.
+        _GUARD_START = 'This session is monitored by SecureVector AI Threat Monitor.'
+        _GUARD_END = 'SecureVector is actively scanning all messages for threats.'
+        scan_text = request.text
+        start_idx = scan_text.find(_GUARD_START)
+        if start_idx != -1:
+            end_idx = scan_text.find(_GUARD_END, start_idx)
+            if end_idx != -1:
+                scan_text = (scan_text[:start_idx] + scan_text[end_idx + len(_GUARD_END):]).strip() or request.text
+
+        result = await service.analyze(scan_text)
 
         # Convert matched rules to response format
         matched_rules = []

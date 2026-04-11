@@ -1159,42 +1159,55 @@ def chat_with_protection(user_input):
 
         content.appendChild(proxyBtnRow);
 
-        // --- Step 2: Environment variables ---
+        // --- Step 2: Configure OpenClaw provider ---
         const step2Label = document.createElement('div');
         step2Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
-        step2Label.textContent = 'Step 2: Set environment variables';
+        step2Label.textContent = 'Step 2: Route OpenClaw through the proxy';
         content.appendChild(step2Label);
 
-        const envRow = document.createElement('div');
-        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        const step2Desc = document.createElement('div');
+        step2Desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;';
+        step2Desc.textContent = 'Add a custom provider to ~/.openclaw/openclaw.json under "models.providers":';
+        content.appendChild(step2Desc);
 
-        const linuxCard = document.createElement('div');
-        linuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
-        const linuxTitle = document.createElement('div');
-        linuxTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
-        linuxTitle.textContent = 'Linux / macOS';
-        linuxCard.appendChild(linuxTitle);
-        linuxCard.appendChild(this.createCodeBlock('export OPENAI_BASE_URL=http://localhost:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://localhost:8742/anthropic'));
-        envRow.appendChild(linuxCard);
+        const s2Providers = [
+            { name: 'OpenAI', id: 'openai-sv', api: 'openai-responses', baseUrl: 'http://127.0.0.1:8742/openai/v1', model: 'gpt-4o-mini' },
+            { name: 'Anthropic', id: 'anthropic-sv', api: 'anthropic-messages', baseUrl: 'http://127.0.0.1:8742/anthropic', model: 'claude-sonnet-4-6' },
+            { name: 'Gemini', id: 'gemini-sv', api: 'google-generative-ai', baseUrl: 'http://127.0.0.1:8742/gemini/v1beta', model: 'gemini-2.0-flash' },
+            { name: 'Ollama', id: 'ollama-sv', api: 'openai-completions', baseUrl: 'http://127.0.0.1:8742/ollama/v1', model: 'llama3' },
+        ];
 
-        const winCard = document.createElement('div');
-        winCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
-        const winTitle = document.createElement('div');
-        winTitle.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 8px;';
-        winTitle.textContent = 'Windows (PowerShell)';
-        winCard.appendChild(winTitle);
-        const winSessionNote = document.createElement('div');
-        winSessionNote.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;';
-        winSessionNote.textContent = 'Session-only (only affects this PowerShell window):';
-        winCard.appendChild(winSessionNote);
-        winCard.appendChild(this.createCodeBlock('$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"'));
-        envRow.appendChild(winCard);
+        const s2TabBar = document.createElement('div');
+        s2TabBar.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+        const s2Code = document.createElement('div');
+        s2Code.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; margin-bottom: 8px; line-height: 1.5; white-space: pre; overflow-x: auto;';
+        const s2Model = document.createElement('div');
+        s2Model.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 11px; margin-bottom: 12px; line-height: 1.5; white-space: pre;';
 
-        content.appendChild(envRow);
+        function s2Show(idx) {
+            const p = s2Providers[idx];
+            const ex = {}; ex[p.id] = { baseUrl: p.baseUrl, api: p.api, models: [{ id: p.model, name: p.model + ' (via SecureVector)', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 }] };
+            s2Code.textContent = JSON.stringify(ex, null, 2);
+            s2Model.textContent = 'Set primary model:\n"agents": { "defaults": { "model": { "primary": "' + p.id + '/' + p.model + '" } } }';
+            s2TabBar.querySelectorAll('button').forEach((btn, i) => { btn.style.background = i === idx ? 'var(--accent-primary)' : 'var(--bg-tertiary)'; btn.style.color = i === idx ? '#fff' : 'var(--text-primary)'; });
+        }
+        s2Providers.forEach((p, i) => { const t = document.createElement('button'); t.style.cssText = 'border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;'; t.textContent = p.name; t.onclick = () => s2Show(i); s2TabBar.appendChild(t); });
+
+        content.appendChild(s2TabBar);
+        content.appendChild(s2Code);
+        content.appendChild(s2Model);
+        s2Show(0);
+
+        // Alternative: env vars
+        const envLabel = document.createElement('div');
+        envLabel.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;';
+        envLabel.textContent = 'Alternative: environment variables';
+        content.appendChild(envLabel);
+        content.appendChild(this.createCodeBlock('# Linux / macOS\nexport OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic\n\n# Windows (PowerShell)\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"'));
 
         const step2Note = document.createElement('div');
         step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
-        step2Note.textContent = 'Then run your OpenClaw gateway. All LLM traffic will route through SecureVector and threats will be blocked.';
+        step2Note.textContent = 'You can add multiple providers. Restart OpenClaw after making changes.';
         content.appendChild(step2Note);
 
         // --- Available Endpoints ---
@@ -1287,31 +1300,75 @@ def chat_with_protection(user_input):
                     // Auto-start proxy when block mode is enabled
                     await startProxy();
 
-                    // Show restart modal with environment variable instructions
+                    // Show config instructions modal
                     const modalContent = document.createElement('div');
-                    modalContent.innerHTML = `
-                        <p style="margin-bottom: 12px;">The proxy is now running. To route LLM traffic through SecureVector for threat blocking, <strong>restart OpenClaw</strong> with these environment variables set:</p>
-                        <div style="background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; margin-bottom: 12px; line-height: 1.8;">
-                            <div style="color: var(--text-secondary); margin-bottom: 8px;"># Linux / macOS</div>
-                            <div><span style="color: var(--accent-primary);">export</span> OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1</div>
-                            <div><span style="color: var(--accent-primary);">export</span> ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic</div>
-                            <div><span style="color: var(--accent-primary);">export</span> GEMINI_BASE_URL=http://127.0.0.1:8742/gemini</div>
-                            <div><span style="color: var(--accent-primary);">export</span> GROQ_BASE_URL=http://127.0.0.1:8742/groq</div>
-                            <div><span style="color: var(--accent-primary);">export</span> MISTRAL_BASE_URL=http://127.0.0.1:8742/mistral</div>
-                            <div><span style="color: var(--accent-primary);">export</span> XAI_BASE_URL=http://127.0.0.1:8742/xai</div>
-                            <div style="color: var(--text-secondary); margin-top: 12px; margin-bottom: 8px;"># Windows (PowerShell)</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>GEMINI_BASE_URL="http://127.0.0.1:8742/gemini"</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>GROQ_BASE_URL="http://127.0.0.1:8742/groq"</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>MISTRAL_BASE_URL="http://127.0.0.1:8742/mistral"</div>
-                            <div><span style="color: var(--accent-primary);">$env:</span>XAI_BASE_URL="http://127.0.0.1:8742/xai"</div>
-                        </div>
-                        <p style="font-size: 13px; color: var(--text-secondary);">Only set the variables for the providers you use. The proxy auto-patches pi-ai files, but OpenClaw needs a restart to pick up the changes.</p>
-                    `;
+
+                    const mBanner = document.createElement('div');
+                    mBanner.style.cssText = 'background: color-mix(in srgb, #f59e0b 15%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border-default)); border-radius: 8px; padding: 12px; margin-bottom: 12px;';
+                    const mStrong = document.createElement('strong');
+                    mStrong.style.color = '#d97706';
+                    mStrong.textContent = 'Action required: ';
+                    mBanner.appendChild(mStrong);
+                    const mText = document.createElement('span');
+                    mText.style.cssText = 'color: var(--text-primary); font-size: 13px;';
+                    mText.textContent = 'Configure OpenClaw to route through the proxy, then restart.';
+                    mBanner.appendChild(mText);
+                    modalContent.appendChild(mBanner);
+
+                    const mProviders = [
+                        { name: 'OpenAI', id: 'openai-sv', api: 'openai-responses', baseUrl: 'http://127.0.0.1:8742/openai/v1', model: 'gpt-4o-mini' },
+                        { name: 'Anthropic', id: 'anthropic-sv', api: 'anthropic-messages', baseUrl: 'http://127.0.0.1:8742/anthropic', model: 'claude-sonnet-4-6' },
+                        { name: 'Gemini', id: 'gemini-sv', api: 'google-generative-ai', baseUrl: 'http://127.0.0.1:8742/gemini/v1beta', model: 'gemini-2.0-flash' },
+                        { name: 'Ollama', id: 'ollama-sv', api: 'openai-completions', baseUrl: 'http://127.0.0.1:8742/ollama/v1', model: 'llama3' },
+                    ];
+
+                    const mIntro = document.createElement('p');
+                    mIntro.style.marginBottom = '8px';
+                    mIntro.textContent = 'Add to ~/.openclaw/openclaw.json under "models.providers":';
+                    modalContent.appendChild(mIntro);
+
+                    const mTabBar = document.createElement('div');
+                    mTabBar.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+                    const mCode = document.createElement('div');
+                    mCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto;';
+                    const mModel = document.createElement('div');
+                    mModel.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre;';
+
+                    function mShowProvider(idx) {
+                        const p = mProviders[idx];
+                        const ex = {}; ex[p.id] = { baseUrl: p.baseUrl, api: p.api, models: [{ id: p.model, name: p.model + ' (via SecureVector)', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 }] };
+                        mCode.textContent = JSON.stringify(ex, null, 2);
+                        mModel.textContent = '"agents": { "defaults": { "model": { "primary": "' + p.id + '/' + p.model + '" } } }';
+                        mTabBar.querySelectorAll('button').forEach((btn, i) => { btn.style.background = i === idx ? 'var(--accent-primary)' : 'var(--bg-tertiary)'; btn.style.color = i === idx ? '#fff' : 'var(--text-primary)'; });
+                    }
+                    mProviders.forEach((p, i) => { const t = document.createElement('button'); t.style.cssText = 'border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;'; t.textContent = p.name; t.onclick = () => mShowProvider(i); mTabBar.appendChild(t); });
+
+                    modalContent.appendChild(mTabBar);
+                    modalContent.appendChild(mCode);
+                    const mStep2 = document.createElement('p');
+                    mStep2.style.cssText = 'margin-bottom: 8px; font-size: 13px;';
+                    mStep2.textContent = 'Then set the primary model:';
+                    modalContent.appendChild(mStep2);
+                    modalContent.appendChild(mModel);
+                    mShowProvider(0);
+
+                    const mEnvTitle = document.createElement('p');
+                    mEnvTitle.style.cssText = 'margin-top: 12px; margin-bottom: 8px; font-size: 13px; font-weight: 600;';
+                    mEnvTitle.textContent = 'Alternative: use environment variables (other frameworks)';
+                    modalContent.appendChild(mEnvTitle);
+
+                    const mEnvBlock = document.createElement('div');
+                    mEnvBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto; color: var(--text-secondary);';
+                    mEnvBlock.textContent = '# Linux / macOS\nexport OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic\n\n# Windows (PowerShell)\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"';
+                    modalContent.appendChild(mEnvBlock);
+
+                    const mNote = document.createElement('p');
+                    mNote.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
+                    mNote.textContent = 'You can add multiple providers. Restart OpenClaw after editing.';
+                    modalContent.appendChild(mNote);
 
                     Modal.show({
-                        title: 'Restart OpenClaw with Proxy Environment Variables',
+                        title: 'Configure OpenClaw to Route Through Proxy',
                         content: modalContent,
                         size: 'medium',
                         actions: [

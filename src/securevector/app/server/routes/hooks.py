@@ -223,11 +223,70 @@ def _run_openclaw_cmd(args: list[str]) -> tuple[int, str, str]:
 
 
 def _is_plugin_installed_via_cli() -> bool:
-    """Check if the plugin is registered with OpenClaw by running `openclaw plugins list`."""
+    """Check if the plugin is registered with OpenClaw.
+
+    Tries CLI first, falls back to checking openclaw.json directly.
+    """
     code, stdout, _ = _run_openclaw_cmd(["plugins", "list"])
-    if code != 0:
+    if code == 0 and PLUGIN_NAME in stdout:
+        return True
+    # CLI failed or plugin not found — check config file directly
+    import json
+    config_path = OPENCLAW_DIR / "openclaw.json"
+    if config_path.is_file():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            entries = config.get("plugins", {}).get("entries", {})
+            return PLUGIN_NAME in entries
+        except Exception:
+            pass
+    return False
+
+
+def _register_plugin_in_config(install_path: str) -> bool:
+    """Register the plugin directly in openclaw.json when the CLI is unavailable."""
+    import json
+    config_path = OPENCLAW_DIR / "openclaw.json"
+    try:
+        if config_path.is_file():
+            raw = config_path.read_text(encoding="utf-8")
+            config = json.loads(raw)
+        else:
+            config = {}
+
+        plugins = config.setdefault("plugins", {})
+
+        # Add to load paths
+        load = plugins.setdefault("load", {})
+        paths = load.setdefault("paths", [])
+        if install_path not in paths:
+            paths.append(install_path)
+
+        # Add to entries
+        entries = plugins.setdefault("entries", {})
+        entries[PLUGIN_NAME] = {"enabled": True}
+
+        # Add install record
+        from datetime import datetime, timezone
+        installs = plugins.setdefault("installs", {})
+        installs[PLUGIN_NAME] = {
+            "source": "path",
+            "sourcePath": install_path,
+            "installPath": install_path,
+            "version": "1.0.0",
+            "installedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Backup and write
+        if config_path.is_file():
+            backup = config_path.with_suffix(".json.bak")
+            backup.write_text(raw, encoding="utf-8")
+        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        logger.info(f"Registered plugin directly in {config_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not register plugin in config: {e}")
         return False
-    return PLUGIN_NAME in stdout
 
 
 def _cleanup_stale_config_entry():
@@ -377,32 +436,32 @@ async def install_plugin(request: Optional[InstallRequest] = None):
                 "files_written": [],
             }
 
-        # If reinstalling, uninstall first
+        # If reinstalling, clean up first
         if already_registered:
             _run_openclaw_cmd(["plugins", "uninstall", PLUGIN_NAME])
+            _cleanup_stale_config_entry()
 
-        # Install via OpenClaw CLI: `openclaw plugins install --link <dir>`
-        # Pass the directory (not index.ts) so OpenClaw reads openclaw.plugin.json
-        # and uses the correct plugin ID ("securevector-guard").
+        # Try CLI first, fall back to direct config write
         install_path = str(STAGING_DIR)
         code, stdout, stderr = _run_openclaw_cmd(["plugins", "install", "--link", install_path])
 
         if code == 0:
-            status = "updated" if already_registered else "installed"
             registered = True
+        else:
+            # CLI failed — register directly in openclaw.json
+            logger.info("OpenClaw CLI unavailable, registering plugin directly in config")
+            registered = _register_plugin_in_config(install_path)
+
+        status = ("updated" if already_registered else "installed") if registered else "partial"
+        if registered:
             message = (
-                f"SecureVector plugin {status} successfully via OpenClaw CLI. "
+                f"SecureVector plugin {status} successfully. "
                 f"URL: {sv_url}. "
                 "Restart the OpenClaw gateway for changes to take effect."
             )
         else:
-            # CLI failed — files are staged but not registered
-            registered = False
-            status = "partial"
-            cli_error = (stderr or stdout).strip()
-            logger.warning("OpenClaw CLI install failed (code %d): %s", code, cli_error)
             message = (
-                f"Plugin files staged, but OpenClaw CLI registration failed. "
+                f"Plugin files staged, but registration failed. "
                 f"Try manually: openclaw plugins install --link {install_path}"
             )
 
