@@ -419,6 +419,17 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             "registered": True,
         }
 
+    # Check if OpenClaw is installed
+    oc_code, _, _ = _run_openclaw_cmd(["--version"])
+    if oc_code < 0:
+        return {
+            "status": "error",
+            "message": "OpenClaw not found. OpenClaw is required to install the SecureVector plugin.",
+            "path": str(STAGING_DIR),
+            "hook_name": PLUGIN_NAME,
+            "files_written": [],
+        }
+
     try:
         # Clean up any stale manual config entries from previous install attempts
         _cleanup_stale_config_entry()
