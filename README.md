@@ -80,7 +80,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-v3.4.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector_3.4.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector-3.4.0-1.x86_64.rpm) · macOS (coming soon — signed binary in progress)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-v3.4.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector_3.4.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector-3.4.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -365,7 +365,7 @@ No Python required. Download and run.
 | Platform | Download |
 |----------|----------|
 | Windows | [SecureVector-v3.4.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-v3.4.0-Windows-Setup.exe) |
-| macOS | Coming soon — signed binary in progress. Use `pip install` for now. |
+| macOS | [SecureVector-3.4.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-macOS.dmg) (signed binary coming soon) |
 | Linux (AppImage) | [SecureVector-3.4.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/SecureVector-3.4.0-x86_64.AppImage) |
 | Linux (DEB) | [securevector_3.4.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector_3.4.0_amd64.deb) |
 | Linux (RPM) | [securevector-3.4.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.4.0/securevector-3.4.0-1.x86_64.rpm) |
@@ -494,7 +494,7 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 | **PyPI** | `pip install --upgrade securevector-ai-monitor[app]` |
 | **Source** | `git pull && pip install -e ".[app]"` |
 | **Windows** | Download latest [.exe installer](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and run it (overwrites previous version) |
-| **macOS** | Signed binary coming soon. Use `pip install --upgrade securevector-ai-monitor[app]` for now. |
+| **macOS** | Download latest [.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), drag to Applications (signed binary coming soon) |
 | **Linux AppImage** | Download latest [.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and replace the old file |
 | **Linux DEB** | `sudo dpkg -i securevector_<version>_amd64.deb` |
 | **Linux RPM** | `sudo rpm -U securevector-<version>.x86_64.rpm` |
