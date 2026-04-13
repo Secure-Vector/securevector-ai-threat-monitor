@@ -7,6 +7,7 @@ const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        { id: 'sandbox', label: 'Sandbox', icon: 'sandbox' },
         { id: 'skill-scanner', label: 'Skill Scanner', icon: 'scan', tooltip: 'Static security analysis for skill directories' },
         { id: 'tool-activity', label: 'Tool Activity', icon: 'history' },
         { id: 'costs', label: 'Cost Tracking', icon: 'costs' },
@@ -655,6 +656,12 @@ const Sidebar = {
                 { tag: 'line', attrs: { x1: '21', y1: '21', x2: '16.65', y2: '16.65' } },
                 { tag: 'line', attrs: { x1: '11', y1: '8', x2: '11', y2: '14' } },
                 { tag: 'line', attrs: { x1: '8', y1: '11', x2: '14', y2: '11' } },
+            ],
+            sandbox: [
+                { tag: 'rect', attrs: { x: '2', y: '4', width: '20', height: '16', rx: '2' } },
+                { tag: 'path', attrs: { d: 'M2 10h20' } },
+                { tag: 'circle', attrs: { cx: '12', cy: '15', r: '2' } },
+                { tag: 'path', attrs: { d: 'M12 17v2' } },
             ],
             sliders: [
                 { tag: 'line', attrs: { x1: '4', y1: '21', x2: '4', y2: '14' } },
