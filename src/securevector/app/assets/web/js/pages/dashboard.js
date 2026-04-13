@@ -25,90 +25,55 @@ async function showOpenClawProxyModal() {
 
     const modalContent = document.createElement('div');
 
-    const banner = document.createElement('div');
-    banner.style.cssText = 'background: color-mix(in srgb, #f59e0b 15%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border-default)); border-radius: 8px; padding: 12px; margin-bottom: 12px;';
-    const bannerStrong = document.createElement('strong');
-    bannerStrong.style.color = '#d97706';
-    bannerStrong.textContent = 'Action required: ';
-    banner.appendChild(bannerStrong);
-    const bannerText = document.createElement('span');
-    bannerText.style.cssText = 'color: var(--text-primary); font-size: 13px;';
-    bannerText.textContent = 'Add a custom provider to your OpenClaw config, then restart OpenClaw.';
-    banner.appendChild(bannerText);
-    modalContent.appendChild(banner);
+    const desc = document.createElement('p');
+    desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;';
+    desc.textContent = 'Set your AI provider base URL to the proxy address, then restart your agent.';
+    modalContent.appendChild(desc);
 
-    const intro = document.createElement('p');
-    intro.style.marginBottom = '12px';
-    intro.textContent = 'Add this to ~/.openclaw/openclaw.json under "models.providers":';
-    modalContent.appendChild(intro);
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;';
 
-    const providerExamples = [
-        { name: 'OpenAI', id: 'openai-sv', api: 'openai-responses', baseUrl: 'http://127.0.0.1:8742/openai/v1', model: 'gpt-4o-mini' },
-        { name: 'Anthropic', id: 'anthropic-sv', api: 'anthropic-messages', baseUrl: 'http://127.0.0.1:8742/anthropic', model: 'claude-sonnet-4-6' },
-        { name: 'Gemini', id: 'gemini-sv', api: 'google-generative-ai', baseUrl: 'http://127.0.0.1:8742/gemini/v1beta', model: 'gemini-2.0-flash' },
-        { name: 'Ollama', id: 'ollama-sv', api: 'openai-completions', baseUrl: 'http://127.0.0.1:8742/ollama/v1', model: 'llama3' },
-    ];
+    const boxOC = document.createElement('div');
+    boxOC.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+    const boxOCTitle = document.createElement('div');
+    boxOCTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+    boxOCTitle.textContent = 'OpenClaw / ClawdBot';
+    boxOC.appendChild(boxOCTitle);
+    const boxOCDesc = document.createElement('div');
+    boxOCDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+    boxOCDesc.textContent = 'Set baseUrl in openclaw.json provider config:';
+    boxOC.appendChild(boxOCDesc);
+    const ocCode = document.createElement('div');
+    ocCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+    ocCode.textContent = '"baseUrl": "http://127.0.0.1:8742/openai/v1"';
+    boxOC.appendChild(ocCode);
+    grid.appendChild(boxOC);
 
-    const tabBar = document.createElement('div');
-    tabBar.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+    const boxEnv = document.createElement('div');
+    boxEnv.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+    const boxEnvTitle = document.createElement('div');
+    boxEnvTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+    boxEnvTitle.textContent = 'Other Agents / Frameworks';
+    boxEnv.appendChild(boxEnvTitle);
+    const boxEnvDesc = document.createElement('div');
+    boxEnvDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+    boxEnvDesc.textContent = 'Set the base URL environment variable:';
+    boxEnv.appendChild(boxEnvDesc);
+    const envCode = document.createElement('div');
+    envCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+    envCode.textContent = 'export OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1';
+    boxEnv.appendChild(envCode);
+    grid.appendChild(boxEnv);
 
-    const codeBlock = document.createElement('div');
-    codeBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto;';
-
-    const modelBlock = document.createElement('div');
-    modelBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre;';
-
-    function showProvider(idx) {
-        const p = providerExamples[idx];
-        const example = {};
-        example[p.id] = {
-            baseUrl: p.baseUrl, api: p.api,
-            models: [{ id: p.model, name: p.model + ' (via SecureVector)', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 }]
-        };
-        codeBlock.textContent = JSON.stringify(example, null, 2);
-        modelBlock.textContent = '"agents": { "defaults": { "model": { "primary": "' + p.id + '/' + p.model + '" } } }';
-        tabBar.querySelectorAll('button').forEach((btn, i) => {
-            btn.style.background = i === idx ? 'var(--accent-primary)' : 'var(--bg-tertiary)';
-            btn.style.color = i === idx ? '#fff' : 'var(--text-primary)';
-        });
-    }
-
-    providerExamples.forEach((p, i) => {
-        const tab = document.createElement('button');
-        tab.style.cssText = 'border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;';
-        tab.textContent = p.name;
-        tab.onclick = () => showProvider(i);
-        tabBar.appendChild(tab);
-    });
-
-    modalContent.appendChild(tabBar);
-    modalContent.appendChild(codeBlock);
-
-    const step2 = document.createElement('p');
-    step2.style.cssText = 'margin-bottom: 8px; font-size: 13px;';
-    step2.textContent = 'Then set the primary model:';
-    modalContent.appendChild(step2);
-    modalContent.appendChild(modelBlock);
-
-    showProvider(0);
-
-    const envTitle = document.createElement('p');
-    envTitle.style.cssText = 'margin-top: 12px; margin-bottom: 8px; font-size: 13px; font-weight: 600;';
-    envTitle.textContent = 'Alternative: use environment variables (other frameworks)';
-    modalContent.appendChild(envTitle);
-
-    const envBlock = document.createElement('div');
-    envBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto; color: var(--text-secondary);';
-    envBlock.textContent = '# Linux / macOS\nexport OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic\n\n# Windows (PowerShell)\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"';
-    modalContent.appendChild(envBlock);
+    modalContent.appendChild(grid);
 
     const note = document.createElement('p');
-    note.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-    note.textContent = 'Restart OpenClaw after making changes.';
+    note.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+    note.textContent = 'Supports OpenAI, Anthropic, Gemini, and Ollama. See docs for provider-specific URLs.';
     modalContent.appendChild(note);
 
     Modal.show({
-        title: 'Configure OpenClaw to Route Through Proxy',
+        title: 'Route Traffic Through Proxy',
         content: modalContent,
         size: 'medium',
         actions: [

@@ -1303,72 +1303,58 @@ def chat_with_protection(user_input):
                     // Show config instructions modal
                     const modalContent = document.createElement('div');
 
-                    const mBanner = document.createElement('div');
-                    mBanner.style.cssText = 'background: color-mix(in srgb, #f59e0b 15%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--border-default)); border-radius: 8px; padding: 12px; margin-bottom: 12px;';
-                    const mStrong = document.createElement('strong');
-                    mStrong.style.color = '#d97706';
-                    mStrong.textContent = 'Action required: ';
-                    mBanner.appendChild(mStrong);
-                    const mText = document.createElement('span');
-                    mText.style.cssText = 'color: var(--text-primary); font-size: 13px;';
-                    mText.textContent = 'Configure OpenClaw to route through the proxy, then restart.';
-                    mBanner.appendChild(mText);
-                    modalContent.appendChild(mBanner);
+                    const mDesc = document.createElement('p');
+                    mDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;';
+                    mDesc.textContent = 'Set your AI provider base URL to the proxy address, then restart your agent.';
+                    modalContent.appendChild(mDesc);
 
-                    const mProviders = [
-                        { name: 'OpenAI', id: 'openai-sv', api: 'openai-responses', baseUrl: 'http://127.0.0.1:8742/openai/v1', model: 'gpt-4o-mini' },
-                        { name: 'Anthropic', id: 'anthropic-sv', api: 'anthropic-messages', baseUrl: 'http://127.0.0.1:8742/anthropic', model: 'claude-sonnet-4-6' },
-                        { name: 'Gemini', id: 'gemini-sv', api: 'google-generative-ai', baseUrl: 'http://127.0.0.1:8742/gemini/v1beta', model: 'gemini-2.0-flash' },
-                        { name: 'Ollama', id: 'ollama-sv', api: 'openai-completions', baseUrl: 'http://127.0.0.1:8742/ollama/v1', model: 'llama3' },
-                    ];
+                    // Two horizontal boxes
+                    const mGrid = document.createElement('div');
+                    mGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;';
 
-                    const mIntro = document.createElement('p');
-                    mIntro.style.marginBottom = '8px';
-                    mIntro.textContent = 'Add to ~/.openclaw/openclaw.json under "models.providers":';
-                    modalContent.appendChild(mIntro);
+                    // --- Box 1: OpenClaw ---
+                    const mBoxOC = document.createElement('div');
+                    mBoxOC.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+                    const mBoxOCTitle = document.createElement('div');
+                    mBoxOCTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+                    mBoxOCTitle.textContent = 'OpenClaw / ClawdBot';
+                    mBoxOC.appendChild(mBoxOCTitle);
+                    const mBoxOCDesc = document.createElement('div');
+                    mBoxOCDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+                    mBoxOCDesc.textContent = 'Set baseUrl in openclaw.json provider config:';
+                    mBoxOC.appendChild(mBoxOCDesc);
+                    const mOCCode = document.createElement('div');
+                    mOCCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+                    mOCCode.textContent = '"baseUrl": "http://127.0.0.1:8742/openai/v1"';
+                    mBoxOC.appendChild(mOCCode);
+                    mGrid.appendChild(mBoxOC);
 
-                    const mTabBar = document.createElement('div');
-                    mTabBar.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
-                    const mCode = document.createElement('div');
-                    mCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto;';
-                    const mModel = document.createElement('div');
-                    mModel.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre;';
+                    // --- Box 2: Environment Variables ---
+                    const mBoxEnv = document.createElement('div');
+                    mBoxEnv.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+                    const mBoxEnvTitle = document.createElement('div');
+                    mBoxEnvTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+                    mBoxEnvTitle.textContent = 'Other Agents / Frameworks';
+                    mBoxEnv.appendChild(mBoxEnvTitle);
+                    const mBoxEnvDesc = document.createElement('div');
+                    mBoxEnvDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+                    mBoxEnvDesc.textContent = 'Set the base URL environment variable:';
+                    mBoxEnv.appendChild(mBoxEnvDesc);
+                    const mEnvCode = document.createElement('div');
+                    mEnvCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+                    mEnvCode.textContent = 'export OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1';
+                    mBoxEnv.appendChild(mEnvCode);
+                    mGrid.appendChild(mBoxEnv);
 
-                    function mShowProvider(idx) {
-                        const p = mProviders[idx];
-                        const ex = {}; ex[p.id] = { baseUrl: p.baseUrl, api: p.api, models: [{ id: p.model, name: p.model + ' (via SecureVector)', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 }] };
-                        mCode.textContent = JSON.stringify(ex, null, 2);
-                        mModel.textContent = '"agents": { "defaults": { "model": { "primary": "' + p.id + '/' + p.model + '" } } }';
-                        mTabBar.querySelectorAll('button').forEach((btn, i) => { btn.style.background = i === idx ? 'var(--accent-primary)' : 'var(--bg-tertiary)'; btn.style.color = i === idx ? '#fff' : 'var(--text-primary)'; });
-                    }
-                    mProviders.forEach((p, i) => { const t = document.createElement('button'); t.style.cssText = 'border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;'; t.textContent = p.name; t.onclick = () => mShowProvider(i); mTabBar.appendChild(t); });
-
-                    modalContent.appendChild(mTabBar);
-                    modalContent.appendChild(mCode);
-                    const mStep2 = document.createElement('p');
-                    mStep2.style.cssText = 'margin-bottom: 8px; font-size: 13px;';
-                    mStep2.textContent = 'Then set the primary model:';
-                    modalContent.appendChild(mStep2);
-                    modalContent.appendChild(mModel);
-                    mShowProvider(0);
-
-                    const mEnvTitle = document.createElement('p');
-                    mEnvTitle.style.cssText = 'margin-top: 12px; margin-bottom: 8px; font-size: 13px; font-weight: 600;';
-                    mEnvTitle.textContent = 'Alternative: use environment variables (other frameworks)';
-                    modalContent.appendChild(mEnvTitle);
-
-                    const mEnvBlock = document.createElement('div');
-                    mEnvBlock.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin-bottom: 12px; line-height: 1.6; white-space: pre; overflow-x: auto; color: var(--text-secondary);';
-                    mEnvBlock.textContent = '# Linux / macOS\nexport OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic\n\n# Windows (PowerShell)\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"';
-                    modalContent.appendChild(mEnvBlock);
+                    modalContent.appendChild(mGrid);
 
                     const mNote = document.createElement('p');
-                    mNote.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-                    mNote.textContent = 'You can add multiple providers. Restart OpenClaw after editing.';
+                    mNote.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+                    mNote.textContent = 'Supports OpenAI, Anthropic, Gemini, and Ollama. See docs for provider-specific URLs.';
                     modalContent.appendChild(mNote);
 
                     Modal.show({
-                        title: 'Configure OpenClaw to Route Through Proxy',
+                        title: 'Route Traffic Through Proxy',
                         content: modalContent,
                         size: 'medium',
                         actions: [
