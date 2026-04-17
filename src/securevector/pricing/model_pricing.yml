@@ -15,8 +15,51 @@
 providers:
   - provider: openai
     display_name: "OpenAI"
-    source_url: "https://openai.com/api/pricing/"
+    source_url: "https://developers.openai.com/api/docs/pricing"
     models:
+      - model_id: gpt-5.4
+        display_name: "GPT-5.4"
+        input_per_million: 2.50
+        output_per_million: 15.00
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gpt-5.4-mini
+        display_name: "GPT-5.4 Mini"
+        input_per_million: 0.75
+        output_per_million: 4.50
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gpt-5.4-nano
+        display_name: "GPT-5.4 Nano"
+        input_per_million: 0.20
+        output_per_million: 1.25
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gpt-5.4-pro
+        display_name: "GPT-5.4 Pro"
+        input_per_million: 30.00
+        output_per_million: 180.00
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gpt-5.3-chat-latest
+        display_name: "GPT-5.3 Chat"
+        input_per_million: 1.75
+        output_per_million: 14.00
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gpt-5.3-codex
+        display_name: "GPT-5.3 Codex"
+        input_per_million: 1.75
+        output_per_million: 14.00
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      # Legacy models — prior pricing retained from previous verification
       - model_id: gpt-4.1
         display_name: "GPT-4.1"
         input_per_million: 2.00
@@ -63,7 +106,7 @@ providers:
         display_name: "GPT-3.5 Turbo"
         input_per_million: 0.50
         output_per_million: 1.50
-        effective_date: "2025-01-01"
+        effective_date: "2024-01-25"
         verified_at: "2026-02-22"
 
       - model_id: o1
@@ -75,16 +118,9 @@ providers:
 
       - model_id: o1-mini
         display_name: "o1 Mini"
-        input_per_million: 1.10
-        output_per_million: 4.40
-        effective_date: "2025-01-01"
-        verified_at: "2026-02-22"
-
-      - model_id: o3
-        display_name: "o3"
-        input_per_million: 2.00
-        output_per_million: 8.00
-        effective_date: "2025-06-01"
+        input_per_million: 3.00
+        output_per_million: 12.00
+        effective_date: "2024-09-12"
         verified_at: "2026-02-22"
 
       - model_id: o3-mini
@@ -94,252 +130,273 @@ providers:
         effective_date: "2025-01-31"
         verified_at: "2026-02-22"
 
-      - model_id: o4-mini
-        display_name: "o4 Mini"
-        input_per_million: 1.10
-        output_per_million: 4.40
-        effective_date: "2025-04-16"
-        verified_at: "2026-02-22"
-
   - provider: anthropic
     display_name: "Anthropic"
-    source_url: "https://www.anthropic.com/pricing"
+    source_url: "https://platform.claude.com/docs/en/docs/about-claude/pricing"
     models:
-      - model_id: claude-sonnet-4-6
-        display_name: "Claude Sonnet 4.6"
-        input_per_million: 3.00
-        output_per_million: 15.00
-        effective_date: "2026-01-01"
-        verified_at: "2026-02-22"
+      - model_id: claude-opus-4-7
+        display_name: "Claude Opus 4.7"
+        input_per_million: 5.00
+        output_per_million: 25.00
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
 
       - model_id: claude-opus-4-6
         display_name: "Claude Opus 4.6"
         input_per_million: 5.00
         output_per_million: 25.00
         effective_date: "2026-01-01"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
 
-      - model_id: claude-haiku-4-5-20251001
-        display_name: "Claude Haiku 4.5"
-        input_per_million: 1.00
-        output_per_million: 5.00
-        effective_date: "2025-10-01"
-        verified_at: "2026-02-22"
-
-      - model_id: claude-sonnet-4-5-20250929
-        display_name: "Claude Sonnet 4.5"
-        input_per_million: 3.00
-        output_per_million: 15.00
-        effective_date: "2025-09-29"
-        verified_at: "2026-02-22"
-
-      - model_id: claude-opus-4-5-20251101
+      - model_id: claude-opus-4-5
         display_name: "Claude Opus 4.5"
         input_per_million: 5.00
         output_per_million: 25.00
         effective_date: "2025-11-01"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
 
-      - model_id: claude-3-5-sonnet-20241022
-        display_name: "Claude 3.5 Sonnet"
+      - model_id: claude-opus-4-1-20250805
+        display_name: "Claude Opus 4.1"
+        input_per_million: 15.00
+        output_per_million: 75.00
+        effective_date: "2025-08-05"
+        verified_at: "2026-04-13"
+
+      - model_id: claude-opus-4-20250514
+        display_name: "Claude Opus 4"
+        input_per_million: 15.00
+        output_per_million: 75.00
+        effective_date: "2025-05-14"
+        verified_at: "2026-04-13"
+
+      - model_id: claude-sonnet-4-6
+        display_name: "Claude Sonnet 4.6"
         input_per_million: 3.00
         output_per_million: 15.00
-        effective_date: "2024-10-22"
-        verified_at: "2026-02-22"
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      - model_id: claude-sonnet-4-5
+        display_name: "Claude Sonnet 4.5"
+        input_per_million: 3.00
+        output_per_million: 15.00
+        effective_date: "2025-11-01"
+        verified_at: "2026-04-13"
+
+      - model_id: claude-sonnet-4-20250514
+        display_name: "Claude Sonnet 4"
+        input_per_million: 3.00
+        output_per_million: 15.00
+        effective_date: "2025-05-14"
+        verified_at: "2026-04-13"
+
+      - model_id: claude-haiku-4-5
+        display_name: "Claude Haiku 4.5"
+        input_per_million: 1.00
+        output_per_million: 5.00
+        effective_date: "2025-11-01"
+        verified_at: "2026-04-13"
 
       - model_id: claude-3-5-haiku-20241022
-        display_name: "Claude 3.5 Haiku"
+        display_name: "Claude Haiku 3.5"
         input_per_million: 0.80
         output_per_million: 4.00
         effective_date: "2024-10-22"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
 
-      - model_id: claude-3-opus-20240229
-        display_name: "Claude 3 Opus"
-        input_per_million: 15.00
-        output_per_million: 75.00
-        effective_date: "2024-02-29"
-        verified_at: "2026-02-22"
+      - model_id: claude-3-haiku-20240307
+        display_name: "Claude Haiku 3"
+        input_per_million: 0.25
+        output_per_million: 1.25
+        effective_date: "2024-03-07"
+        verified_at: "2026-04-13"
 
   - provider: gemini
     display_name: "Google Gemini"
     source_url: "https://ai.google.dev/gemini-api/docs/pricing"
-    # All Gemini models support multimodal input (text, image, video, audio).
-    # Prices below are for text and image/video tokens (standard tier).
-    # Audio input is priced higher — see official pricing page for audio rates.
-    # Context window tiers: models with >200k context may have higher rates.
     models:
+      - model_id: gemini-3.1-pro-preview
+        display_name: "Gemini 3.1 Pro Preview"
+        input_per_million: 2.00
+        output_per_million: 12.00
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gemini-3.1-flash-lite-preview
+        display_name: "Gemini 3.1 Flash-Lite Preview"
+        input_per_million: 0.25
+        output_per_million: 1.50
+        effective_date: "2026-03-01"
+        verified_at: "2026-04-13"
+
+      - model_id: gemini-3-flash-preview
+        display_name: "Gemini 3 Flash Preview"
+        input_per_million: 0.50
+        output_per_million: 3.00
+        effective_date: "2026-02-01"
+        verified_at: "2026-04-13"
+
       - model_id: gemini-2.5-pro
         display_name: "Gemini 2.5 Pro"
         input_per_million: 1.25
         output_per_million: 10.00
-        effective_date: "2025-03-01"
-        verified_at: "2026-02-22"
+        effective_date: "2025-06-01"
+        verified_at: "2026-04-13"
 
       - model_id: gemini-2.5-flash
         display_name: "Gemini 2.5 Flash"
         input_per_million: 0.30
         output_per_million: 2.50
-        effective_date: "2025-05-01"
-        verified_at: "2026-02-22"
+        effective_date: "2025-06-01"
+        verified_at: "2026-04-13"
 
       - model_id: gemini-2.5-flash-lite
-        display_name: "Gemini 2.5 Flash Lite"
+        display_name: "Gemini 2.5 Flash-Lite"
         input_per_million: 0.10
         output_per_million: 0.40
-        effective_date: "2025-06-01"
-        verified_at: "2026-02-22"
+        effective_date: "2025-07-01"
+        verified_at: "2026-04-13"
 
       - model_id: gemini-2.0-flash
-        display_name: "Gemini 2.0 Flash"
+        display_name: "Gemini 2.0 Flash (deprecated 2026-06-01)"
         input_per_million: 0.10
         output_per_million: 0.40
         effective_date: "2025-02-05"
-        verified_at: "2026-02-22"
-
-      - model_id: gemini-2.0-flash-lite
-        display_name: "Gemini 2.0 Flash Lite"
-        input_per_million: 0.075
-        output_per_million: 0.30
-        effective_date: "2025-02-05"
-        verified_at: "2026-02-22"
-
-      - model_id: gemini-1.5-pro
-        display_name: "Gemini 1.5 Pro"
-        input_per_million: 1.25
-        output_per_million: 5.00
-        effective_date: "2024-05-14"
-        verified_at: "2026-02-22"
-
-      - model_id: gemini-1.5-flash
-        display_name: "Gemini 1.5 Flash"
-        input_per_million: 0.075
-        output_per_million: 0.30
-        effective_date: "2024-05-14"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
 
   - provider: grok
     display_name: "xAI Grok"
     source_url: "https://docs.x.ai/docs/models"
     models:
-      - model_id: grok-3
-        display_name: "Grok 3"
-        input_per_million: 3.00
-        output_per_million: 15.00
-        effective_date: "2025-02-17"
-        verified_at: "2026-02-22"
+      - model_id: grok-4.20-0309-reasoning
+        display_name: "Grok 4.20 Reasoning"
+        input_per_million: 2.00
+        output_per_million: 6.00
+        effective_date: "2026-03-09"
+        verified_at: "2026-04-13"
 
-      - model_id: grok-3-mini
-        display_name: "Grok 3 Mini"
-        input_per_million: 0.30
+      - model_id: grok-4.20-0309-non-reasoning
+        display_name: "Grok 4.20 Non-reasoning"
+        input_per_million: 2.00
+        output_per_million: 6.00
+        effective_date: "2026-03-09"
+        verified_at: "2026-04-13"
+
+      - model_id: grok-4.20-multi-agent-0309
+        display_name: "Grok 4.20 Multi-Agent"
+        input_per_million: 2.00
+        output_per_million: 6.00
+        effective_date: "2026-03-09"
+        verified_at: "2026-04-13"
+
+      - model_id: grok-4-1-fast-reasoning
+        display_name: "Grok 4.1 Fast Reasoning"
+        input_per_million: 0.20
         output_per_million: 0.50
-        effective_date: "2025-02-17"
-        verified_at: "2026-02-22"
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
 
-      - model_id: grok-2-1212
-        display_name: "Grok 2"
-        input_per_million: 2.00
-        output_per_million: 10.00
-        effective_date: "2024-12-12"
-        verified_at: "2026-02-22"
-
-      - model_id: grok-2-vision-1212
-        display_name: "Grok 2 Vision"
-        input_per_million: 2.00
-        output_per_million: 10.00
-        effective_date: "2024-12-12"
-        verified_at: "2026-02-22"
+      - model_id: grok-4-1-fast-non-reasoning
+        display_name: "Grok 4.1 Fast Non-reasoning"
+        input_per_million: 0.20
+        output_per_million: 0.50
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
 
   - provider: groq
     display_name: "Groq"
     source_url: "https://groq.com/pricing"
     models:
+      - model_id: openai/gpt-oss-120b
+        display_name: "GPT-OSS 120B (on Groq)"
+        input_per_million: 0.15
+        output_per_million: 0.60
+        effective_date: "2025-08-01"
+        verified_at: "2026-04-13"
+
+      - model_id: openai/gpt-oss-20b
+        display_name: "GPT-OSS 20B (on Groq)"
+        input_per_million: 0.075
+        output_per_million: 0.30
+        effective_date: "2025-08-01"
+        verified_at: "2026-04-13"
+
+      - model_id: openai/gpt-oss-safeguard-20b
+        display_name: "GPT-OSS Safeguard 20B (on Groq)"
+        input_per_million: 0.075
+        output_per_million: 0.30
+        effective_date: "2025-10-01"
+        verified_at: "2026-04-13"
+
+      - model_id: meta-llama/llama-4-scout-17b-16e-instruct
+        display_name: "Llama 4 Scout 17B (on Groq)"
+        input_per_million: 0.11
+        output_per_million: 0.34
+        effective_date: "2025-04-01"
+        verified_at: "2026-04-13"
+
+      - model_id: qwen/qwen3-32b
+        display_name: "Qwen 3 32B (on Groq)"
+        input_per_million: 0.29
+        output_per_million: 0.59
+        effective_date: "2025-05-01"
+        verified_at: "2026-04-13"
+
       - model_id: llama-3.3-70b-versatile
-        display_name: "Llama 3.3 70B Versatile"
+        display_name: "Llama 3.3 70B (on Groq)"
         input_per_million: 0.59
         output_per_million: 0.79
-        effective_date: "2024-12-01"
-        verified_at: "2026-02-22"
+        effective_date: "2024-12-06"
+        verified_at: "2026-04-13"
 
       - model_id: llama-3.1-8b-instant
-        display_name: "Llama 3.1 8B Instant"
+        display_name: "Llama 3.1 8B Instant (on Groq)"
         input_per_million: 0.05
         output_per_million: 0.08
         effective_date: "2024-07-23"
-        verified_at: "2026-02-22"
-
-      - model_id: llama-4-scout-17b-16e-instruct
-        display_name: "Llama 4 Scout 17B"
-        input_per_million: 0.11
-        output_per_million: 0.34
-        effective_date: "2025-04-05"
-        verified_at: "2026-02-22"
-
-      - model_id: gemma2-9b-it
-        display_name: "Gemma 2 9B IT"
-        input_per_million: 0.20
-        output_per_million: 0.20
-        effective_date: "2024-07-01"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
 
   - provider: mistral
     display_name: "Mistral AI"
     source_url: "https://mistral.ai/pricing"
+    # NOTE: Direct pricing table fetch blocked; values from Mistral news pages
+    # and verified by third-party aggregators. Re-verify from mistral.ai/pricing
+    # when possible.
     models:
-      - model_id: mistral-large-latest
-        display_name: "Mistral Large"
-        input_per_million: 0.50
-        output_per_million: 1.50
-        effective_date: "2025-11-01"
-        verified_at: "2026-02-22"
-
-      - model_id: mistral-medium-latest
+      - model_id: mistral-medium-3
         display_name: "Mistral Medium 3"
         input_per_million: 0.40
         output_per_million: 2.00
         effective_date: "2025-05-01"
+        verified_at: "2026-04-13"
+
+      - model_id: devstral-2
+        display_name: "Devstral 2"
+        input_per_million: 0.40
+        output_per_million: 2.00
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      # Legacy — retained from prior verification
+      - model_id: mistral-large-latest
+        display_name: "Mistral Large 2"
+        input_per_million: 2.00
+        output_per_million: 6.00
+        effective_date: "2024-11-01"
         verified_at: "2026-02-22"
 
       - model_id: mistral-small-latest
-        display_name: "Mistral Small"
+        display_name: "Mistral Small 3"
         input_per_million: 0.10
         output_per_million: 0.30
-        effective_date: "2025-09-01"
+        effective_date: "2025-01-30"
         verified_at: "2026-02-22"
 
       - model_id: codestral-latest
         display_name: "Codestral"
         input_per_million: 0.30
         output_per_million: 0.90
-        effective_date: "2025-01-01"
-        verified_at: "2026-02-22"
-
-      - model_id: ministral-8b-latest
-        display_name: "Ministral 8B"
-        input_per_million: 0.10
-        output_per_million: 0.10
-        effective_date: "2024-10-01"
-        verified_at: "2026-02-22"
-
-      - model_id: ministral-3b-latest
-        display_name: "Ministral 3B"
-        input_per_million: 0.10
-        output_per_million: 0.10
-        effective_date: "2024-10-01"
-        verified_at: "2026-02-22"
-
-      - model_id: open-mistral-nemo
-        display_name: "Mistral Nemo"
-        input_per_million: 0.02
-        output_per_million: 0.04
-        effective_date: "2024-07-18"
-        verified_at: "2026-02-22"
-
-      - model_id: open-mistral-7b
-        display_name: "Mistral 7B"
-        input_per_million: 0.20
-        output_per_million: 0.20
-        effective_date: "2023-09-27"
+        effective_date: "2024-05-29"
         verified_at: "2026-02-22"
 
   - provider: cohere
@@ -347,70 +404,151 @@ providers:
     source_url: "https://cohere.com/pricing"
     models:
       - model_id: command-r-plus-08-2024
-        display_name: "Command R+"
+        display_name: "Command R+ 08-2024"
         input_per_million: 2.50
         output_per_million: 10.00
-        effective_date: "2024-08-01"
-        verified_at: "2026-02-22"
+        effective_date: "2024-08-30"
+        verified_at: "2026-04-13"
 
-      - model_id: command-r-08-2024
-        display_name: "Command R"
-        input_per_million: 0.15
-        output_per_million: 0.60
-        effective_date: "2024-08-01"
-        verified_at: "2026-02-22"
+      - model_id: command-r-plus-04-2024
+        display_name: "Command R+ 04-2024"
+        input_per_million: 3.00
+        output_per_million: 15.00
+        effective_date: "2024-04-04"
+        verified_at: "2026-04-13"
 
-      - model_id: command-r7b-12-2024
-        display_name: "Command R 7B"
-        input_per_million: 0.037
-        output_per_million: 0.15
-        effective_date: "2024-12-01"
-        verified_at: "2026-02-22"
+      - model_id: command-r-03-2024
+        display_name: "Command R 03-2024"
+        input_per_million: 0.50
+        output_per_million: 1.50
+        effective_date: "2024-03-11"
+        verified_at: "2026-04-13"
+
+      - model_id: c4ai-aya-expanse-8b
+        display_name: "Aya Expanse 8B"
+        input_per_million: 0.50
+        output_per_million: 1.50
+        effective_date: "2024-10-24"
+        verified_at: "2026-04-13"
+
+      - model_id: c4ai-aya-expanse-32b
+        display_name: "Aya Expanse 32B"
+        input_per_million: 0.50
+        output_per_million: 1.50
+        effective_date: "2024-10-24"
+        verified_at: "2026-04-13"
 
   - provider: deepseek
     display_name: "DeepSeek"
     source_url: "https://api-docs.deepseek.com/quick_start/pricing"
-    # Standard (cache miss) input rates shown. Cache hits are 90% cheaper ($0.028/M).
     models:
       - model_id: deepseek-chat
-        display_name: "DeepSeek V3"
+        display_name: "DeepSeek Chat (V3.2)"
         input_per_million: 0.28
         output_per_million: 0.42
-        effective_date: "2025-09-29"
-        verified_at: "2026-02-22"
+        effective_date: "2026-02-01"
+        verified_at: "2026-04-13"
 
       - model_id: deepseek-reasoner
-        display_name: "DeepSeek R1"
+        display_name: "DeepSeek Reasoner (V3.2)"
         input_per_million: 0.28
         output_per_million: 0.42
-        effective_date: "2025-09-29"
-        verified_at: "2026-02-22"
+        effective_date: "2026-02-01"
+        verified_at: "2026-04-13"
 
   - provider: perplexity
     display_name: "Perplexity"
     source_url: "https://docs.perplexity.ai/docs/getting-started/pricing"
-    # Per-request search fees apply in addition to token costs — see official docs.
+    # NOTE: Perplexity also charges per-request fees that vary by search
+    # context size (Low/Medium/High); those fees are not captured here.
     models:
       - model_id: sonar
         display_name: "Sonar"
         input_per_million: 1.00
         output_per_million: 1.00
-        effective_date: "2025-01-01"
-        verified_at: "2026-02-22"
+        effective_date: "2025-02-01"
+        verified_at: "2026-04-13"
 
       - model_id: sonar-pro
         display_name: "Sonar Pro"
         input_per_million: 3.00
         output_per_million: 15.00
-        effective_date: "2025-01-01"
-        verified_at: "2026-02-22"
+        effective_date: "2025-02-01"
+        verified_at: "2026-04-13"
 
       - model_id: sonar-reasoning-pro
         display_name: "Sonar Reasoning Pro"
         input_per_million: 2.00
         output_per_million: 8.00
         effective_date: "2025-02-01"
-        verified_at: "2026-02-22"
+        verified_at: "2026-04-13"
+
+      - model_id: sonar-deep-research
+        display_name: "Sonar Deep Research"
+        input_per_million: 2.00
+        output_per_million: 8.00
+        effective_date: "2025-02-01"
+        verified_at: "2026-04-13"
+
+  - provider: minimax
+    display_name: "MiniMax"
+    source_url: "https://platform.minimax.io/docs/guides/pricing-paygo.md"
+    models:
+      - model_id: MiniMax-M2.7
+        display_name: "MiniMax M2.7"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2.7-highspeed
+        display_name: "MiniMax M2.7 High-speed"
+        input_per_million: 0.60
+        output_per_million: 2.40
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2.5
+        display_name: "MiniMax M2.5"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2025-11-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2.5-highspeed
+        display_name: "MiniMax M2.5 High-speed"
+        input_per_million: 0.60
+        output_per_million: 2.40
+        effective_date: "2025-11-01"
+        verified_at: "2026-04-13"
+
+      - model_id: M2-her
+        display_name: "MiniMax M2-her"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2025-10-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2.1
+        display_name: "MiniMax M2.1"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2025-09-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2.1-highspeed
+        display_name: "MiniMax M2.1 High-speed"
+        input_per_million: 0.60
+        output_per_million: 2.40
+        effective_date: "2025-09-01"
+        verified_at: "2026-04-13"
+
+      - model_id: MiniMax-M2
+        display_name: "MiniMax M2"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2025-07-01"
+        verified_at: "2026-04-13"
 
   - provider: ollama
     display_name: "Ollama (Local)"
@@ -444,3 +582,19 @@ providers:
         output_per_million: 0.0
         effective_date: "2024-06-27"
         verified_at: "2026-02-22"
+
+      # OpenClaw routes MiniMax M2.7 cloud API via its Ollama adapter.
+      # Pricing mirrors MiniMax's official pay-as-you-go rate.
+      - model_id: "minimax-m2.7:cloud"
+        display_name: "MiniMax M2.7 (via OpenClaw cloud)"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"
+
+      - model_id: "minimax-m2:cloud"
+        display_name: "MiniMax M2 (via OpenClaw cloud)"
+        input_per_million: 0.30
+        output_per_million: 1.20
+        effective_date: "2026-01-01"
+        verified_at: "2026-04-13"

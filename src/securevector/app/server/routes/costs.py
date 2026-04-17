@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PRICING_REMOTE_URL = (
-    "https://raw.githubusercontent.com/secure-vector/ai-threat-monitor/"
+    "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/"
     "master/src/securevector/pricing/model_pricing.yml"
 )
 
@@ -554,12 +554,14 @@ async def export_costs_csv(
 
 
 @router.post("/costs/pricing/sync", response_model=SyncResponse)
-async def sync_pricing_from_source() -> SyncResponse:
+async def sync_pricing_from_source(force_local: bool = False) -> SyncResponse:
     """
     On-demand price sync.
 
     Fetches the latest model_pricing.yml from GitHub (primary source).
     Falls back to the bundled YAML if the network is unavailable.
+    Pass ?force_local=true to skip GitHub and use the bundled YAML directly
+    (useful when running a local build with pricing changes not yet published).
     All prices are source-verified from official provider pricing pages.
     """
     import yaml
@@ -578,18 +580,19 @@ async def sync_pricing_from_source() -> SyncResponse:
         now_str = datetime.utcnow().date().isoformat()
         source = "bundled"
 
-        # ── Fetch YAML: GitHub first, bundled file as fallback ──────────────
+        # ── Fetch YAML: GitHub first (unless force_local), bundled file as fallback ──
         yaml_data = None
 
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(PRICING_REMOTE_URL)
-                if resp.status_code == 200:
-                    yaml_data = yaml.safe_load(resp.text)
-                    source = "github"
-                    logger.info("Fetched pricing from GitHub")
-        except Exception as fetch_err:
-            logger.warning(f"GitHub pricing fetch failed, using bundled YAML: {fetch_err}")
+        if not force_local:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(PRICING_REMOTE_URL)
+                    if resp.status_code == 200:
+                        yaml_data = yaml.safe_load(resp.text)
+                        source = "github"
+                        logger.info("Fetched pricing from GitHub")
+            except Exception as fetch_err:
+                logger.warning(f"GitHub pricing fetch failed, using bundled YAML: {fetch_err}")
 
         if yaml_data is None:
             pricing_paths = [

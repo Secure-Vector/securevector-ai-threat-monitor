@@ -257,6 +257,35 @@ const SECURITY_DIRECTIVES = [
 ].join("\n");
 
 // ---------------------------------------------------------------------------
+// Event helpers
+// ---------------------------------------------------------------------------
+
+/** Extract the latest user message text from a before_agent_start event. */
+function extractUserMessage(event: any): string | null {
+  if (!event) return null;
+  // Common direct fields
+  const direct = event.message || event.userMessage || event.input || event.prompt || event.content;
+  if (typeof direct === "string" && direct.trim()) return direct;
+  // messages array: [{role:"user", content:"..."}]
+  const messages = event.messages;
+  if (Array.isArray(messages)) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role !== "user") continue;
+      if (typeof m.content === "string" && m.content.trim()) return m.content;
+      if (Array.isArray(m.content)) {
+        const text = m.content
+          .map((b: any) => (typeof b === "string" ? b : b?.text || b?.content || ""))
+          .filter(Boolean)
+          .join("\n");
+        if (text.trim()) return text;
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Plugin entry (OpenClaw plugin format)
 // ---------------------------------------------------------------------------
 
@@ -342,9 +371,31 @@ export default {
       }
     });
 
-    // ── Context Guard (before_agent_start) ────────────────────────────
+    // ── Context Guard + Input Guard fallback (before_agent_start) ─────
+    // message_received only fires for channel-based inbound (Slack, Telegram, etc.).
+    // before_agent_start fires for every agent turn including CLI invocations,
+    // so we also scan the user message here as a fallback to ensure input
+    // threats are caught regardless of entry path.
     api.on("before_agent_start", async (event: any) => {
       try {
+        // Extract the latest user message text from whatever shape the event uses.
+        const text = extractUserMessage(event);
+        if (text) {
+          const sessionKey = event?.sessionKey || event?.sessionId || event?.agentId || "openclaw-agent";
+          sv.analyze(text, "inbound", {
+            session: sessionKey,
+            source: "before_agent_start",
+          }).then((result) => {
+            if (result && result.is_threat && result.risk_score >= cfg.threshold) {
+              const severity = result.risk_score >= 80 ? "CRITICAL" : result.risk_score >= 60 ? "HIGH" : "MEDIUM";
+              console.warn(
+                `${tag} INPUT ${severity} — ${result.threat_type || "unknown"} ` +
+                `(risk ${result.risk_score}, confidence ${(result.confidence * 100).toFixed(0)}%)`
+              );
+            }
+          }).catch(() => {});
+        }
+
         const { blockMode } = await sv.getSettings();
         if (blockMode) return;
         return { prependContext: SECURITY_DIRECTIVES };
