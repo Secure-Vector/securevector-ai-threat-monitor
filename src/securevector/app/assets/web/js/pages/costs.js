@@ -790,8 +790,14 @@ const CostsPage = {
         syncBtn.id = 'sync-pricing-btn';
         syncBtn.textContent = this.syncInProgress ? 'Syncing…' : 'Sync Prices';
         syncBtn.disabled = this.syncInProgress;
+        syncBtn.title = 'Fetches the latest model_pricing.yml from Secure-Vector/securevector-ai-threat-monitor (master) and updates the local database. Pricing is also refreshed from the bundled YAML on app startup.';
         syncBtn.addEventListener('click', () => this._syncPricing());
         toolbar.appendChild(syncBtn);
+
+        const syncInfo = document.createElement('span');
+        syncInfo.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-left: 8px;';
+        syncInfo.textContent = 'Pulls from Secure-Vector/securevector-ai-threat-monitor. Also auto-updates on app restart.';
+        toolbar.appendChild(syncInfo);
 
         if (this.lastSyncedAt) {
             const syncTime = document.createElement('span');
@@ -975,6 +981,14 @@ const CostsPage = {
             window.UI && UI.showNotification(`Sync failed: ${e.message}`, 'error');
         } finally {
             this.syncInProgress = false;
+            // Reset button state — if _loadAndRenderPricing rebuilt the toolbar,
+            // the new button already reflects syncInProgress=false. If it didn't
+            // (e.g. a failure before re-render), we must restore it manually.
+            const freshBtn = document.getElementById('sync-pricing-btn');
+            if (freshBtn) {
+                freshBtn.textContent = 'Sync Prices';
+                freshBtn.disabled = false;
+            }
         }
     },
 
