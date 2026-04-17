@@ -225,19 +225,17 @@ def _run_openclaw_cmd(args: list[str]) -> tuple[int, str, str]:
 def _is_plugin_installed_via_cli() -> bool:
     """Check if the plugin is registered with OpenClaw.
 
-    Tries CLI first, falls back to checking openclaw.json directly.
+    Authoritative source is openclaw.json `plugins.installs` — not the CLI output,
+    which can mention the plugin name in warnings ("plugin not found: ...") even when
+    it's uninstalled.
     """
-    code, stdout, _ = _run_openclaw_cmd(["plugins", "list"])
-    if code == 0 and PLUGIN_NAME in stdout:
-        return True
-    # CLI failed or plugin not found — check config file directly
     import json
     config_path = OPENCLAW_DIR / "openclaw.json"
     if config_path.is_file():
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
-            entries = config.get("plugins", {}).get("entries", {})
-            return PLUGIN_NAME in entries
+            installs = config.get("plugins", {}).get("installs", {})
+            return PLUGIN_NAME in installs
         except Exception:
             pass
     return False
@@ -255,6 +253,11 @@ def _register_plugin_in_config(install_path: str) -> bool:
             config = {}
 
         plugins = config.setdefault("plugins", {})
+
+        # Add to allow list so OpenClaw permits loading the plugin
+        allow = plugins.setdefault("allow", [])
+        if PLUGIN_NAME not in allow:
+            allow.append(PLUGIN_NAME)
 
         # Add to load paths
         load = plugins.setdefault("load", {})
@@ -286,6 +289,30 @@ def _register_plugin_in_config(install_path: str) -> bool:
         return True
     except Exception as e:
         logger.warning(f"Could not register plugin in config: {e}")
+        return False
+
+
+def _ensure_in_allow_list() -> bool:
+    """Ensure PLUGIN_NAME is present in plugins.allow — CLI sometimes omits it."""
+    import json
+    config_path = OPENCLAW_DIR / "openclaw.json"
+    if not config_path.is_file():
+        return False
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+        config = json.loads(raw)
+        plugins = config.setdefault("plugins", {})
+        allow = plugins.setdefault("allow", [])
+        if PLUGIN_NAME in allow:
+            return False
+        allow.append(PLUGIN_NAME)
+        backup = config_path.with_suffix(".json.bak")
+        backup.write_text(raw, encoding="utf-8")
+        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        logger.info(f"Added {PLUGIN_NAME} to plugins.allow in {config_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not update allow list: {e}")
         return False
 
 
@@ -343,6 +370,16 @@ def _cleanup_stale_config_entry():
             plugins["installs"] = installs
         else:
             plugins.pop("installs", None)
+
+        # Remove from allow list (otherwise OpenClaw shows "plugin not found" warnings)
+        allow = plugins.get("allow", [])
+        new_allow = [name for name in allow if name != PLUGIN_NAME]
+        if len(new_allow) != len(allow):
+            if new_allow:
+                plugins["allow"] = new_allow
+            else:
+                plugins.pop("allow", None)
+            changed = True
 
         if changed:
             # Backup before writing
@@ -404,9 +441,10 @@ async def install_plugin(request: Optional[InstallRequest] = None):
             "files_written": [],
         }
 
-    # Check if already installed
+    # Check if already installed — only short-circuit if files are also present
     already_registered = _is_plugin_installed_via_cli()
-    if already_registered and not force:
+    files_present = (STAGING_DIR / "openclaw.plugin.json").is_file() and (STAGING_DIR / "index.ts").is_file()
+    if already_registered and files_present and not force:
         return {
             "status": "already_installed",
             "message": (
@@ -458,6 +496,8 @@ async def install_plugin(request: Optional[InstallRequest] = None):
 
         if code == 0:
             registered = True
+            # CLI doesn't always add to plugins.allow — ensure it's present
+            _ensure_in_allow_list()
         else:
             # CLI failed — register directly in openclaw.json
             logger.info("OpenClaw CLI unavailable, registering plugin directly in config")
