@@ -199,7 +199,7 @@ Runs entirely on your machine. No accounts. No cloud. No data leaves your infras
 | **Scan** | Skill Scanner | Static analysis of AI agent skills — detects shell exec, network access, env var reads, code injection, and 6 more categories |
 | | AI Review | Optional LLM-powered false-positive filtering — works with OpenAI, Anthropic, Ollama, Azure, Bedrock |
 | | Scan Policy | Risk scoring with per-category allow/block rules, trusted publishers, and severity thresholds |
-| **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule |
+| **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule. How `allow` / `block` / `log_only` are decided: see [Tool Permissions guide](docs/TOOL_PERMISSIONS.md) |
 | | Cost Settings | Set daily budget limits and choose whether to warn or hard-block at the cap |
 | | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
 

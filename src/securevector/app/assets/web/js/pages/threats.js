@@ -150,13 +150,71 @@ const ThreatsPage = {
         });
         bar.appendChild(refreshBtn);
 
-        // Export PDF button
-        const exportBtn = document.createElement('button');
-        exportBtn.className = 'btn btn-primary';
-        exportBtn.textContent = 'Export PDF';
-        exportBtn.title = 'Download threat report as PDF';
-        exportBtn.addEventListener('click', () => this.exportToPDF());
-        bar.appendChild(exportBtn);
+        // Export buttons — CSV + PDF, both using the same theme class so they
+        // pair cleanly in the toolbar.
+        const exportCsvBtn = document.createElement('button');
+        exportCsvBtn.className = 'btn btn-secondary';
+        exportCsvBtn.textContent = 'Export CSV';
+        exportCsvBtn.title = 'Download threats as CSV';
+        exportCsvBtn.addEventListener('click', () => this.exportToCSV());
+        bar.appendChild(exportCsvBtn);
+
+        const exportPdfBtn = document.createElement('button');
+        exportPdfBtn.className = 'btn btn-secondary';
+        exportPdfBtn.textContent = 'Export PDF';
+        exportPdfBtn.title = 'Download threat report as PDF';
+        exportPdfBtn.addEventListener('click', () => this.exportToPDF());
+        bar.appendChild(exportPdfBtn);
+    },
+
+    async exportToCSV() {
+        // Always fetch fresh so the export doesn't depend on what's currently
+        // paginated in the table. Applies the active filters so exported rows
+        // match what the user is filtering.
+        let items = [];
+        try {
+            const params = Object.assign({}, this.filters || {}, { page: 1, page_size: 5000 });
+            const data = await API.getThreats(params);
+            items = (data && (data.items || data.threats)) || [];
+        } catch (e) {
+            items = (this.data && (this.data.items || this.data.threats)) || [];
+        }
+
+        if (items.length === 0) {
+            alert('No threats to export.');
+            return;
+        }
+
+        const headers = [
+            'id', 'created_at', 'is_threat', 'threat_type', 'risk_score',
+            'confidence', 'action_taken', 'source_identifier', 'text_preview', 'matched_rules'
+        ];
+        const esc = (v) => {
+            if (v === null || v === undefined) return '';
+            const s = String(v);
+            if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        };
+        const rows = items.map(t => {
+            const rules = (t.matched_rules || []).map(r => r.rule_id || r.rule_name || '').join('; ');
+            return [
+                t.id, t.created_at, t.is_threat, t.threat_type, t.risk_score,
+                t.confidence, t.action_taken, t.source_identifier, (t.text_preview || '').slice(0, 500),
+                rules,
+            ].map(esc).join(',');
+        });
+        const csv = headers.join(',') + '\n' + rows.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `securevector-threats-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     },
 
     updateDeleteButton() {

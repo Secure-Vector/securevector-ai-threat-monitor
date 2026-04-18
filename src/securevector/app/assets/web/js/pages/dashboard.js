@@ -177,6 +177,183 @@ const DashboardPage = {
     async renderContent(container) {
         container.textContent = '';
 
+        // NOTE: OpenClaw plugin nudge + "What's new" card now live as app-level
+        // global banners (components/global-banners.js) so they appear on every
+        // page and persist across navigation. Don't add them here.
+        if (false) {  // eslint-disable-line no-constant-condition
+        try {
+            const hooksStatus = await fetch('/api/hooks/status').then(r => r.ok ? r.json() : null).catch(() => null);
+            const dismissed = localStorage.getItem('sv-openclaw-banner-dismissed') === '1';
+            if (hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed && !dismissed) {
+                const banner = document.createElement('div');
+                banner.className = 'sv-dash-banner';
+                banner.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px;';
+
+                // Icon — compact, accent-tinted
+                const icon = document.createElement('div');
+                icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1;';
+                icon.textContent = '\u26A1';
+                icon.setAttribute('aria-hidden', 'true');
+                banner.appendChild(icon);
+
+                // Text column
+                const textCol = document.createElement('div');
+                textCol.style.cssText = 'flex: 1; min-width: 0;';
+
+                // Title row — headline + small "RECOMMENDED" pill
+                const titleRow = document.createElement('div');
+                titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
+
+                const title = document.createElement('div');
+                title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
+                title.textContent = 'Run SecureVector natively inside OpenClaw';
+                titleRow.appendChild(title);
+
+                const pill = document.createElement('span');
+                pill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
+                pill.textContent = 'Recommended';
+                titleRow.appendChild(pill);
+
+                textCol.appendChild(titleRow);
+
+                const desc = document.createElement('div');
+                desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
+                desc.textContent = 'Zero latency. Full audit trail. No proxy or env vars required.';
+                textCol.appendChild(desc);
+
+                banner.appendChild(textCol);
+
+                // Primary CTA — an actual button, not a text link
+                const cta = document.createElement('button');
+                cta.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s, transform 0.05s;';
+                cta.textContent = 'Install plugin';
+                cta.addEventListener('mouseenter', () => { cta.style.opacity = '0.9'; });
+                cta.addEventListener('mouseleave', () => { cta.style.opacity = '1'; });
+                cta.addEventListener('mousedown', () => { cta.style.transform = 'scale(0.98)'; });
+                cta.addEventListener('mouseup', () => { cta.style.transform = 'scale(1)'; });
+                cta.addEventListener('click', () => {
+                    if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); }
+                });
+                banner.appendChild(cta);
+
+                // Dismiss — absolute-positioned in corner, visually out of the way
+                const dismissBtn = document.createElement('button');
+                dismissBtn.style.cssText = 'position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px; transition: color 0.15s, background 0.15s;';
+                dismissBtn.title = 'Dismiss';
+                dismissBtn.setAttribute('aria-label', 'Dismiss');
+                dismissBtn.textContent = '\u00D7';
+                dismissBtn.addEventListener('mouseenter', () => { dismissBtn.style.color = 'var(--text-primary)'; dismissBtn.style.background = 'var(--bg-secondary)'; });
+                dismissBtn.addEventListener('mouseleave', () => { dismissBtn.style.color = 'var(--text-muted)'; dismissBtn.style.background = 'transparent'; });
+                dismissBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    localStorage.setItem('sv-openclaw-banner-dismissed', '1');
+                    banner.remove();
+                });
+                banner.appendChild(dismissBtn);
+
+                container.appendChild(banner);
+            }
+        } catch (e) { /* banner is non-critical */ }
+
+        // What's New — one-time per-version announcement card
+        try {
+            const WHATS_NEW_VERSION = '3.4.0';
+            const ackKey = 'sv-whats-new-acked';
+            const ackedVersion = localStorage.getItem(ackKey);
+            if (ackedVersion !== WHATS_NEW_VERSION) {
+                const card = document.createElement('div');
+                card.className = 'sv-dash-banner';
+                card.style.cssText = 'position: relative; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 16px 44px 16px 18px; margin-bottom: 16px;';
+
+                // Header row — version tag + title
+                const header = document.createElement('div');
+                header.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;';
+
+                const tag = document.createElement('span');
+                tag.style.cssText = 'font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 3px 8px; border-radius: 4px; text-transform: uppercase;';
+                tag.textContent = `v${WHATS_NEW_VERSION}`;
+                header.appendChild(tag);
+
+                const headerTitle = document.createElement('div');
+                headerTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary);';
+                headerTitle.textContent = 'What\u2019s new';
+                header.appendChild(headerTitle);
+
+                card.appendChild(header);
+
+                // Feature list
+                const list = document.createElement('div');
+                list.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 16px;';
+                const items = [
+                    { icon: '\u26A1', title: 'Native OpenClaw plugin',  body: 'Zero-latency input, output, tool, and cost monitoring \u2014 no proxy required.' },
+                    { icon: '\uD83D\uDEE0', title: 'Tool audit trail',   body: 'Every tool call your agent makes \u2014 allow, block, or log\u2011only \u2014 recorded automatically.' },
+                    { icon: '\uD83D\uDCB0', title: 'Cost tracking updates', body: 'Refreshed cost tracking for 76 models, incl. Opus 4.7, GPT\u20115.4, Gemini 3.x, MiniMax M2.7.' },
+                    { icon: '\uD83D\uDD0D', title: 'Skill Scanner + policy',   body: 'Static analysis for agent skills with trusted publishers and per-category rules.' },
+                ];
+                items.forEach(({ icon, title, body }) => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display: flex; align-items: flex-start; gap: 10px;';
+                    const ico = document.createElement('div');
+                    ico.style.cssText = 'flex-shrink: 0; width: 28px; height: 28px; background: var(--bg-secondary); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1;';
+                    ico.textContent = icon;
+                    row.appendChild(ico);
+                    const col = document.createElement('div');
+                    col.style.cssText = 'min-width: 0;';
+                    const t = document.createElement('div');
+                    t.style.cssText = 'font-size: 12.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; line-height: 1.3;';
+                    t.textContent = title;
+                    col.appendChild(t);
+                    const b = document.createElement('div');
+                    b.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
+                    b.textContent = body;
+                    col.appendChild(b);
+                    row.appendChild(col);
+                    list.appendChild(row);
+                });
+                card.appendChild(list);
+
+                // Footer row — "Open Guide" link + dismiss
+                const footer = document.createElement('div');
+                footer.style.cssText = 'display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-default);';
+
+                const guideLink = document.createElement('button');
+                guideLink.style.cssText = 'background: transparent; border: none; color: var(--accent-primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;';
+                guideLink.textContent = 'Open the Guide \u2192';
+                guideLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide'); });
+                footer.appendChild(guideLink);
+
+                const gotIt = document.createElement('button');
+                gotIt.style.cssText = 'margin-left: auto; background: var(--accent-primary); color: #fff; border: none; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 6px; cursor: pointer; transition: opacity 0.15s;';
+                gotIt.textContent = 'Got it';
+                gotIt.addEventListener('mouseenter', () => { gotIt.style.opacity = '0.9'; });
+                gotIt.addEventListener('mouseleave', () => { gotIt.style.opacity = '1'; });
+                gotIt.addEventListener('click', () => {
+                    localStorage.setItem(ackKey, WHATS_NEW_VERSION);
+                    card.remove();
+                });
+                footer.appendChild(gotIt);
+
+                card.appendChild(footer);
+
+                // Corner dismiss (equivalent to "Got it")
+                const closeBtn = document.createElement('button');
+                closeBtn.style.cssText = 'position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px; transition: color 0.15s, background 0.15s;';
+                closeBtn.title = 'Dismiss';
+                closeBtn.setAttribute('aria-label', 'Dismiss');
+                closeBtn.textContent = '\u00D7';
+                closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'var(--text-primary)'; closeBtn.style.background = 'var(--bg-secondary)'; });
+                closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'var(--text-muted)'; closeBtn.style.background = 'transparent'; });
+                closeBtn.addEventListener('click', () => {
+                    localStorage.setItem(ackKey, WHATS_NEW_VERSION);
+                    card.remove();
+                });
+                card.appendChild(closeBtn);
+
+                container.appendChild(card);
+            }
+        } catch (e) { /* whats-new is non-critical */ }
+        }  // end if (false) — legacy banner code superseded by GlobalBanners
+
         // Budget guardian alerts — rendered first so they're impossible to miss
         try {
             const gd = await API.getBudgetGuardian();

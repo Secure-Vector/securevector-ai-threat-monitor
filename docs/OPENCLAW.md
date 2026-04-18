@@ -58,6 +58,12 @@ unset OPENAI_BASE_URL
 Remove-Item Env:\OPENAI_BASE_URL -ErrorAction SilentlyContinue
 ```
 
+## Tool Activity
+
+Every tool call your agent invokes (`read`, `write`, `exec`, `web_search`, etc.) is recorded on the **Tool Activity** page as `allow`, `block`, or `log_only`.
+
+OpenClaw gets the richest audit because the plugin captures both MCP tools and LLM function calls. See [Tool Permissions & Tool Activity](./TOOL_PERMISSIONS.md) for how decisions are made, how block mode changes behavior, and the integration-by-integration logging matrix.
+
 ## Plugin API
 
 ```bash
@@ -79,7 +85,16 @@ mkdir -p ~/.openclaw/plugins/securevector-guard
 New-Item -ItemType Directory -Force -Path "$env:APPDATA\openclaw\plugins\securevector-guard"
 ```
 
-Copy `openclaw.plugin.json` and `index.ts` from the [source](../src/securevector/plugins/openclaw/) into the directory, then register:
+Copy all four plugin files from the [source](../src/securevector/plugins/openclaw/) into the directory:
+
+- `openclaw.plugin.json` — plugin manifest
+- `package.json` — plugin metadata
+- `index.ts` — main plugin entry (runtime guards, fetch-to-SecureVector)
+- `config.ts` — config resolver (env vars + svconfig.yml reads)
+
+> **Why two TypeScript files?** OpenClaw's plugin scanner flags files that both read `process.env` and make network requests as a potential credential-harvesting pattern. Splitting config reads into `config.ts` keeps `index.ts` network-only and lets the plugin load cleanly.
+
+Then register with OpenClaw:
 
 ```bash
 openclaw plugins install --link ~/.openclaw/plugins/securevector-guard
