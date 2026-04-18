@@ -625,19 +625,29 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
             source_url = provider_entry.get("source_url")
 
             try:
+                # Upsert — if YAML has newer prices for an existing model, update them.
+                # This is what makes "pip install --upgrade + restart" propagate pricing changes.
                 await db.execute(
                     """
-                    INSERT OR IGNORE INTO model_pricing
+                    INSERT INTO model_pricing
                     (id, provider, model_id, display_name, input_per_million, output_per_million,
                      effective_date, verified_at, source_url, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        input_per_million = excluded.input_per_million,
+                        output_per_million = excluded.output_per_million,
+                        effective_date = excluded.effective_date,
+                        verified_at = excluded.verified_at,
+                        source_url = excluded.source_url,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     (pricing_id, provider, model_id, display_name, input_per_million,
                      output_per_million, effective_date, verified_at, source_url),
                 )
                 loaded_count += 1
             except Exception as e:
-                logger.warning(f"Failed to insert pricing for {pricing_id}: {e}")
+                logger.warning(f"Failed to upsert pricing for {pricing_id}: {e}")
 
     if loaded_count > 0:
         logger.info(f"Loaded {loaded_count} model pricing entries")

@@ -121,6 +121,39 @@ const GettingStartedPage = {
         proxyBar.appendChild(featureList);
         hero.appendChild(proxyBar);
 
+        // OpenClaw promo banner — native plugin, no proxy needed
+        const ocBanner = document.createElement('div');
+        ocBanner.style.cssText = 'display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: linear-gradient(90deg, rgba(94,173,184,0.10) 0%, rgba(94,173,184,0.04) 100%); border: 1px solid rgba(94,173,184,0.35); border-radius: 8px; margin-bottom: 20px; cursor: pointer; transition: border-color 0.15s;';
+        ocBanner.addEventListener('mouseenter', () => { ocBanner.style.borderColor = 'rgba(94,173,184,0.6)'; });
+        ocBanner.addEventListener('mouseleave', () => { ocBanner.style.borderColor = 'rgba(94,173,184,0.35)'; });
+        ocBanner.addEventListener('click', () => {
+            if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); }
+        });
+
+        const ocIcon = document.createElement('div');
+        ocIcon.style.cssText = 'flex-shrink: 0; width: 32px; height: 32px; background: rgba(94,173,184,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px;';
+        ocIcon.textContent = '\u26A1';
+        ocBanner.appendChild(ocIcon);
+
+        const ocText = document.createElement('div');
+        ocText.style.cssText = 'flex: 1; min-width: 0;';
+        const ocTitle = document.createElement('div');
+        ocTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px;';
+        ocTitle.textContent = 'Using OpenClaw? Skip the proxy.';
+        ocText.appendChild(ocTitle);
+        const ocDesc = document.createElement('div');
+        ocDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+        ocDesc.textContent = 'Install the native SecureVector Guard plugin \u2014 zero latency, no env vars, no proxy restart. Monitoring starts the moment OpenClaw reloads.';
+        ocText.appendChild(ocDesc);
+        ocBanner.appendChild(ocText);
+
+        const ocCta = document.createElement('div');
+        ocCta.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--accent-primary); white-space: nowrap;';
+        ocCta.textContent = 'Install plugin \u2192';
+        ocBanner.appendChild(ocCta);
+
+        hero.appendChild(ocBanner);
+
         // Two action cards — matching the popup structure
         const columns = document.createElement('div');
         columns.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; min-width: 0;';
@@ -757,6 +790,143 @@ const GettingStartedPage = {
         tpBtn.textContent = 'Open Tool Permissions';
         tpBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('tool-permissions'); });
         frag.appendChild(tpBtn);
+
+        // === Tool Activity: allow vs block vs log_only ===
+        const activityAnchor = document.createElement('div');
+        activityAnchor.id = 'section-tool-activity';
+        activityAnchor.style.cssText = 'margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border-default);';
+        frag.appendChild(activityAnchor);
+
+        const actTitle = document.createElement('div');
+        actTitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 6px;';
+        actTitle.textContent = 'Tool Activity: allow vs block vs log_only';
+        activityAnchor.appendChild(actTitle);
+
+        const actDesc = document.createElement('p');
+        actDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 12px 0; font-size: 13px; line-height: 1.5;';
+        actDesc.textContent = 'Every tool call the agent makes is recorded on the Tool Activity tab. The action column reflects the combined decision of the tool\u2019s permission policy and whether block mode is enabled.';
+        activityAnchor.appendChild(actDesc);
+
+        // Behavior table
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px;';
+        const thead = document.createElement('thead');
+        const thr = document.createElement('tr');
+        ['Tool policy', 'Block mode', 'Recorded action', 'What actually happens'].forEach(h => {
+            const th = document.createElement('th');
+            th.style.cssText = 'text-align: left; padding: 8px 10px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border-default); color: var(--text-primary); font-weight: 600;';
+            th.textContent = h;
+            thr.appendChild(th);
+        });
+        thead.appendChild(thr);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const rows = [
+            ['allow',     'either',       'allow',    'Tool call runs. Logged as allowed.'],
+            ['block',     'ON',           'block',    'Proxy rejects the tool call before the LLM sees a result. Gateway log: TOOL BLOCKED.'],
+            ['block',     'OFF',          'log_only', 'Tool call still runs. Logged with note "(audit only \u2014 enable proxy to block)".'],
+            ['log_only',  'either',       'log_only', 'Tool call runs. Always logged for audit trail.'],
+        ];
+        const colorMap = { allow: '#10b981', block: '#ef4444', log_only: '#f59e0b' };
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            row.forEach((cell, idx) => {
+                const td = document.createElement('td');
+                td.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); vertical-align: top;';
+                if (idx === 2) {
+                    const badge = document.createElement('strong');
+                    badge.style.color = colorMap[cell] || 'var(--text-primary)';
+                    badge.textContent = cell;
+                    td.appendChild(badge);
+                } else {
+                    td.textContent = cell;
+                }
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        activityAnchor.appendChild(table);
+
+        const quickGuide = document.createElement('div');
+        quickGuide.style.cssText = 'padding: 12px 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-primary); font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 16px;';
+        const qgTitle = document.createElement('strong');
+        qgTitle.style.cssText = 'color: var(--text-primary); font-size: 12px;';
+        qgTitle.textContent = 'Quick guide';
+        quickGuide.appendChild(qgTitle);
+        const qgUl = document.createElement('ul');
+        qgUl.style.cssText = 'margin: 6px 0 0 18px; padding: 0;';
+        [
+            'Want a passive audit trail without changing agent behavior? Keep block mode OFF \u2014 everything gets captured as log_only or allow.',
+            'Want hard enforcement? Turn block mode ON and start the proxy \u2014 block policies start rejecting tool calls at the proxy layer.',
+            'SecureVector ships 66 essential tool definitions (54 default to block). Custom tools can be added per project on the Tool Permissions page.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.style.cssText = 'margin-bottom: 4px;';
+            li.textContent = t;
+            qgUl.appendChild(li);
+        });
+        quickGuide.appendChild(qgUl);
+        activityAnchor.appendChild(quickGuide);
+
+        // === Which integrations log tool calls? ===
+        const whichTitle = document.createElement('div');
+        whichTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-top: 18px; margin-bottom: 6px;';
+        whichTitle.textContent = 'Which integrations log tool calls?';
+        activityAnchor.appendChild(whichTitle);
+
+        const whichDesc = document.createElement('p');
+        whichDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 12px 0; font-size: 12px; line-height: 1.5;';
+        whichDesc.textContent = 'The allow / block / log_only decision is universal \u2014 it\u2019s SecureVector\u2019s policy engine. Whether a tool call actually lands in the Tool Activity log depends on the path it takes.';
+        activityAnchor.appendChild(whichDesc);
+
+        const whichTable = document.createElement('table');
+        whichTable.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px;';
+        const whThead = document.createElement('thead');
+        const whThr = document.createElement('tr');
+        ['Integration path', 'Logged?', 'Captured by'].forEach(h => {
+            const th = document.createElement('th');
+            th.style.cssText = 'text-align: left; padding: 8px 10px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border-default); color: var(--text-primary); font-weight: 600;';
+            th.textContent = h;
+            whThr.appendChild(th);
+        });
+        whThead.appendChild(whThr);
+        whichTable.appendChild(whThead);
+
+        const whTbody = document.createElement('tbody');
+        const whichRows = [
+            ['OpenClaw / ClawdBot with plugin installed',                          'yes',     'Plugin \u2014 captures MCP tools (read, exec, write) and LLM tool calls'],
+            ['LangChain / LangGraph / CrewAI / n8n / direct SDK via proxy',        'yes',     'Proxy \u2014 captures LLM function calls (requires OPENAI_BASE_URL or equivalent pointing at localhost:8742)'],
+            ['Direct SDK to provider (no proxy, no plugin)',                       'no',      '\u2014'],
+            ['Ollama local calls that bypass both',                                'no',      '\u2014'],
+            ['Custom integration',                                                 'optional','POST to /api/tool-permissions/call-audit from your own callback'],
+        ];
+        whichRows.forEach(row => {
+            const tr = document.createElement('tr');
+            row.forEach((cell, idx) => {
+                const td = document.createElement('td');
+                td.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); vertical-align: top;';
+                if (idx === 1) {
+                    const badge = document.createElement('strong');
+                    if (cell === 'yes') { badge.style.color = '#10b981'; badge.textContent = 'Yes'; }
+                    else if (cell === 'no') { badge.style.color = '#ef4444'; badge.textContent = 'No'; }
+                    else { badge.style.color = '#f59e0b'; badge.textContent = 'Optional'; }
+                    td.appendChild(badge);
+                } else {
+                    td.textContent = cell;
+                }
+                tr.appendChild(td);
+            });
+            whTbody.appendChild(tr);
+        });
+        whichTable.appendChild(whTbody);
+        activityAnchor.appendChild(whichTable);
+
+        const whichNote = document.createElement('div');
+        whichNote.style.cssText = 'margin-top: 10px; font-size: 11px; color: var(--text-muted); line-height: 1.5;';
+        whichNote.textContent = 'OpenClaw users get the richest audit because the plugin also captures MCP-only tools (file reads, shell execs, workspace edits) that never touch the proxy. Other integrations see their function-calling tool calls when traffic routes through the multi-provider proxy.';
+        activityAnchor.appendChild(whichNote);
 
         return frag;
     },

@@ -38,6 +38,7 @@ class GeneralSettingsResponse(BaseModel):
     tool_permissions_enabled: bool = True
     config_file: Optional[str] = None
     config_updated: bool = False
+    proxy_action: Optional[str] = None
 
 
 class GeneralSettingsUpdate(BaseModel):
@@ -169,7 +170,63 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             except Exception as ce:
                 logger.warning(f"Could not update securevector.yml: {ce}")
 
-        return GeneralSettingsResponse(
+        # OpenClaw: auto-start/stop proxy when block_mode is toggled
+        proxy_action = None
+        if "block_threats" in updates:
+            try:
+                from securevector.app.utils.config_file import load_config
+                cfg = load_config()
+                proxy_cfg = cfg.get("proxy", {})
+                integration = proxy_cfg.get("integration", "openclaw")
+
+                if integration in ("openclaw", "clawdbot"):
+                    import securevector.app.server.routes.proxy as _proxy_mod
+
+                    if settings.block_threats:
+                        # block_mode ON → start proxy + patch pi-ai files
+                        proxy_mode = proxy_cfg.get("mode", "multi-provider")
+                        proxy_host = proxy_cfg.get("host", "127.0.0.1")
+                        proxy_port = proxy_cfg.get("port", 8742)
+                        import os as _os
+                        proxy_port = int(_os.environ.get("SV_PROXY_PORT", proxy_port))
+
+                        # Patch pi-ai files before starting proxy
+                        try:
+                            from securevector.app.main import _auto_setup_proxy_multi, _auto_setup_proxy_if_needed
+                            if proxy_mode == "multi-provider":
+                                _auto_setup_proxy_multi()
+                            else:
+                                _auto_setup_proxy_if_needed(integration)
+                        except Exception as pe:
+                            logger.warning(f"Could not patch pi-ai files: {pe}")
+
+                        started = _proxy_mod.auto_start_from_config(
+                            integration=integration,
+                            mode=proxy_mode,
+                            host=proxy_host,
+                            port=proxy_port,
+                            provider=proxy_cfg.get("provider") or None,
+                        )
+                        proxy_action = "started" if started else "start_failed"
+                    else:
+                        # block_mode OFF → stop proxy + revert pi-ai patches
+                        if _proxy_mod._llm_proxy_process is not None or _proxy_mod._proxy_running_in_process:
+                            stop_result = await _proxy_mod.stop_proxy()
+                            proxy_action = stop_result.get("status", "stopped")
+                        else:
+                            # Proxy not running, but still revert patches in case they linger
+                            try:
+                                import asyncio
+                                from securevector.app.main import revert_proxy as _do_revert
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, _do_revert)
+                                proxy_action = "patches_reverted"
+                            except Exception as e:
+                                logger.warning("Could not revert proxy patches when stopping proxy: %s", e)
+            except Exception as e:
+                logger.warning(f"Could not auto-toggle proxy for block_mode: {e}")
+
+        response = GeneralSettingsResponse(
             scan_llm_responses=settings.scan_llm_responses,
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
@@ -178,6 +235,9 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             config_file=str(config_path) if config_path else None,
             config_updated=config_updated,
         )
+        if proxy_action:
+            response.proxy_action = proxy_action
+        return response
 
     except Exception as e:
         logger.error(f"Failed to update general settings: {e}")

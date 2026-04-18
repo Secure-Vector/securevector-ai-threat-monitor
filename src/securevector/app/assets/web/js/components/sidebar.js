@@ -553,13 +553,17 @@ const Sidebar = {
                         banner.onclick = () => this.navigate(config.page);
 
                         if (textEl) {
+                            // Always label as SecureVector proxy to avoid conflating
+                            // with the user's OpenClaw gateway. The integration is
+                            // shown in parens for context (what agent started it).
                             const friendlyNames = {
                                 openclaw: 'OpenClaw', ollama: 'Ollama', langchain: 'LangChain',
                                 langgraph: 'LangGraph', crewai: 'CrewAI', n8n: 'n8n',
                             };
-                            const name = friendlyNames[integration] || 'Proxy';
-                            const mode = data.multi ? ' · Multi-provider' : '';
-                            textEl.textContent = name + ' proxy running' + mode;
+                            const name = friendlyNames[integration];
+                            const modeTag = data.multi ? 'multi-provider' : (data.provider || 'single');
+                            const integrationTag = name ? ` for ${name}` : '';
+                            textEl.textContent = `SecureVector proxy running (${modeTag})${integrationTag}`;
                         }
 
                         // Store state for proxy pages to use

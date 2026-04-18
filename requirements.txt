@@ -3,14 +3,14 @@
 
 # Core dependencies
 PyYAML>=5.1
-requests>=2.25.0
+requests>=2.32.4
 typing-extensions>=4.0.0
 
 # Security fixes (2025-2026)
 # CVE-2025-53643: aiohttp request smuggling
 # CVE-2024-52303: aiohttp memory leak
 # Multiple aiohttp DoS vulnerabilities
-aiohttp>=3.12.14
+aiohttp>=3.13.5
 
 # CVE-2025-66418: urllib3 unbounded decompression chain
 # CVE-2025-66471: urllib3 streaming API decompression bomb

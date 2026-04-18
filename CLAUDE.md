@@ -5,6 +5,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-01
 ## Active Technologies
 - Python 3.10+, JavaScript ES6+ + FastAPI, aiosqlite, pywebview (existing — no new dependencies) (007-llm-cost-tracking)
 - SQLite via existing `DatabaseConnection` — two new tables via migration v12 (007-llm-cost-tracking)
+- TypeScript (hook handler), JavaScript ES6+ (integration page UI), Python 3.10+ (existing backend) + OpenClaw hook API (external), FastAPI (existing backend), native `fetch` (TypeScript handler) (008-openclaw-hooks-integration)
+- N/A (hook is stateless; analysis results stored by existing SecureVector backend) (008-openclaw-hooks-integration)
 - Python 3.10+, JavaScript ES6+ + FastAPI, aiosqlite, pywebview 5.0+, uvicorn (all existing — no new dependencies) (001-skill-scanner)
 - SQLite via existing `DatabaseConnection`; new `skill_scan_records` table via migration V18 (001-skill-scanner)
 
@@ -27,6 +29,7 @@ cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLO
 Python 3.10+, JavaScript ES6+: Follow standard conventions
 
 ## Recent Changes
+- 008-openclaw-hooks-integration: Added TypeScript (hook handler), JavaScript ES6+ (integration page UI), Python 3.10+ (existing backend) + OpenClaw hook API (external), FastAPI (existing backend), native `fetch` (TypeScript handler)
 - 001-skill-scanner: Added Python 3.10+, JavaScript ES6+ + FastAPI, aiosqlite, pywebview 5.0+, uvicorn (all existing — no new dependencies)
 - 007-llm-cost-tracking: Added Python 3.10+, JavaScript ES6+ + FastAPI, aiosqlite, pywebview (existing — no new dependencies)
 

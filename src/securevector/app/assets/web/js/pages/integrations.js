@@ -62,10 +62,14 @@ const IntegrationPage = {
             if (stopBtn1) { stopBtn1.style.display = 'inline-block'; }
             if (stopBtn2) { stopBtn2.style.display = 'inline-block'; }
             if (status1) {
-                status1.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status1.textContent = '';
+                const s1 = document.createElement('strong'); s1.style.color = 'var(--success)'; s1.textContent = 'ACTIVE: ';
+                status1.appendChild(s1); status1.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
             if (status2) {
-                status2.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status2.textContent = '';
+                const s2 = document.createElement('strong'); s2.style.color = 'var(--success)'; s2.textContent = 'ACTIVE: ';
+                status2.appendChild(s2); status2.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
         } else {
             if (btn1) { btn1.disabled = false; btn1.textContent = 'Start Proxy'; btn1.style.background = 'var(--accent-primary)'; }
@@ -86,10 +90,12 @@ const IntegrationPage = {
 
         if (this.proxyStatus.running) {
             const modeUpper = this.proxyStatus.multi ? 'MULTI-PROVIDER' : this.proxyStatus.provider?.toUpperCase();
-            if (btn) { btn.disabled = true; btn.textContent = 'Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
+            if (btn) { btn.disabled = true; btn.textContent = 'SecureVector Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
             if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; stopBtn.textContent = 'Stop Proxy'; }
             if (status) {
-                status.innerHTML = `<strong style="color: var(--success);">ACTIVE:</strong> ${modeUpper} proxy on port 8742`;
+                status.textContent = '';
+                const s3 = document.createElement('strong'); s3.style.color = 'var(--success)'; s3.textContent = 'ACTIVE: ';
+                status.appendChild(s3); status.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
         } else {
             if (btn) { btn.disabled = false; btn.textContent = 'Start Multi-Provider Proxy'; btn.style.background = 'var(--accent-primary)'; }
@@ -286,9 +292,41 @@ def chat_with_protection(user_input):
             container.appendChild(this.createNodeCard(integration));
             container.appendChild(this.createApiCard(integration));
         } else if (integration.isOpenClaw) {
-            // OpenClaw: Special proxy setup with --openclaw flag
-            container.appendChild(this.createOpenClawCard());
-            container.appendChild(this.createRevertCard());
+            // OpenClaw: Plugin card + separate block mode card
+            container.appendChild(this.createOpenClawPluginCard());
+            container.appendChild(this.createOpenClawBlockModeCard());
+            // Revert card: only show when block mode is on and proxy is running
+            const revertCard = this.createRevertCard();
+            revertCard.style.display = 'none';
+            container.appendChild(revertCard);
+            // Proxy status indicator (bottom of page)
+            const statusBar = document.createElement('div');
+            statusBar.style.cssText = 'position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 16px; font-size: 12px; font-weight: 600; text-align: center; z-index: 100; display: none;';
+            container.appendChild(statusBar);
+
+            (async () => {
+                try {
+                    const [settings, proxyStatus] = await Promise.all([
+                        API.getSettings(),
+                        fetch('/api/proxy/status').then(r => r.json()),
+                    ]);
+                    if (settings.block_threats && proxyStatus.running) {
+                        revertCard.style.display = '';
+                    }
+                    // Show proxy status bar
+                    statusBar.style.display = '';
+                    if (proxyStatus.running) {
+                        statusBar.style.background = 'var(--success)';
+                        statusBar.style.color = '#fff';
+                        const port = proxyStatus.port || 8742;
+                        statusBar.textContent = `Proxy running on port ${port}`;
+                    } else {
+                        statusBar.style.background = 'var(--bg-tertiary)';
+                        statusBar.style.color = 'var(--text-secondary)';
+                        statusBar.textContent = 'Proxy not running — monitoring via plugin only';
+                    }
+                } catch {}
+            })();
         } else if (integration.proxyOnly) {
             // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
             container.appendChild(this.createMultiProviderCard());
@@ -734,6 +772,678 @@ def chat_with_protection(user_input):
         minimax: { label: 'MiniMax', env: 'OPENAI_BASE_URL', path: '/minimax/v1' },
     },
 
+    createOpenClawPluginCard() {
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden; animation: pulse-border 2s ease-in-out 3;';
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+
+        const pluginTitle = document.createElement('div');
+        pluginTitle.style.cssText = 'font-weight: 600; font-size: 15px;';
+        pluginTitle.textContent = 'SecureVector for OpenClaw';
+        header.appendChild(pluginTitle);
+
+        const pluginSubtitle = document.createElement('div');
+        pluginSubtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        pluginSubtitle.textContent = 'Threat monitoring, cost tracking, tool permissions, and optional threat blocking';
+        header.appendChild(pluginSubtitle);
+
+        card.appendChild(header);
+
+        // Content
+        const pluginContent = document.createElement('div');
+        pluginContent.style.cssText = 'padding: 16px;';
+
+        // --- Install section ---
+        const installSection = document.createElement('div');
+        installSection.style.cssText = 'margin-bottom: 20px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 8px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+        installBtn.disabled = true;
+        installBtn.style.opacity = '0.6';
+        installBtn.style.cursor = 'not-allowed';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusText = document.createElement('span');
+        statusText.id = 'plugin-install-status';
+        statusText.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusText.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusText);
+        installSection.appendChild(btnRow);
+
+        // Result area
+        const resultArea = document.createElement('div');
+        resultArea.id = 'plugin-install-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 8px;';
+        installSection.appendChild(resultArea);
+
+        pluginContent.appendChild(installSection);
+
+        // Install click handler
+        installBtn.onclick = async () => {
+            const isReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.disabled = true;
+            installBtn.textContent = 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/install', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: isReinstall })
+                });
+                const result = await res.json();
+                resultArea.style.display = 'block';
+                if (result.status === 'installed' || result.status === 'updated') {
+                    resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                    resultArea.style.border = '1px solid var(--success)';
+                    resultArea.style.color = 'var(--text-primary)';
+                    resultArea.textContent = '';
+                    const successTitle = document.createElement('strong');
+                    successTitle.style.color = 'var(--success)';
+                    successTitle.textContent = 'Plugin ' + result.status + ' successfully!';
+                    resultArea.appendChild(successTitle);
+                    resultArea.appendChild(document.createElement('br'));
+                    const nameLabel = document.createElement('strong');
+                    nameLabel.textContent = 'Plugin: ';
+                    resultArea.appendChild(nameLabel);
+                    resultArea.appendChild(document.createTextNode(result.hook_name));
+                    resultArea.appendChild(document.createTextNode(' \u2192 '));
+                    resultArea.appendChild(document.createTextNode(result.path));
+                    resultArea.appendChild(document.createElement('br'));
+                    const filesLabel = document.createElement('strong');
+                    filesLabel.textContent = 'Files: ';
+                    resultArea.appendChild(filesLabel);
+                    resultArea.appendChild(document.createTextNode(result.files_written.join(', ')));
+                    resultArea.appendChild(document.createElement('br'));
+                    const restartNote = document.createElement('span');
+                    restartNote.style.color = 'var(--text-secondary)';
+                    restartNote.textContent = 'The OpenClaw gateway should pick this up automatically; restart it if monitoring doesn\u2019t start in a few seconds.';
+                    resultArea.appendChild(restartNote);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                    statusText.textContent = '';
+                    const installedLabel = document.createElement('strong');
+                    installedLabel.style.color = 'var(--success)';
+                    installedLabel.textContent = result.registered ? 'Installed & Registered' : 'Installed';
+                    statusText.appendChild(installedLabel);
+                } else if (result.status === 'already_installed') {
+                    resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                    resultArea.style.border = '1px solid var(--warning)';
+                    resultArea.style.color = 'var(--text-primary)';
+                    resultArea.textContent = '';
+                    const alreadyLabel = document.createElement('strong');
+                    alreadyLabel.style.color = 'var(--warning)';
+                    alreadyLabel.textContent = 'Already installed';
+                    resultArea.appendChild(alreadyLabel);
+                    resultArea.appendChild(document.createTextNode(' \u2014 click "Reinstall Plugin" to update.'));
+                    installBtn.textContent = 'Reinstall Plugin';
+                } else {
+                    resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                    resultArea.style.border = '1px solid var(--error)';
+                    resultArea.style.color = 'var(--text-primary)';
+                    resultArea.textContent = '';
+                    const errLabel = document.createElement('strong');
+                    errLabel.style.color = 'var(--error)';
+                    errLabel.textContent = 'Error: ';
+                    resultArea.appendChild(errLabel);
+                    resultArea.appendChild(document.createTextNode(result.message || 'Installation failed'));
+                    installBtn.textContent = isReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                resultArea.style.display = 'block';
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+                resultArea.style.color = 'var(--text-primary)';
+                resultArea.textContent = '';
+                const errLabel = document.createElement('strong');
+                errLabel.style.color = 'var(--error)';
+                errLabel.textContent = 'Error: ';
+                resultArea.appendChild(errLabel);
+                resultArea.appendChild(document.createTextNode('Failed to connect to SecureVector server'));
+                installBtn.textContent = isReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        // Uninstall click handler
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/uninstall', { method: 'POST' });
+                const result = await res.json();
+                resultArea.style.display = 'block';
+                if (result.status === 'removed') {
+                    resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                    resultArea.style.border = '1px solid var(--warning)';
+                    resultArea.style.color = 'var(--text-primary)';
+                    resultArea.textContent = result.message;
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                    statusText.textContent = 'Not installed';
+                } else {
+                    resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                    resultArea.style.border = '1px solid var(--error)';
+                    resultArea.style.color = 'var(--text-primary)';
+                    resultArea.textContent = result.message || 'Uninstall failed';
+                }
+            } catch {
+                resultArea.style.display = 'block';
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+                resultArea.textContent = 'Failed to connect to SecureVector server';
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // --- Feature status grid ---
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities';
+        pluginContent.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px;';
+
+        const features = [
+            { name: 'Threat Monitoring', desc: 'Scans prompts & responses', always: true },
+            { name: 'Cost Tracking', desc: 'Token usage & spend', always: true },
+            { name: 'Tool Permissions', desc: 'Block dangerous tools', always: true },
+            { name: 'Security Injection', desc: 'Prompt-level protection', always: true },
+        ];
+
+        features.forEach(f => {
+            const featureItem = document.createElement('div');
+            featureItem.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px; font-size: 12px;';
+            const check = document.createElement('span');
+            check.style.cssText = 'color: var(--success); font-size: 14px; flex-shrink: 0;';
+            check.textContent = '\u2713';
+            featureItem.appendChild(check);
+            const textDiv = document.createElement('div');
+            const nameSpan = document.createElement('div');
+            nameSpan.style.cssText = 'font-weight: 600; font-size: 12px;';
+            nameSpan.textContent = f.name;
+            textDiv.appendChild(nameSpan);
+            const descSpan = document.createElement('div');
+            descSpan.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+            descSpan.textContent = f.desc;
+            textDiv.appendChild(descSpan);
+            featureItem.appendChild(textDiv);
+            featuresGrid.appendChild(featureItem);
+        });
+
+        pluginContent.appendChild(featuresGrid);
+
+        // --- Check initial status on load ---
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/status');
+                const status = await res.json();
+                if (status.installed) {
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                    statusText.textContent = '';
+                    const label = document.createElement('strong');
+                    label.style.color = 'var(--success)';
+                    label.textContent = 'Installed & Registered';
+                    statusText.appendChild(label);
+                } else if (status.files && (status.files.plugin_json || status.files.index_ts) && !status.registered) {
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                    statusText.textContent = '';
+                    const label = document.createElement('strong');
+                    label.style.color = 'var(--warning)';
+                    label.textContent = 'Files present but not registered in openclaw.json';
+                    statusText.appendChild(label);
+                } else {
+                    statusText.textContent = 'Not installed';
+                }
+            } catch {
+                statusText.textContent = 'Status unknown';
+            }
+            installBtn.disabled = false;
+            installBtn.style.opacity = '1';
+            installBtn.style.cursor = 'pointer';
+        }, 0);
+
+        // --- Restart note ---
+        const restartNote = document.createElement('div');
+        restartNote.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;';
+        restartNote.textContent = 'After installing the plugin, restart your OpenClaw gateway for it to take effect.';
+        pluginContent.appendChild(restartNote);
+
+        // --- Manual install (collapsible) ---
+        const manualToggle = document.createElement('div');
+        manualToggle.style.cssText = 'font-size: 12px; color: var(--accent-primary); cursor: pointer; margin-bottom: 8px; user-select: none;';
+        manualToggle.textContent = '\u25B6 Manual Install';
+        const manualDiv = document.createElement('div');
+        manualDiv.style.cssText = 'display: none; margin-bottom: 16px;';
+
+        manualToggle.onclick = () => {
+            const isOpen = manualDiv.style.display !== 'none';
+            manualDiv.style.display = isOpen ? 'none' : 'block';
+            manualToggle.textContent = (isOpen ? '\u25B6' : '\u25BC') + ' Manual Install';
+        };
+        pluginContent.appendChild(manualToggle);
+
+        const manualDesc = document.createElement('div');
+        manualDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
+        manualDesc.textContent = 'If the Install button doesn\'t work, copy the plugin files manually:';
+        manualDiv.appendChild(manualDesc);
+
+        const filesNote = document.createElement('div');
+        filesNote.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.5;';
+        filesNote.textContent = 'The plugin files are bundled with SecureVector at: <site-packages>/securevector/plugins/openclaw/. Copy openclaw.plugin.json and index.ts to the OpenClaw plugins directory:';
+        manualDiv.appendChild(filesNote);
+
+        manualDiv.appendChild(this.createCodeBlock(
+            '# Linux / macOS\n' +
+            'mkdir -p ~/.openclaw/plugins/securevector-guard\n' +
+            'cp <path-to-securevector>/plugins/openclaw/openclaw.plugin.json \\\n' +
+            '   <path-to-securevector>/plugins/openclaw/index.ts \\\n' +
+            '   ~/.openclaw/plugins/securevector-guard/\n' +
+            'openclaw plugins install --link ~/.openclaw/plugins/securevector-guard'
+        ));
+
+        manualDiv.appendChild(this.createCodeBlock(
+            '# Windows (PowerShell)\n' +
+            'mkdir -Force "$HOME\\.openclaw\\plugins\\securevector-guard"\n' +
+            'copy <path-to-securevector>\\plugins\\openclaw\\openclaw.plugin.json,\n' +
+            '     <path-to-securevector>\\plugins\\openclaw\\index.ts `\n' +
+            '     "$HOME\\.openclaw\\plugins\\securevector-guard\\"\n' +
+            'openclaw plugins install --link "$HOME\\.openclaw\\plugins\\securevector-guard"'
+        ));
+
+        const verifyDesc = document.createElement('div');
+        verifyDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 8px 0 4px;';
+        verifyDesc.textContent = 'Verify:';
+        manualDiv.appendChild(verifyDesc);
+        manualDiv.appendChild(this.createCodeBlock('openclaw plugins list'));
+
+        pluginContent.appendChild(manualDiv);
+
+        card.appendChild(pluginContent);
+        return card;
+    },
+
+    createOpenClawBlockModeCard() {
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between;';
+
+        const headerLeft = document.createElement('div');
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'Threat Blocking (Optional)';
+        headerLeft.appendChild(title);
+
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Intercept and block threats before they reach the LLM via multi-provider proxy';
+        headerLeft.appendChild(subtitle);
+        header.appendChild(headerLeft);
+
+        // Toggle switch
+        const toggleLabel = document.createElement('label');
+        toggleLabel.style.cssText = 'position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; cursor: pointer;';
+        const toggleInput = document.createElement('input');
+        toggleInput.type = 'checkbox';
+        toggleInput.id = 'blocking-toggle';
+        toggleInput.style.cssText = 'opacity: 0; width: 0; height: 0;';
+        const toggleSlider = document.createElement('span');
+        toggleSlider.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--border-default); border-radius: 24px; transition: 0.3s;';
+        const toggleKnob = document.createElement('span');
+        toggleKnob.style.cssText = 'position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s;';
+        toggleSlider.appendChild(toggleKnob);
+        toggleLabel.appendChild(toggleInput);
+        toggleLabel.appendChild(toggleSlider);
+        header.appendChild(toggleLabel);
+
+        card.appendChild(header);
+
+        // Content area (shown/hidden based on toggle)
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px; display: none;';
+
+        // Status text
+        const blockingStatus = document.createElement('div');
+        blockingStatus.id = 'blocking-status';
+        blockingStatus.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;';
+        content.appendChild(blockingStatus);
+
+        // --- Step 1: Proxy controls ---
+        const step1Label = document.createElement('div');
+        step1Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        step1Label.textContent = 'Step 1: Multi-Provider Proxy';
+        content.appendChild(step1Label);
+
+        const proxyDesc = document.createElement('div');
+        proxyDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+        proxyDesc.textContent = 'Routes all LLM traffic through SecureVector for threat interception. All 13 providers available instantly.';
+        content.appendChild(proxyDesc);
+
+        const proxyBtnRow = document.createElement('div');
+        proxyBtnRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 14px;';
+
+        const startProxyBtn = document.createElement('button');
+        startProxyBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        startProxyBtn.textContent = 'Start Multi-Provider Proxy';
+        proxyBtnRow.appendChild(startProxyBtn);
+
+        const stopProxyBtn = document.createElement('button');
+        stopProxyBtn.style.cssText = 'background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        stopProxyBtn.textContent = 'Stop Proxy';
+        proxyBtnRow.appendChild(stopProxyBtn);
+
+        const proxyStatusLabel = document.createElement('span');
+        proxyStatusLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        proxyBtnRow.appendChild(proxyStatusLabel);
+
+        content.appendChild(proxyBtnRow);
+
+        // --- Step 2: Configure OpenClaw provider ---
+        const step2Label = document.createElement('div');
+        step2Label.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        step2Label.textContent = 'Step 2: Route OpenClaw through the proxy';
+        content.appendChild(step2Label);
+
+        const step2Desc = document.createElement('div');
+        step2Desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;';
+        step2Desc.textContent = 'Add a custom provider to ~/.openclaw/openclaw.json under "models.providers":';
+        content.appendChild(step2Desc);
+
+        const s2Providers = [
+            { name: 'OpenAI', id: 'openai-sv', api: 'openai-responses', baseUrl: 'http://127.0.0.1:8742/openai/v1', model: 'gpt-4o-mini' },
+            { name: 'Anthropic', id: 'anthropic-sv', api: 'anthropic-messages', baseUrl: 'http://127.0.0.1:8742/anthropic', model: 'claude-sonnet-4-6' },
+            { name: 'Gemini', id: 'gemini-sv', api: 'google-generative-ai', baseUrl: 'http://127.0.0.1:8742/gemini/v1beta', model: 'gemini-2.0-flash' },
+            { name: 'Ollama', id: 'ollama-sv', api: 'openai-completions', baseUrl: 'http://127.0.0.1:8742/ollama/v1', model: 'llama3' },
+        ];
+
+        const s2TabBar = document.createElement('div');
+        s2TabBar.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+        const s2Code = document.createElement('div');
+        s2Code.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 11px; margin-bottom: 8px; line-height: 1.5; white-space: pre; overflow-x: auto;';
+        const s2Model = document.createElement('div');
+        s2Model.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 11px; margin-bottom: 12px; line-height: 1.5; white-space: pre;';
+
+        function s2Show(idx) {
+            const p = s2Providers[idx];
+            const ex = {}; ex[p.id] = { baseUrl: p.baseUrl, api: p.api, models: [{ id: p.model, name: p.model + ' (via SecureVector)', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 }] };
+            s2Code.textContent = JSON.stringify(ex, null, 2);
+            s2Model.textContent = 'Set primary model:\n"agents": { "defaults": { "model": { "primary": "' + p.id + '/' + p.model + '" } } }';
+            s2TabBar.querySelectorAll('button').forEach((btn, i) => { btn.style.background = i === idx ? 'var(--accent-primary)' : 'var(--bg-tertiary)'; btn.style.color = i === idx ? '#fff' : 'var(--text-primary)'; });
+        }
+        s2Providers.forEach((p, i) => { const t = document.createElement('button'); t.style.cssText = 'border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;'; t.textContent = p.name; t.onclick = () => s2Show(i); s2TabBar.appendChild(t); });
+
+        content.appendChild(s2TabBar);
+        content.appendChild(s2Code);
+        content.appendChild(s2Model);
+        s2Show(0);
+
+        // Alternative: env vars
+        const envLabel = document.createElement('div');
+        envLabel.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;';
+        envLabel.textContent = 'Alternative: environment variables';
+        content.appendChild(envLabel);
+        content.appendChild(this.createCodeBlock('# Linux / macOS\nexport OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1\nexport ANTHROPIC_BASE_URL=http://127.0.0.1:8742/anthropic\n\n# Windows (PowerShell)\n$env:OPENAI_BASE_URL="http://127.0.0.1:8742/openai/v1"\n$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8742/anthropic"'));
+
+        const step2Note = document.createElement('div');
+        step2Note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;';
+        step2Note.textContent = 'You can add multiple providers. Restart OpenClaw after making changes.';
+        content.appendChild(step2Note);
+
+        // --- Available Endpoints ---
+        const pathsLabel = document.createElement('div');
+        pathsLabel.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--accent-primary); margin-bottom: 8px;';
+        pathsLabel.textContent = 'Available Endpoints';
+        content.appendChild(pathsLabel);
+
+        content.appendChild(this.createCodeBlock('OpenAI:    http://localhost:8742/openai/v1\nAnthropic: http://localhost:8742/anthropic\nOllama:    http://localhost:8742/ollama/v1\nGoogle:    http://localhost:8742/gemini/v1beta\nGroq:      http://localhost:8742/groq/v1\nMistral:   http://localhost:8742/mistral/v1\nDeepSeek:  http://localhost:8742/deepseek/v1\nxAI:       http://localhost:8742/xai/v1\nTogether:  http://localhost:8742/together/v1\nCohere:    http://localhost:8742/cohere/v1\nCerebras:  http://localhost:8742/cerebras/v1\nMoonshot:  http://localhost:8742/moonshot/v1\nMiniMax:   http://localhost:8742/minimax/v1'));
+
+        card.appendChild(content);
+
+        // --- Helpers ---
+        const updateToggleVisual = (active) => {
+            toggleSlider.style.background = active ? 'var(--success)' : 'var(--border-default)';
+            toggleKnob.style.transform = active ? 'translateX(20px)' : 'translateX(0)';
+            card.style.border = active ? '2px solid var(--success)' : '1px solid var(--border-default)';
+        };
+
+        const refreshProxyStatus = async () => {
+            try {
+                const res = await fetch('/api/proxy/status');
+                const status = await res.json();
+                if (status.running) {
+                    proxyStatusLabel.textContent = '';
+                    const runLabel = document.createElement('strong');
+                    runLabel.style.color = 'var(--success)';
+                    runLabel.textContent = 'Running on port ' + (status.port || '8742');
+                    proxyStatusLabel.appendChild(runLabel);
+                    startProxyBtn.style.display = 'none';
+                    stopProxyBtn.style.display = '';
+                    stopProxyBtn.disabled = false;
+                } else {
+                    proxyStatusLabel.textContent = 'Not running';
+                    startProxyBtn.style.display = '';
+                    startProxyBtn.disabled = false;
+                    stopProxyBtn.style.display = 'none';
+                }
+            } catch {
+                proxyStatusLabel.textContent = 'Status unknown';
+            }
+        };
+
+        const startProxy = async () => {
+            startProxyBtn.disabled = true;
+            startProxyBtn.textContent = 'Starting...';
+            proxyStatusLabel.textContent = '';
+            try {
+                const res = await fetch('/api/proxy/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: 'openai', multi: true, integration: 'openclaw' })
+                });
+                const data = await res.json();
+                if (data.status === 'started' || data.status === 'already_running') {
+                    blockingStatus.style.color = 'var(--success)';
+                    blockingStatus.textContent = 'Block mode active \u2014 multi-provider proxy is intercepting and scanning all LLM traffic.';
+                    await refreshProxyStatus();
+                } else {
+                    proxyStatusLabel.textContent = '';
+                    const errLabel = document.createElement('span');
+                    errLabel.style.color = 'var(--error)';
+                    errLabel.textContent = 'Failed: ' + (data.message || 'unknown error');
+                    proxyStatusLabel.appendChild(errLabel);
+                    startProxyBtn.disabled = false;
+                    startProxyBtn.textContent = 'Start Multi-Provider Proxy';
+                }
+            } catch {
+                proxyStatusLabel.textContent = 'Connection error';
+                startProxyBtn.disabled = false;
+            }
+            startProxyBtn.textContent = 'Start Multi-Provider Proxy';
+        };
+
+        // --- Toggle handler: enable/disable block mode ---
+        toggleInput.onchange = async () => {
+            const enable = toggleInput.checked;
+            toggleInput.disabled = true;
+            updateToggleVisual(enable);
+            blockingStatus.style.color = 'var(--text-secondary)';
+            blockingStatus.textContent = enable ? 'Enabling...' : 'Disabling...';
+
+            try {
+                await API.updateSettings({ block_threats: enable });
+
+                if (enable) {
+                    content.style.display = 'block';
+                    blockingStatus.style.color = 'var(--text-secondary)';
+                    blockingStatus.textContent = 'Starting multi-provider proxy...';
+                    // Auto-start proxy when block mode is enabled
+                    await startProxy();
+
+                    // Show config instructions modal
+                    const modalContent = document.createElement('div');
+
+                    const mDesc = document.createElement('p');
+                    mDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;';
+                    mDesc.textContent = 'Set your AI provider base URL to the proxy address, then restart your agent.';
+                    modalContent.appendChild(mDesc);
+
+                    // Two horizontal boxes
+                    const mGrid = document.createElement('div');
+                    mGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;';
+
+                    // --- Box 1: OpenClaw ---
+                    const mBoxOC = document.createElement('div');
+                    mBoxOC.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+                    const mBoxOCTitle = document.createElement('div');
+                    mBoxOCTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+                    mBoxOCTitle.textContent = 'OpenClaw / ClawdBot';
+                    mBoxOC.appendChild(mBoxOCTitle);
+                    const mBoxOCDesc = document.createElement('div');
+                    mBoxOCDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+                    mBoxOCDesc.textContent = 'Set baseUrl in openclaw.json provider config:';
+                    mBoxOC.appendChild(mBoxOCDesc);
+                    const mOCCode = document.createElement('div');
+                    mOCCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+                    mOCCode.textContent = '"baseUrl": "http://127.0.0.1:8742/openai/v1"';
+                    mBoxOC.appendChild(mOCCode);
+                    mGrid.appendChild(mBoxOC);
+
+                    // --- Box 2: Environment Variables ---
+                    const mBoxEnv = document.createElement('div');
+                    mBoxEnv.style.cssText = 'background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 14px;';
+                    const mBoxEnvTitle = document.createElement('div');
+                    mBoxEnvTitle.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+                    mBoxEnvTitle.textContent = 'Other Agents / Frameworks';
+                    mBoxEnv.appendChild(mBoxEnvTitle);
+                    const mBoxEnvDesc = document.createElement('div');
+                    mBoxEnvDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;';
+                    mBoxEnvDesc.textContent = 'Set the base URL environment variable:';
+                    mBoxEnv.appendChild(mBoxEnvDesc);
+                    const mEnvCode = document.createElement('div');
+                    mEnvCode.style.cssText = 'background: var(--bg-tertiary); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.6; word-break: break-all;';
+                    mEnvCode.textContent = 'export OPENAI_BASE_URL=http://127.0.0.1:8742/openai/v1';
+                    mBoxEnv.appendChild(mEnvCode);
+                    mGrid.appendChild(mBoxEnv);
+
+                    modalContent.appendChild(mGrid);
+
+                    const mNote = document.createElement('p');
+                    mNote.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+                    mNote.textContent = 'Supports OpenAI, Anthropic, Gemini, and Ollama. See docs for provider-specific URLs.';
+                    modalContent.appendChild(mNote);
+
+                    Modal.show({
+                        title: 'Route Traffic Through Proxy',
+                        content: modalContent,
+                        size: 'medium',
+                        actions: [
+                            { label: 'Got it', primary: true }
+                        ]
+                    });
+                } else {
+                    // Stop proxy and show unset instructions
+                    try {
+                        await fetch('/api/proxy/stop', { method: 'POST' });
+                    } catch { /* proxy may not be running or in-process */ }
+                    content.style.display = 'none';
+
+                    const vars = ['OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', 'GEMINI_BASE_URL', 'GROQ_BASE_URL', 'MISTRAL_BASE_URL', 'XAI_BASE_URL'];
+                    const modalContent = document.createElement('div');
+                    modalContent.innerHTML = `
+                        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                            <strong style="color: #92400e;">Important:</strong>
+                            <span style="color: #92400e; font-size: 13px;">Restart OpenClaw after unsetting these variables. The SecureVector plugin will continue monitoring without the proxy.</span>
+                        </div>
+                        <p style="margin-bottom: 12px;">To avoid connection errors, unset the proxy environment variables:</p>
+                        <div style="background: var(--bg-tertiary); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; margin-bottom: 12px; line-height: 1.8;">
+                            <div style="color: var(--text-secondary); margin-bottom: 8px;"># Linux / macOS</div>
+                            ${vars.map(v => `<div>unset ${v}</div>`).join('')}
+                            <div style="color: var(--text-secondary); margin-top: 12px; margin-bottom: 8px;"># Windows (PowerShell)</div>
+                            ${vars.map(v => `<div>Remove-Item Env:\\${v} -ErrorAction SilentlyContinue</div>`).join('')}
+                        </div>
+                    `;
+                    Modal.show({
+                        title: 'Block Mode Disabled \u2014 Restart OpenClaw',
+                        content: modalContent,
+                        size: 'medium',
+                        actions: [{ label: 'Got it', primary: true }]
+                    });
+                }
+            } catch {
+                blockingStatus.style.color = 'var(--error)';
+                blockingStatus.textContent = 'Failed to update setting';
+                toggleInput.checked = !enable;
+                updateToggleVisual(!enable);
+            }
+            toggleInput.disabled = false;
+        };
+
+        // --- Start/Stop button handlers ---
+        startProxyBtn.onclick = startProxy;
+
+        stopProxyBtn.onclick = async () => {
+            stopProxyBtn.disabled = true;
+            stopProxyBtn.textContent = 'Stopping...';
+            try {
+                await fetch('/api/proxy/stop', { method: 'POST' });
+                blockingStatus.style.color = 'var(--text-secondary)';
+                blockingStatus.textContent = 'Proxy stopped. Start it again to resume threat blocking.';
+                await refreshProxyStatus();
+            } catch {
+                proxyStatusLabel.textContent = 'Connection error';
+            }
+            stopProxyBtn.textContent = 'Stop Proxy';
+        };
+
+        // --- Check initial state ---
+        toggleInput.disabled = true;
+        blockingStatus.textContent = 'Loading...';
+        blockingStatus.style.color = 'var(--text-secondary)';
+        (async () => {
+            try {
+                const settings = await API.getSettings();
+                const blockEnabled = !!settings.block_threats;
+                toggleInput.checked = blockEnabled;
+                updateToggleVisual(blockEnabled);
+                if (blockEnabled) {
+                    content.style.display = 'block';
+                    blockingStatus.style.color = 'var(--success)';
+                    blockingStatus.textContent = 'Block mode active \u2014 multi-provider proxy is intercepting and scanning all LLM traffic.';
+                    await refreshProxyStatus();
+                } else {
+                    blockingStatus.textContent = '';
+                }
+            } catch {
+                updateToggleVisual(false);
+                blockingStatus.textContent = '';
+            }
+            toggleInput.disabled = false;
+        })();
+
+        return card;
+    },
+
     createOpenClawCard() {
         const card = document.createElement('div');
         card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden; animation: pulse-border 2s ease-in-out 3;';
@@ -745,12 +1455,12 @@ def chat_with_protection(user_input):
         const titleDiv = document.createElement('div');
         const titleText = document.createElement('div');
         titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
-        titleText.textContent = 'Agent Proxy Setup';
+        titleText.textContent = 'Option 2: Proxy (Full Protection)';
         titleDiv.appendChild(titleText);
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
-        subtitleText.textContent = 'Auto-patches pi-ai for seamless integration';
+        subtitleText.textContent = 'Full threat blocking with proxy interception — auto-patches pi-ai';
         titleDiv.appendChild(subtitleText);
         header.appendChild(titleDiv);
 

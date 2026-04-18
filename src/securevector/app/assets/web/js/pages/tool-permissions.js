@@ -62,6 +62,32 @@ const ToolPermissionsPage = {
         }
     },
 
+    _exportAuditCsv(entries) {
+        if (!entries || entries.length === 0) {
+            if (window.Toast) Toast.show('No tool audit entries to export', 'info');
+            else alert('No tool audit entries to export');
+            return;
+        }
+        const headers = ['called_at', 'tool_id', 'function_name', 'action', 'risk', 'is_essential', 'reason', 'args_preview'];
+        const esc = (v) => {
+            if (v === null || v === undefined) return '';
+            const s = String(v);
+            if (s.includes('"') || s.includes(',') || s.includes('\n')) return '"' + s.replace(/"/g, '""') + '"';
+            return s;
+        };
+        const rows = entries.map(e => headers.map(h => esc(e[h])).join(','));
+        const csv = headers.join(',') + '\n' + rows.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `securevector-tool-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
     // ==================== Shared Constants ====================
 
     RISK_COLORS: {
@@ -363,6 +389,47 @@ const ToolPermissionsPage = {
         // Page wrapper
         const page = document.createElement('div');
         page.className = 'page-wrapper';
+
+        // Help banner — explains allow / block / log_only behavior
+        const helpBanner = document.createElement('div');
+        helpBanner.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px; color: var(--text-secondary);';
+        const helpIcon = document.createElement('span');
+        helpIcon.textContent = 'ⓘ';
+        helpIcon.style.cssText = 'color: var(--accent-primary); font-weight: 600; flex-shrink: 0;';
+        helpBanner.appendChild(helpIcon);
+        const helpText = document.createElement('span');
+        helpText.style.cssText = 'flex: 1; line-height: 1.5;';
+        helpText.textContent = 'Tool calls are recorded on the Tool Activity tab as ';
+        const allowBadge = document.createElement('strong');
+        allowBadge.style.color = 'var(--success)';
+        allowBadge.textContent = 'allow';
+        helpText.appendChild(allowBadge);
+        helpText.appendChild(document.createTextNode(', '));
+        const blockBadge = document.createElement('strong');
+        blockBadge.style.color = 'var(--error)';
+        blockBadge.textContent = 'block';
+        helpText.appendChild(blockBadge);
+        helpText.appendChild(document.createTextNode(', or '));
+        const logBadge = document.createElement('strong');
+        logBadge.style.color = 'var(--warning)';
+        logBadge.textContent = 'log_only';
+        helpText.appendChild(logBadge);
+        helpText.appendChild(document.createTextNode(' depending on the tool\u2019s policy and whether block mode is on. '));
+        const helpLink = document.createElement('a');
+        helpLink.href = '#';
+        helpLink.style.cssText = 'color: var(--accent-primary); text-decoration: none; font-weight: 600; cursor: pointer;';
+        helpLink.textContent = 'See guide \u2192';
+        helpLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar && typeof Sidebar.navigateToSection === 'function') {
+                Sidebar.navigateToSection('guide', 'section-tool-permissions', 'gs-tool-permissions');
+            } else if (window.Sidebar) {
+                Sidebar.navigate('guide');
+            }
+        });
+        helpText.appendChild(helpLink);
+        helpBanner.appendChild(helpText);
+        page.appendChild(helpBanner);
 
         // Compact toolbar: toggle + cloud info + add button
         const toolbar = document.createElement('div');
@@ -922,6 +989,15 @@ const ToolPermissionsPage = {
         deleteSelectedBtn.textContent = 'Delete Selected (0)';
         deleteSelectedBtn.addEventListener('click', () => self._confirmDeleteAuditSelected(() => loadAuditData(activeFilter)));
         toolbar.appendChild(deleteSelectedBtn);
+
+        // Export CSV button — uses the currently loaded entries (respects filter)
+        const auditCsvBtn = document.createElement('button');
+        auditCsvBtn.className = 'btn btn-secondary';
+        auditCsvBtn.style.cssText = 'margin-left: 4px;';
+        auditCsvBtn.textContent = 'Export CSV';
+        auditCsvBtn.title = 'Download visible tool audit entries as CSV';
+        auditCsvBtn.addEventListener('click', () => self._exportAuditCsv(lastEntries));
+        toolbar.appendChild(auditCsvBtn);
 
         container.appendChild(toolbar);
 

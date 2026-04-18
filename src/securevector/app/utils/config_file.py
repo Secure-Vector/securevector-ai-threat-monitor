@@ -52,10 +52,17 @@ tools:
 
 proxy:
   # -----------------------------------------------------------------------
-  # Step 1: Start SecureVector  →  SecureVector proxy starts automatically on port {proxy_port}
-  # Step 2: Point your agent at the proxy instead of the LLM provider
+  # OpenClaw / ClawdBot:
+  #   Plugin-only mode (default) — no proxy needed. The SecureVector Guard
+  #   plugin handles threat monitoring, cost tracking, and tool permissions
+  #   natively inside OpenClaw with zero latency overhead.
+  #   Proxy only starts when security.block_mode is enabled (above).
   #
-  #   Linux / macOS (export):
+  # LangChain / CrewAI / Ollama / other frameworks:
+  #   Proxy starts automatically and intercepts LLM traffic.
+  #   Point your agent at the proxy instead of the LLM provider:
+  #
+  #   Linux / macOS:
   #     export OPENAI_BASE_URL=http://127.0.0.1:{proxy_port}/openai/v1
   #     export ANTHROPIC_BASE_URL=http://127.0.0.1:{proxy_port}/anthropic
   #
@@ -63,15 +70,8 @@ proxy:
   #     $env:OPENAI_BASE_URL="http://127.0.0.1:{proxy_port}/openai/v1"
   #     $env:ANTHROPIC_BASE_URL="http://127.0.0.1:{proxy_port}/anthropic"
   #
-  #   Windows (Command Prompt):
-  #     set OPENAI_BASE_URL=http://127.0.0.1:{proxy_port}/openai/v1
-  #     set ANTHROPIC_BASE_URL=http://127.0.0.1:{proxy_port}/anthropic
-  #
   #   Ollama / OpenWebUI — set API base URL to:
   #     http://127.0.0.1:{proxy_port}/ollama/v1
-  #
-  #   OpenClaw (default — started automatically with SecureVector):
-  #     ANTHROPIC_BASE_URL=http://127.0.0.1:{proxy_port}/anthropic openclaw gateway
   # -----------------------------------------------------------------------
   # Integration — which agent framework is connected
   # Options: openclaw, langchain, langgraph, crewai, ollama
