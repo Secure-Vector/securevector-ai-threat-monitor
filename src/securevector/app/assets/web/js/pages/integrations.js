@@ -64,12 +64,12 @@ const IntegrationPage = {
             if (status1) {
                 status1.textContent = '';
                 const s1 = document.createElement('strong'); s1.style.color = 'var(--success)'; s1.textContent = 'ACTIVE: ';
-                status1.appendChild(s1); status1.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
+                status1.appendChild(s1); status1.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
             if (status2) {
                 status2.textContent = '';
                 const s2 = document.createElement('strong'); s2.style.color = 'var(--success)'; s2.textContent = 'ACTIVE: ';
-                status2.appendChild(s2); status2.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
+                status2.appendChild(s2); status2.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
         } else {
             if (btn1) { btn1.disabled = false; btn1.textContent = 'Start Proxy'; btn1.style.background = 'var(--accent-primary)'; }
@@ -90,12 +90,12 @@ const IntegrationPage = {
 
         if (this.proxyStatus.running) {
             const modeUpper = this.proxyStatus.multi ? 'MULTI-PROVIDER' : this.proxyStatus.provider?.toUpperCase();
-            if (btn) { btn.disabled = true; btn.textContent = 'Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
+            if (btn) { btn.disabled = true; btn.textContent = 'SecureVector Proxy Running'; btn.style.background = 'var(--accent-primary)'; }
             if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; stopBtn.textContent = 'Stop Proxy'; }
             if (status) {
                 status.textContent = '';
                 const s3 = document.createElement('strong'); s3.style.color = 'var(--success)'; s3.textContent = 'ACTIVE: ';
-                status.appendChild(s3); status.appendChild(document.createTextNode(`${modeUpper} proxy on port 8742`));
+                status.appendChild(s3); status.appendChild(document.createTextNode(`SecureVector proxy (${modeUpper}) on port 8742`));
             }
         } else {
             if (btn) { btn.disabled = false; btn.textContent = 'Start Multi-Provider Proxy'; btn.style.background = 'var(--accent-primary)'; }
@@ -871,7 +871,7 @@ def chat_with_protection(user_input):
                     resultArea.appendChild(document.createElement('br'));
                     const restartNote = document.createElement('span');
                     restartNote.style.color = 'var(--text-secondary)';
-                    restartNote.textContent = 'Restart the OpenClaw gateway for changes to take effect.';
+                    restartNote.textContent = 'The OpenClaw gateway should pick this up automatically; restart it if monitoring doesn\u2019t start in a few seconds.';
                     resultArea.appendChild(restartNote);
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';

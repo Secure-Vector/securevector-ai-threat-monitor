@@ -45,6 +45,7 @@ const App = {
         // Render components
         Sidebar.render();
         Header.render();
+        if (window.GlobalBanners) GlobalBanners.render();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {
@@ -56,8 +57,163 @@ const App = {
         const initialPage = this.getPageFromURL();
         await this.loadPage(initialPage);
 
-        // Show welcome modal on first launch
-        this.showWelcomeIfFirstLaunch();
+        // Show welcome modal on first launch. For OpenClaw users we surface
+        // a tailored "install the plugin" welcome; everyone else gets the
+        // generic SecureVector intro.
+        this.showFirstLaunchWelcome();
+    },
+
+    async showFirstLaunchWelcome() {
+        const hasSeenGeneric = localStorage.getItem('sv-welcome-seen');
+        const hasSeenOpenClaw = localStorage.getItem('sv-openclaw-welcome-seen');
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('no-welcome')) return;
+
+        // Check OpenClaw detection first — its welcome is more specific and
+        // has a direct install CTA. If shown, we also mark the generic as seen
+        // so users only get one modal.
+        try {
+            const hooksStatus = await fetch('/api/hooks/status').then(r => r.ok ? r.json() : null).catch(() => null);
+            if (hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed && !hasSeenOpenClaw) {
+                this.showOpenClawWelcome();
+                return;
+            }
+        } catch (e) { /* fall through to generic */ }
+
+        if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
+    },
+
+    showOpenClawWelcome() {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.cssText = 'max-width: 560px;';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'sv-oc-welcome-title');
+
+        const dismissAndMark = () => {
+            localStorage.setItem('sv-openclaw-welcome-seen', 'true');
+            localStorage.setItem('sv-welcome-seen', 'true');
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.remove(), 150);
+        };
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 20px 22px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-default);';
+
+        const titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+        const iconBox = document.createElement('div');
+        iconBox.style.cssText = 'flex-shrink: 0; width: 32px; height: 32px; background: rgba(94,173,184,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
+        iconBox.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M7 8h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5v-3a2 2 0 0 1 2-2z"/><path d="M12 18v4"/></svg>';
+        titleWrap.appendChild(iconBox);
+        const title = document.createElement('h2');
+        title.id = 'sv-oc-welcome-title';
+        title.style.cssText = 'margin: 0; font-size: 16px; color: var(--text-primary);';
+        title.textContent = 'OpenClaw detected';
+        titleWrap.appendChild(title);
+        header.appendChild(titleWrap);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'background: transparent; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; transition: background 0.15s;';
+        closeBtn.setAttribute('aria-label', 'Dismiss');
+        closeBtn.textContent = '\u00D7';
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'var(--bg-secondary)'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; });
+        closeBtn.addEventListener('click', dismissAndMark);
+        header.appendChild(closeBtn);
+
+        modal.appendChild(header);
+
+        // Body
+        const body = document.createElement('div');
+        body.style.cssText = 'padding: 20px 22px;';
+
+        const lede = document.createElement('p');
+        lede.style.cssText = 'margin: 0 0 16px; font-size: 14px; color: var(--text-primary); line-height: 1.6;';
+        lede.textContent = 'Run SecureVector as a native OpenClaw plugin \u2014 zero latency, no proxy or env vars, full audit trail.';
+        body.appendChild(lede);
+
+        const steps = document.createElement('ol');
+        steps.style.cssText = 'margin: 0 0 16px; padding-left: 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.7;';
+        [
+            'Install the plugin (one click below).',
+            'The OpenClaw gateway picks it up automatically.',
+            'Every agent turn is scanned, tool calls audited, costs tracked.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            steps.appendChild(li);
+        });
+        body.appendChild(steps);
+
+        // Status line (inline feedback after install)
+        const statusLine = document.createElement('div');
+        statusLine.style.cssText = 'display: none; font-size: 12px; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px;';
+        body.appendChild(statusLine);
+
+        modal.appendChild(body);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding: 14px 22px 18px; display: flex; gap: 10px; align-items: center; justify-content: flex-end; border-top: 1px solid var(--border-default);';
+
+        const skipBtn = document.createElement('button');
+        skipBtn.className = 'btn btn-secondary';
+        skipBtn.textContent = 'Skip for now';
+        skipBtn.addEventListener('click', dismissAndMark);
+        footer.appendChild(skipBtn);
+
+        const installBtn = document.createElement('button');
+        installBtn.style.cssText = 'font-size: 13px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: opacity 0.15s;';
+        installBtn.textContent = 'Install plugin';
+        installBtn.addEventListener('mouseenter', () => { installBtn.style.opacity = '0.9'; });
+        installBtn.addEventListener('mouseleave', () => { installBtn.style.opacity = '1'; });
+        installBtn.addEventListener('click', async () => {
+            installBtn.disabled = true;
+            installBtn.textContent = 'Installing\u2026';
+            try {
+                const res = await fetch('/api/hooks/install', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}',
+                });
+                const data = await res.json();
+                if (data && (data.status === 'installed' || data.status === 'already_installed' || data.status === 'updated')) {
+                    statusLine.textContent = '\u2713 Plugin installed. The OpenClaw gateway should pick it up within a few seconds \u2014 restart it if monitoring doesn\u2019t start.';
+                    statusLine.style.background = 'rgba(16,185,129,0.10)';
+                    statusLine.style.color = 'var(--success-text)';
+                    statusLine.style.border = '1px solid rgba(16,185,129,0.35)';
+                    statusLine.style.display = 'block';
+                    installBtn.textContent = 'Done';
+                    skipBtn.textContent = 'Close';
+                    skipBtn.onclick = dismissAndMark;
+                    installBtn.onclick = dismissAndMark;
+                    installBtn.disabled = false;
+                } else {
+                    throw new Error((data && data.message) || 'Install failed');
+                }
+            } catch (e) {
+                statusLine.textContent = 'Install failed: ' + (e.message || 'unknown error') + '. Check the Integrations page for manual steps.';
+                statusLine.style.background = 'rgba(239,68,68,0.10)';
+                statusLine.style.color = 'var(--error)';
+                statusLine.style.border = '1px solid rgba(239,68,68,0.35)';
+                statusLine.style.display = 'block';
+                installBtn.disabled = false;
+                installBtn.textContent = 'Try again';
+            }
+        });
+        footer.appendChild(installBtn);
+
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('active'));
     },
 
     /**
