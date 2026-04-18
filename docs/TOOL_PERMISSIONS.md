@@ -46,6 +46,26 @@ To override defaults or add project-specific tools:
 
 Custom tools are matched by name against the tool invocations your agent makes — so a custom entry for `my_internal_api` will catch calls to that function regardless of which framework issued them.
 
+## Audit trail integrity (known limitation)
+
+Tool Activity entries are stored in a local SQLite database (`threat_intel.db` in SecureVector's data dir). **The log is not tamper-evident today.** Any process running as the same OS user — including a compromised agent — can delete or modify rows directly. Fine for operational visibility; not court-admissible forensic evidence.
+
+**Forgery, not just deletion.** The audit API binds to `127.0.0.1` with no auth — any local process can POST forged entries to `/api/tool-permissions/call-audit` (e.g. log a fake `action: allow` to cover its tracks). Timestamps are server-generated (`called_at` defaults to `CURRENT_TIMESTAMP`), but every other field is client-supplied, so agent attribution is weak. Request authentication and signed client tokens are tracked alongside the forwarder work on the roadmap.
+
+**Retention.** Entries are pruned based on the `retention_days` setting (default: 30 days). The DB file survives uninstall — remove it manually from the data dir if you want a clean wipe.
+
+**If you need stronger guarantees right now** there's no built-in off-host forwarder yet. Workarounds:
+- **Poll the audit endpoint** on a cron and ship batches to your SIEM:
+  `GET /api/tool-permissions/call-audit?limit=200`, track the max `id` you've shipped, resume from there next run.
+- **Mount the data dir on an append-only / WORM volume** if your infra supports it.
+- **Forward at the collector** — if your agent already pipes stdout/stderr to a log aggregator, the plugin's `[securevector-guard] TOOL AUDIT / BLOCKED` console lines end up there too.
+
+None of these are great. Built-in forwarding is the real answer and it's coming.
+
+**On the roadmap:**
+- **Hash-chained rows** — each row stores `prev_hash` + `hash(row)` with a `/verify` endpoint that walks the chain. Catches **casual** tampering and disk corruption. It does **not** defend against an attacker with local write access who recomputes the chain from their modification point forward — for that threat model, ship events off-host.
+- **Built-in off-host forwarder** — durable SQLite outbox + background worker with at-least-once delivery. Initial sinks: **generic HTTPS webhook + syslog**. Splunk HEC / Datadog / other vendor formats may follow based on user demand — they're mostly thin wrappers over the webhook sink.
+
 ## API reference
 
 ```bash
