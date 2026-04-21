@@ -274,4 +274,4 @@ scratch_*
 
 # OS generated files
 .Trash-*
-.nfs*
+.nfs*docs/AGENT_SANDBOXING_ARCHITECTURE_PLAN.md

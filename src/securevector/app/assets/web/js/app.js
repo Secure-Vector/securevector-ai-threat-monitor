@@ -17,6 +17,7 @@ const App = {
         'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
+        sandbox: SandboxPage,
         settings: SettingsPage,
         'tool-permissions': { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         costs: { render: (c) => { CostsPage.mode = 'monitor'; CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = false; return CostsPage.render(c); } },

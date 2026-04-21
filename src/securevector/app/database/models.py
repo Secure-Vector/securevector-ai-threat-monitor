@@ -281,8 +281,8 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 19
-SCHEMA_DESCRIPTION = "Add skill permissions and policy engine tables"
+CURRENT_SCHEMA_VERSION = 20
+SCHEMA_DESCRIPTION = "Add sandbox sessions table"
 
 # Migration SQL for v19
 MIGRATION_V19_SQL = """

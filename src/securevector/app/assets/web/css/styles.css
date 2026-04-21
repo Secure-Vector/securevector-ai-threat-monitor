@@ -5739,3 +5739,420 @@ thead tr:hover #records-select-all,
     font-size: 12px;
     padding: 4px 10px;
 }
+
+/* ═══════════════════════════════════════════════
+   Sandbox Page — Card Layout
+   ═══════════════════════════════════════════════ */
+
+/* Card grid */
+.sandbox-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+/* Individual session card */
+.sandbox-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    position: relative;
+    border-left: 3px solid var(--border-default);
+}
+
+.sandbox-card:hover {
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-md);
+}
+
+.sandbox-card[data-status="running"] { border-left-color: var(--info); }
+.sandbox-card[data-status="completed"] { border-left-color: var(--success); }
+.sandbox-card[data-status="failed"] { border-left-color: var(--danger); }
+.sandbox-card[data-status="timed_out"] { border-left-color: var(--warning); }
+.sandbox-card[data-status="killed"] { border-left-color: var(--text-muted); }
+
+/* Card top row */
+.sandbox-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.sandbox-card-duration {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* Command block */
+.sandbox-card-command {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-default);
+    margin-bottom: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+/* Info row */
+.sandbox-card-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.sandbox-card-exit {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.sandbox-card-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+/* Output preview */
+.sandbox-card-preview {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-default);
+    margin-bottom: 10px;
+    max-height: 40px;
+    overflow: hidden;
+    line-height: 1.4;
+}
+
+.sandbox-card-preview-error {
+    color: var(--danger);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Card actions */
+.sandbox-card-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Status badges */
+.sandbox-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    letter-spacing: 0.2px;
+}
+
+.sandbox-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.sandbox-status-badge[data-status="running"] { background: rgba(59, 130, 246, 0.12); color: var(--info); }
+.sandbox-status-badge[data-status="running"] .sandbox-status-dot { background: var(--info); animation: sandbox-pulse 1.5s ease-in-out infinite; }
+.sandbox-status-badge[data-status="completed"] { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+.sandbox-status-badge[data-status="completed"] .sandbox-status-dot { background: var(--success); }
+.sandbox-status-badge[data-status="failed"] { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+.sandbox-status-badge[data-status="failed"] .sandbox-status-dot { background: var(--danger); }
+.sandbox-status-badge[data-status="timed_out"] { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+.sandbox-status-badge[data-status="timed_out"] .sandbox-status-dot { background: var(--warning); }
+.sandbox-status-badge[data-status="killed"] { background: rgba(139, 148, 158, 0.12); color: var(--text-muted); }
+.sandbox-status-badge[data-status="killed"] .sandbox-status-dot { background: var(--text-muted); }
+
+@keyframes sandbox-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.4); }
+}
+
+/* Agent type badges */
+.sandbox-agent-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    letter-spacing: 0.3px;
+}
+
+/* Action buttons */
+.sandbox-action-btn {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.sandbox-action-kill {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+.sandbox-action-kill:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: var(--danger);
+}
+
+.sandbox-action-view {
+    background: transparent;
+    color: var(--accent-primary);
+    border-color: rgba(94, 173, 184, 0.3);
+}
+.sandbox-action-view:hover {
+    background: rgba(94, 173, 184, 0.1);
+    border-color: var(--accent-primary);
+}
+
+.sandbox-action-delete {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--border-default);
+}
+.sandbox-action-delete:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+/* Launch form */
+.sandbox-launch-form {
+    max-width: 640px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+}
+
+.sandbox-form-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.sandbox-form-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.sandbox-field {
+    margin-bottom: 16px;
+}
+
+.sandbox-field-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.sandbox-field-help {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    opacity: 0.7;
+}
+
+.sandbox-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: "Fira Code", "Consolas", monospace;
+    transition: border-color var(--transition-fast);
+}
+
+.sandbox-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(94, 173, 184, 0.15);
+}
+
+.sandbox-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.sandbox-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.sandbox-checkbox {
+    accent-color: var(--accent-primary);
+    width: 16px;
+    height: 16px;
+}
+
+.sandbox-launch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: var(--gradient);
+    border: none;
+    border-radius: var(--radius-md);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.sandbox-launch-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.sandbox-launch-btn:active { transform: translateY(0); }
+
+.sandbox-launch-icon { font-size: 11px; }
+
+.sandbox-launch-status {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+}
+
+.sandbox-launch-status-pending {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+}
+
+.sandbox-launch-status-success {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: var(--success);
+}
+
+.sandbox-launch-status-error {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--danger);
+}
+
+/* Empty state */
+.sandbox-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+}
+
+.sandbox-empty-icon {
+    margin-bottom: 16px;
+    opacity: 0.4;
+}
+
+.sandbox-empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.sandbox-empty-text {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* Detail modal */
+.sandbox-detail { font-size: 13px; line-height: 1.6; }
+
+.sandbox-detail-fields { margin-bottom: 16px; }
+
+.sandbox-detail-row {
+    display: flex;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.sandbox-detail-key {
+    min-width: 100px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.sandbox-detail-value {
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+.sandbox-detail-mono {
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 12px;
+}
+
+.sandbox-output-block { margin-top: 12px; }
+
+.sandbox-output-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+
+.sandbox-output-pre {
+    max-height: 200px;
+    overflow: auto;
+    padding: 10px;
+    border-radius: var(--radius-md);
+    font-family: "Fira Code", "Consolas", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+}
+
+.sandbox-output-error { color: var(--danger); }

@@ -160,6 +160,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         17: migrate_to_v17,
         18: migrate_to_v18,
         19: migrate_to_v19,
+        20: migrate_to_v20,
     }
 
     if version in migrations:
@@ -754,6 +755,35 @@ async def _seed_trusted_publishers(db: DatabaseConnection) -> None:
         )
 
     logger.info(f"Seeded {len(TRUSTED_PUBLISHERS)} trusted publishers")
+
+
+async def migrate_to_v20(db: DatabaseConnection) -> None:
+    """Migration v19 -> v20: Add sandbox sessions table."""
+    conn = await db.connect()
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sandbox_sessions (
+            id TEXT PRIMARY KEY,
+            command TEXT NOT NULL,
+            profile TEXT NOT NULL DEFAULT 'default',
+            status TEXT NOT NULL DEFAULT 'running',
+            pid INTEGER,
+            workspace TEXT,
+            exit_code INTEGER,
+            stdout TEXT,
+            stderr TEXT,
+            duration_ms INTEGER,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            agent_type TEXT,
+            error TEXT
+        )
+    """)
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (20, CURRENT_TIMESTAMP, 'Add sandbox sessions table')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v20: sandbox sessions table")
 
 
 # Future migration functions would be defined here:

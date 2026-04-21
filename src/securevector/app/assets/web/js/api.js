@@ -38,6 +38,34 @@ const API = {
         }
     },
 
+    // ==================== Sandbox ====================
+
+    async getSandboxSessions(params) {
+        var qp = new URLSearchParams();
+        if (params && params.status) qp.set('status', params.status);
+        var q = qp.toString();
+        return this.request('/api/sandbox/sessions' + (q ? '?' + q : '')).catch(function () { return { sessions: [] }; });
+    },
+
+    async getSandboxSession(id) {
+        return this.request('/api/sandbox/sessions/' + encodeURIComponent(id));
+    },
+
+    async launchSandbox(config) {
+        return this.request('/api/sandbox/run', {
+            method: 'POST',
+            body: JSON.stringify(config),
+        });
+    },
+
+    async killSandbox(id) {
+        return this.request('/api/sandbox/sessions/' + encodeURIComponent(id) + '/kill', { method: 'POST' });
+    },
+
+    async deleteSandbox(id) {
+        return this.request('/api/sandbox/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+    },
+
     // ==================== Health ====================
 
     async health() {
