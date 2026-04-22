@@ -176,10 +176,25 @@ class SyncFromCloudRequest(BaseModel):
 
 
 class SyncApplyRequest(BaseModel):
-    """Request body for POST /rules/sync/apply."""
+    """Request body for POST /rules/sync/apply.
+
+    Selective save:
+      - Omit both `selected_rule_ids` and `skip_rule_ids` → apply all.
+      - Send `skip_rule_ids=[…]` → apply everything except those.
+      - Send `selected_rule_ids=[…]` → apply only those.
+      - If both are sent, `selected_rule_ids` wins.
+    """
 
     preview_token: str = Field(..., min_length=1)
     replace_existing: bool = Field(default=False)
+    selected_rule_ids: Optional[list[str]] = Field(
+        default=None,
+        description="If set, apply only these rule IDs from the preview.",
+    )
+    skip_rule_ids: Optional[list[str]] = Field(
+        default=None,
+        description="If set, apply everything in the preview except these rule IDs.",
+    )
 
 
 def _map_sync_error(e: Exception) -> HTTPException:
@@ -265,7 +280,10 @@ async def sync_apply_endpoint(request: SyncApplyRequest) -> dict:
 
     try:
         return await apply_preview(
-            request.preview_token, replace_existing=request.replace_existing
+            request.preview_token,
+            replace_existing=request.replace_existing,
+            selected_rule_ids=request.selected_rule_ids,
+            skip_rule_ids=request.skip_rule_ids,
         )
     except CloudRulesSyncError as e:
         raise _map_sync_error(e)

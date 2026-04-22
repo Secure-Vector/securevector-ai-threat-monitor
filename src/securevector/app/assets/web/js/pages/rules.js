@@ -1357,6 +1357,17 @@ const RulesPage = {
                 per_page: 10,
                 total_pages: Math.max(1, Math.ceil((preview.normalized || 0) / 10)),
                 replace_existing: false,
+                // Default: all rules selected. Track rules the user has
+                // explicitly deselected; on apply, send that list to the
+                // server as `skip_rule_ids`. When the set is empty we
+                // send neither selected nor skip — server applies all.
+                deselected: new Set(),
+                // Per-row expand/collapse state — rule_ids currently
+                // shown in "full patterns" view.
+                expanded: new Set(),
+                // Whole-table collapse state (hides the rows table while
+                // keeping summary + controls + action buttons visible).
+                collapsed: false,
             };
             if (!preview.normalized) {
                 this._renderSyncPreviewEmpty(body, preview);
@@ -1415,8 +1426,9 @@ const RulesPage = {
     _renderSyncPreviewPage(body, page) {
         body.textContent = '';
         const state = this.syncPreview;
+        const items = page.items || [];
 
-        // Summary strip
+        // ---------- Summary strip ----------
         const summary = document.createElement('div');
         summary.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;padding:10px 12px;background:var(--bg-secondary, #f5f7fa);border-radius:6px;font-size:13px;margin-bottom:12px;';
         const stat = (label, value) => {
@@ -1430,16 +1442,34 @@ const RulesPage = {
             span.appendChild(v);
             return span;
         };
-        summary.appendChild(stat('Total to import', state.total));
+        summary.appendChild(stat('Total in bundle', state.total));
+        // Derived selection count: total minus what user deselected.
+        const selectedCount = Math.max(0, state.total - state.deselected.size);
+        summary.appendChild(stat('Selected to save', selectedCount));
         if (state.skipped) summary.appendChild(stat('Skipped (invalid)', state.skipped));
         if (state.tier) summary.appendChild(stat('Tier', state.tier));
         if (state.bundle_version) summary.appendChild(stat('Bundle', state.bundle_version));
         body.appendChild(summary);
 
-        // Controls row: page size + replace-existing checkbox
+        // ---------- Controls row ----------
         const controls = document.createElement('div');
-        controls.style.cssText = 'display:flex;align-items:center;gap:16px;margin-bottom:10px;';
+        controls.style.cssText = 'display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap;';
 
+        // Collapse/expand the whole rules table
+        const collapseBtn = document.createElement('button');
+        collapseBtn.className = 'btn btn-secondary';
+        collapseBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        collapseBtn.textContent = state.collapsed ? '▸ Expand preview' : '▾ Collapse preview';
+        collapseBtn.title = state.collapsed
+            ? 'Show the rule table'
+            : 'Hide the rule table (summary + buttons remain visible)';
+        collapseBtn.addEventListener('click', () => {
+            state.collapsed = !state.collapsed;
+            this._renderSyncPreviewPage(body, page);
+        });
+        controls.appendChild(collapseBtn);
+
+        // Page size
         const sizeLabel = document.createElement('label');
         sizeLabel.style.cssText = 'font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;';
         sizeLabel.textContent = 'Per page:';
@@ -1460,6 +1490,34 @@ const RulesPage = {
         sizeLabel.appendChild(sizeSelect);
         controls.appendChild(sizeLabel);
 
+        // Select-all helpers. "Select all N" clears the deselected set
+        // entirely (meaning: apply everything). "Deselect all on this
+        // page" adds every rule on the current page to the deselected
+        // set so the user can then re-select specific ones — it never
+        // touches rules on other pages.
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.className = 'btn btn-secondary';
+        selectAllBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        selectAllBtn.textContent = 'Select all (' + state.total + ')';
+        selectAllBtn.title = 'Mark every rule in the bundle as selected for saving.';
+        selectAllBtn.addEventListener('click', () => {
+            state.deselected.clear();
+            this._renderSyncPreviewPage(body, page);
+        });
+        controls.appendChild(selectAllBtn);
+
+        const deselectPageBtn = document.createElement('button');
+        deselectPageBtn.className = 'btn btn-secondary';
+        deselectPageBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        deselectPageBtn.textContent = 'Deselect this page';
+        deselectPageBtn.title = 'Remove every rule on the current page from the save set. Other pages unaffected.';
+        deselectPageBtn.addEventListener('click', () => {
+            items.forEach(r => state.deselected.add(r.rule_id));
+            this._renderSyncPreviewPage(body, page);
+        });
+        controls.appendChild(deselectPageBtn);
+
+        // Replace-existing toggle
         const replaceWrap = document.createElement('label');
         replaceWrap.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);margin-left:auto;';
         const replaceChk = document.createElement('input');
@@ -1473,69 +1531,74 @@ const RulesPage = {
         controls.appendChild(replaceWrap);
         body.appendChild(controls);
 
-        // Rules table
-        const table = document.createElement('table');
-        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
-        const thead = document.createElement('thead');
-        const trHead = document.createElement('tr');
-        ['Rule ID', 'Name', 'Category', 'Severity', 'Patterns'].forEach(label => {
-            const th = document.createElement('th');
-            th.textContent = label;
-            th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;';
-            trHead.appendChild(th);
-        });
-        thead.appendChild(trHead);
-        table.appendChild(thead);
+        // ---------- Rules table (skipped if collapsed) ----------
+        if (!state.collapsed) {
+            const table = document.createElement('table');
+            table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
 
-        const tbody = document.createElement('tbody');
-        const items = page.items || [];
-        if (!items.length) {
-            const tr = document.createElement('tr');
-            const td = document.createElement('td');
-            td.colSpan = 5;
-            td.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
-            td.textContent = 'No rules on this page.';
-            tr.appendChild(td);
-            tbody.appendChild(tr);
-        } else {
-            items.forEach(rule => {
-                const tr = document.createElement('tr');
-                const cell = (text) => {
-                    const td = document.createElement('td');
-                    td.textContent = text == null ? '' : String(text);
-                    td.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
-                    return td;
-                };
-                tr.appendChild(cell(rule.rule_id));
-                tr.appendChild(cell(rule.name));
-                tr.appendChild(cell(rule.category));
-                const sevTd = cell(rule.severity);
-                sevTd.style.textTransform = 'capitalize';
-                tr.appendChild(sevTd);
-                const patternsTd = document.createElement('td');
-                patternsTd.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
-                const count = document.createElement('div');
-                count.textContent = String(rule.pattern_count) + ' pattern' + (rule.pattern_count === 1 ? '' : 's');
-                count.style.fontWeight = '600';
-                patternsTd.appendChild(count);
-                (rule.patterns_preview || []).forEach(p => {
-                    const code = document.createElement('code');
-                    code.textContent = p;
-                    code.style.cssText = 'display:block;font-size:12px;color:var(--text-secondary);font-family:monospace;overflow:hidden;text-overflow:ellipsis;max-width:420px;';
-                    patternsTd.appendChild(code);
-                });
-                tr.appendChild(patternsTd);
-                tbody.appendChild(tr);
+            // Header cell 0: master checkbox for the CURRENT page
+            const thCheck = document.createElement('th');
+            thCheck.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;width:30px;';
+            const headerChk = document.createElement('input');
+            headerChk.type = 'checkbox';
+            const anyDeselectedOnPage = items.some(r => state.deselected.has(r.rule_id));
+            const allDeselectedOnPage = items.length > 0 && items.every(r => state.deselected.has(r.rule_id));
+            headerChk.checked = items.length > 0 && !anyDeselectedOnPage;
+            headerChk.indeterminate = anyDeselectedOnPage && !allDeselectedOnPage;
+            headerChk.title = 'Toggle all rules on this page';
+            headerChk.addEventListener('change', () => {
+                if (headerChk.checked) {
+                    items.forEach(r => state.deselected.delete(r.rule_id));
+                } else {
+                    items.forEach(r => state.deselected.add(r.rule_id));
+                }
+                this._renderSyncPreviewPage(body, page);
             });
+            thCheck.appendChild(headerChk);
+            trHead.appendChild(thCheck);
+
+            // Expand-toggle header column — no label, just space
+            const thExpand = document.createElement('th');
+            thExpand.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #e0e0e0);width:24px;';
+            trHead.appendChild(thExpand);
+
+            ['Rule ID', 'Name', 'Category', 'Severity', 'Patterns'].forEach(label => {
+                const th = document.createElement('th');
+                th.textContent = label;
+                th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;';
+                trHead.appendChild(th);
+            });
+            thead.appendChild(trHead);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            if (!items.length) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 7;
+                td.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
+                td.textContent = 'No rules on this page.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+            } else {
+                items.forEach(rule => this._appendSyncPreviewRow(tbody, rule, body, page));
+            }
+            table.appendChild(tbody);
+
+            const tableWrap = document.createElement('div');
+            tableWrap.style.cssText = 'max-height:420px;overflow:auto;border:1px solid var(--border, #e0e0e0);border-radius:6px;';
+            tableWrap.appendChild(table);
+            body.appendChild(tableWrap);
+        } else {
+            const note = document.createElement('div');
+            note.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);border:1px dashed var(--border,#e0e0e0);border-radius:6px;font-size:13px;';
+            note.textContent = 'Preview hidden — ' + selectedCount + ' of ' + state.total + ' rule(s) will be saved.';
+            body.appendChild(note);
         }
-        table.appendChild(tbody);
 
-        const tableWrap = document.createElement('div');
-        tableWrap.style.cssText = 'max-height:420px;overflow:auto;border:1px solid var(--border, #e0e0e0);border-radius:6px;';
-        tableWrap.appendChild(table);
-        body.appendChild(tableWrap);
-
-        // Pagination + apply
+        // ---------- Footer: pagination + apply ----------
         const footer = document.createElement('div');
         footer.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px;';
 
@@ -1556,17 +1619,17 @@ const RulesPage = {
         pageInfo.textContent = 'Page ' + state.page + ' of ' + state.total_pages + ' (' + state.total + ' rules)';
         footer.appendChild(pageInfo);
 
-        const next = document.createElement('button');
-        next.className = 'btn btn-secondary';
-        next.textContent = 'Next ›';
-        next.disabled = state.page >= state.total_pages;
-        next.addEventListener('click', () => {
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-secondary';
+        nextBtn.textContent = 'Next ›';
+        nextBtn.disabled = state.page >= state.total_pages;
+        nextBtn.addEventListener('click', () => {
             if (state.page < state.total_pages) {
                 state.page += 1;
                 this._loadSyncPreviewPage(body);
             }
         });
-        footer.appendChild(next);
+        footer.appendChild(nextBtn);
 
         const gap = document.createElement('div');
         gap.style.cssText = 'flex:1;';
@@ -1585,22 +1648,126 @@ const RulesPage = {
 
         const applyBtn = document.createElement('button');
         applyBtn.className = 'btn btn-primary';
-        applyBtn.textContent = 'Apply ' + state.total + ' Rules';
+        // Label reflects the actual action. If the user hasn't touched
+        // any checkbox, deselected is empty → "Save all N". Otherwise
+        // show the precise count so there's no ambiguity about how
+        // many rules will hit the local cache.
+        applyBtn.textContent = state.deselected.size === 0
+            ? 'Save all ' + state.total + ' rules'
+            : 'Save ' + selectedCount + ' selected rule' + (selectedCount === 1 ? '' : 's');
+        applyBtn.disabled = selectedCount === 0;
         applyBtn.addEventListener('click', () => this._applySyncPreview(body, applyBtn));
         footer.appendChild(applyBtn);
 
         body.appendChild(footer);
     },
 
+    _appendSyncPreviewRow(tbody, rule, body, page) {
+        const state = this.syncPreview;
+        const tr = document.createElement('tr');
+        const tdStyle = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
+
+        // Per-row checkbox — drives the deselected set.
+        const tdCheck = document.createElement('td');
+        tdCheck.style.cssText = tdStyle;
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = !state.deselected.has(rule.rule_id);
+        chk.addEventListener('change', () => {
+            if (chk.checked) state.deselected.delete(rule.rule_id);
+            else state.deselected.add(rule.rule_id);
+            // Re-render to refresh the footer count + header checkbox
+            // indeterminate state without refetching the page.
+            this._renderSyncPreviewPage(body, page);
+        });
+        tdCheck.appendChild(chk);
+        tr.appendChild(tdCheck);
+
+        // Per-row expand/collapse toggle — shows full patterns inline.
+        const isExpanded = state.expanded.has(rule.rule_id);
+        const tdExpand = document.createElement('td');
+        tdExpand.style.cssText = tdStyle + 'cursor:pointer;user-select:none;color:var(--text-secondary);';
+        tdExpand.title = isExpanded ? 'Collapse patterns' : 'Expand to see all patterns';
+        tdExpand.textContent = isExpanded ? '▾' : '▸';
+        tdExpand.addEventListener('click', () => {
+            if (isExpanded) state.expanded.delete(rule.rule_id);
+            else state.expanded.add(rule.rule_id);
+            this._renderSyncPreviewPage(body, page);
+        });
+        tr.appendChild(tdExpand);
+
+        const cell = (text) => {
+            const td = document.createElement('td');
+            td.textContent = text == null ? '' : String(text);
+            td.style.cssText = tdStyle;
+            return td;
+        };
+        tr.appendChild(cell(rule.rule_id));
+        tr.appendChild(cell(rule.name));
+        tr.appendChild(cell(rule.category));
+        const sevTd = cell(rule.severity);
+        sevTd.style.textTransform = 'capitalize';
+        tr.appendChild(sevTd);
+
+        // Patterns cell — shows count, then either preview or all.
+        const patternsTd = document.createElement('td');
+        patternsTd.style.cssText = tdStyle;
+        const count = document.createElement('div');
+        count.textContent = String(rule.pattern_count) + ' pattern' + (rule.pattern_count === 1 ? '' : 's');
+        count.style.fontWeight = '600';
+        patternsTd.appendChild(count);
+        const toShow = isExpanded
+            ? (rule.patterns || rule.patterns_preview || [])
+            : (rule.patterns_preview || []);
+        toShow.forEach(p => {
+            const code = document.createElement('code');
+            code.textContent = p;
+            code.style.cssText = 'display:block;font-size:12px;color:var(--text-secondary);font-family:monospace;overflow:hidden;text-overflow:ellipsis;max-width:420px;white-space:nowrap;';
+            patternsTd.appendChild(code);
+        });
+        if (!isExpanded && rule.pattern_count > (rule.patterns_preview || []).length) {
+            const more = document.createElement('div');
+            more.style.cssText = 'font-size:11px;color:var(--text-secondary);font-style:italic;margin-top:2px;';
+            more.textContent = '+' + (rule.pattern_count - rule.patterns_preview.length) + ' more — click ▸ to expand';
+            patternsTd.appendChild(more);
+        }
+        tr.appendChild(patternsTd);
+
+        // Visually dim deselected rows without hiding them.
+        if (!chk.checked) {
+            tr.style.opacity = '0.45';
+        }
+
+        tbody.appendChild(tr);
+    },
+
     async _applySyncPreview(body, applyBtn) {
         const state = this.syncPreview;
         if (!state) return;
+
+        // Build the skip list from the per-row deselected set. If empty,
+        // send nothing and let the server apply the whole preview (the
+        // "Save all N" path). This keeps the happy path identical to
+        // before — only users who actively deselect pay attention to
+        // the filter args.
+        const opts = {};
+        if (state.deselected.size > 0) {
+            opts.skipRuleIds = Array.from(state.deselected);
+        }
+        const selectedCount = Math.max(0, state.total - state.deselected.size);
+        const originalLabel = applyBtn.textContent;
+
         applyBtn.disabled = true;
-        applyBtn.textContent = 'Applying…';
+        applyBtn.textContent = 'Saving…';
         try {
-            const result = await API.syncPreviewApply(state.token, state.replace_existing);
+            const result = await API.syncPreviewApply(state.token, state.replace_existing, opts);
             if (window.Toast) {
-                Toast.success('Synced ' + (result.upserted || 0) + ' rule(s) from cloud');
+                const saved = result.upserted || 0;
+                const skipped = result.skipped_by_user || 0;
+                const msg = skipped > 0
+                    ? 'Saved ' + saved + ' rule(s); skipped ' + skipped + ' you deselected'
+                    : 'Saved ' + saved + ' rule(s) from cloud';
+                Toast.success(msg);
             }
             this.syncPreview = null;
             Modal.close();
@@ -1611,8 +1778,8 @@ const RulesPage = {
             }
         } catch (err) {
             applyBtn.disabled = false;
-            applyBtn.textContent = 'Apply ' + state.total + ' Rules';
-            if (window.Toast) Toast.error('Apply failed: ' + (err && err.message ? err.message : 'unknown error'));
+            applyBtn.textContent = originalLabel;
+            if (window.Toast) Toast.error('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
         }
     },
 };

@@ -178,7 +178,9 @@ def get_preview_page(token: str, page: int, per_page: int) -> dict[str, Any]:
     page_rules = entry.rules[start:end]
 
     # Return a lean projection — the full normalized row has metadata dicts
-    # that are noisy in the UI.
+    # that are noisy in the UI. `patterns_preview` is capped at 3 for the
+    # collapsed view; `patterns` carries the full list so the UI can
+    # expand a row without a follow-up fetch.
     items = [
         {
             "rule_id": r["rule_id"],
@@ -188,6 +190,7 @@ def get_preview_page(token: str, page: int, per_page: int) -> dict[str, Any]:
             "description": r["description"][:240],
             "pattern_count": len(r["patterns"]),
             "patterns_preview": r["patterns"][:3],
+            "patterns": r["patterns"],
             "source_tier": r.get("metadata", {}).get("tier"),
         }
         for r in page_rules
@@ -205,20 +208,54 @@ def get_preview_page(token: str, page: int, per_page: int) -> dict[str, Any]:
     }
 
 
-async def apply_preview(token: str, replace_existing: bool) -> dict[str, Any]:
-    """Persist the cached preview to `community_rules`, then drop it."""
+async def apply_preview(
+    token: str,
+    replace_existing: bool,
+    *,
+    skip_rule_ids: Optional[list[str]] = None,
+    selected_rule_ids: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Persist the cached preview to `community_rules`, then drop it.
+
+    Filtering model — three mutually exclusive modes, resolved in order:
+
+      1. ``selected_rule_ids`` is a non-None list → apply **only** those
+         rule IDs. An empty list applies nothing (user deselected all).
+      2. ``skip_rule_ids`` is a non-None list → apply everything **except**
+         those rule IDs. Typically how the UI sends partial selections,
+         since the client only needs to track which rules the user
+         unchecked rather than the full set of kept ones.
+      3. Neither is provided → apply the whole cached bundle (the
+         default "Save all" / "Apply all N rules" flow).
+
+    If both are provided the selected list wins and the skip list is
+    ignored (keeps the server's contract unambiguous).
+    """
     started_at = datetime.now(timezone.utc).isoformat()
     entry = _require_entry(token)
 
     db = get_database()
     repo = RulesRepository(db)
 
+    # Resolve which rules to persist.
+    rules_to_apply: list[dict[str, Any]]
+    if selected_rule_ids is not None:
+        keep = set(selected_rule_ids)
+        rules_to_apply = [r for r in entry.rules if r["rule_id"] in keep]
+    elif skip_rule_ids:
+        drop = set(skip_rule_ids)
+        rules_to_apply = [r for r in entry.rules if r["rule_id"] not in drop]
+    else:
+        rules_to_apply = list(entry.rules)
+
+    skipped = len(entry.rules) - len(rules_to_apply)
+
     if replace_existing:
         removed = await repo.clear_community_rules()
         logger.info(f"cloud_rules_preview: cleared {removed} existing community rule(s)")
 
     upserted = 0
-    for rule in entry.rules:
+    for rule in rules_to_apply:
         try:
             await repo.cache_community_rule(**rule)
             upserted += 1
@@ -247,6 +284,8 @@ async def apply_preview(token: str, replace_existing: bool) -> dict[str, Any]:
         "preview_token": token,
         "bundle_version": entry.bundle_version,
         "normalized": len(entry.rules),
+        "selected": len(rules_to_apply),
+        "skipped_by_user": skipped,
         "upserted": upserted,
         "replaced_existing": replace_existing,
         "total_after": total_after,

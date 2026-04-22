@@ -193,13 +193,23 @@ const API = {
         return this.request(`/api/rules/sync/preview/${encodeURIComponent(token)}${qs}`);
     },
 
-    async syncPreviewApply(token, replaceExisting = false) {
+    async syncPreviewApply(token, replaceExisting = false, opts = {}) {
+        const body = {
+            preview_token: token,
+            replace_existing: replaceExisting,
+        };
+        // Selective save — pass a list of rule_ids to apply ONLY those, or
+        // a list of rule_ids to skip, or neither to apply everything. The
+        // server prefers `selected_rule_ids` when both are set.
+        if (Array.isArray(opts.selectedRuleIds)) {
+            body.selected_rule_ids = opts.selectedRuleIds;
+        }
+        if (Array.isArray(opts.skipRuleIds)) {
+            body.skip_rule_ids = opts.skipRuleIds;
+        }
         return this.request('/api/rules/sync/apply', {
             method: 'POST',
-            body: JSON.stringify({
-                preview_token: token,
-                replace_existing: replaceExisting,
-            }),
+            body: JSON.stringify(body),
         });
     },
 
