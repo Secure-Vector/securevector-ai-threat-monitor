@@ -161,6 +161,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         18: migrate_to_v18,
         19: migrate_to_v19,
         20: migrate_to_v20,
+        21: migrate_to_v21,
     }
 
     if version in migrations:
@@ -854,6 +855,66 @@ async def migrate_to_v20(db: DatabaseConnection) -> None:
         "VALUES (20, CURRENT_TIMESTAMP, 'Hash-chain tool_call_audit rows for tamper-evidence')"
     )
     logger.info(f"Applied migration v20: hash-chained {seq} existing audit row(s)")
+
+
+# ---------------------------------------------------------------------------
+# v21 — Stable per-device identifier on every scan and audit row
+# ---------------------------------------------------------------------------
+#
+# The scan and audit tables previously identified *agents* (via
+# source_identifier / session_id / request_id) but not *devices*.
+# Enterprise customers running SecureVector across a fleet need to slice
+# threat activity by laptop, so we add a `device_id` column to both
+# tables and stamp every new row with the stable ID from
+# `securevector.app.utils.device_id.get_device_id()`.
+#
+# device_id is derived from the OS machine identifier (IOPlatformUUID /
+# /etc/machine-id / MachineGuid), SHA-256-hashed with a namespace
+# prefix. Stable across app reinstalls on the same machine. Cached in
+# `{app_data}/.device_id` so the OS fetch happens at most once.
+#
+# The hash chain canonical serialization is intentionally UNCHANGED —
+# we treat device_id as metadata, not as material in the chain. Adding
+# it to the canonical string would break verify_audit_chain() for every
+# already-backfilled row. Tamper evidence still covers the fields that
+# matter (action / risk / reason / args_preview).
+async def migrate_to_v21(db: DatabaseConnection) -> None:
+    """v20 -> v21: device_id column on threat_intel_records + tool_call_audit.
+
+    Both ALTER statements are idempotent via PRAGMA table_info so
+    migrating a DB that already has the column (e.g. re-running on a
+    restored backup) is a no-op.
+
+    Existing rows keep device_id = NULL. Backfilling them would be
+    misleading — we can't retroactively know which device wrote a row
+    that predates the column. The UI / forwarders handle NULL as
+    'unknown device'.
+    """
+    conn = await db.connect()
+
+    for table in ("threat_intel_records", "tool_call_audit"):
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in await cur.fetchall()}
+        if "device_id" not in existing:
+            await conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN device_id TEXT DEFAULT NULL"
+            )
+
+    # Index so dashboards can filter efficiently per device.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_threat_intel_device "
+        "ON threat_intel_records (device_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_device "
+        "ON tool_call_audit (device_id)"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (21, CURRENT_TIMESTAMP, 'Device ID on scans + audit rows')"
+    )
+    logger.info("Applied migration v21: device_id columns + indexes")
 
 
 # Future migration functions would be defined here:

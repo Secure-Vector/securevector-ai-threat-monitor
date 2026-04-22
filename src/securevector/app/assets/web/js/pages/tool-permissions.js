@@ -836,6 +836,14 @@ const ToolPermissionsPage = {
             // red-border + badge the specific row whose hash failed.
             self.auditIntegrity = result;
             self._refreshAuditRowIntegrity();
+            // Fetch the device_id so the banner can show which machine
+            // this chain belongs to. Non-blocking — if it fails the
+            // banner still renders without the device tag.
+            let deviceId = null;
+            try {
+                const di = await API.getDeviceId();
+                deviceId = di && di.device_id;
+            } catch (_) { /* ignore */ }
             integrityBanner.textContent = '';
 
             const icon = document.createElement('span');
@@ -857,9 +865,13 @@ const ToolPermissionsPage = {
                     ? new Date(result.last_verified_at).toLocaleString()
                     : 'just now';
                 const entryLabel = count === 1 ? 'entry' : 'entries';
+                const deviceFrag = deviceId
+                    ? ' · <span style="color:#065f46;opacity:0.75;font-family:monospace;" title="Stable per-device identifier. Hashed from the OS machine UUID — the raw value never leaves this machine.">device ' + deviceId + '</span>'
+                    : '';
                 text.innerHTML = '<strong>Audit chain verified</strong> — '
                     + count + ' ' + entryLabel + ' intact '
-                    + '<span style="color:#065f46;opacity:0.75;">· checked ' + when + '</span>';
+                    + '<span style="color:#065f46;opacity:0.75;">· checked ' + when + '</span>'
+                    + deviceFrag;
             } else if (result.ok === false) {
                 icon.textContent = '⚠';
                 icon.style.color = '#ef4444';

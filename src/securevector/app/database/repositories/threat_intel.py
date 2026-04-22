@@ -184,6 +184,12 @@ class ThreatIntelRepository:
         text_length = len(text)
         created_at = datetime.utcnow()
 
+        # Stable per-device identifier — survives app reinstalls on the
+        # same machine. Enterprise dashboards and SIEM forwards can slice
+        # threats by device. See `app.utils.device_id` for derivation.
+        from securevector.app.utils.device_id import get_device_id
+        device_id = get_device_id()
+
         await self.db.execute(
             """
             INSERT INTO threat_intel_records (
@@ -193,8 +199,8 @@ class ThreatIntelRepository:
                 processing_time_ms, created_at, metadata, user_agent,
                 llm_reviewed, llm_agrees, llm_confidence, llm_explanation,
                 llm_recommendation, llm_risk_adjustment, llm_model_used, llm_tokens_used,
-                action_taken
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                action_taken, device_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -222,6 +228,7 @@ class ThreatIntelRepository:
                 llm_model_used,
                 llm_tokens_used,
                 action_taken,
+                device_id,
             ),
         )
 

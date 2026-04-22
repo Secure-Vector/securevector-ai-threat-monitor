@@ -300,12 +300,20 @@ class CustomToolsRepository:
             called_at=called_at,
         )
 
+        # Stable per-device identifier stamped on every row. Derived
+        # from the OS machine ID (survives reinstalls), SHA-256-hashed.
+        # Not part of the canonical hash-chain serialization — see
+        # migration v21's comment block for why this is metadata, not
+        # material.
+        from securevector.app.utils.device_id import get_device_id
+        device_id = get_device_id()
+
         await conn.execute(
             """
             INSERT INTO tool_call_audit
                 (tool_id, function_name, action, risk, reason, is_essential,
-                 args_preview, called_at, seq, prev_hash, row_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 args_preview, called_at, seq, prev_hash, row_hash, device_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 resolved_tool_id,
@@ -319,6 +327,7 @@ class CustomToolsRepository:
                 next_seq,
                 prev_hash,
                 row_hash,
+                device_id,
             ),
         )
         await conn.commit()
@@ -432,7 +441,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash
+                       seq, prev_hash, row_hash, device_id
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -448,7 +457,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash
+                       seq, prev_hash, row_hash, device_id
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?

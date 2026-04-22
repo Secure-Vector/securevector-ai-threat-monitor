@@ -375,6 +375,10 @@ const API = {
         }));
     },
 
+    async getDeviceId() {
+        return this.request('/api/system/device-id').catch(() => ({ device_id: null }));
+    },
+
     async deleteToolCallAuditEntries(ids) {
         return this.request('/api/tool-permissions/call-audit', {
             method: 'DELETE',
