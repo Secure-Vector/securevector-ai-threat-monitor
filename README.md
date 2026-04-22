@@ -30,7 +30,10 @@
 
 <br>
 
-> **New in v3.4.0:**
+> **New in v3.5.0:**
+> - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
+>
+> **v3.4.0 carries forward:**
 > - **OpenClaw Plugin (ZERO latency)** — native integration that runs inside the agent: input scanning, tool audit with arguments, output guard, cost tracking. No proxy needed for monitoring.
 > - **Block Mode for OpenClaw** — optional proxy that actively blocks attacks and stops unauthorized tool calls before they reach the LLM. Only needed when you want to enforce blocking, not just monitoring.
 > - **Skill Scanner** — static analysis for AI agent skills with optional AI-powered review

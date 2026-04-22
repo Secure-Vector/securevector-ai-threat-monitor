@@ -365,6 +365,39 @@ async def get_call_audit(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/tool-permissions/call-audit/integrity")
+async def get_call_audit_integrity():
+    """Verify the tamper-evident hash chain over the tool_call_audit table.
+
+    Walks every row oldest-first, recomputes SHA-256(prev_hash ‖ canonical_row)
+    against the stored row_hash, and also checks that seq is contiguous and
+    each prev_hash matches the previous row's row_hash.
+
+    Returns:
+        {
+          "ok": true | false,
+          "total": <rows scanned>,
+          "tampered_at": <seq> | null,
+          "tampered_id": <db id> | null,
+          "reason": <short message> | null,
+          "last_verified_at": <iso timestamp>
+        }
+
+    Design note (PR #46 comment @desiorac): this catches casual tampering
+    and disk corruption on the local audit log. A determined local attacker
+    with the same OS privileges can recompute the chain and rewrite history
+    — the durable defense is off-host forwarding, which the metadata-only
+    cloud sync outbox (migration v21) provides.
+    """
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        return await repo.verify_audit_chain()
+    except Exception as e:
+        logger.error(f"Failed to verify audit chain: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/tool-permissions/call-audit/daily")
 async def get_call_audit_daily(days: int = 7):
     """Return per-day blocked/allowed/logged counts for the last N days."""

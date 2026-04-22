@@ -40,8 +40,11 @@ const SettingsPage = {
     renderContent(container) {
         container.textContent = '';
 
-        // Cloud Mode Section
-        const cloudSection = this.createSection('Cloud Mode', 'Connect to SecureVector cloud for enhanced threat intelligence');
+        // Cloud Connect Section
+        const cloudSection = this.createSection(
+            'Cloud Connect',
+            'Optional. Connect to fetch the latest rule bundle and route analyze calls through SecureVector Cloud — metadata-only.',
+        );
         const cloudCard = Card.create({ gradient: true });
         const cloudBody = cloudCard.querySelector('.card-body');
         this.renderCloudSettings(cloudBody);
@@ -771,7 +774,29 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     },
 
     renderCloudSettings(container) {
-        // Cloud Mode ON indicator (simple version - details in header tooltip)
+        // Always-visible workflow primer — explains what Cloud Connect
+        // does (and, just as importantly, what it does NOT do when
+        // turned off). Users kept asking whether scans still run with
+        // Cloud Connect off; this panel answers that inline.
+        const primer = document.createElement('div');
+        primer.style.cssText = 'margin-bottom:16px;padding:14px 16px;background:var(--bg-secondary,#f5f7fa);border-left:3px solid var(--accent,#2563eb);border-radius:6px;font-size:13px;line-height:1.55;';
+
+        const primerHeading = document.createElement('div');
+        primerHeading.style.cssText = 'font-weight:600;margin-bottom:6px;';
+        primerHeading.textContent = 'Cloud Connect is fully optional.';
+        primer.appendChild(primerHeading);
+
+        const primerBody = document.createElement('div');
+        primerBody.style.color = 'var(--text-secondary)';
+        primerBody.innerHTML =
+            '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect ON:</strong> you can sync the latest rule bundle from SecureVector Cloud, and every <code>/analyze</code> request is routed to the cloud for ML-powered scoring. We persist <strong>metadata only</strong> — scan verdicts, threat scores, rule IDs. Prompts, LLM outputs, matched patterns, and reasoning text are never transmitted or stored on our side.</p>'
+            + '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect OFF:</strong> everything keeps running locally — threat detection, tool-call audits, cost tracking, skill scanner. Rules you have already synced stay on this machine and continue to work.</p>'
+            + '<p style="margin:0;"><strong style="color:var(--text-primary);">Typical flow:</strong> turn ON → click <em>Sync from Cloud</em> on the Rules page → turn OFF → keep running fully local with the freshest ruleset.</p>';
+        primer.appendChild(primerBody);
+
+        container.appendChild(primer);
+
+        // Cloud Connect ON indicator (simple version - details in header tooltip)
         if (this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled) {
             const indicator = document.createElement('div');
             indicator.style.cssText = 'margin-bottom: 16px; padding: 12px 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px; display: flex; align-items: center; gap: 10px;';
