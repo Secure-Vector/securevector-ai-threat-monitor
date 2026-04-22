@@ -101,6 +101,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start cloud_sync_forwarder: {_e}")
 
+    # Start the external SIEM forwarder. Runs independently of cloud
+    # mode — customers without SecureVector Cloud still use SIEM export.
+    try:
+        from securevector.app.services.external_forwarder import start_external_forwarder
+        await start_external_forwarder()
+    except Exception as _e:
+        logger.warning(f"Could not start external_forwarder: {_e}")
+
     yield
     logger.info("API server shutting down...")
 
@@ -109,6 +117,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await stop_forwarder()
     except Exception as _e:
         logger.warning(f"Could not stop cloud_sync_forwarder cleanly: {_e}")
+
+    try:
+        from securevector.app.services.external_forwarder import stop_external_forwarder
+        await stop_external_forwarder()
+    except Exception as _e:
+        logger.warning(f"Could not stop external_forwarder cleanly: {_e}")
 
 
 def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
@@ -203,6 +217,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         hooks,
         skill_scans,
         skill_permissions,
+        siem_forwarders,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -220,6 +235,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
+    app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

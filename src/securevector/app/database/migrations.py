@@ -162,6 +162,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         19: migrate_to_v19,
         20: migrate_to_v20,
         21: migrate_to_v21,
+        22: migrate_to_v22,
+        23: migrate_to_v23,
     }
 
     if version in migrations:
@@ -871,6 +873,90 @@ async def migrate_to_v20(db: DatabaseConnection) -> None:
 #     risk_level, detected_items_count, detected_types[], ml_status,
 #     scan_duration_ms, model_id, conversation_id, source ('local-app').
 # ---------------------------------------------------------------------------
+async def migrate_to_v22(db: DatabaseConnection) -> None:
+    """v21 -> v22: external SIEM forwarders config table.
+
+    Stores one row per user-configured destination (Splunk HEC, Datadog,
+    generic webhook, OTLP/HTTP). Secrets themselves are NEVER stored
+    here — only a `secret_ref` that resolves to the OS keychain entry,
+    so an exfil of this SQLite file gives URLs and names but no tokens.
+    Mirrors `cloud_sync_outbox`'s "local durability, at-least-once
+    delivery" design.
+    """
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_forwarders (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind                TEXT    NOT NULL CHECK (kind IN ('webhook', 'splunk_hec', 'datadog', 'otlp_http')),
+            name                TEXT    NOT NULL,
+            url                 TEXT    NOT NULL,
+            secret_ref          TEXT,
+            headers_json        TEXT,
+            event_filter        TEXT    NOT NULL DEFAULT 'threats_only' CHECK (event_filter IN ('all', 'threats_only', 'audits_only')),
+            include_tool_audits INTEGER NOT NULL DEFAULT 1,
+            redaction_level     TEXT    NOT NULL DEFAULT 'standard' CHECK (redaction_level IN ('standard', 'minimal')),
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_success_at     TIMESTAMP,
+            last_failure_at     TIMESTAMP,
+            last_error          TEXT,
+            consecutive_fails   INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_external_forwarders_enabled "
+        "ON external_forwarders (enabled, id)"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (22, CURRENT_TIMESTAMP, 'External SIEM forwarders config')"
+    )
+    logger.info("Applied migration v22: external_forwarders")
+
+
+async def migrate_to_v23(db: DatabaseConnection) -> None:
+    """v22 -> v23: per-destination outbox for SIEM forwarding.
+
+    Fan-out model: one enqueue at the call site produces N outbox rows
+    (one per enabled forwarder that passes the event filter). Each row
+    is delivered independently, so a failing Datadog destination never
+    blocks Splunk. ON DELETE CASCADE means removing a forwarder wipes
+    its queued rows automatically.
+    """
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_forward_outbox (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+            kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit')),
+            payload_json  TEXT NOT NULL,
+            created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            delivered_at  TIMESTAMP,
+            last_error    TEXT
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+        "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+        "WHERE delivered_at IS NULL"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (23, CURRENT_TIMESTAMP, 'External SIEM forward outbox')"
+    )
+    logger.info("Applied migration v23: external_forward_outbox")
+
+
 async def migrate_to_v21(db: DatabaseConnection) -> None:
     """v20 -> v21: metadata-only cloud sync outbox."""
     conn = await db.connect()

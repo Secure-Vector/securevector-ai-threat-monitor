@@ -30,10 +30,11 @@
 
 <br>
 
-> **New in v3.5.0:**
-> - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering with a historic row breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`.
-> - **Metadata-only cloud sync** — at-least-once outbox ships scan metadata off-host for tamper evidence when Cloud Mode is on. Never transmits prompts, outputs, matched patterns, or reasoning text.
-> - **Cloud rule sync with review** — fetch the cloud rule bundle (tier-filtered), preview paginated, then persist. Fetch → review → apply on the Rules page.
+> **New in v4.0.0:**
+> - **Export to SIEM (free, no signup)** — forward threat detections and tool-call audits to your Splunk HEC, Datadog, OpenTelemetry collector, or any generic HTTPS webhook. OCSF 1.3.0 schema. Metadata-only: prompts, outputs, and matched patterns never leave your machine.
+> - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity` or re-verify in your SIEM from the forwarded events.
+> - **Metadata-only cloud sync** — at-least-once outbox for off-host tamper evidence when Cloud Mode is on.
+> - **Cloud rule sync with review** — fetch the cloud rule bundle, preview paginated, then persist.
 >
 > **v3.4.0 carries forward:**
 > - **OpenClaw Plugin (ZERO latency)** — native integration that runs inside the agent: input scanning, tool audit with arguments, output guard, cost tracking. No proxy needed for monitoring.
@@ -292,6 +293,41 @@ Built from real attack chains observed against production agent frameworks:
 - **Permission Scope Escalation** — agents requesting more permissions than granted
 - **MCP Tool Call Injection** — malicious payloads delivered through MCP tool calls
 - **Evasion techniques** (22 rules) — zero-width characters, encoding tricks, roleplay framing, leetspeak, semantic inversion, emotional manipulation, and more
+
+<br>
+
+## Export to SIEM
+
+Stream every threat detection and tool-call audit into your own SIEM — Splunk, Datadog, Elastic, Chronicle, Sumo, an OpenTelemetry collector, or any HTTPS endpoint that accepts JSON. **Free, no signup, no telemetry in the middle.** Your data, your pipes.
+
+**Why this is safe to ship with zero monetization:**
+
+| Feature | What leaves your machine |
+|---|---|
+| Scan verdict | `scan_id`, `verdict`, `threat_score`, `risk_level`, `detected_types[]`, counts, durations |
+| Tool-call audit | `seq`, `action`, `risk`, `prev_hash`, `row_hash` (the chain witness — lets your SIEM verify integrity) |
+| **Never transmitted** | Prompt text, LLM output, matched patterns, reviewer reasoning, model reasoning |
+
+The allow-list is enforced at enqueue time by `_assert_metadata_only()`. Even if the forwarder code were tampered with, it can't add the forbidden fields back.
+
+**Supported destinations (one code path, OCSF 1.3.0 payload):**
+
+| Kind | Target | Auth header |
+|---|---|---|
+| `splunk_hec` | `https://<host>/services/collector/event` | `Authorization: Splunk <HEC-token>` |
+| `datadog` | `https://http-intake.logs.<site>/api/v2/logs` | `DD-API-KEY: <key>` |
+| `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
+| `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
+
+**Configure in Settings → Export to SIEM.** Add Destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+
+**Reliability:**
+- Per-destination outbox with at-least-once delivery.
+- A failing Datadog destination never blocks a healthy Splunk one.
+- Per-destination circuit breaker backs off broken endpoints (1 min → 1 hour cap).
+- Rows that fail 10 times are dropped (the health view shows the consecutive-failure count).
+
+**SIEM-side integrity verification.** Every forwarded tool-call audit row carries its `prev_hash` and `row_hash`. Run a nightly search in your SIEM that rebuilds the chain — if a historic row has been tampered with on the local host, the forwarded evidence still tells the true story. That's the *actual* tamper evidence; the local chain alone is only the low bar.
 
 <br>
 

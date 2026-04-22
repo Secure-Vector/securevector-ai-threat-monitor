@@ -92,6 +92,17 @@ const SettingsPage = {
         toolSection.appendChild(toolCard);
         container.appendChild(toolSection);
 
+        // Export to SIEM Section
+        const siemSection = this.createSection(
+            'Export to SIEM',
+            'Forward threat detections and tool-call audits to your Splunk, Datadog, or generic webhook. Free, no signup — your data, your pipes.',
+        );
+        const siemCard = Card.create({ gradient: true });
+        const siemBody = siemCard.querySelector('.card-body');
+        this.renderSiemForwarders(siemBody);
+        siemSection.appendChild(siemCard);
+        container.appendChild(siemSection);
+
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
         const themeCard = Card.create({ gradient: true });
@@ -1085,6 +1096,353 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         section.appendChild(header);
         return section;
+    },
+
+    // ==================== SIEM Forwarders ====================
+
+    async renderSiemForwarders(container) {
+        container.textContent = '';
+
+        // Intro + health line (populated after list loads)
+        const intro = document.createElement('div');
+        intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;';
+        const meta = document.createElement('div');
+        meta.id = 'siem-meta';
+        meta.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        meta.textContent = 'Loading destinations…';
+        intro.appendChild(meta);
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-primary';
+        addBtn.textContent = '+ Add Destination';
+        addBtn.addEventListener('click', () => this._showSiemEditor(null));
+        intro.appendChild(addBtn);
+        container.appendChild(intro);
+
+        // Table wrapper
+        const tableWrap = document.createElement('div');
+        tableWrap.id = 'siem-forwarders-table';
+        tableWrap.style.cssText = 'border:1px solid var(--border,#e0e0e0);border-radius:6px;overflow:hidden;';
+        container.appendChild(tableWrap);
+
+        await this._refreshSiemForwardersTable();
+    },
+
+    async _refreshSiemForwardersTable() {
+        const wrap = document.getElementById('siem-forwarders-table');
+        const meta = document.getElementById('siem-meta');
+        if (!wrap) return;
+
+        let resp;
+        try {
+            resp = await API.listSiemForwarders();
+        } catch {
+            wrap.textContent = 'Failed to load SIEM destinations.';
+            if (meta) meta.textContent = '';
+            return;
+        }
+        const items = resp.items || [];
+        if (meta) {
+            meta.textContent = items.length
+                ? `${items.length} destination${items.length === 1 ? '' : 's'} configured. Metadata-only; prompts and outputs never leave this machine.`
+                : 'No destinations yet. Add a Splunk, Datadog, webhook, or OTLP endpoint to stream threats into your SOC workflow.';
+        }
+
+        wrap.textContent = '';
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
+            empty.textContent = 'No SIEM destinations configured.';
+            wrap.appendChild(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+        const thead = document.createElement('thead');
+        const trHead = document.createElement('tr');
+        ['', 'Name', 'Kind', 'Filter', 'Health', 'Pending', ''].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border,#e0e0e0);font-weight:600;';
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        items.forEach(row => {
+            const tr = document.createElement('tr');
+            // Enabled toggle
+            const tdToggle = document.createElement('td');
+            tdToggle.style.cssText = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);';
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.checked = !!row.enabled;
+            toggle.addEventListener('change', async () => {
+                try {
+                    await API.updateSiemForwarder(row.id, { enabled: toggle.checked });
+                    if (window.Toast) Toast.success(toggle.checked ? 'Enabled' : 'Disabled');
+                } catch (e) {
+                    toggle.checked = !toggle.checked;
+                    if (window.Toast) Toast.error('Toggle failed');
+                }
+            });
+            tdToggle.appendChild(toggle);
+            tr.appendChild(tdToggle);
+
+            tr.appendChild(this._siemCell(row.name, { fontWeight: '600' }));
+            tr.appendChild(this._siemCell(this._siemKindLabel(row.kind)));
+            tr.appendChild(this._siemCell(this._siemFilterLabel(row.event_filter, row.include_tool_audits)));
+            tr.appendChild(this._siemCell(this._siemHealthLabel(row)));
+            tr.appendChild(this._siemCell(String(row.pending ?? 0)));
+
+            // Actions
+            const tdActions = document.createElement('td');
+            tdActions.style.cssText = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);white-space:nowrap;text-align:right;';
+
+            const testBtn = document.createElement('button');
+            testBtn.className = 'btn btn-secondary';
+            testBtn.style.cssText = 'margin-right:6px;padding:4px 10px;font-size:12px;';
+            testBtn.textContent = 'Test';
+            testBtn.addEventListener('click', () => this._testSiemForwarder(row.id, testBtn));
+            tdActions.appendChild(testBtn);
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn btn-secondary';
+            editBtn.style.cssText = 'margin-right:6px;padding:4px 10px;font-size:12px;';
+            editBtn.textContent = 'Edit';
+            editBtn.addEventListener('click', () => this._showSiemEditor(row));
+            tdActions.appendChild(editBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-secondary';
+            delBtn.style.cssText = 'padding:4px 10px;font-size:12px;color:var(--danger,#c0392b);';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                if (!confirm(`Delete destination "${row.name}"? Its queued events will be dropped.`)) return;
+                try {
+                    await API.deleteSiemForwarder(row.id);
+                    if (window.Toast) Toast.success('Destination deleted');
+                    await this._refreshSiemForwardersTable();
+                } catch (e) {
+                    if (window.Toast) Toast.error('Delete failed');
+                }
+            });
+            tdActions.appendChild(delBtn);
+            tr.appendChild(tdActions);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+    },
+
+    _siemCell(text, style = {}) {
+        const td = document.createElement('td');
+        td.textContent = text == null ? '' : String(text);
+        const base = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);vertical-align:top;';
+        const extras = Object.entries(style).map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';');
+        td.style.cssText = base + extras;
+        return td;
+    },
+
+    _siemKindLabel(kind) {
+        return {
+            webhook: 'Webhook',
+            splunk_hec: 'Splunk HEC',
+            datadog: 'Datadog',
+            otlp_http: 'OTLP/HTTP',
+        }[kind] || kind;
+    },
+
+    _siemFilterLabel(filter, includeAudits) {
+        const base = {
+            all: 'All events',
+            threats_only: 'Threats only',
+            audits_only: 'Audits only',
+        }[filter] || filter;
+        if (filter === 'threats_only' && includeAudits) return `${base} + audits`;
+        if (filter === 'all' && !includeAudits) return `${base} (no audits)`;
+        return base;
+    },
+
+    _siemHealthLabel(row) {
+        if (!row.enabled) return 'Disabled';
+        if (row.consecutive_fails > 0) return `Failing (${row.consecutive_fails})`;
+        if (row.last_success_at) return 'OK';
+        return 'Never delivered';
+    },
+
+    async _testSiemForwarder(id, btn) {
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Testing…';
+        try {
+            const res = await API.testSiemForwarder(id);
+            if (res.ok) {
+                if (window.Toast) Toast.success(`Test OK (HTTP ${res.status_code}, ${res.latency_ms}ms)`);
+            } else if (window.Toast) {
+                Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
+            }
+        } catch (e) {
+            if (window.Toast) Toast.error('Test request failed');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+            await this._refreshSiemForwardersTable();
+        }
+    },
+
+    _showSiemEditor(existing) {
+        const isEdit = !!existing;
+        const body = document.createElement('div');
+        body.style.cssText = 'display:flex;flex-direction:column;gap:12px;';
+
+        const addField = (label, input) => {
+            const wrap = document.createElement('label');
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:13px;';
+            const lbl = document.createElement('span');
+            lbl.textContent = label;
+            lbl.style.color = 'var(--text-secondary)';
+            wrap.appendChild(lbl);
+            wrap.appendChild(input);
+            body.appendChild(wrap);
+            return input;
+        };
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'filter-select';
+        nameInput.placeholder = 'Corp Splunk';
+        nameInput.value = existing?.name || '';
+        addField('Destination name', nameInput);
+
+        const kindSelect = document.createElement('select');
+        kindSelect.className = 'filter-select';
+        [
+            ['webhook', 'Generic Webhook (JSON POST)'],
+            ['splunk_hec', 'Splunk HTTP Event Collector'],
+            ['datadog', 'Datadog Logs'],
+            ['otlp_http', 'OpenTelemetry Collector (OTLP/HTTP)'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if (existing?.kind === v) opt.selected = true;
+            kindSelect.appendChild(opt);
+        });
+        addField('Destination type', kindSelect);
+
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'filter-select';
+        urlInput.placeholder = 'https://…';
+        urlInput.value = existing?.url || '';
+        addField('URL', urlInput);
+
+        const secretInput = document.createElement('input');
+        secretInput.type = 'password';
+        secretInput.className = 'filter-select';
+        secretInput.placeholder = isEdit
+            ? (existing.has_secret ? 'Leave blank to keep existing; type "-" to remove' : 'API key / HEC token (optional for webhooks)')
+            : 'API key / HEC token (optional for webhooks)';
+        addField('Secret', secretInput);
+
+        const filterSelect = document.createElement('select');
+        filterSelect.className = 'filter-select';
+        [
+            ['threats_only', 'Threats only (verdict ≠ ALLOW) — recommended'],
+            ['all', 'All scans (includes ALLOW)'],
+            ['audits_only', 'Tool-call audits only'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.event_filter || 'threats_only') === v) opt.selected = true;
+            filterSelect.appendChild(opt);
+        });
+        addField('Event filter', filterSelect);
+
+        const auditsLabel = document.createElement('label');
+        auditsLabel.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;';
+        const auditsChk = document.createElement('input');
+        auditsChk.type = 'checkbox';
+        auditsChk.checked = existing ? !!existing.include_tool_audits : true;
+        const auditsText = document.createElement('span');
+        auditsText.textContent = 'Include tool-call audit events (with hash-chain witness for SIEM-side verification)';
+        auditsLabel.appendChild(auditsChk);
+        auditsLabel.appendChild(auditsText);
+        body.appendChild(auditsLabel);
+
+        const redactionSelect = document.createElement('select');
+        redactionSelect.className = 'filter-select';
+        [
+            ['standard', 'Standard — includes conversation/model IDs'],
+            ['minimal', 'Minimal — severity + counts only'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.redaction_level || 'standard') === v) opt.selected = true;
+            redactionSelect.appendChild(opt);
+        });
+        addField('Redaction level', redactionSelect);
+
+        const hint = document.createElement('div');
+        hint.style.cssText = 'padding:10px;background:var(--bg-secondary,#f5f7fa);border-radius:6px;font-size:12px;color:var(--text-secondary);';
+        hint.textContent = 'Payloads use OCSF 1.3.0 schema. Metadata-only: prompts, outputs, matched patterns, and reasoning text never leave this machine, even to your SIEM.';
+        body.appendChild(hint);
+
+        Modal.show({
+            title: isEdit ? 'Edit SIEM Destination' : 'Add SIEM Destination',
+            content: body,
+            size: 'medium',
+            actions: [
+                { label: 'Cancel' },
+                {
+                    label: isEdit ? 'Save' : 'Create',
+                    primary: true,
+                    closeOnClick: false,
+                    onClick: async () => {
+                        const payload = {
+                            kind: kindSelect.value,
+                            name: nameInput.value.trim(),
+                            url: urlInput.value.trim(),
+                            event_filter: filterSelect.value,
+                            include_tool_audits: auditsChk.checked,
+                            redaction_level: redactionSelect.value,
+                        };
+                        if (!payload.name || !payload.url) {
+                            if (window.Toast) Toast.error('Name and URL are required');
+                            return;
+                        }
+                        // Secret handling: "-" means clear, empty means leave as-is on edit
+                        const secretRaw = secretInput.value;
+                        if (isEdit) {
+                            if (secretRaw === '-') payload.secret = '';
+                            else if (secretRaw) payload.secret = secretRaw;
+                            // else: don't include `secret` → repo leaves it alone
+                        } else if (secretRaw) {
+                            payload.secret = secretRaw;
+                        }
+                        try {
+                            if (isEdit) {
+                                await API.updateSiemForwarder(existing.id, payload);
+                                if (window.Toast) Toast.success('Destination updated');
+                            } else {
+                                await API.createSiemForwarder(payload);
+                                if (window.Toast) Toast.success('Destination created');
+                            }
+                            Modal.close();
+                            await this._refreshSiemForwardersTable();
+                        } catch (e) {
+                            if (window.Toast) Toast.error(`Save failed: ${e.message || e}`);
+                        }
+                    },
+                },
+            ],
+        });
     },
 };
 
