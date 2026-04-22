@@ -34,7 +34,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.rules import RulesRepository
