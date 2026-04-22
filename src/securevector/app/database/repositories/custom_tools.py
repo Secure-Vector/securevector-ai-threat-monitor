@@ -431,7 +431,8 @@ class CustomToolsRepository:
             rows = await self.db.fetch_all(
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
-                       is_essential, args_preview, called_at
+                       is_essential, args_preview, called_at,
+                       seq, prev_hash, row_hash
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -446,7 +447,8 @@ class CustomToolsRepository:
             rows = await self.db.fetch_all(
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
-                       is_essential, args_preview, called_at
+                       is_essential, args_preview, called_at,
+                       seq, prev_hash, row_hash
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?

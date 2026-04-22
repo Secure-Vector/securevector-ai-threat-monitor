@@ -794,6 +794,78 @@ const ToolPermissionsPage = {
         let totalEntries = 0;
         this.auditSelectedIds = new Set();
 
+        // ── Audit chain integrity banner ─────────────────────────────────
+        // Calls /api/tool-permissions/call-audit/integrity and shows
+        // whether the SHA-256 hash chain over tool_call_audit rows is
+        // intact. Green if every row's stored row_hash matches the
+        // recomputed chain witness; red if any row has been tampered
+        // with, deleted, or corrupted. The endpoint is also the one
+        // ops / support can hit programmatically — the banner is just
+        // a visible reassurance that the local ledger is honest.
+        const integrityBanner = document.createElement('div');
+        integrityBanner.id = 'audit-integrity-banner';
+        integrityBanner.style.cssText = 'margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; gap: 10px; font-size: 13px; border: 1px solid transparent;';
+        container.appendChild(integrityBanner);
+
+        const renderIntegrity = async () => {
+            integrityBanner.textContent = '';
+            integrityBanner.style.background = 'var(--bg-secondary, #f5f7fa)';
+            integrityBanner.style.borderColor = 'var(--border-default, #e0e0e0)';
+            integrityBanner.style.color = 'var(--text-secondary)';
+            const loading = document.createElement('span');
+            loading.textContent = 'Verifying audit chain…';
+            integrityBanner.appendChild(loading);
+
+            const result = await API.getToolCallAuditIntegrity();
+            integrityBanner.textContent = '';
+
+            const icon = document.createElement('span');
+            icon.style.cssText = 'font-size: 15px;';
+            const text = document.createElement('span');
+            text.style.flex = '1';
+            integrityBanner.appendChild(icon);
+            integrityBanner.appendChild(text);
+
+            if (result.ok === true) {
+                icon.textContent = '✓';
+                icon.style.color = '#10b981';
+                integrityBanner.style.background = 'rgba(16,185,129,0.06)';
+                integrityBanner.style.borderColor = 'rgba(16,185,129,0.3)';
+                const count = Number(result.total || 0);
+                const when = result.last_verified_at
+                    ? new Date(result.last_verified_at).toLocaleString()
+                    : 'just now';
+                const entryLabel = count === 1 ? 'entry' : 'entries';
+                text.innerHTML = '<strong>Audit chain verified</strong> — '
+                    + count + ' ' + entryLabel + ' intact · '
+                    + '<span style="color:var(--text-secondary);">checked ' + when + '</span>';
+            } else if (result.ok === false) {
+                icon.textContent = '⚠';
+                icon.style.color = '#ef4444';
+                integrityBanner.style.background = 'rgba(239,68,68,0.08)';
+                integrityBanner.style.borderColor = 'rgba(239,68,68,0.4)';
+                integrityBanner.style.color = '#ef4444';
+                const at = result.tampered_at != null ? '#' + result.tampered_at : '(unknown seq)';
+                const reason = result.reason ? ' · ' + result.reason : '';
+                text.innerHTML = '<strong>Audit chain tampered at seq ' + at + '</strong>'
+                    + (result.tampered_id ? ' · row id ' + result.tampered_id : '')
+                    + reason;
+            } else {
+                icon.textContent = '…';
+                text.innerHTML = '<strong>Integrity check unavailable</strong> — endpoint did not respond.';
+            }
+
+            const reverifyBtn = document.createElement('button');
+            reverifyBtn.className = 'btn btn-secondary';
+            reverifyBtn.style.cssText = 'padding: 3px 10px; font-size: 11px;';
+            reverifyBtn.textContent = 'Re-verify';
+            reverifyBtn.title = 'Re-walk the hash chain and update this banner.';
+            reverifyBtn.addEventListener('click', () => renderIntegrity());
+            integrityBanner.appendChild(reverifyBtn);
+        };
+        // Fire-and-forget; the chart + rows render regardless of this call.
+        renderIntegrity();
+
         // ── 7-day activity chart ─────────────────────────────────────────
         const chartCard = document.createElement('div');
         chartCard.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;';
@@ -1263,6 +1335,52 @@ const ToolPermissionsPage = {
                 wrap.appendChild(section('Arguments', codeWrap));
             } else {
                 wrap.appendChild(section('Arguments', 'No arguments recorded'));
+            }
+
+            // ── Chain position + optional cryptographic proof ────────────
+            // `seq` is human-readable (the row's position in the audit
+            // chain) and useful for ops conversations — always shown.
+            // The hashes themselves (prev_hash, row_hash) are the
+            // tamper-evidence witness; hidden behind a toggle so the
+            // normal case doesn't drown in hex.
+            if (entry.seq != null) {
+                const seqEl = document.createElement('span');
+                seqEl.style.cssText = 'font-family: monospace; font-size: 13px; color: var(--text-primary);';
+                seqEl.textContent = '#' + entry.seq;
+                wrap.appendChild(section('Audit Chain Position', seqEl));
+
+                if (entry.row_hash) {
+                    const proofToggle = document.createElement('details');
+                    proofToggle.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; font-size: 12px;';
+                    const summary = document.createElement('summary');
+                    summary.style.cssText = 'cursor: pointer; color: var(--text-secondary); user-select: none;';
+                    summary.textContent = 'Chain proof (SHA-256 witness)';
+                    proofToggle.appendChild(summary);
+
+                    const proofBody = document.createElement('div');
+                    proofBody.style.cssText = 'margin-top: 8px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-family: monospace; word-break: break-all;';
+                    const addProofRow = (label, value, isGenesis = false) => {
+                        const lbl = document.createElement('span');
+                        lbl.style.cssText = 'color: var(--text-secondary);';
+                        lbl.textContent = label;
+                        const val = document.createElement('span');
+                        val.style.color = isGenesis ? 'var(--text-secondary)' : 'var(--accent-primary)';
+                        val.textContent = value || '(none)';
+                        proofBody.appendChild(lbl);
+                        proofBody.appendChild(val);
+                    };
+                    const prevIsGenesis = (entry.prev_hash || '') === 'GENESIS';
+                    addProofRow('prev_hash', entry.prev_hash, prevIsGenesis);
+                    addProofRow('row_hash', entry.row_hash);
+                    proofToggle.appendChild(proofBody);
+
+                    const note = document.createElement('div');
+                    note.style.cssText = 'margin-top: 8px; color: var(--text-secondary); font-family: inherit; font-style: italic;';
+                    note.textContent = 'This row links back to the previous entry\u2019s row_hash. Tampering with any historical row breaks the chain on the next Re-verify.';
+                    proofToggle.appendChild(note);
+
+                    wrap.appendChild(section('Tamper Evidence', proofToggle));
+                }
             }
 
             return wrap;

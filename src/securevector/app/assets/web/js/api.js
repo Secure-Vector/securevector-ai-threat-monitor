@@ -369,6 +369,12 @@ const API = {
         }));
     },
 
+    async getToolCallAuditIntegrity() {
+        return this.request('/api/tool-permissions/call-audit/integrity').catch(() => ({
+            ok: null, total: 0, tampered_at: null, tampered_id: null, reason: null, last_verified_at: null,
+        }));
+    },
+
     async deleteToolCallAuditEntries(ids) {
         return this.request('/api/tool-permissions/call-audit', {
             method: 'DELETE',
