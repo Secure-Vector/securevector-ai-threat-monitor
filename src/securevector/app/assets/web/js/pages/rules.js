@@ -1457,7 +1457,14 @@ const RulesPage = {
             ? 'Save (pick rules below)'
             : 'Save ' + selectedCount + ' rule' + (selectedCount === 1 ? '' : 's');
         applyBtn.disabled = selectedCount === 0;
-        applyBtn.addEventListener('click', () => this._applySyncPreview(body, applyBtn));
+        applyBtn.addEventListener('click', (e) => {
+            // Stop the click from bubbling to the modal overlay — the
+            // overlay's outside-click handler would close any newly-
+            // opened modal in the same tick, which the user kept
+            // hitting.
+            e.stopPropagation();
+            this._applySyncPreview(body, applyBtn);
+        });
         actionRow.appendChild(applyBtn);
 
         // SELECT ALL RULES — big, right next to Save so the user can
@@ -1777,65 +1784,58 @@ const RulesPage = {
         tbody.appendChild(tr);
     },
 
-    async _applySyncPreview(body, applyBtn) {
+    _applySyncPreview(body, applyBtn) {
         const state = this.syncPreview;
-        if (!state) return;
-
-        // Opt-in model: always send the exact selected rule_ids. Empty
-        // set means "save nothing" but we already disable the Save
-        // button in that case, so we never reach here with size === 0.
-        const opts = {};
-        opts.selectedRuleIds = Array.from(state.selected);
-        const selectedCount = state.selected.size;
-        const originalLabel = applyBtn.textContent;
-
-        applyBtn.disabled = true;
-        applyBtn.textContent = 'Saving…';
-        try {
-            const result = await API.syncPreviewApply(state.token, state.replace_existing, opts);
-            this.syncPreview = null;
-            Modal.close();
-            // Replace the toast-on-success with the choice modal so the
-            // user can decide whether to keep Cloud Connect on or flip
-            // back to 100% local now that they have the rules.
-            this._showPostSyncChoiceModal(result);
-        } catch (err) {
-            applyBtn.disabled = false;
-            applyBtn.textContent = originalLabel;
-            if (window.Toast) Toast.error('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
-        }
+        if (!state || state.selected.size === 0) return;
+        // Don't save yet — surface the confirmation dialog first. The
+        // user has to actively pick Cloud Connect ON or OFF (or cancel)
+        // before any rule is written to the local cache.
+        // setTimeout(…, 0) defers the new modal open so the original
+        // click on Save fully finishes before we tear down the preview
+        // modal and open the confirmation. Without the defer, the
+        // click event can land on the new overlay's outside-click
+        // handler in the same tick and close it immediately.
+        setTimeout(() => this._showPreSyncConfirmModal(body, applyBtn), 0);
     },
 
-    // Post-save dialog — presents the user with the honest choice the
-    // freshly-synced rule bundle now enables. They just pulled the
-    // latest SecureVector Cloud rules; they can (1) switch to a fully-
-    // local setup from this point forward, or (2) keep Cloud Connect
-    // on for the ML analysis uplift. Either is a legitimate end-state.
-    _showPostSyncChoiceModal(result) {
-        const saved = result.upserted || 0;
-        const skipped = result.skipped_by_user || 0;
+    // Pre-save confirmation — shows the user exactly what's about to
+    // happen AND asks them to pick their Cloud Connect end-state. No
+    // local write happens until they click one of the two primary
+    // options. "Cancel" returns them to the preview untouched.
+    _showPreSyncConfirmModal(previewBody, applyBtn) {
+        const state = this.syncPreview;
+        const selectedCount = state.selected.size;
+        const skipped = state.total - selectedCount;
 
         const body = document.createElement('div');
         body.style.cssText = 'display:flex;flex-direction:column;gap:16px;';
 
+        // What will be saved
         const summary = document.createElement('div');
-        summary.style.cssText = 'background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:12px 14px;';
+        summary.style.cssText = 'background:var(--bg-secondary,#f5f7fa);border:1px solid var(--border-default,#e0e0e0);border-radius:8px;padding:12px 14px;';
         const summaryTitle = document.createElement('div');
-        summaryTitle.style.cssText = 'font-weight:600;color:#10b981;margin-bottom:4px;';
-        summaryTitle.textContent = '✓ ' + saved + ' rule' + (saved === 1 ? '' : 's') + ' saved locally';
+        summaryTitle.style.cssText = 'font-weight:600;margin-bottom:6px;';
+        summaryTitle.textContent = 'About to save locally';
         summary.appendChild(summaryTitle);
         const summaryBody = document.createElement('div');
-        summaryBody.style.cssText = 'font-size:13px;color:var(--text-secondary);';
-        summaryBody.textContent = skipped > 0
-            ? 'You deselected ' + skipped + '; those were not written to the local cache.'
-            : 'The rules are now in your local cache and will work offline.';
+        summaryBody.style.cssText = 'font-size:13px;color:var(--text-secondary);line-height:1.5;';
+        summaryBody.innerHTML = ''
+            + '<strong style="color:var(--text-primary);">' + selectedCount + '</strong> rule'
+            + (selectedCount === 1 ? '' : 's') + ' → local cache.'
+            + (skipped > 0
+                ? ' <span style="color:var(--text-secondary);">(' + skipped + ' not selected — skipped)</span>'
+                : '')
+            + (state.replace_existing
+                ? '<br><strong style="color:#ef4444;">Replace mode:</strong> existing community rules will be cleared first.'
+                : '');
         summary.appendChild(summaryBody);
         body.appendChild(summary);
 
+        // Cloud Connect choice
         const choice = document.createElement('div');
         choice.style.cssText = 'font-size:13px;line-height:1.5;color:var(--text-primary);';
         choice.innerHTML = ''
-            + '<p style="margin:0 0 10px;"><strong>You have two ways forward from here — both are fine, pick what fits:</strong></p>'
+            + '<p style="margin:0 0 10px;"><strong>After saving, how should SecureVector run?</strong></p>'
             + '<ul style="margin:0;padding-left:22px;">'
             + '<li style="margin-bottom:8px;"><strong>Turn Cloud Connect off.</strong> '
             +   'Run 100% local with the rules you just synced. No cloud calls on <code>/analyze</code>; '
@@ -1850,37 +1850,87 @@ const RulesPage = {
         body.appendChild(choice);
 
         Modal.show({
-            title: 'Rules saved — what next?',
+            title: 'Confirm save — ' + selectedCount + ' rule' + (selectedCount === 1 ? '' : 's'),
             content: body,
             size: 'medium',
             actions: [
                 {
-                    label: 'Turn Cloud Connect off',
-                    onClick: async () => {
-                        try {
-                            await API.setCloudMode(false);
-                            if (window.Toast) Toast.success('Cloud Connect disabled — running fully local.');
-                        } catch (e) {
-                            if (window.Toast) Toast.error('Could not toggle Cloud Connect off: ' + (e && e.message ? e.message : 'unknown'));
-                        }
-                        await this._reloadRulesPageAfterSync();
+                    label: 'Cancel',
+                    closeOnClick: true,
+                    onClick: () => {
+                        // Re-render the preview modal so the user lands
+                        // back on the selection screen with their picks
+                        // intact.
+                        setTimeout(() => {
+                            const st = this.syncPreview;
+                            if (st) this._loadSyncPreviewPage(previewBody);
+                        }, 50);
                     },
                 },
                 {
-                    label: 'Keep Cloud Connect on',
+                    label: 'Save & turn Cloud Connect off',
+                    closeOnClick: false,
+                    onClick: () => this._performSyncSave(applyBtn, { turnCloudOff: true }),
+                },
+                {
+                    label: 'Save & keep Cloud Connect on',
                     primary: true,
-                    onClick: async () => {
-                        await this._reloadRulesPageAfterSync();
-                    },
+                    closeOnClick: false,
+                    onClick: () => this._performSyncSave(applyBtn, { turnCloudOff: false }),
                 },
             ],
         });
     },
 
-    async _reloadRulesPageAfterSync() {
-        const contentEl = document.getElementById('rules-content');
-        if (contentEl && contentEl.parentElement) {
-            await this.render(contentEl.parentElement);
+    async _performSyncSave(applyBtn, { turnCloudOff }) {
+        const state = this.syncPreview;
+        if (!state || state.selected.size === 0) return;
+
+        const opts = { selectedRuleIds: Array.from(state.selected) };
+        const originalLabel = applyBtn && applyBtn.textContent;
+        if (applyBtn) {
+            applyBtn.disabled = true;
+            applyBtn.textContent = 'Saving…';
+        }
+
+        try {
+            const result = await API.syncPreviewApply(state.token, state.replace_existing, opts);
+            if (turnCloudOff) {
+                try {
+                    await API.setCloudMode(false);
+                } catch (e) {
+                    // Save already succeeded — this is a best-effort
+                    // side-effect. Surface the problem but don't roll
+                    // back the rules (can't un-write them cleanly).
+                    if (window.Toast) Toast.error('Rules saved, but could not turn Cloud Connect off: ' + (e && e.message ? e.message : 'unknown'));
+                }
+            }
+            this.syncPreview = null;
+            Modal.close();  // closes the confirmation modal
+
+            if (window.Toast) {
+                const saved = result.upserted || 0;
+                const skipped = result.skipped_by_user || 0;
+                const base = saved + ' rule' + (saved === 1 ? '' : 's') + ' saved locally';
+                const tail = turnCloudOff
+                    ? ' · Cloud Connect is now off — running 100% local'
+                    : ' · Cloud Connect still on for ML analysis';
+                const skippedMsg = skipped > 0 ? ' (' + skipped + ' skipped)' : '';
+                Toast.success(base + skippedMsg + tail);
+            }
+
+            const contentEl = document.getElementById('rules-content');
+            if (contentEl && contentEl.parentElement) {
+                await this.render(contentEl.parentElement);
+            }
+        } catch (err) {
+            // Leave the confirmation modal open so the user sees the
+            // error and can retry or cancel.
+            if (applyBtn) {
+                applyBtn.disabled = false;
+                applyBtn.textContent = originalLabel || 'Save';
+            }
+            if (window.Toast) Toast.error('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
         }
     },
 };
