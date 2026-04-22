@@ -1793,25 +1793,94 @@ const RulesPage = {
         applyBtn.textContent = 'Saving…';
         try {
             const result = await API.syncPreviewApply(state.token, state.replace_existing, opts);
-            if (window.Toast) {
-                const saved = result.upserted || 0;
-                const skipped = result.skipped_by_user || 0;
-                const msg = skipped > 0
-                    ? 'Saved ' + saved + ' rule(s); skipped ' + skipped + ' you deselected'
-                    : 'Saved ' + saved + ' rule(s) from cloud';
-                Toast.success(msg);
-            }
             this.syncPreview = null;
             Modal.close();
-            // Reload the rules list so the user sees the new data immediately
-            const contentEl = document.getElementById('rules-content');
-            if (contentEl && contentEl.parentElement) {
-                await this.render(contentEl.parentElement);
-            }
+            // Replace the toast-on-success with the choice modal so the
+            // user can decide whether to keep Cloud Connect on or flip
+            // back to 100% local now that they have the rules.
+            this._showPostSyncChoiceModal(result);
         } catch (err) {
             applyBtn.disabled = false;
             applyBtn.textContent = originalLabel;
             if (window.Toast) Toast.error('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+        }
+    },
+
+    // Post-save dialog — presents the user with the honest choice the
+    // freshly-synced rule bundle now enables. They just pulled the
+    // latest SecureVector Cloud rules; they can (1) switch to a fully-
+    // local setup from this point forward, or (2) keep Cloud Connect
+    // on for the ML analysis uplift. Either is a legitimate end-state.
+    _showPostSyncChoiceModal(result) {
+        const saved = result.upserted || 0;
+        const skipped = result.skipped_by_user || 0;
+
+        const body = document.createElement('div');
+        body.style.cssText = 'display:flex;flex-direction:column;gap:16px;';
+
+        const summary = document.createElement('div');
+        summary.style.cssText = 'background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:12px 14px;';
+        const summaryTitle = document.createElement('div');
+        summaryTitle.style.cssText = 'font-weight:600;color:#10b981;margin-bottom:4px;';
+        summaryTitle.textContent = '✓ ' + saved + ' rule' + (saved === 1 ? '' : 's') + ' saved locally';
+        summary.appendChild(summaryTitle);
+        const summaryBody = document.createElement('div');
+        summaryBody.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        summaryBody.textContent = skipped > 0
+            ? 'You deselected ' + skipped + '; those were not written to the local cache.'
+            : 'The rules are now in your local cache and will work offline.';
+        summary.appendChild(summaryBody);
+        body.appendChild(summary);
+
+        const choice = document.createElement('div');
+        choice.style.cssText = 'font-size:13px;line-height:1.5;color:var(--text-primary);';
+        choice.innerHTML = ''
+            + '<p style="margin:0 0 10px;"><strong>You have two ways forward from here — both are fine, pick what fits:</strong></p>'
+            + '<ul style="margin:0;padding-left:22px;">'
+            + '<li style="margin-bottom:8px;"><strong>Turn Cloud Connect off.</strong> '
+            +   'Run 100% local with the rules you just synced. No cloud calls on <code>/analyze</code>; '
+            +   'no dependency on your network path to SecureVector. Re-sync later when you want fresher rules.'
+            + '</li>'
+            + '<li><strong>Keep Cloud Connect on.</strong> '
+            +   'Scans are routed to SecureVector Cloud for ML-grade analysis (Llama Guard-class scoring) '
+            +   'on top of your local rules. Metadata only — prompts, outputs, matched patterns, and reasoning '
+            +   'never leave your machine.'
+            + '</li>'
+            + '</ul>';
+        body.appendChild(choice);
+
+        Modal.show({
+            title: 'Rules saved — what next?',
+            content: body,
+            size: 'medium',
+            actions: [
+                {
+                    label: 'Turn Cloud Connect off',
+                    onClick: async () => {
+                        try {
+                            await API.setCloudMode(false);
+                            if (window.Toast) Toast.success('Cloud Connect disabled — running fully local.');
+                        } catch (e) {
+                            if (window.Toast) Toast.error('Could not toggle Cloud Connect off: ' + (e && e.message ? e.message : 'unknown'));
+                        }
+                        await this._reloadRulesPageAfterSync();
+                    },
+                },
+                {
+                    label: 'Keep Cloud Connect on',
+                    primary: true,
+                    onClick: async () => {
+                        await this._reloadRulesPageAfterSync();
+                    },
+                },
+            ],
+        });
+    },
+
+    async _reloadRulesPageAfterSync() {
+        const contentEl = document.getElementById('rules-content');
+        if (contentEl && contentEl.parentElement) {
+            await this.render(contentEl.parentElement);
         }
     },
 };

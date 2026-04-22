@@ -817,6 +817,13 @@ const ToolPermissionsPage = {
             integrityBanner.appendChild(loading);
 
             const result = await API.getToolCallAuditIntegrity();
+            // Stash for per-row decoration — `makeRow` reads this to
+            // red-border + badge the specific row whose hash failed.
+            self.auditIntegrity = result;
+            // If rows are already rendered, repaint any row whose seq or
+            // id matches the new tampered location (or clear decorations
+            // after a successful re-verify).
+            self._refreshAuditRowIntegrity();
             integrityBanner.textContent = '';
 
             const icon = document.createElement('span');
@@ -1389,9 +1396,16 @@ const ToolPermissionsPage = {
         const makeRow = (entry, idx) => {
             const tr = document.createElement('tr');
             tr.dataset.auditRow = '1';
+            tr.dataset.auditId = entry.id != null ? String(entry.id) : '';
+            tr.dataset.auditSeq = entry.seq != null ? String(entry.seq) : '';
             tr.title = 'Click to view details';
             const rowBg = idx % 2 === 1 ? 'var(--bg-secondary)' : 'transparent';
             tr.style.cssText = 'border-bottom: 1px solid var(--border-default); transition: background 0.1s; background: ' + rowBg + '; cursor: pointer;';
+            // Tamper decoration — if the integrity endpoint flagged THIS
+            // row (by seq or id), paint it red and prepend a small
+            // TAMPERED pill so the row visibly stands out even before
+            // the user clicks in.
+            self._decorateAuditRowForIntegrity(tr, entry);
             if (self.auditSelectedIds.has(entry.id)) { tr.classList.add('sv-selected'); tr.style.background = 'rgba(94,173,184,0.06)'; }
             tr.addEventListener('mouseenter', () => { if (!tr.classList.contains('sv-selected')) tr.style.background = 'var(--bg-tertiary)'; });
             tr.addEventListener('mouseleave', () => { tr.style.background = tr.classList.contains('sv-selected') ? 'rgba(94,173,184,0.06)' : rowBg; });
@@ -2107,6 +2121,65 @@ const ToolPermissionsPage = {
         card.appendChild(actionContainer);
 
         return card;
+    },
+
+    // ==================== Audit chain integrity decoration ====================
+
+    /**
+     * Paint (or un-paint) a single audit row based on the latest
+     * integrity check. The row is flagged if EITHER its `seq` matches
+     * `tampered_at` OR its `id` matches `tampered_id`. Idempotent — safe
+     * to call repeatedly.
+     */
+    _decorateAuditRowForIntegrity(tr, entry) {
+        // Strip any prior decoration first so a fresh re-verify clears
+        // false positives left over from an earlier tampered state.
+        tr.style.boxShadow = '';
+        const existingBadge = tr.querySelector('.audit-tamper-badge');
+        if (existingBadge) existingBadge.remove();
+
+        const integrity = this.auditIntegrity;
+        if (!integrity || integrity.ok !== false) return;
+
+        const matchesSeq = integrity.tampered_at != null
+            && entry && entry.seq != null
+            && Number(integrity.tampered_at) === Number(entry.seq);
+        const matchesId = integrity.tampered_id != null
+            && entry && entry.id != null
+            && String(integrity.tampered_id) === String(entry.id);
+        if (!matchesSeq && !matchesId) return;
+
+        // Visual: red inset box-shadow on the left + a pill badge in
+        // the first cell so the user sees it even without hovering.
+        tr.style.boxShadow = 'inset 4px 0 0 #ef4444';
+        tr.title = 'Audit chain tampered here — ' + (integrity.reason || 'row hash does not match');
+
+        // Badge on the action cell (second <td>, index 1)
+        const actionCell = tr.children[1];
+        if (actionCell) {
+            const pill = document.createElement('span');
+            pill.className = 'audit-tamper-badge';
+            pill.textContent = '⚠ TAMPERED';
+            pill.style.cssText = 'display:inline-block;margin-left:6px;padding:2px 6px;border-radius:var(--radius-full);font-size:10px;font-weight:700;letter-spacing:0.4px;color:#ef4444;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);vertical-align:middle;';
+            pill.title = 'This row failed hash-chain verification — see the banner above for details.';
+            actionCell.appendChild(pill);
+        }
+    },
+
+    /**
+     * After a re-verify, walk every already-rendered audit row and
+     * re-apply the decoration (or clear it). Called by the integrity-
+     * banner refresh without forcing a full rows-table re-fetch.
+     */
+    _refreshAuditRowIntegrity() {
+        const rows = document.querySelectorAll('tr[data-audit-row="1"]');
+        rows.forEach(tr => {
+            const entry = {
+                id: tr.dataset.auditId ? Number(tr.dataset.auditId) : null,
+                seq: tr.dataset.auditSeq ? Number(tr.dataset.auditSeq) : null,
+            };
+            this._decorateAuditRowForIntegrity(tr, entry);
+        });
     },
 };
 
