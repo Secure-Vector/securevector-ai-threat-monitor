@@ -281,10 +281,12 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 21
+CURRENT_SCHEMA_VERSION = 23
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
-    "v21: device_id on scans + audit rows"
+    "v21: device_id on scans + audit rows; "
+    "v22: external_forwarders — per-destination SIEM config (Splunk/Datadog/webhook/OTLP); "
+    "v23: external_forward_outbox — fan-out queue, at-least-once per destination"
 )
 
 # Migration SQL for v19

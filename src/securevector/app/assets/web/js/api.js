@@ -182,6 +182,42 @@ const API = {
         }
     },
 
+    // ==================== SIEM Forwarders ====================
+
+    async listSiemForwarders() {
+        return this.request('/api/siem-forwarders').catch(() => ({ items: [], total: 0 }));
+    },
+
+    async getSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}`);
+    },
+
+    async createSiemForwarder(payload) {
+        return this.request('/api/siem-forwarders', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    async updateSiemForwarder(id, payload) {
+        return this.request(`/api/siem-forwarders/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    async deleteSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}`, { method: 'DELETE' });
+    },
+
+    async testSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}/test`, { method: 'POST' });
+    },
+
+    async getSiemForwarderHealth(id) {
+        return this.request(`/api/siem-forwarders/${id}/health`);
+    },
+
     // ==================== Cloud Rule Sync (preview → review → apply) ====================
 
     async syncPreviewStart() {

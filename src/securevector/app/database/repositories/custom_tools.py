@@ -17,6 +17,58 @@ logger = logging.getLogger(__name__)
 _AUDIT_GENESIS_HASH = "GENESIS"
 
 
+async def _siem_enqueue_tool_audit(
+    *,
+    db: DatabaseConnection,
+    seq: int,
+    tool_id: str,
+    function_name: str,
+    action: str,
+    risk: str,
+    is_essential: bool,
+    called_at: str,
+    prev_hash: Optional[str],
+    row_hash: str,
+    device_id: Optional[str] = None,
+) -> None:
+    """Fan a new audit row out to every enabled SIEM forwarder.
+
+    Lazy-imports the forwarder repo so a non-SIEM install path doesn't
+    drag the subsystem into every tool-call audit write.
+    """
+    from securevector.app.database.repositories.external_forwarders import (
+        ExternalForwardOutboxRepository,
+        ExternalForwardersRepository,
+        build_tool_audit_payload,
+    )
+
+    fwds = await ExternalForwardersRepository(db).list_active()
+    if not fwds:
+        return
+
+    # audit_id isn't known at this call site (we only have seq + row_hash),
+    # so pass 0 — consumers keying on row_hash are unaffected, and the OCSF
+    # encoder surfaces audit_id in `unmapped` for completeness.
+    payload = build_tool_audit_payload(
+        audit_id=0,
+        seq=int(seq),
+        tool_id=str(tool_id or ""),
+        function_name=str(function_name or ""),
+        action=str(action or ""),
+        risk=str(risk or ""),
+        is_essential=bool(is_essential),
+        called_at=str(called_at),
+        prev_hash=prev_hash,
+        row_hash=str(row_hash),
+        device_id=device_id,
+    )
+
+    outbox = ExternalForwardOutboxRepository(db)
+    written = await outbox.enqueue_fanout("tool_audit", payload, forwarders=fwds)
+    if written:
+        logger.debug(f"siem: enqueued tool_audit seq={seq} → {written} forwarder(s)")
+
+
 def _compute_audit_row_hash(
     *,
     prev_hash: str,
@@ -331,6 +383,27 @@ class CustomToolsRepository:
             ),
         )
         await conn.commit()
+
+        # SIEM fan-out — push the audit row (with its chain witness) to
+        # every enabled forwarder so the customer's SIEM can re-verify the
+        # chain. Same metadata-only allow-list as the cloud outbox.
+        # Failures here MUST NOT disturb the audit write; wrap + log.
+        try:
+            await _siem_enqueue_tool_audit(
+                db=self.db,
+                seq=next_seq,
+                tool_id=resolved_tool_id,
+                function_name=function_name,
+                action=action,
+                risk=risk or "",
+                is_essential=bool(is_essential),
+                called_at=called_at,
+                prev_hash=prev_hash,
+                row_hash=row_hash,
+                device_id=device_id,
+            )
+        except Exception as _sie:
+            logger.debug(f"siem enqueue (tool_audit) skipped: {_sie}")
 
     async def verify_audit_chain(self) -> dict:
         """Walk the tool_call_audit hash chain and report integrity status.

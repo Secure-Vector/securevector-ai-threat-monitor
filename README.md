@@ -30,7 +30,10 @@
 
 <br>
 
-> **New in v3.6.0:**
+> **New in v4.0.0:**
+> - **Export to SIEM (free, no signup)** — forward threat detections and tool-call audits to your Splunk HEC, Datadog, OpenTelemetry collector, or any generic HTTPS webhook. OCSF 1.3.0 schema. Metadata-only: prompts, outputs, and matched patterns never leave your machine. Built on the v3.6.0 audit hash-chain — every forwarded tool-call carries `seq` / `prev_hash` / `row_hash` so your SIEM can re-verify the chain off-host, plus `device_id` so fleet operators can attribute every event to a specific machine.
+>
+> **v3.6.0 carries forward:**
 > - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
 > - **Per-device identifier** — every scan and audit row is stamped with a stable `device_id`. Operators running SecureVector across multiple laptops/agents can now attribute every blocked tool call, threat, and audit row to a specific machine. Derived from the OS machine UUID, SHA-256 hashed — the raw OS identifier never leaves the box.
 >
@@ -325,6 +328,41 @@ Every scan and audit row is stamped with a stable `device_id` so a customer runn
 | Does it collide across containers cloned from the same image? | Potentially yes (they share `/etc/machine-id`). Not relevant for desktop use; mention it if you're deploying in Kubernetes. |
 
 **In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM export).
+
+<br>
+
+## Export to SIEM
+
+Stream every threat detection and tool-call audit into your own SIEM — Splunk, Datadog, Elastic, Chronicle, Sumo, an OpenTelemetry collector, or any HTTPS endpoint that accepts JSON. **Free, no signup, no telemetry in the middle.** Your data, your pipes.
+
+**Why this is safe to ship with zero monetization:**
+
+| Feature | What leaves your machine |
+|---|---|
+| Scan verdict | `scan_id`, `verdict`, `threat_score`, `risk_level`, `detected_types[]`, counts, durations |
+| Tool-call audit | `seq`, `action`, `risk`, `prev_hash`, `row_hash` (the chain witness — lets your SIEM verify integrity) |
+| **Never transmitted** | Prompt text, LLM output, matched patterns, reviewer reasoning, model reasoning |
+
+The allow-list is enforced at enqueue time by `_assert_metadata_only()`. Even if the forwarder code were tampered with, it can't add the forbidden fields back.
+
+**Supported destinations (one code path, OCSF 1.3.0 payload):**
+
+| Kind | Target | Auth header |
+|---|---|---|
+| `splunk_hec` | `https://<host>/services/collector/event` | `Authorization: Splunk <HEC-token>` |
+| `datadog` | `https://http-intake.logs.<site>/api/v2/logs` | `DD-API-KEY: <key>` |
+| `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
+| `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
+
+**Configure in Settings → Export to SIEM.** Add Destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+
+**Reliability:**
+- Per-destination outbox with at-least-once delivery.
+- A failing Datadog destination never blocks a healthy Splunk one.
+- Per-destination circuit breaker backs off broken endpoints (1 min → 1 hour cap).
+- Rows that fail 10 times are dropped (the health view shows the consecutive-failure count).
+
+**SIEM-side integrity verification.** Every forwarded tool-call audit row carries its `prev_hash` and `row_hash`. Run a nightly search in your SIEM that rebuilds the chain — if a historic row has been tampered with on the local host, the forwarded evidence still tells the true story. That's the *actual* tamper evidence; the local chain alone is only the low bar.
 
 <br>
 

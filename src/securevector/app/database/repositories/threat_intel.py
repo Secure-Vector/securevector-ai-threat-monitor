@@ -20,6 +20,85 @@ from securevector.app.database.connection import DatabaseConnection
 logger = logging.getLogger(__name__)
 
 
+async def _siem_enqueue_scan(
+    *,
+    scan_id: str,
+    timestamp: datetime,
+    is_threat: bool,
+    threat_type: Optional[str],
+    risk_score: int,
+    confidence: float,
+    matched_rules: list[dict[str, Any]],
+    processing_time_ms: int,
+    llm_reviewed: bool,
+    llm_model_used: Optional[str],
+    session_id: Optional[str],
+    db: DatabaseConnection,
+    device_id: Optional[str] = None,
+) -> None:
+    """Enqueue a metadata-only scan event for every enabled forwarder.
+
+    Kept as a local helper to avoid a tight import cycle at module load
+    time — importing external_forwarders here would drag in the
+    asyncio-task machinery every time a scan is persisted. Lazy import
+    keeps the hot path clean.
+    """
+    from securevector.app.database.repositories.external_forwarders import (
+        ExternalForwardOutboxRepository,
+        ExternalForwardersRepository,
+        build_scan_payload,
+    )
+
+    fwds = await ExternalForwardersRepository(db).list_active()
+    if not fwds:
+        return
+
+    # Verdict mapping matches the scan engine: >=80 → BLOCK, >=50 → REVIEW,
+    # anything with a detected threat but below 50 → WARN, else ALLOW.
+    if risk_score >= 80:
+        verdict = "BLOCK"
+        risk_level = "critical"
+    elif risk_score >= 50:
+        verdict = "REVIEW"
+        risk_level = "high"
+    elif is_threat:
+        verdict = "WARN"
+        risk_level = "medium"
+    else:
+        verdict = "ALLOW"
+        risk_level = "low"
+
+    detected_types: list[str] = []
+    if threat_type:
+        detected_types.append(str(threat_type))
+    # matched_rules sometimes carries a `category` per match — pull uniques.
+    for mr in matched_rules or []:
+        cat = mr.get("category") if isinstance(mr, dict) else None
+        if cat and cat not in detected_types:
+            detected_types.append(str(cat))
+
+    payload = build_scan_payload(
+        scan_id=scan_id,
+        timestamp=timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
+        verdict=verdict,
+        threat_score=round(risk_score / 100.0, 4),
+        confidence_score=float(confidence or 0.0),
+        risk_level=risk_level,
+        detected_items_count=len(matched_rules or []),
+        detected_types=detected_types,
+        ml_status="reviewed" if llm_reviewed else "skipped",
+        scan_duration_ms=float(processing_time_ms or 0),
+        model_id=llm_model_used,
+        conversation_id=session_id,
+        device_id=device_id,
+    )
+
+    outbox = ExternalForwardOutboxRepository(db)
+    written = await outbox.enqueue_fanout("scan", payload, forwarders=fwds)
+    if written:
+        logger.debug(f"siem: enqueued scan {scan_id} → {written} forwarder(s)")
+
+
 @dataclass
 class ThreatIntelRecord:
     """Threat intel record data class."""
@@ -237,6 +316,30 @@ class ThreatIntelRepository:
         )
 
         logger.debug(f"Created threat intel record: {record_id}")
+
+        # SIEM fan-out — enqueue a metadata-only copy for every enabled
+        # forwarder whose filter accepts this event. Per-destination
+        # filters (e.g. "threats_only") are applied inside enqueue_fanout.
+        # Failures here must never surface to the scan path, so we catch
+        # everything and log.
+        try:
+            await _siem_enqueue_scan(
+                scan_id=record_id,
+                timestamp=created_at,
+                is_threat=is_threat,
+                threat_type=threat_type,
+                risk_score=risk_score,
+                confidence=confidence,
+                matched_rules=matched_rules,
+                processing_time_ms=processing_time_ms,
+                llm_reviewed=llm_reviewed,
+                llm_model_used=llm_model_used,
+                session_id=session_id,
+                db=self.db,
+                device_id=device_id,
+            )
+        except Exception as _sie:
+            logger.debug(f"siem enqueue (scan) skipped: {_sie}")
 
         return ThreatIntelRecord(
             id=record_id,
