@@ -369,9 +369,23 @@ async def list_rules(
                 effective_severity = override.severity if (override and override.severity) else rule.severity
                 effective_patterns = override.patterns if (override and override.patterns) else rule.patterns
 
-                # Extract created_at stored in metadata by the loader
+                # Prefer the time the rule *landed in this install* over
+                # the cloud's original authoring date — users want the
+                # Rules table to reflect "when did I get this rule" rather
+                # than "when did the cloud team write it".
+                #   - synced_at: set by cloud_rules_sync for rules pulled
+                #     through Sync from Cloud (the common case for paid
+                #     tiers).
+                #   - loaded_at: set by cache_community_rule for every
+                #     upsert (bundled + synced). Absolute fallback.
+                #   - created_at (from metadata): legacy bundled-only fallback
+                #     for old DBs that never got a loaded_at timestamp.
                 rule_meta = rule.metadata or {}
-                rule_created_at = rule_meta.get("created_at")
+                rule_created_at = (
+                    rule_meta.get("synced_at")
+                    or (rule.loaded_at.isoformat() if getattr(rule, "loaded_at", None) else None)
+                    or rule_meta.get("created_at")
+                )
 
                 items.append(
                     RuleResponse(
