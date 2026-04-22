@@ -92,8 +92,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not auto-start proxy from svconfig.yml: {_e}")
 
+    # Start the metadata-only cloud-sync forwarder. It reads
+    # app_settings.cloud_mode_enabled on every poll, so toggling Cloud Mode
+    # from the UI takes effect without a restart.
+    try:
+        from securevector.app.services.cloud_sync_forwarder import start_forwarder
+        await start_forwarder()
+    except Exception as _e:
+        logger.warning(f"Could not start cloud_sync_forwarder: {_e}")
+
     yield
     logger.info("API server shutting down...")
+
+    try:
+        from securevector.app.services.cloud_sync_forwarder import stop_forwarder
+        await stop_forwarder()
+    except Exception as _e:
+        logger.warning(f"Could not stop cloud_sync_forwarder cleanly: {_e}")
 
 
 def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:

@@ -160,6 +160,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         17: migrate_to_v17,
         18: migrate_to_v18,
         19: migrate_to_v19,
+        20: migrate_to_v20,
+        21: migrate_to_v21,
     }
 
     if version in migrations:
@@ -754,6 +756,151 @@ async def _seed_trusted_publishers(db: DatabaseConnection) -> None:
         )
 
     logger.info(f"Seeded {len(TRUSTED_PUBLISHERS)} trusted publishers")
+
+
+# ---------------------------------------------------------------------------
+# v20 — Hash-chain tool_call_audit for tamper-evidence
+# ---------------------------------------------------------------------------
+#
+# Context (PR #46 / @desiorac review comment):
+#     Tool call logs stored on disk can be modified after the fact. If a
+#     compromised agent rewrites its own audit log, you lose the forensic
+#     value. We committed to: hash-chained rows (catches casual tampering
+#     + disk corruption; doesn't stop a determined local attacker who
+#     recomputes the chain, but that is what the off-host forwarder is
+#     for — see v21 cloud_sync_outbox).
+#
+# Design:
+#     Each row gets three new columns:
+#       seq        — monotonically increasing chain position (1, 2, 3, ...)
+#       prev_hash  — hex SHA-256 of the previous row's row_hash
+#       row_hash   — hex SHA-256 of a canonical serialization of THIS row's
+#                    immutable fields combined with prev_hash. Defined as:
+#                        SHA-256(
+#                            prev_hash +
+#                            "\n" + seq +
+#                            "\n" + tool_id +
+#                            "\n" + function_name +
+#                            "\n" + action +
+#                            "\n" + (risk or "") +
+#                            "\n" + (reason or "") +
+#                            "\n" + str(is_essential) +
+#                            "\n" + (args_preview or "") +
+#                            "\n" + called_at
+#                        )
+#     For the first row in the chain prev_hash is "GENESIS".
+#
+#     The migration backfills existing rows in id-order so the chain is
+#     valid from the moment v20 is applied.
+# ---------------------------------------------------------------------------
+async def migrate_to_v20(db: DatabaseConnection) -> None:
+    """v19 -> v20: hash-chain tool_call_audit rows for tamper-evidence."""
+    import hashlib
+
+    conn = await db.connect()
+
+    # Add columns (nullable initially so we can backfill before making them required)
+    await conn.execute("ALTER TABLE tool_call_audit ADD COLUMN seq INTEGER")
+    await conn.execute("ALTER TABLE tool_call_audit ADD COLUMN prev_hash TEXT")
+    await conn.execute("ALTER TABLE tool_call_audit ADD COLUMN row_hash TEXT")
+
+    # Backfill the chain over existing rows in id-order.
+    # SECURITY NOTE: these pre-v20 rows were written without integrity
+    # protection — the chain merely certifies their state at v20-upgrade time,
+    # not their authenticity before that. This is the honest behavior.
+    cursor = await conn.execute(
+        """
+        SELECT id, tool_id, function_name, action,
+               COALESCE(risk, '') AS risk,
+               COALESCE(reason, '') AS reason,
+               is_essential,
+               COALESCE(args_preview, '') AS args_preview,
+               called_at
+        FROM tool_call_audit
+        ORDER BY id ASC
+        """
+    )
+    rows = await cursor.fetchall()
+
+    prev_hash = "GENESIS"
+    seq = 0
+    for row in rows:
+        seq += 1
+        canonical = "\n".join([
+            prev_hash,
+            str(seq),
+            str(row["tool_id"]),
+            str(row["function_name"]),
+            str(row["action"]),
+            str(row["risk"]),
+            str(row["reason"]),
+            str(row["is_essential"]),
+            str(row["args_preview"]),
+            str(row["called_at"]),
+        ])
+        row_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        await conn.execute(
+            "UPDATE tool_call_audit SET seq = ?, prev_hash = ?, row_hash = ? WHERE id = ?",
+            (seq, prev_hash, row_hash, row["id"]),
+        )
+        prev_hash = row_hash
+
+    # Index on seq for fast tail lookup when appending.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_seq ON tool_call_audit (seq)"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (20, CURRENT_TIMESTAMP, 'Hash-chain tool_call_audit rows for tamper-evidence')"
+    )
+    logger.info(f"Applied migration v20: hash-chained {seq} existing audit row(s)")
+
+
+# ---------------------------------------------------------------------------
+# v21 — Metadata-only cloud_sync_outbox (at-least-once forwarder)
+# ---------------------------------------------------------------------------
+#
+# Local → cloud metadata-only sync. When Cloud Mode is ON (see
+# app_settings.cloud_mode_enabled) the app enqueues a metadata-only
+# payload for each finding that should surface in the customer's cloud
+# dashboard. A background forwarder flushes the outbox at-least-once.
+#
+# What goes in the payload (metadata only, never prompt/output text):
+#     scan_id, timestamp, verdict, threat_score, confidence_score,
+#     risk_level, detected_items_count, detected_types[], ml_status,
+#     scan_duration_ms, model_id, conversation_id, source ('local-app').
+# ---------------------------------------------------------------------------
+async def migrate_to_v21(db: DatabaseConnection) -> None:
+    """v20 -> v21: metadata-only cloud sync outbox."""
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cloud_sync_outbox (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind          TEXT NOT NULL CHECK (kind IN ('scan_result', 'output_scan', 'audit_event')),
+            payload_json  TEXT NOT NULL,
+            created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            delivered_at  TIMESTAMP,
+            last_error    TEXT
+        )
+        """
+    )
+
+    # Undelivered rows are the hot path — index on delivered_at IS NULL.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_pending "
+        "ON cloud_sync_outbox (delivered_at, id) "
+        "WHERE delivered_at IS NULL"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (21, CURRENT_TIMESTAMP, 'Metadata-only cloud sync outbox')"
+    )
+    logger.info("Applied migration v21: cloud_sync_outbox")
 
 
 # Future migration functions would be defined here:

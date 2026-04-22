@@ -10,6 +10,8 @@ const RulesPage = {
     LOCAL_RULE_LIMIT: 100,
     bannerDismissed: false,
     rulesSelectedIds: new Set(),
+    cloudSettings: { credentials_configured: false, cloud_mode_enabled: false },
+    syncPreview: null,  // { token, total, page, per_page, total_pages, bundle_version }
     sortField: 'created_at',
     sortDir: 'desc',
     filters: {
@@ -45,8 +47,12 @@ const RulesPage = {
         content.appendChild(loading);
 
         try {
-            const response = await API.getRules();
+            const [response, cloudSettings] = await Promise.all([
+                API.getRules(),
+                API.getCloudSettings().catch(() => null),
+            ]);
             this.allRules = response.items || [];
+            if (cloudSettings) this.cloudSettings = cloudSettings;
             this.applyFilters();
             this.buildFiltersBar();
             this.renderContent();
@@ -56,6 +62,14 @@ const RulesPage = {
             this.buildFiltersBar();
             this.renderContent();
         }
+    },
+
+    isCloudSyncAvailable() {
+        return Boolean(
+            this.cloudSettings
+            && this.cloudSettings.credentials_configured
+            && this.cloudSettings.cloud_mode_enabled
+        );
     },
 
     buildFiltersBar() {
@@ -177,10 +191,30 @@ const RulesPage = {
         enabledGroup.appendChild(enabledSelect);
         bar.appendChild(enabledGroup);
 
-        // Spacer to push Create Rule button to the right
+        // Spacer to push action buttons to the right
         const spacer = document.createElement('div');
         spacer.style.cssText = 'flex: 1;';
         bar.appendChild(spacer);
+
+        // Sync from Cloud button — gated on cloud mode being active
+        const syncBtn = document.createElement('button');
+        syncBtn.className = 'btn btn-secondary';
+        syncBtn.style.marginRight = '8px';
+        syncBtn.textContent = 'Sync from Cloud';
+        const cloudAvailable = this.isCloudSyncAvailable();
+        syncBtn.disabled = !cloudAvailable;
+        syncBtn.title = cloudAvailable
+            ? 'Fetch the latest rule bundle from SecureVector Cloud. You will review the rules before saving.'
+            : 'Turn on Cloud Connect in Settings to sync rules from the cloud.';
+        if (!cloudAvailable) {
+            syncBtn.style.opacity = '0.55';
+            syncBtn.style.cursor = 'not-allowed';
+        }
+        syncBtn.addEventListener('click', () => {
+            if (!this.isCloudSyncAvailable()) return;
+            this.showSyncFromCloudModal();
+        });
+        bar.appendChild(syncBtn);
 
         // Create Rule button
         const createBtn = document.createElement('button');
@@ -1218,6 +1252,316 @@ const RulesPage = {
                 createBtn.disabled = false;
                 createBtn.textContent = 'Create Rule';
             }
+        }
+    },
+
+    // ==================== Sync from Cloud ====================
+
+    async showSyncFromCloudModal() {
+        if (!this.isCloudSyncAvailable()) {
+            if (window.Toast) Toast.warning('Turn on Cloud Connect first');
+            return;
+        }
+
+        // Initial modal shows a spinner while we fetch the preview
+        const body = document.createElement('div');
+        body.id = 'sync-preview-body';
+        const loading = document.createElement('div');
+        loading.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px 0;';
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
+        const msg = document.createElement('div');
+        msg.textContent = 'Fetching rule bundle from SecureVector Cloud…';
+        msg.style.color = 'var(--text-secondary)';
+        loading.appendChild(spinner);
+        loading.appendChild(msg);
+        body.appendChild(loading);
+
+        Modal.show({
+            title: 'Sync Rules from Cloud',
+            content: body,
+            size: 'large',
+            actions: [
+                {
+                    label: 'Cancel',
+                    onClick: () => {
+                        const token = this.syncPreview && this.syncPreview.token;
+                        if (token) API.syncPreviewDiscard(token).catch(() => {});
+                        this.syncPreview = null;
+                    },
+                },
+            ],
+        });
+
+        try {
+            const preview = await API.syncPreviewStart();
+            this.syncPreview = {
+                token: preview.preview_token,
+                total: preview.normalized,
+                skipped: preview.skipped,
+                fetched: preview.fetched,
+                bundle_version: preview.bundle_version,
+                tier: preview.tier,
+                page: 1,
+                per_page: 10,
+                total_pages: Math.max(1, Math.ceil((preview.normalized || 0) / 10)),
+                replace_existing: false,
+            };
+            if (!preview.normalized) {
+                this._renderSyncPreviewEmpty(body, preview);
+                return;
+            }
+            await this._loadSyncPreviewPage(body);
+        } catch (err) {
+            this._renderSyncPreviewError(body, err);
+        }
+    },
+
+    _renderSyncPreviewEmpty(body, preview) {
+        body.textContent = '';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding:24px;text-align:center;';
+        const heading = document.createElement('h3');
+        heading.textContent = 'Nothing to sync';
+        wrap.appendChild(heading);
+        const text = document.createElement('p');
+        text.style.color = 'var(--text-secondary)';
+        text.textContent = 'The cloud bundle had '
+            + (preview.fetched || 0)
+            + ' rule(s), but none passed validation. Nothing will be written.';
+        wrap.appendChild(text);
+        body.appendChild(wrap);
+    },
+
+    _renderSyncPreviewError(body, err) {
+        body.textContent = '';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding:24px;';
+        const heading = document.createElement('h3');
+        heading.textContent = 'Sync failed';
+        heading.style.color = 'var(--danger, #d32f2f)';
+        wrap.appendChild(heading);
+        const text = document.createElement('p');
+        text.style.color = 'var(--text-secondary)';
+        text.textContent = (err && err.message) ? err.message : 'Could not fetch the cloud rule bundle.';
+        wrap.appendChild(text);
+        body.appendChild(wrap);
+    },
+
+    async _loadSyncPreviewPage(body) {
+        const state = this.syncPreview;
+        if (!state) return;
+        try {
+            const page = await API.syncPreviewPage(state.token, state.page, state.per_page);
+            state.total = page.total;
+            state.total_pages = page.total_pages;
+            this._renderSyncPreviewPage(body, page);
+        } catch (err) {
+            this._renderSyncPreviewError(body, err);
+        }
+    },
+
+    _renderSyncPreviewPage(body, page) {
+        body.textContent = '';
+        const state = this.syncPreview;
+
+        // Summary strip
+        const summary = document.createElement('div');
+        summary.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;padding:10px 12px;background:var(--bg-secondary, #f5f7fa);border-radius:6px;font-size:13px;margin-bottom:12px;';
+        const stat = (label, value) => {
+            const span = document.createElement('div');
+            const l = document.createElement('span');
+            l.textContent = label + ': ';
+            l.style.color = 'var(--text-secondary)';
+            const v = document.createElement('strong');
+            v.textContent = String(value);
+            span.appendChild(l);
+            span.appendChild(v);
+            return span;
+        };
+        summary.appendChild(stat('Total to import', state.total));
+        if (state.skipped) summary.appendChild(stat('Skipped (invalid)', state.skipped));
+        if (state.tier) summary.appendChild(stat('Tier', state.tier));
+        if (state.bundle_version) summary.appendChild(stat('Bundle', state.bundle_version));
+        body.appendChild(summary);
+
+        // Controls row: page size + replace-existing checkbox
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display:flex;align-items:center;gap:16px;margin-bottom:10px;';
+
+        const sizeLabel = document.createElement('label');
+        sizeLabel.style.cssText = 'font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;';
+        sizeLabel.textContent = 'Per page:';
+        const sizeSelect = document.createElement('select');
+        sizeSelect.className = 'filter-select';
+        [10, 25, 50, 100].forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = String(n);
+            opt.textContent = String(n);
+            if (n === state.per_page) opt.selected = true;
+            sizeSelect.appendChild(opt);
+        });
+        sizeSelect.addEventListener('change', () => {
+            state.per_page = Number(sizeSelect.value) || 10;
+            state.page = 1;
+            this._loadSyncPreviewPage(body);
+        });
+        sizeLabel.appendChild(sizeSelect);
+        controls.appendChild(sizeLabel);
+
+        const replaceWrap = document.createElement('label');
+        replaceWrap.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);margin-left:auto;';
+        const replaceChk = document.createElement('input');
+        replaceChk.type = 'checkbox';
+        replaceChk.checked = state.replace_existing;
+        replaceChk.addEventListener('change', () => { state.replace_existing = replaceChk.checked; });
+        const replaceText = document.createElement('span');
+        replaceText.textContent = 'Replace existing community rules (exact mirror)';
+        replaceWrap.appendChild(replaceChk);
+        replaceWrap.appendChild(replaceText);
+        controls.appendChild(replaceWrap);
+        body.appendChild(controls);
+
+        // Rules table
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+        const thead = document.createElement('thead');
+        const trHead = document.createElement('tr');
+        ['Rule ID', 'Name', 'Category', 'Severity', 'Patterns'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;';
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const items = page.items || [];
+        if (!items.length) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
+            td.textContent = 'No rules on this page.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        } else {
+            items.forEach(rule => {
+                const tr = document.createElement('tr');
+                const cell = (text) => {
+                    const td = document.createElement('td');
+                    td.textContent = text == null ? '' : String(text);
+                    td.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
+                    return td;
+                };
+                tr.appendChild(cell(rule.rule_id));
+                tr.appendChild(cell(rule.name));
+                tr.appendChild(cell(rule.category));
+                const sevTd = cell(rule.severity);
+                sevTd.style.textTransform = 'capitalize';
+                tr.appendChild(sevTd);
+                const patternsTd = document.createElement('td');
+                patternsTd.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
+                const count = document.createElement('div');
+                count.textContent = String(rule.pattern_count) + ' pattern' + (rule.pattern_count === 1 ? '' : 's');
+                count.style.fontWeight = '600';
+                patternsTd.appendChild(count);
+                (rule.patterns_preview || []).forEach(p => {
+                    const code = document.createElement('code');
+                    code.textContent = p;
+                    code.style.cssText = 'display:block;font-size:12px;color:var(--text-secondary);font-family:monospace;overflow:hidden;text-overflow:ellipsis;max-width:420px;';
+                    patternsTd.appendChild(code);
+                });
+                tr.appendChild(patternsTd);
+                tbody.appendChild(tr);
+            });
+        }
+        table.appendChild(tbody);
+
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'max-height:420px;overflow:auto;border:1px solid var(--border, #e0e0e0);border-radius:6px;';
+        tableWrap.appendChild(table);
+        body.appendChild(tableWrap);
+
+        // Pagination + apply
+        const footer = document.createElement('div');
+        footer.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px;';
+
+        const prev = document.createElement('button');
+        prev.className = 'btn btn-secondary';
+        prev.textContent = '‹ Prev';
+        prev.disabled = state.page <= 1;
+        prev.addEventListener('click', () => {
+            if (state.page > 1) {
+                state.page -= 1;
+                this._loadSyncPreviewPage(body);
+            }
+        });
+        footer.appendChild(prev);
+
+        const pageInfo = document.createElement('span');
+        pageInfo.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        pageInfo.textContent = 'Page ' + state.page + ' of ' + state.total_pages + ' (' + state.total + ' rules)';
+        footer.appendChild(pageInfo);
+
+        const next = document.createElement('button');
+        next.className = 'btn btn-secondary';
+        next.textContent = 'Next ›';
+        next.disabled = state.page >= state.total_pages;
+        next.addEventListener('click', () => {
+            if (state.page < state.total_pages) {
+                state.page += 1;
+                this._loadSyncPreviewPage(body);
+            }
+        });
+        footer.appendChild(next);
+
+        const gap = document.createElement('div');
+        gap.style.cssText = 'flex:1;';
+        footer.appendChild(gap);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            const token = this.syncPreview && this.syncPreview.token;
+            if (token) API.syncPreviewDiscard(token).catch(() => {});
+            this.syncPreview = null;
+            Modal.close();
+        });
+        footer.appendChild(cancelBtn);
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'btn btn-primary';
+        applyBtn.textContent = 'Apply ' + state.total + ' Rules';
+        applyBtn.addEventListener('click', () => this._applySyncPreview(body, applyBtn));
+        footer.appendChild(applyBtn);
+
+        body.appendChild(footer);
+    },
+
+    async _applySyncPreview(body, applyBtn) {
+        const state = this.syncPreview;
+        if (!state) return;
+        applyBtn.disabled = true;
+        applyBtn.textContent = 'Applying…';
+        try {
+            const result = await API.syncPreviewApply(state.token, state.replace_existing);
+            if (window.Toast) {
+                Toast.success('Synced ' + (result.upserted || 0) + ' rule(s) from cloud');
+            }
+            this.syncPreview = null;
+            Modal.close();
+            // Reload the rules list so the user sees the new data immediately
+            const contentEl = document.getElementById('rules-content');
+            if (contentEl && contentEl.parentElement) {
+                await this.render(contentEl.parentElement);
+            }
+        } catch (err) {
+            applyBtn.disabled = false;
+            applyBtn.textContent = 'Apply ' + state.total + ' Rules';
+            if (window.Toast) Toast.error('Apply failed: ' + (err && err.message ? err.message : 'unknown error'));
         }
     },
 };

@@ -112,6 +112,27 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 analysis_source="disabled",
             )
 
+        # LLM output scanning is CLOUD-ONLY. If Cloud Mode is off we do not
+        # run output scans — the local ruleset is tuned for input prompts
+        # and would produce noisy or misleading verdicts on model responses.
+        # Tell the caller explicitly and stop here.
+        if is_llm_response and not settings.cloud_mode_enabled:
+            logger.debug(
+                "LLM response scan requested but Cloud Mode is off — "
+                "output scanning is cloud-only; skipping"
+            )
+            return AnalysisResult(
+                is_threat=False,
+                threat_type=None,
+                risk_score=0,
+                confidence=0.0,
+                matched_rules=[],
+                analysis_id="skipped_cloud_only",
+                processing_time_ms=0,
+                request_id=request.request_id,
+                analysis_source="cloud_only_disabled",
+            )
+
         skip_cloud = (request.metadata or {}).get("skip_cloud", False)
         if settings.cloud_mode_enabled and not skip_cloud:
             # Try cloud analysis
@@ -122,10 +143,20 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 )
 
                 proxy = get_cloud_proxy()
-                cloud_result = await proxy.analyze(
-                    text=request.text,
-                    metadata=request.metadata,
-                )
+                if is_llm_response:
+                    # LLM-output scans hit /analyze/output (cloud-only).
+                    cloud_result = await proxy.analyze_output(
+                        output_text=request.text,
+                        metadata=request.metadata,
+                        model_id=(request.metadata or {}).get("model_id"),
+                        conversation_id=(request.metadata or {}).get("conversation_id")
+                            or request.session_id,
+                    )
+                else:
+                    cloud_result = await proxy.analyze(
+                        text=request.text,
+                        metadata=request.metadata,
+                    )
 
                 # Cloud returned result - use it directly
                 processing_time_ms = int(
@@ -172,7 +203,31 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 )
 
             except Exception as e:
-                # Cloud failed, fallback to local
+                # For INPUT scans we fall back to the local ruleset — that's
+                # what local rules are tuned for, so degrading gracefully is
+                # the right behavior. For OUTPUT scans the local ruleset is
+                # not appropriate (cloud-only feature), so we return a
+                # skipped result with the error surfaced in analysis_source
+                # rather than silently running input-rules over an LLM output.
+                if is_llm_response:
+                    logger.warning(
+                        f"Cloud output scan failed and no local fallback exists "
+                        f"(output scanning is cloud-only): {e}"
+                    )
+                    processing_time_ms = int(
+                        (time.perf_counter() - start_time) * 1000
+                    )
+                    return AnalysisResult(
+                        is_threat=False,
+                        threat_type=None,
+                        risk_score=0,
+                        confidence=0.0,
+                        matched_rules=[],
+                        analysis_id="cloud_only_error",
+                        processing_time_ms=processing_time_ms,
+                        request_id=request.request_id,
+                        analysis_source=f"cloud_only_error:{type(e).__name__}",
+                    )
                 logger.warning(f"Cloud analysis failed, falling back to local: {e}")
                 analysis_source = "local_fallback"
 

@@ -81,3 +81,22 @@ CLOUD_API_BASE_URL = "https://scan.securevector.io"
 
 # Timeout for cloud API requests (seconds)
 CLOUD_API_TIMEOUT = 5.0
+
+# Rules Intel Service — serves the per-user, tier-filtered rule bundle
+# for cloud → local rule syncs. The endpoint lives on the public API
+# domain shared by the rest of the SecureVector platform:
+#
+#   https://api.securevector.io/api/rules/sync
+#
+# Both develop and master ship with this same default. For internal
+# staging or local dev, set `SV_CLOUD_API_URL` at runtime — do not hard
+# code non-prod URLs into this file (this repo is public).
+import os as _os
+
+CLOUD_API_URL = _os.getenv(
+    "SV_CLOUD_API_URL",
+    "https://api.securevector.io",
+)
+
+# Allow more time for bundle fetches — the bundle is large (thousands of rules).
+CLOUD_RULES_SYNC_TIMEOUT = 30.0

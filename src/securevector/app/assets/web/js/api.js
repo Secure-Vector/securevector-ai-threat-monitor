@@ -182,6 +182,33 @@ const API = {
         }
     },
 
+    // ==================== Cloud Rule Sync (preview → review → apply) ====================
+
+    async syncPreviewStart() {
+        return this.request('/api/rules/sync/preview', { method: 'POST' });
+    },
+
+    async syncPreviewPage(token, page = 1, perPage = 10) {
+        const qs = `?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
+        return this.request(`/api/rules/sync/preview/${encodeURIComponent(token)}${qs}`);
+    },
+
+    async syncPreviewApply(token, replaceExisting = false) {
+        return this.request('/api/rules/sync/apply', {
+            method: 'POST',
+            body: JSON.stringify({
+                preview_token: token,
+                replace_existing: replaceExisting,
+            }),
+        });
+    },
+
+    async syncPreviewDiscard(token) {
+        return this.request(`/api/rules/sync/preview/${encodeURIComponent(token)}`, {
+            method: 'DELETE',
+        });
+    },
+
     // ==================== General Settings ====================
 
     async getSettings() {

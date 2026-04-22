@@ -30,7 +30,12 @@
 
 <br>
 
-> **New in v3.4.0:**
+> **New in v3.5.0:**
+> - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering with a historic row breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`.
+> - **Metadata-only cloud sync** — at-least-once outbox ships scan metadata off-host for tamper evidence when Cloud Mode is on. Never transmits prompts, outputs, matched patterns, or reasoning text.
+> - **Cloud rule sync with review** — fetch the cloud rule bundle (tier-filtered), preview paginated, then persist. Fetch → review → apply on the Rules page.
+>
+> **v3.4.0 carries forward:**
 > - **OpenClaw Plugin (ZERO latency)** — native integration that runs inside the agent: input scanning, tool audit with arguments, output guard, cost tracking. No proxy needed for monitoring.
 > - **Block Mode for OpenClaw** — optional proxy that actively blocks attacks and stops unauthorized tool calls before they reach the LLM. Only needed when you want to enforce blocking, not just monitoring.
 > - **Skill Scanner** — static analysis for AI agent skills with optional AI-powered review
