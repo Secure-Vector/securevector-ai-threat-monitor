@@ -137,8 +137,10 @@ async def create_preview() -> dict[str, Any]:
     _preview_cache[token] = entry
     _enforce_max_size()
 
+    # Token intentionally NOT logged — even a prefix leaks selection
+    # capability to anyone who reads local log files.
     logger.info(
-        f"cloud_rules_preview: created token={token[:8]}… fetched={entry.fetched} "
+        f"cloud_rules_preview: created preview fetched={entry.fetched} "
         f"normalized={len(entry.rules)} skipped={entry.skipped}"
     )
 
@@ -151,6 +153,10 @@ async def create_preview() -> dict[str, Any]:
         "fetched": entry.fetched,
         "normalized": len(entry.rules),
         "skipped": entry.skipped,
+        # Full rule_id list so the UI can implement "Select all" and
+        # "Clear selection" without paging through the server. ~20 KB
+        # for 500 rules — fine over loopback.
+        "all_rule_ids": [r["rule_id"] for r in entry.rules],
     }
 
 

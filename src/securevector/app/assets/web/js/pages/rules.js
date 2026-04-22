@@ -1357,17 +1357,24 @@ const RulesPage = {
                 per_page: 10,
                 total_pages: Math.max(1, Math.ceil((preview.normalized || 0) / 10)),
                 replace_existing: false,
-                // Default: all rules selected. Track rules the user has
-                // explicitly deselected; on apply, send that list to the
-                // server as `skip_rule_ids`. When the set is empty we
-                // send neither selected nor skip — server applies all.
-                deselected: new Set(),
+                // Opt-in selection: nothing is saved unless the user
+                // explicitly ticks it. Tracked as a Set of rule_ids the
+                // user has selected; apply sends that list to the server
+                // as `selected_rule_ids`. Empty set → Save button is
+                // disabled (nothing to write).
+                selected: new Set(),
+                // Full rule_id list from the preview start payload — lets
+                // "Select all (N)" flip the whole bundle without paging.
+                all_rule_ids: preview.all_rule_ids || [],
                 // Per-row expand/collapse state — rule_ids currently
                 // shown in "full patterns" view.
                 expanded: new Set(),
                 // Whole-table collapse state (hides the rows table while
                 // keeping summary + controls + action buttons visible).
                 collapsed: false,
+                // Expanded modal — wider/taller viewport, set by the
+                // "Expand" control in the sticky action bar.
+                fullscreen: false,
             };
             if (!preview.normalized) {
                 this._renderSyncPreviewEmpty(body, preview);
@@ -1427,49 +1434,153 @@ const RulesPage = {
         body.textContent = '';
         const state = this.syncPreview;
         const items = page.items || [];
+        const selectedCount = state.selected.size;
 
-        // ---------- Summary strip ----------
-        const summary = document.createElement('div');
-        summary.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;padding:10px 12px;background:var(--bg-secondary, #f5f7fa);border-radius:6px;font-size:13px;margin-bottom:12px;';
-        const stat = (label, value) => {
-            const span = document.createElement('div');
-            const l = document.createElement('span');
-            l.textContent = label + ': ';
-            l.style.color = 'var(--text-secondary)';
-            const v = document.createElement('strong');
-            v.textContent = String(value);
-            span.appendChild(l);
-            span.appendChild(v);
-            return span;
-        };
-        summary.appendChild(stat('Total in bundle', state.total));
-        // Derived selection count: total minus what user deselected.
-        const selectedCount = Math.max(0, state.total - state.deselected.size);
-        summary.appendChild(stat('Selected to save', selectedCount));
-        if (state.skipped) summary.appendChild(stat('Skipped (invalid)', state.skipped));
-        if (state.tier) summary.appendChild(stat('Tier', state.tier));
-        if (state.bundle_version) summary.appendChild(stat('Bundle', state.bundle_version));
-        body.appendChild(summary);
+        // Resize the modal element itself if the user toggled fullscreen.
+        this._applySyncPreviewModalSize();
 
-        // ---------- Controls row ----------
+        // ---------- STICKY ACTION BAR (top of body) ----------
+        // Save / Cancel / pagination / Select-all-rules are the things
+        // the user reaches for most, so they live up here and stay
+        // visible as the rules table scrolls past underneath.
+        const stickyBar = document.createElement('div');
+        stickyBar.style.cssText = 'position:sticky;top:-16px;z-index:2;background:var(--bg-card, var(--bg-card, #ffffff));border-bottom:1px solid var(--border, #e0e0e0);margin:-16px -16px 12px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;';
+
+        // Row 1 — primary actions + pagination + expand
+        const actionRow = document.createElement('div');
+        actionRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+        // SAVE (primary) — disabled until the user picks something.
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'btn btn-primary';
+        applyBtn.textContent = selectedCount === 0
+            ? 'Save (pick rules below)'
+            : 'Save ' + selectedCount + ' rule' + (selectedCount === 1 ? '' : 's');
+        applyBtn.disabled = selectedCount === 0;
+        applyBtn.addEventListener('click', () => this._applySyncPreview(body, applyBtn));
+        actionRow.appendChild(applyBtn);
+
+        // SELECT ALL RULES — big, right next to Save so the user can
+        // opt into the full bundle in one click without hunting for it
+        // in a controls row below.
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.className = 'btn btn-secondary';
+        selectAllBtn.textContent = 'Select all ' + state.total + ' rules';
+        selectAllBtn.title = 'Mark every rule in the bundle as selected for saving.';
+        selectAllBtn.disabled = selectedCount === state.total && state.total > 0;
+        selectAllBtn.addEventListener('click', () => {
+            state.selected = new Set(state.all_rule_ids);
+            this._renderSyncPreviewPage(body, page);
+        });
+        actionRow.appendChild(selectAllBtn);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            const token = this.syncPreview && this.syncPreview.token;
+            if (token) API.syncPreviewDiscard(token).catch(() => {});
+            this.syncPreview = null;
+            Modal.close();
+        });
+        actionRow.appendChild(cancelBtn);
+
+        const gap = document.createElement('div');
+        gap.style.cssText = 'flex:1;';
+        actionRow.appendChild(gap);
+
+        // Pagination + expand (secondary on the right)
+        const prev = document.createElement('button');
+        prev.className = 'btn btn-secondary';
+        prev.style.cssText = 'padding:4px 10px;font-size:12px;';
+        prev.textContent = '‹ Prev';
+        prev.disabled = state.page <= 1;
+        prev.addEventListener('click', () => {
+            if (state.page > 1) {
+                state.page -= 1;
+                this._loadSyncPreviewPage(body);
+            }
+        });
+        actionRow.appendChild(prev);
+
+        const pageInfo = document.createElement('span');
+        pageInfo.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        pageInfo.textContent = 'Page ' + state.page + ' of ' + state.total_pages;
+        actionRow.appendChild(pageInfo);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-secondary';
+        nextBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        nextBtn.textContent = 'Next ›';
+        nextBtn.disabled = state.page >= state.total_pages;
+        nextBtn.addEventListener('click', () => {
+            if (state.page < state.total_pages) {
+                state.page += 1;
+                this._loadSyncPreviewPage(body);
+            }
+        });
+        actionRow.appendChild(nextBtn);
+
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'btn btn-secondary';
+        expandBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        expandBtn.textContent = state.fullscreen ? '⤢ Shrink' : '⤢ Expand';
+        expandBtn.title = state.fullscreen
+            ? 'Return to normal modal size'
+            : 'Expand this modal to fit more rules on screen';
+        expandBtn.addEventListener('click', () => {
+            state.fullscreen = !state.fullscreen;
+            this._renderSyncPreviewPage(body, page);
+        });
+        actionRow.appendChild(expandBtn);
+
+        stickyBar.appendChild(actionRow);
+
+        // Row 2 — live summary + secondary selection helpers
+        const selRow = document.createElement('div');
+        selRow.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;';
+
+        const summaryTxt = document.createElement('span');
+        summaryTxt.innerHTML = '<strong>' + selectedCount + '</strong> of '
+            + '<strong>' + state.total + '</strong> selected'
+            + (state.skipped ? ' · <span style="color:var(--text-secondary);">' + state.skipped + ' skipped (invalid)</span>' : '')
+            + (state.tier ? ' · <span style="color:var(--text-secondary);">tier: ' + state.tier + '</span>' : '');
+        selRow.appendChild(summaryTxt);
+
+        const selGap = document.createElement('div');
+        selGap.style.cssText = 'flex:1;';
+        selRow.appendChild(selGap);
+
+        const selectPageBtn = document.createElement('button');
+        selectPageBtn.className = 'btn btn-secondary';
+        selectPageBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        selectPageBtn.textContent = 'Select this page';
+        selectPageBtn.title = 'Add every rule on the current page to the save set. Other pages unaffected.';
+        selectPageBtn.addEventListener('click', () => {
+            items.forEach(r => state.selected.add(r.rule_id));
+            this._renderSyncPreviewPage(body, page);
+        });
+        selRow.appendChild(selectPageBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'btn btn-secondary';
+        clearBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
+        clearBtn.textContent = 'Clear selection';
+        clearBtn.title = 'Reset to zero selected.';
+        clearBtn.disabled = selectedCount === 0;
+        clearBtn.addEventListener('click', () => {
+            state.selected.clear();
+            this._renderSyncPreviewPage(body, page);
+        });
+        selRow.appendChild(clearBtn);
+
+        stickyBar.appendChild(selRow);
+        body.appendChild(stickyBar);
+
+        // ---------- Settings row ----------
         const controls = document.createElement('div');
         controls.style.cssText = 'display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap;';
 
-        // Collapse/expand the whole rules table
-        const collapseBtn = document.createElement('button');
-        collapseBtn.className = 'btn btn-secondary';
-        collapseBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
-        collapseBtn.textContent = state.collapsed ? '▸ Expand preview' : '▾ Collapse preview';
-        collapseBtn.title = state.collapsed
-            ? 'Show the rule table'
-            : 'Hide the rule table (summary + buttons remain visible)';
-        collapseBtn.addEventListener('click', () => {
-            state.collapsed = !state.collapsed;
-            this._renderSyncPreviewPage(body, page);
-        });
-        controls.appendChild(collapseBtn);
-
-        // Page size
         const sizeLabel = document.createElement('label');
         sizeLabel.style.cssText = 'font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;';
         sizeLabel.textContent = 'Per page:';
@@ -1490,34 +1601,6 @@ const RulesPage = {
         sizeLabel.appendChild(sizeSelect);
         controls.appendChild(sizeLabel);
 
-        // Select-all helpers. "Select all N" clears the deselected set
-        // entirely (meaning: apply everything). "Deselect all on this
-        // page" adds every rule on the current page to the deselected
-        // set so the user can then re-select specific ones — it never
-        // touches rules on other pages.
-        const selectAllBtn = document.createElement('button');
-        selectAllBtn.className = 'btn btn-secondary';
-        selectAllBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
-        selectAllBtn.textContent = 'Select all (' + state.total + ')';
-        selectAllBtn.title = 'Mark every rule in the bundle as selected for saving.';
-        selectAllBtn.addEventListener('click', () => {
-            state.deselected.clear();
-            this._renderSyncPreviewPage(body, page);
-        });
-        controls.appendChild(selectAllBtn);
-
-        const deselectPageBtn = document.createElement('button');
-        deselectPageBtn.className = 'btn btn-secondary';
-        deselectPageBtn.style.cssText = 'padding:4px 10px;font-size:12px;';
-        deselectPageBtn.textContent = 'Deselect this page';
-        deselectPageBtn.title = 'Remove every rule on the current page from the save set. Other pages unaffected.';
-        deselectPageBtn.addEventListener('click', () => {
-            items.forEach(r => state.deselected.add(r.rule_id));
-            this._renderSyncPreviewPage(body, page);
-        });
-        controls.appendChild(deselectPageBtn);
-
-        // Replace-existing toggle
         const replaceWrap = document.createElement('label');
         replaceWrap.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);margin-left:auto;';
         const replaceChk = document.createElement('input');
@@ -1531,139 +1614,86 @@ const RulesPage = {
         controls.appendChild(replaceWrap);
         body.appendChild(controls);
 
-        // ---------- Rules table (skipped if collapsed) ----------
-        if (!state.collapsed) {
-            const table = document.createElement('table');
-            table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
-            const thead = document.createElement('thead');
-            const trHead = document.createElement('tr');
+        // ---------- Rules table ----------
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+        const thead = document.createElement('thead');
+        const trHead = document.createElement('tr');
 
-            // Header cell 0: master checkbox for the CURRENT page
-            const thCheck = document.createElement('th');
-            thCheck.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;width:30px;';
-            const headerChk = document.createElement('input');
-            headerChk.type = 'checkbox';
-            const anyDeselectedOnPage = items.some(r => state.deselected.has(r.rule_id));
-            const allDeselectedOnPage = items.length > 0 && items.every(r => state.deselected.has(r.rule_id));
-            headerChk.checked = items.length > 0 && !anyDeselectedOnPage;
-            headerChk.indeterminate = anyDeselectedOnPage && !allDeselectedOnPage;
-            headerChk.title = 'Toggle all rules on this page';
-            headerChk.addEventListener('change', () => {
-                if (headerChk.checked) {
-                    items.forEach(r => state.deselected.delete(r.rule_id));
-                } else {
-                    items.forEach(r => state.deselected.add(r.rule_id));
-                }
-                this._renderSyncPreviewPage(body, page);
-            });
-            thCheck.appendChild(headerChk);
-            trHead.appendChild(thCheck);
-
-            // Expand-toggle header column — no label, just space
-            const thExpand = document.createElement('th');
-            thExpand.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #e0e0e0);width:24px;';
-            trHead.appendChild(thExpand);
-
-            ['Rule ID', 'Name', 'Category', 'Severity', 'Patterns'].forEach(label => {
-                const th = document.createElement('th');
-                th.textContent = label;
-                th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;';
-                trHead.appendChild(th);
-            });
-            thead.appendChild(trHead);
-            table.appendChild(thead);
-
-            const tbody = document.createElement('tbody');
-            if (!items.length) {
-                const tr = document.createElement('tr');
-                const td = document.createElement('td');
-                td.colSpan = 7;
-                td.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
-                td.textContent = 'No rules on this page.';
-                tr.appendChild(td);
-                tbody.appendChild(tr);
+        // Master checkbox for the CURRENT page
+        const thCheck = document.createElement('th');
+        thCheck.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;width:30px;';
+        const headerChk = document.createElement('input');
+        headerChk.type = 'checkbox';
+        const anySelectedOnPage = items.some(r => state.selected.has(r.rule_id));
+        const allSelectedOnPage = items.length > 0 && items.every(r => state.selected.has(r.rule_id));
+        headerChk.checked = allSelectedOnPage;
+        headerChk.indeterminate = anySelectedOnPage && !allSelectedOnPage;
+        headerChk.title = 'Toggle all rules on this page';
+        headerChk.addEventListener('change', () => {
+            if (headerChk.checked) {
+                items.forEach(r => state.selected.add(r.rule_id));
             } else {
-                items.forEach(rule => this._appendSyncPreviewRow(tbody, rule, body, page));
+                items.forEach(r => state.selected.delete(r.rule_id));
             }
-            table.appendChild(tbody);
+            this._renderSyncPreviewPage(body, page);
+        });
+        thCheck.appendChild(headerChk);
+        trHead.appendChild(thCheck);
 
-            const tableWrap = document.createElement('div');
-            // No fixed height / inner scrollbar — the table grows with
-            // its rows and the modal body itself handles overflow, so
-            // users don't get a cramped scroll-within-scroll view.
-            tableWrap.style.cssText = 'border:1px solid var(--border, #e0e0e0);border-radius:6px;overflow-x:auto;';
-            tableWrap.appendChild(table);
-            body.appendChild(tableWrap);
+        const thExpand = document.createElement('th');
+        thExpand.style.cssText = 'padding:8px;border-bottom:1px solid var(--border, #e0e0e0);width:24px;';
+        trHead.appendChild(thExpand);
+
+        ['Rule ID', 'Name', 'Category', 'Severity', 'Patterns'].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border, #e0e0e0);font-weight:600;';
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        if (!items.length) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 7;
+            td.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
+            td.textContent = 'No rules on this page.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
         } else {
-            const note = document.createElement('div');
-            note.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);border:1px dashed var(--border,#e0e0e0);border-radius:6px;font-size:13px;';
-            note.textContent = 'Preview hidden — ' + selectedCount + ' of ' + state.total + ' rule(s) will be saved.';
-            body.appendChild(note);
+            items.forEach(rule => this._appendSyncPreviewRow(tbody, rule, body, page));
         }
+        table.appendChild(tbody);
 
-        // ---------- Footer: pagination + apply ----------
-        const footer = document.createElement('div');
-        footer.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:12px;';
+        const tableWrap = document.createElement('div');
+        // No inner scrollbar — the table grows with its rows. The modal
+        // body handles overflow as a single unit so users don't get a
+        // cramped scroll-within-scroll view.
+        tableWrap.style.cssText = 'border:1px solid var(--border, #e0e0e0);border-radius:6px;overflow-x:auto;';
+        tableWrap.appendChild(table);
+        body.appendChild(tableWrap);
+    },
 
-        const prev = document.createElement('button');
-        prev.className = 'btn btn-secondary';
-        prev.textContent = '‹ Prev';
-        prev.disabled = state.page <= 1;
-        prev.addEventListener('click', () => {
-            if (state.page > 1) {
-                state.page -= 1;
-                this._loadSyncPreviewPage(body);
-            }
-        });
-        footer.appendChild(prev);
-
-        const pageInfo = document.createElement('span');
-        pageInfo.style.cssText = 'font-size:13px;color:var(--text-secondary);';
-        pageInfo.textContent = 'Page ' + state.page + ' of ' + state.total_pages + ' (' + state.total + ' rules)';
-        footer.appendChild(pageInfo);
-
-        const nextBtn = document.createElement('button');
-        nextBtn.className = 'btn btn-secondary';
-        nextBtn.textContent = 'Next ›';
-        nextBtn.disabled = state.page >= state.total_pages;
-        nextBtn.addEventListener('click', () => {
-            if (state.page < state.total_pages) {
-                state.page += 1;
-                this._loadSyncPreviewPage(body);
-            }
-        });
-        footer.appendChild(nextBtn);
-
-        const gap = document.createElement('div');
-        gap.style.cssText = 'flex:1;';
-        footer.appendChild(gap);
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'btn btn-secondary';
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.addEventListener('click', () => {
-            const token = this.syncPreview && this.syncPreview.token;
-            if (token) API.syncPreviewDiscard(token).catch(() => {});
-            this.syncPreview = null;
-            Modal.close();
-        });
-        footer.appendChild(cancelBtn);
-
-        const applyBtn = document.createElement('button');
-        applyBtn.className = 'btn btn-primary';
-        // Label always shows the live count that will actually hit the
-        // local cache (no "all" keyword — it implied the text was
-        // static). Appends a skipped-count hint when the user has
-        // deselected any rule so the partial-save state is obvious.
-        const baseLabel = 'Save ' + selectedCount + ' rule' + (selectedCount === 1 ? '' : 's');
-        applyBtn.textContent = state.deselected.size > 0
-            ? baseLabel + ' (' + state.deselected.size + ' skipped)'
-            : baseLabel;
-        applyBtn.disabled = selectedCount === 0;
-        applyBtn.addEventListener('click', () => this._applySyncPreview(body, applyBtn));
-        footer.appendChild(applyBtn);
-
-        body.appendChild(footer);
+    _applySyncPreviewModalSize() {
+        // Expand/shrink the containing modal element via inline style.
+        // The modal component uses `.modal-large` for its default max
+        // width; we override to near-fullscreen when requested and
+        // clear when shrinking back to default.
+        const modal = document.querySelector('.modal-overlay .modal');
+        if (!modal) return;
+        const state = this.syncPreview;
+        if (state && state.fullscreen) {
+            modal.style.maxWidth = '95vw';
+            modal.style.width = '95vw';
+            modal.style.maxHeight = '90vh';
+        } else {
+            modal.style.maxWidth = '';
+            modal.style.width = '';
+            modal.style.maxHeight = '';
+        }
     },
 
     _appendSyncPreviewRow(tbody, rule, body, page) {
@@ -1671,17 +1701,18 @@ const RulesPage = {
         const tr = document.createElement('tr');
         const tdStyle = 'padding:8px;border-bottom:1px solid var(--border, #f0f0f0);vertical-align:top;';
 
-        // Per-row checkbox — drives the deselected set.
+        // Per-row checkbox — drives the opt-in selected set. Checked
+        // state reflects whether the rule_id is in state.selected.
         const tdCheck = document.createElement('td');
         tdCheck.style.cssText = tdStyle;
         const chk = document.createElement('input');
         chk.type = 'checkbox';
-        chk.checked = !state.deselected.has(rule.rule_id);
+        chk.checked = state.selected.has(rule.rule_id);
         chk.addEventListener('change', () => {
-            if (chk.checked) state.deselected.delete(rule.rule_id);
-            else state.deselected.add(rule.rule_id);
-            // Re-render to refresh the footer count + header checkbox
-            // indeterminate state without refetching the page.
+            if (chk.checked) state.selected.add(rule.rule_id);
+            else state.selected.delete(rule.rule_id);
+            // Re-render to refresh the sticky bar count, master
+            // checkbox, and Save-button label without refetching.
             this._renderSyncPreviewPage(body, page);
         });
         tdCheck.appendChild(chk);
@@ -1737,9 +1768,10 @@ const RulesPage = {
         }
         tr.appendChild(patternsTd);
 
-        // Visually dim deselected rows without hiding them.
+        // Visually dim un-selected rows so the current selection reads
+        // clearly across the table.
         if (!chk.checked) {
-            tr.style.opacity = '0.45';
+            tr.style.opacity = '0.55';
         }
 
         tbody.appendChild(tr);
@@ -1749,107 +1781,37 @@ const RulesPage = {
         const state = this.syncPreview;
         if (!state) return;
 
-        // Build the skip list from the per-row deselected set. If empty,
-        // send nothing and let the server apply the whole preview (the
-        // "Save all N" path). This keeps the happy path identical to
-        // before — only users who actively deselect pay attention to
-        // the filter args.
+        // Opt-in model: always send the exact selected rule_ids. Empty
+        // set means "save nothing" but we already disable the Save
+        // button in that case, so we never reach here with size === 0.
         const opts = {};
-        if (state.deselected.size > 0) {
-            opts.skipRuleIds = Array.from(state.deselected);
-        }
-        const selectedCount = Math.max(0, state.total - state.deselected.size);
+        opts.selectedRuleIds = Array.from(state.selected);
+        const selectedCount = state.selected.size;
         const originalLabel = applyBtn.textContent;
 
         applyBtn.disabled = true;
         applyBtn.textContent = 'Saving…';
         try {
             const result = await API.syncPreviewApply(state.token, state.replace_existing, opts);
+            if (window.Toast) {
+                const saved = result.upserted || 0;
+                const skipped = result.skipped_by_user || 0;
+                const msg = skipped > 0
+                    ? 'Saved ' + saved + ' rule(s); skipped ' + skipped + ' you deselected'
+                    : 'Saved ' + saved + ' rule(s) from cloud';
+                Toast.success(msg);
+            }
             this.syncPreview = null;
             Modal.close();
-            this._showPostSyncChoiceModal(result);
+            // Reload the rules list so the user sees the new data immediately
+            const contentEl = document.getElementById('rules-content');
+            if (contentEl && contentEl.parentElement) {
+                await this.render(contentEl.parentElement);
+            }
         } catch (err) {
             applyBtn.disabled = false;
             applyBtn.textContent = originalLabel;
             if (window.Toast) Toast.error('Save failed: ' + (err && err.message ? err.message : 'unknown error'));
-        }
-    },
-
-    // Post-save dialog — presents the user with the honest choice their
-    // fresh rule bundle now enables. They just pulled the latest
-    // SecureVector Cloud rules; they can (1) switch to a fully-local
-    // setup from this point forward, or (2) keep Cloud Connect on for
-    // the ML analysis uplift. Either is a legitimate end-state.
-    _showPostSyncChoiceModal(result) {
-        const saved = result.upserted || 0;
-        const skipped = result.skipped_by_user || 0;
-
-        const body = document.createElement('div');
-        body.style.cssText = 'display:flex;flex-direction:column;gap:16px;';
-
-        const summary = document.createElement('div');
-        summary.style.cssText = 'background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:12px 14px;';
-        const summaryTitle = document.createElement('div');
-        summaryTitle.style.cssText = 'font-weight:600;color:#10b981;margin-bottom:4px;';
-        summaryTitle.textContent = '✓ ' + saved + ' rule' + (saved === 1 ? '' : 's') + ' saved locally';
-        summary.appendChild(summaryTitle);
-        const summaryBody = document.createElement('div');
-        summaryBody.style.cssText = 'font-size:13px;color:var(--text-secondary);';
-        summaryBody.textContent = skipped > 0
-            ? 'You deselected ' + skipped + '; those were not written to the local cache.'
-            : 'The full bundle is now in your local cache and will work offline.';
-        summary.appendChild(summaryBody);
-        body.appendChild(summary);
-
-        const choice = document.createElement('div');
-        choice.style.cssText = 'font-size:13px;line-height:1.5;color:var(--text-primary);';
-        choice.innerHTML = ''
-            + '<p style="margin:0 0 10px;"><strong>You have two ways forward from here — both fine, pick what fits:</strong></p>'
-            + '<ul style="margin:0;padding-left:22px;">'
-            + '<li style="margin-bottom:8px;"><strong>Turn Cloud Connect off.</strong> '
-            +   'Run 100% local with the rules you just synced. No cloud calls on <code>/analyze</code>, '
-            +   'no dependency on your network path to SecureVector. Re-sync later when you want fresher rules.'
-            + '</li>'
-            + '<li><strong>Keep Cloud Connect on.</strong> '
-            +   'Scans are routed to SecureVector Cloud for ML-grade analysis (Llama Guard-class scoring) '
-            +   'on top of your local rules. Metadata only — prompts, outputs, matched patterns, and reasoning '
-            +   'never leave your machine.'
-            + '</li>'
-            + '</ul>';
-        body.appendChild(choice);
-
-        Modal.show({
-            title: 'Rules saved — what next?',
-            content: body,
-            size: 'medium',
-            actions: [
-                {
-                    label: 'Turn Cloud Connect off',
-                    onClick: async () => {
-                        try {
-                            await API.setCloudMode(false);
-                            if (window.Toast) Toast.success('Cloud Connect disabled — running fully local.');
-                        } catch (e) {
-                            if (window.Toast) Toast.error('Could not toggle Cloud Connect off: ' + (e && e.message ? e.message : 'unknown'));
-                        }
-                        await this._reloadRulesPageAfterSync();
-                    },
-                },
-                {
-                    label: 'Keep Cloud Connect on',
-                    primary: true,
-                    onClick: async () => {
-                        await this._reloadRulesPageAfterSync();
-                    },
-                },
-            ],
-        });
-    },
-
-    async _reloadRulesPageAfterSync() {
-        const contentEl = document.getElementById('rules-content');
-        if (contentEl && contentEl.parentElement) {
-            await this.render(contentEl.parentElement);
         }
     },
 };
