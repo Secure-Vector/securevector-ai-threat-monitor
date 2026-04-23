@@ -97,18 +97,16 @@ const SiemExportPage = {
         const intro = Card.create({ gradient: true });
         const introBody = intro.querySelector('.card-body');
         introBody.innerHTML = `
-            <div style="display:flex;align-items:flex-start;gap:14px;">
-                <div style="font-size:26px;line-height:1;">📡</div>
-                <div style="flex:1;">
-                    <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">
-                        Forward security events to your SIEM — free, open-source, metadata-only.
-                    </div>
-                    <div style="font-size:13px;color:var(--text-secondary);line-height:1.55;">
-                        Configure one or more destinations below. Every threat scan and tool-call audit row is
-                        forwarded in OCSF 1.3.0 format. <strong style="color:var(--text-primary);">Prompts,
-                        LLM outputs, and matched patterns never leave this machine</strong> — only verdicts,
-                        counts, and the tamper-evident hash-chain witness travel to your SOC.
-                    </div>
+            <div>
+                <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">
+                    Forward security events to your SIEM — free, open-source, metadata-only by default.
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary);line-height:1.55;">
+                    Configure one or more destinations below. Every threat scan and tool-call audit row is
+                    forwarded in OCSF 1.3.0 format. <strong style="color:var(--text-primary);">Prompts,
+                    LLM outputs, and matched patterns never leave this machine</strong> at the default
+                    redaction tier — only verdicts, counts, and the tamper-evident hash-chain witness
+                    travel to your SOC.
                 </div>
             </div>
         `;
