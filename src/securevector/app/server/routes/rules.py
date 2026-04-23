@@ -159,6 +159,148 @@ async def generate_patterns_from_nlp(request: GeneratePatternsRequest) -> Genera
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SyncFromCloudRequest(BaseModel):
+    """Request body for POST /rules/sync-from-cloud (one-shot, no review)."""
+
+    replace_existing: bool = Field(
+        default=False,
+        description=(
+            "If true, clear community_rules first so the local cache becomes "
+            "an exact mirror of the cloud bundle. Default false — upsert merges."
+        ),
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, fetch and validate but do not write to SQLite.",
+    )
+
+
+class SyncApplyRequest(BaseModel):
+    """Request body for POST /rules/sync/apply.
+
+    Selective save:
+      - Omit both `selected_rule_ids` and `skip_rule_ids` → apply all.
+      - Send `skip_rule_ids=[…]` → apply everything except those.
+      - Send `selected_rule_ids=[…]` → apply only those.
+      - If both are sent, `selected_rule_ids` wins.
+    """
+
+    preview_token: str = Field(..., min_length=1)
+    replace_existing: bool = Field(default=False)
+    selected_rule_ids: Optional[list[str]] = Field(
+        default=None,
+        description="If set, apply only these rule IDs from the preview.",
+    )
+    skip_rule_ids: Optional[list[str]] = Field(
+        default=None,
+        description="If set, apply everything in the preview except these rule IDs.",
+    )
+
+
+def _map_sync_error(e: Exception) -> HTTPException:
+    msg = str(e)
+    # 409 if the caller's precondition failed (cloud off / no creds),
+    # 502 if the cloud is unreachable or returned garbage.
+    status = 409 if "Cloud Mode" in msg or "credentials" in msg.lower() or "Preview not found" in msg else 502
+    return HTTPException(status_code=status, detail=msg)
+
+
+@router.post("/rules/sync-from-cloud")
+async def sync_rules_from_cloud_endpoint(
+    request: SyncFromCloudRequest | None = None,
+) -> dict:
+    """One-shot cloud → local rule sync (no review step).
+
+    Prefer `/rules/sync/preview` + `/rules/sync/apply` for UI flows — this
+    endpoint exists for CLI/automation where skipping the review is fine.
+
+    Requires Cloud Mode enabled. Response: `{ok, fetched, normalized,
+    skipped, upserted, total_after, replaced_existing, dry_run,
+    started_at, finished_at, source}`.
+    """
+    from securevector.app.services.cloud_rules_sync import (
+        CloudRulesSyncError,
+        sync_rules_from_cloud,
+    )
+
+    req = request or SyncFromCloudRequest()
+    try:
+        return await sync_rules_from_cloud(
+            replace_existing=req.replace_existing,
+            dry_run=req.dry_run,
+        )
+    except CloudRulesSyncError as e:
+        raise _map_sync_error(e)
+    except Exception as e:
+        logger.error(f"Cloud rules sync failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rules/sync/preview")
+async def sync_preview_endpoint() -> dict:
+    """Fetch the cloud bundle, validate it, and stash it for review.
+
+    Does NOT write to the local cache. Returns a `preview_token` the UI
+    uses to paginate through rules and later apply. Preview expires after
+    ~10 minutes.
+    """
+    from securevector.app.services.cloud_rules_preview import create_preview
+    from securevector.app.services.cloud_rules_sync import CloudRulesSyncError
+
+    try:
+        return await create_preview()
+    except CloudRulesSyncError as e:
+        raise _map_sync_error(e)
+    except Exception as e:
+        logger.error(f"Cloud rules preview failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rules/sync/preview/{preview_token}")
+async def sync_preview_page_endpoint(
+    preview_token: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, description="Page size (10, 25, 50, or 100)"),
+) -> dict:
+    """Paginate through the rules the user is about to import."""
+    from securevector.app.services.cloud_rules_preview import get_preview_page
+    from securevector.app.services.cloud_rules_sync import CloudRulesSyncError
+
+    try:
+        return get_preview_page(preview_token, page=page, per_page=per_page)
+    except CloudRulesSyncError as e:
+        raise _map_sync_error(e)
+
+
+@router.post("/rules/sync/apply")
+async def sync_apply_endpoint(request: SyncApplyRequest) -> dict:
+    """Persist the previewed rules into the local cache."""
+    from securevector.app.services.cloud_rules_preview import apply_preview
+    from securevector.app.services.cloud_rules_sync import CloudRulesSyncError
+
+    try:
+        return await apply_preview(
+            request.preview_token,
+            replace_existing=request.replace_existing,
+            selected_rule_ids=request.selected_rule_ids,
+            skip_rule_ids=request.skip_rule_ids,
+        )
+    except CloudRulesSyncError as e:
+        raise _map_sync_error(e)
+    except Exception as e:
+        logger.error(f"Cloud rules apply failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/rules/sync/preview/{preview_token}")
+async def sync_preview_discard_endpoint(preview_token: str) -> dict:
+    """Drop a preview without applying (user cancelled review)."""
+    from securevector.app.services.cloud_rules_preview import discard_preview
+
+    existed = discard_preview(preview_token)
+    return {"ok": True, "existed": existed}
+
+
 @router.get("/rules", response_model=RuleListResponse)
 async def list_rules(
     category: Optional[str] = Query(None, description="Filter by category"),
@@ -227,9 +369,23 @@ async def list_rules(
                 effective_severity = override.severity if (override and override.severity) else rule.severity
                 effective_patterns = override.patterns if (override and override.patterns) else rule.patterns
 
-                # Extract created_at stored in metadata by the loader
+                # Prefer the time the rule *landed in this install* over
+                # the cloud's original authoring date — users want the
+                # Rules table to reflect "when did I get this rule" rather
+                # than "when did the cloud team write it".
+                #   - synced_at: set by cloud_rules_sync for rules pulled
+                #     through Sync from Cloud (the common case for paid
+                #     tiers).
+                #   - loaded_at: set by cache_community_rule for every
+                #     upsert (bundled + synced). Absolute fallback.
+                #   - created_at (from metadata): legacy bundled-only fallback
+                #     for old DBs that never got a loaded_at timestamp.
                 rule_meta = rule.metadata or {}
-                rule_created_at = rule_meta.get("created_at")
+                rule_created_at = (
+                    rule_meta.get("synced_at")
+                    or (rule.loaded_at.isoformat() if getattr(rule, "loaded_at", None) else None)
+                    or rule_meta.get("created_at")
+                )
 
                 items.append(
                     RuleResponse(

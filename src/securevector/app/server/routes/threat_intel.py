@@ -51,6 +51,9 @@ class ThreatIntelResponse(BaseModel):
     llm_risk_adjustment: int = 0
     llm_model_used: Optional[str] = None
     llm_tokens_used: int = 0
+    # Machine attribution — hashed per-device id. None for rows written
+    # before the v21 migration; present on everything new.
+    device_id: Optional[str] = None
 
 
 class ThreatIntelListResponse(BaseModel):
@@ -126,6 +129,7 @@ async def list_threat_intel(
                     llm_risk_adjustment=item.llm_risk_adjustment,
                     llm_model_used=item.llm_model_used,
                     llm_tokens_used=item.llm_tokens_used,
+                    device_id=item.device_id,
                 )
                 for item in result.items
             ],
@@ -253,6 +257,7 @@ async def get_threat_intel(record_id: str) -> ThreatIntelResponse:
             llm_risk_adjustment=record.llm_risk_adjustment,
             llm_model_used=record.llm_model_used,
             llm_tokens_used=record.llm_tokens_used,
+            device_id=record.device_id,
         )
 
     except HTTPException:

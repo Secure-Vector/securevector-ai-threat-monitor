@@ -281,8 +281,11 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 19
-SCHEMA_DESCRIPTION = "Add skill permissions and policy engine tables"
+CURRENT_SCHEMA_VERSION = 21
+SCHEMA_DESCRIPTION = (
+    "v20: hash-chain tool_call_audit for tamper-evidence; "
+    "v21: device_id on scans + audit rows"
+)
 
 # Migration SQL for v19
 MIGRATION_V19_SQL = """
