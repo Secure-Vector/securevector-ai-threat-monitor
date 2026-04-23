@@ -30,6 +30,10 @@ async def _siem_enqueue_tool_audit(
     prev_hash: Optional[str],
     row_hash: str,
     device_id: Optional[str] = None,
+    # Full-tier raw context. Stripped for standard/minimal destinations
+    # at the repo layer before the outbox write.
+    args_full: Optional[str] = None,
+    reason_full: Optional[str] = None,
 ) -> None:
     """Fan a new audit row out to every enabled SIEM forwarder.
 
@@ -40,7 +44,12 @@ async def _siem_enqueue_tool_audit(
         ExternalForwardOutboxRepository,
         ExternalForwardersRepository,
         build_tool_audit_payload,
+        is_siem_forwarding_enabled,
     )
+
+    # Global kill-switch (v24). Short-circuits before any outbox work.
+    if not await is_siem_forwarding_enabled(db):
+        return
 
     fwds = await ExternalForwardersRepository(db).list_active()
     if not fwds:
@@ -61,6 +70,8 @@ async def _siem_enqueue_tool_audit(
         prev_hash=prev_hash,
         row_hash=str(row_hash),
         device_id=device_id,
+        args_full=args_full,
+        reason_full=reason_full,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
@@ -401,6 +412,10 @@ class CustomToolsRepository:
                 prev_hash=prev_hash,
                 row_hash=row_hash,
                 device_id=device_id,
+                # Full-tier only: untruncated args + policy reason.
+                # Standard/minimal destinations get these stripped.
+                args_full=args_preview,
+                reason_full=reason,
             )
         except Exception as _sie:
             logger.debug(f"siem enqueue (tool_audit) skipped: {_sie}")

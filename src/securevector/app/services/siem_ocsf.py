@@ -95,9 +95,16 @@ def _metadata_block() -> dict[str, Any]:
 def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -> dict[str, Any]:
     """Encode a scan-result payload as an OCSF 2001 Security Finding.
 
-    `redaction`:
-      - "standard"  — includes threat_score, rule ids, user/session ids
-      - "minimal"   — drops user/session ids; keeps counts and severity
+    `redaction` — one of:
+      - "minimal"   — severity + verdict + device_id only
+      - "standard"  — + threat_score, rule ids, model/conversation
+      - "full"      — + raw_data (prompt text), llm_output, matched_patterns
+
+    Per-destination stripping already happened at enqueue time, so if a
+    `prompt_text` key is present in this payload the destination was
+    explicitly opted in. We still key on `redaction` here for belt-and-
+    suspenders: two independent gates (repo-level + encoder-level) have
+    to agree before raw data reaches the wire.
     """
     scan_id = str(payload.get("scan_id") or "")
     verdict = str(payload.get("verdict") or "ALLOW").upper()
@@ -123,10 +130,7 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         "ml_status": str(payload.get("ml_status") or ""),
         "scan_duration_ms": float(payload.get("scan_duration_ms") or 0.0),
     }
-    # device_id is already the SHA-256-derived wire format (sv-<24 hex>).
-    # Included at both redaction levels so fleet operators can always
-    # group "which machine spiked in prompt injections" without having
-    # to re-enable standard redaction.
+    # device_id is the SHA-256-derived wire form; kept at every tier.
     if payload.get("device_id"):
         unmapped["device_id"] = str(payload["device_id"])
     if redaction != "minimal":
@@ -134,6 +138,21 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
             unmapped["conversation_id"] = str(payload["conversation_id"])
         if payload.get("model_id"):
             unmapped["model_id"] = str(payload["model_id"])
+
+    # Full tier — raw prompt text lands in OCSF's `raw_data` slot (that's
+    # what the schema field is for), LLM output + matched patterns go in
+    # unmapped. Only populated if the payload actually carries them,
+    # which only happens when the repo-level redaction permitted it.
+    raw_data: Optional[str] = None
+    if redaction == "full":
+        pt = payload.get("prompt_text")
+        if isinstance(pt, str) and pt:
+            raw_data = pt
+        if payload.get("llm_output"):
+            unmapped["llm_output"] = str(payload["llm_output"])
+        mp = payload.get("matched_patterns")
+        if isinstance(mp, list) and mp:
+            unmapped["matched_patterns"] = [str(m) for m in mp]
 
     return {
         "metadata": _metadata_block(),
@@ -146,7 +165,7 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         "time": _iso_to_millis(payload.get("timestamp")),
         "finding": finding,
         "observables": observables,
-        "raw_data": None,  # privacy contract — never populated
+        "raw_data": raw_data,
         "unmapped": unmapped,
     }
 
@@ -192,6 +211,16 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         # drops the specific tool identity.
         process = {"name": "redacted", "uid": ""}
 
+    # Full tier — untruncated args + full policy reason. The repo layer
+    # already stripped these at enqueue time for non-full destinations,
+    # so this is the belt-and-suspenders encoder-side gate.
+    raw_data: Optional[str] = None
+    if redaction == "full":
+        if payload.get("args_full"):
+            raw_data = str(payload["args_full"])
+        if payload.get("reason_full"):
+            unmapped["reason_full"] = str(payload["reason_full"])
+
     return {
         "metadata": _metadata_block(),
         "category_uid": 1,
@@ -201,7 +230,7 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         "severity_id": severity_id,
         "time": _iso_to_millis(payload.get("called_at")),
         "process": process,
-        "raw_data": None,
+        "raw_data": raw_data,
         "unmapped": unmapped,
     }
 

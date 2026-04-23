@@ -35,6 +35,11 @@ async def _siem_enqueue_scan(
     session_id: Optional[str],
     db: DatabaseConnection,
     device_id: Optional[str] = None,
+    # Raw-data fields for `full` redaction destinations. Stripped at the
+    # repo layer for standard/minimal destinations before they hit the
+    # outbox, so it's safe to pass these unconditionally.
+    prompt_text: Optional[str] = None,
+    llm_output: Optional[str] = None,
 ) -> None:
     """Enqueue a metadata-only scan event for every enabled forwarder.
 
@@ -47,7 +52,13 @@ async def _siem_enqueue_scan(
         ExternalForwardOutboxRepository,
         ExternalForwardersRepository,
         build_scan_payload,
+        is_siem_forwarding_enabled,
     )
+
+    # Global kill-switch (migration v24). Cached 5s so hot-path impact is
+    # sub-microsecond. When off, we never touch the outbox at all.
+    if not await is_siem_forwarding_enabled(db):
+        return
 
     fwds = await ExternalForwardersRepository(db).list_active()
     if not fwds:
@@ -77,6 +88,15 @@ async def _siem_enqueue_scan(
         if cat and cat not in detected_types:
             detected_types.append(str(cat))
 
+    # matched_patterns — pulled from each matched_rule's `matched_pattern`
+    # if present. Only surfaced to `full` destinations.
+    matched_patterns: list[str] = []
+    for mr in matched_rules or []:
+        if isinstance(mr, dict):
+            pat = mr.get("matched_pattern")
+            if isinstance(pat, str) and pat:
+                matched_patterns.append(pat)
+
     payload = build_scan_payload(
         scan_id=scan_id,
         timestamp=timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
@@ -91,6 +111,9 @@ async def _siem_enqueue_scan(
         model_id=llm_model_used,
         conversation_id=session_id,
         device_id=device_id,
+        prompt_text=prompt_text,
+        llm_output=llm_output,
+        matched_patterns=matched_patterns or None,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
@@ -337,6 +360,16 @@ class ThreatIntelRepository:
                 session_id=session_id,
                 db=self.db,
                 device_id=device_id,
+                # Raw text — only delivered to destinations at redaction_level=full.
+                # Standard/minimal destinations get this stripped before the outbox.
+                prompt_text=text,
+                # The scan engine's LLM review (when enabled) produces an
+                # explanation/reasoning string — that's the closest thing
+                # to "LLM output" on the scan path. Pass it through so
+                # full-tier destinations get the reviewer's take alongside
+                # the raw prompt. None-default keeps the JSON clean on
+                # scans where no LLM review ran.
+                llm_output=(llm_explanation if llm_reviewed else None),
             )
         except Exception as _sie:
             logger.debug(f"siem enqueue (scan) skipped: {_sie}")

@@ -164,6 +164,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         21: migrate_to_v21,
         22: migrate_to_v22,
         23: migrate_to_v23,
+        24: migrate_to_v24,
+        25: migrate_to_v25,
     }
 
     if version in migrations:
@@ -1007,6 +1009,125 @@ async def migrate_to_v23(db: DatabaseConnection) -> None:
     )
     logger.info("Applied migration v23: external_forward_outbox")
 
+
+# ---------------------------------------------------------------------------
+# v24 — Global SIEM forwarding kill-switch
+# ---------------------------------------------------------------------------
+#
+# Per-destination `enabled` on external_forwarders already lets a user turn
+# individual destinations off. This adds a SINGLE global switch so a user
+# can pause ALL outbound forwarding in one click without touching each
+# destination row. Checked at enqueue time in the `_siem_enqueue_*`
+# helpers — when off, the call returns immediately, nothing lands in the
+# outbox, and the background forwarder never wakes for that event.
+#
+# In-flight outbox rows from before the flip still drain — we don't strand
+# rows. Re-enabling resumes new-event capture.
+async def migrate_to_v24(db: DatabaseConnection) -> None:
+    """v23 -> v24: global SIEM forwarding enable flag on app_settings."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "siem_forwarding_enabled" not in existing:
+        await conn.execute(
+            "ALTER TABLE app_settings "
+            "ADD COLUMN siem_forwarding_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (24, CURRENT_TIMESTAMP, 'Global SIEM forwarding kill-switch')"
+    )
+    logger.info("Applied migration v24: siem_forwarding_enabled flag")
+
+
+# ---------------------------------------------------------------------------
+# v25 — Allow `full` redaction level on SIEM forwarders
+# ---------------------------------------------------------------------------
+#
+# The v22 constraint was CHECK redaction_level IN ('standard', 'minimal'). To
+# let SOC teams receive the actual prompt text + LLM output + matched
+# patterns in their own SIEM (class 2001 raw_data + unmapped.llm_output),
+# we add a third tier: `full`.
+#
+# SQLite doesn't support ALTER COLUMN DROP CONSTRAINT, so the migration
+# rebuilds the table: copy → drop → rename. Same idempotency guard as
+# every other column-level migration here.
+async def migrate_to_v25(db: DatabaseConnection) -> None:
+    """v24 -> v25: relax external_forwarders.redaction_level to allow 'full'."""
+    conn = await db.connect()
+
+    # If a fresh schema already permits 'full', short-circuit. We key on
+    # the presence of an existing forwarder with redaction_level='full' —
+    # if none and the CHECK is tight, the rebuild below handles the rest.
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = await cur.fetchall()
+    if not cols:
+        # Table doesn't exist on this DB yet — nothing to do. A later
+        # migrate_to_v22 run on an older install will create it with the
+        # new CHECK.
+        await conn.execute(
+            "INSERT INTO schema_version (version, applied_at, description) "
+            "VALUES (25, CURRENT_TIMESTAMP, 'SIEM forwarder redaction_level full tier (no-op: table absent)')"
+        )
+        logger.info("Applied migration v25: no external_forwarders table yet, skipped")
+        return
+
+    # Rebuild with the new CHECK. Must drop dependent FK before recreating
+    # since external_forward_outbox references external_forwarders(id).
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.executescript(
+            """
+            -- Always start from a fresh staging table. Without this drop,
+            -- a crash between `INSERT INTO ..._v25 SELECT FROM external_forwarders`
+            -- and `DROP TABLE external_forwarders` would, on retry, double
+            -- every config row: the staging table still holds the first
+            -- round and the SELECT re-inserts them. Drop-first makes the
+            -- migration idempotent under replay.
+            DROP TABLE IF EXISTS external_forwarders_v25;
+
+            CREATE TABLE external_forwarders_v25 (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind                TEXT    NOT NULL CHECK (kind IN ('webhook', 'splunk_hec', 'datadog', 'otlp_http')),
+                name                TEXT    NOT NULL,
+                url                 TEXT    NOT NULL,
+                secret_ref          TEXT,
+                headers_json        TEXT,
+                event_filter        TEXT    NOT NULL DEFAULT 'threats_only' CHECK (event_filter IN ('all', 'threats_only', 'audits_only')),
+                include_tool_audits INTEGER NOT NULL DEFAULT 1,
+                redaction_level     TEXT    NOT NULL DEFAULT 'standard' CHECK (redaction_level IN ('standard', 'minimal', 'full')),
+                enabled             INTEGER NOT NULL DEFAULT 1,
+                created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_success_at     TIMESTAMP,
+                last_failure_at     TIMESTAMP,
+                last_error          TEXT,
+                consecutive_fails   INTEGER NOT NULL DEFAULT 0
+            );
+
+            INSERT INTO external_forwarders_v25
+            SELECT id, kind, name, url, secret_ref, headers_json, event_filter,
+                   include_tool_audits, redaction_level, enabled, created_at,
+                   updated_at, last_success_at, last_failure_at, last_error,
+                   consecutive_fails
+              FROM external_forwarders;
+
+            DROP TABLE external_forwarders;
+            ALTER TABLE external_forwarders_v25 RENAME TO external_forwarders;
+
+            CREATE INDEX IF NOT EXISTS idx_external_forwarders_enabled
+              ON external_forwarders (enabled, id);
+            """
+        )
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (25, CURRENT_TIMESTAMP, 'SIEM forwarder redaction_level allows full tier')"
+    )
+    logger.info("Applied migration v25: redaction_level accepts 'full'")
 
 
 # Future migration functions would be defined here:

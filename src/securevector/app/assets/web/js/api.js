@@ -218,6 +218,18 @@ const API = {
         return this.request(`/api/siem-forwarders/${id}/health`);
     },
 
+    // Global SIEM forwarding kill-switch (v24 — single boolean toggle)
+    async getSiemGlobalSettings() {
+        return this.request('/api/siem-forwarders/global-settings');
+    },
+    async setSiemGlobalSettings(enabled) {
+        return this.request('/api/siem-forwarders/global-settings', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: !!enabled }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+    },
+
     // ==================== Cloud Rule Sync (preview → review → apply) ====================
 
     async syncPreviewStart() {

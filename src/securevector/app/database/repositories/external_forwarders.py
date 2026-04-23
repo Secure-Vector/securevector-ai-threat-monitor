@@ -39,48 +39,97 @@ logger = logging.getLogger(__name__)
 OutboxKind = Literal["scan", "output_scan", "tool_audit"]
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
-RedactionLevel = Literal["standard", "minimal"]
+# Three tiers of what a destination receives:
+#   - minimal  : severity + class + verdict only (ops dashboards)
+#   - standard : + rule metadata, threat_score, hash-chain witness (default)
+#   - full     : + raw prompt text, LLM output, matched patterns, full args
+# See _SCAN_FIELDS_BY_LEVEL / _TOOL_AUDIT_FIELDS_BY_LEVEL for the exact
+# field allow-list at each tier. Enforced at enqueue time.
+RedactionLevel = Literal["standard", "minimal", "full"]
 
 
 # ---------------------------------------------------------------------------
-# Allow-lists — tight. Anything not here is forbidden to enqueue.
+# Allow-lists, tiered by redaction_level. Everything not listed for a given
+# level is stripped from the payload BEFORE it lands in the outbox. A
+# destination configured at `standard` will never see fields that only
+# exist at `full`, even if the scan callsite passed them in.
 # ---------------------------------------------------------------------------
-_SCAN_ALLOWED = frozenset({
+
+# Fields every tier receives — severity summary + device + integrity
+_SCAN_MINIMAL = frozenset({
     "scan_id",
     "timestamp",
     "verdict",
-    "threat_score",
-    "confidence_score",
     "risk_level",
     "detected_items_count",
+    "device_id",
+})
+
+# Default "most commonly forwarded" set. Adds threat_score, rule metadata,
+# conversation/model ids, scan duration, ml status. No prompt text.
+_SCAN_STANDARD = _SCAN_MINIMAL | frozenset({
+    "threat_score",
+    "confidence_score",
     "detected_types",
     "ml_status",
     "scan_duration_ms",
     "model_id",
     "conversation_id",
-    # Machine-level attribution. Already SHA-256'd; raw OS UUID never
-    # enters the payload. Lets fleet operators group by device in SIEM.
+})
+
+# Full forensic payload — adds raw prompt text, LLM output, pattern details.
+# Opt-in per destination; loud warning in the UI when user selects this.
+_SCAN_FULL = _SCAN_STANDARD | frozenset({
+    "prompt_text",
+    "llm_output",
+    "matched_patterns",
+})
+
+_SCAN_FIELDS_BY_LEVEL: dict[str, frozenset[str]] = {
+    "minimal":  _SCAN_MINIMAL,
+    "standard": _SCAN_STANDARD,
+    "full":     _SCAN_FULL,
+}
+
+# Union of all allowed fields — used for input validation on
+# build_scan_payload(). Level-specific redaction happens later at
+# enqueue_fanout time, per destination.
+_SCAN_ALLOWED = _SCAN_FULL
+_OUTPUT_SCAN_ALLOWED = _SCAN_ALLOWED
+
+# Tool-audit tiers follow the same pattern.
+_TOOL_AUDIT_MINIMAL = frozenset({
+    "audit_id",
+    "seq",
+    "action",
     "device_id",
 })
 
-_OUTPUT_SCAN_ALLOWED = _SCAN_ALLOWED  # identical shape
-
-_TOOL_AUDIT_ALLOWED = frozenset({
-    # metadata-only columns from tool_call_audit
-    "audit_id",
-    "seq",
+_TOOL_AUDIT_STANDARD = _TOOL_AUDIT_MINIMAL | frozenset({
     "tool_id",
     "function_name",
-    "action",
     "risk",
     "is_essential",
     "called_at",
-    # integrity witness — lets the customer's SIEM verify the chain
+    # Integrity witness — only useful when combined with the tool_id it
+    # was hashed against, so we keep it in standard (not minimal).
     "prev_hash",
     "row_hash",
-    # Machine-level attribution (hashed upstream; see note on scan).
-    "device_id",
 })
+
+_TOOL_AUDIT_FULL = _TOOL_AUDIT_STANDARD | frozenset({
+    # Full call-site context for forensic triage.
+    "args_full",
+    "reason_full",
+})
+
+_TOOL_AUDIT_FIELDS_BY_LEVEL: dict[str, frozenset[str]] = {
+    "minimal":  _TOOL_AUDIT_MINIMAL,
+    "standard": _TOOL_AUDIT_STANDARD,
+    "full":     _TOOL_AUDIT_FULL,
+}
+
+_TOOL_AUDIT_ALLOWED = _TOOL_AUDIT_FULL
 
 
 def _assert_metadata_only(
@@ -89,13 +138,32 @@ def _assert_metadata_only(
     *,
     kind: str,
 ) -> None:
+    """Validate the *input* to build_* helpers — anything outside the
+    union allow-list is rejected regardless of destination. Per-destination
+    stripping (the redaction tier) happens later at enqueue_fanout()."""
     allowed_set = set(allowed)
     extras = sorted(k for k in payload.keys() if k not in allowed_set)
     if extras:
         raise ValueError(
             f"external_forwarders: refusing to enqueue {kind} with forbidden "
-            f"field(s) {extras}. SIEM forwarding is metadata-only by contract."
+            f"field(s) {extras}. Only metadata + opt-in raw_data fields are allowed."
         )
+
+
+def _redact_for_destination(
+    payload: dict[str, Any],
+    *,
+    kind: str,
+    redaction_level: str,
+) -> dict[str, Any]:
+    """Strip payload fields that are not permitted at this destination's
+    redaction_level. Unknown levels fall through to `standard` (fail-safe).
+    Returns a NEW dict — never mutates the input."""
+    if kind in ("scan", "output_scan"):
+        allowed = _SCAN_FIELDS_BY_LEVEL.get(redaction_level, _SCAN_STANDARD)
+    else:
+        allowed = _TOOL_AUDIT_FIELDS_BY_LEVEL.get(redaction_level, _TOOL_AUDIT_STANDARD)
+    return {k: v for k, v in payload.items() if k in allowed and v is not None}
 
 
 def build_scan_payload(
@@ -113,6 +181,12 @@ def build_scan_payload(
     model_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
     device_id: Optional[str] = None,
+    # Optional raw-data fields — only surfaced to destinations whose
+    # redaction_level is 'full'. At 'standard'/'minimal' they're stripped
+    # by _redact_for_destination before the outbox write.
+    prompt_text: Optional[str] = None,
+    llm_output: Optional[str] = None,
+    matched_patterns: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     payload = {
         "scan_id": scan_id,
@@ -128,6 +202,9 @@ def build_scan_payload(
         "model_id": model_id,
         "conversation_id": conversation_id,
         "device_id": device_id,
+        "prompt_text": prompt_text,
+        "llm_output": llm_output,
+        "matched_patterns": list(matched_patterns) if matched_patterns else None,
     }
     _assert_metadata_only(payload, _SCAN_ALLOWED, kind="scan")
     return payload
@@ -146,6 +223,9 @@ def build_tool_audit_payload(
     prev_hash: Optional[str],
     row_hash: str,
     device_id: Optional[str] = None,
+    # Full-tier only: untruncated args + full policy reason string.
+    args_full: Optional[str] = None,
+    reason_full: Optional[str] = None,
 ) -> dict[str, Any]:
     payload = {
         "audit_id": audit_id,
@@ -156,12 +236,68 @@ def build_tool_audit_payload(
         "risk": risk,
         "is_essential": bool(is_essential),
         "called_at": called_at,
+        "args_full": args_full,
+        "reason_full": reason_full,
         "prev_hash": prev_hash,
         "row_hash": row_hash,
         "device_id": device_id,
     }
     _assert_metadata_only(payload, _TOOL_AUDIT_ALLOWED, kind="tool_audit")
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Global kill-switch (stored in app_settings.siem_forwarding_enabled, v24)
+# ---------------------------------------------------------------------------
+#
+# Read by the hot-path _siem_enqueue_* helpers before any work. Cached in
+# process memory with a short TTL so high-rate callers aren't hitting
+# SQLite on every scan/audit. Cache invalidated explicitly by the PUT
+# endpoint so a toggle takes effect immediately instead of waiting for TTL.
+
+_SIEM_ENABLED_CACHE: dict[str, object] = {"value": True, "fetched_at": 0.0}
+_SIEM_ENABLED_TTL_SEC = 5.0
+
+
+async def is_siem_forwarding_enabled(db: DatabaseConnection) -> bool:
+    """Return the global SIEM forwarding flag. Defaults to True on fresh
+    installs; cached briefly to stay off the hot path.
+
+    If the `siem_forwarding_enabled` column doesn't exist (pre-v24 DB in
+    a dev environment), fail open — assume enabled. The migration adds
+    the column for any real install.
+    """
+    import time
+    now = time.monotonic()
+    if (now - float(_SIEM_ENABLED_CACHE["fetched_at"])) < _SIEM_ENABLED_TTL_SEC:
+        return bool(_SIEM_ENABLED_CACHE["value"])
+    try:
+        row = await db.fetch_one(
+            "SELECT siem_forwarding_enabled FROM app_settings WHERE id = 1"
+        )
+        val = bool(row["siem_forwarding_enabled"]) if row and row["siem_forwarding_enabled"] is not None else True
+    except Exception:
+        # Column doesn't exist yet (pre-v24). Fail open; migration fixes this.
+        val = True
+    _SIEM_ENABLED_CACHE["value"] = val
+    _SIEM_ENABLED_CACHE["fetched_at"] = now
+    return val
+
+
+def invalidate_siem_enabled_cache() -> None:
+    """Force next is_siem_forwarding_enabled() call to re-read from DB.
+    Called by the PUT endpoint so toggles take effect immediately."""
+    _SIEM_ENABLED_CACHE["fetched_at"] = 0.0
+
+
+async def set_siem_forwarding_enabled(db: DatabaseConnection, enabled: bool) -> None:
+    """Write the global flag. Invalidates cache so the change is visible
+    to in-flight hot-path callers within one SQLite round-trip."""
+    await db.execute(
+        "UPDATE app_settings SET siem_forwarding_enabled = ? WHERE id = 1",
+        (1 if enabled else 0,),
+    )
+    invalidate_siem_enabled_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -401,8 +537,16 @@ class ExternalForwardOutboxRepository:
         *,
         forwarders: Iterable[dict[str, Any]],
     ) -> int:
-        """Validate payload once and write one outbox row per forwarder that
-        passes its event_filter. Returns number of rows written."""
+        """Validate payload once, then write one outbox row per forwarder,
+        with each row's payload stripped to that destination's
+        redaction_level. A `standard` destination never sees fields that
+        only exist at `full`, even if the caller passed them in.
+
+        Returns the count of rows written.
+        """
+        # Up-front input validation against the UNION allow-list. Anything
+        # beyond the full-tier field set means the caller is trying to
+        # shove something that was never whitelisted — hard reject.
         if kind == "scan":
             _assert_metadata_only(payload, _SCAN_ALLOWED, kind=kind)
         elif kind == "output_scan":
@@ -412,12 +556,18 @@ class ExternalForwardOutboxRepository:
         else:
             raise ValueError(f"unknown outbox kind: {kind!r}")
 
-        serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         conn = await self.db.connect()
         written = 0
         for fwd in forwarders:
             if not _passes_filter(fwd, kind, payload):
                 continue
+            # Per-destination redaction: STRIP fields the destination isn't
+            # entitled to see, BEFORE the row lands in the outbox. If the
+            # outbox is ever dumped mid-flight, a standard-level
+            # destination's rows have no prompt text to leak.
+            level = str(fwd.get("redaction_level") or "standard")
+            redacted = _redact_for_destination(payload, kind=kind, redaction_level=level)
+            serialized = json.dumps(redacted, separators=(",", ":"), sort_keys=True)
             await conn.execute(
                 """
                 INSERT INTO external_forward_outbox (forwarder_id, kind, payload_json)

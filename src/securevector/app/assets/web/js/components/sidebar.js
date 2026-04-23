@@ -13,6 +13,7 @@ const Sidebar = {
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
         { id: 'skill-permissions', label: 'Skill Policy', icon: 'shield', tooltip: 'Manage scan policy permissions and trusted publishers' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
+        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },

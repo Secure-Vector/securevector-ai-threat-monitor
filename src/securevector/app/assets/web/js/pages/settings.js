@@ -95,16 +95,12 @@ const SettingsPage = {
         toolSection.appendChild(toolCard);
         container.appendChild(toolSection);
 
-        // Export to SIEM Section
-        const siemSection = this.createSection(
-            'Export to SIEM',
-            'Forward threat detections and tool-call audits to your Splunk, Datadog, or generic webhook. Free, no signup — your data, your pipes.',
-        );
-        const siemCard = Card.create({ gradient: true });
-        const siemBody = siemCard.querySelector('.card-body');
-        this.renderSiemForwarders(siemBody);
-        siemSection.appendChild(siemCard);
-        container.appendChild(siemSection);
+        // SIEM Forwarder now lives on its own top-level page under
+        // Configure → SIEM Forwarder (see siem-export.js). The CRUD
+        // helpers (renderSiemForwarders / _refreshSiemForwardersTable /
+        // _showSiemEditor / etc.) stay on this module — the new page
+        // imports them at render time — so this section is removed
+        // from Settings to avoid duplication.
 
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
@@ -1128,6 +1124,59 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     async renderSiemForwarders(container) {
         container.textContent = '';
 
+        // ── Device attribution badge ─────────────────────────────────
+        // Every event this app forwards to Splunk / Datadog / OTLP /
+        // webhook carries a stable `device_id` in its OCSF unmapped
+        // block. Showing that value prominently here lets the user
+        // write a SIEM filter like `device_id = "sv-…"` to slice by
+        // this specific machine, and confirms which machine they're
+        // looking at before they paste tokens into the editor.
+        //
+        // The id is purely cosmetic here — the backend already stamps
+        // it on every event at build time in
+        // `database/repositories/external_forwarders.py`.
+        const deviceBanner = document.createElement('div');
+        deviceBanner.className = 'siem-device-banner';
+        deviceBanner.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--border-default);border-left:4px solid var(--accent-primary);border-radius:8px;background:var(--bg-tertiary);';
+        const devIcon = document.createElement('span');
+        devIcon.style.cssText = 'font-size:18px;line-height:1;flex-shrink:0;';
+        devIcon.textContent = '🖥';
+        deviceBanner.appendChild(devIcon);
+        const devText = document.createElement('div');
+        devText.style.cssText = 'flex:1;font-size:13px;color:var(--text-secondary);line-height:1.4;';
+        devText.innerHTML = '<strong style="color:var(--text-primary);">Events from this device →</strong> device_id = <span id="siem-device-id" style="font-family:monospace;color:var(--accent-primary);">loading…</span><br><span style="font-size:12px;opacity:0.85;">Filter your SIEM by this value to see only events from this machine. Raw OS UUID never leaves the box (SHA-256 namespaced hash).</span>';
+        deviceBanner.appendChild(devText);
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-secondary btn-compact';
+        copyBtn.textContent = 'Copy';
+        copyBtn.title = 'Copy device_id to clipboard';
+        copyBtn.style.cssText = 'flex-shrink:0;';
+        copyBtn.addEventListener('click', async () => {
+            const idEl = document.getElementById('siem-device-id');
+            const val = idEl ? idEl.textContent : '';
+            if (!val || val === 'loading…') return;
+            try {
+                await navigator.clipboard.writeText(val);
+                const prev = copyBtn.textContent;
+                copyBtn.textContent = '✓ Copied';
+                setTimeout(() => { copyBtn.textContent = prev; }, 1400);
+            } catch (_) { /* clipboard denied — ignore silently */ }
+        });
+        deviceBanner.appendChild(copyBtn);
+        container.appendChild(deviceBanner);
+
+        // Fire-and-forget fetch. If it fails, the banner stays with
+        // "loading…" — not ideal but non-fatal (the SIEM table still
+        // renders below).
+        API.getDeviceId().then(d => {
+            const idEl = document.getElementById('siem-device-id');
+            if (idEl && d && d.device_id) idEl.textContent = d.device_id;
+        }).catch(() => {
+            const idEl = document.getElementById('siem-device-id');
+            if (idEl) idEl.textContent = 'unavailable';
+        });
+
         // Intro + health line (populated after list loads)
         const intro = document.createElement('div');
         intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;';
@@ -1400,11 +1449,15 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         auditsLabel.appendChild(auditsText);
         body.appendChild(auditsLabel);
 
+        // Redaction level — three tiers. Default is Standard (the most
+        // commonly forwarded set). Full adds prompt text + LLM output +
+        // matched patterns and requires explicit opt-in acknowledgment.
         const redactionSelect = document.createElement('select');
         redactionSelect.className = 'filter-select';
         [
-            ['standard', 'Standard — includes conversation/model IDs'],
-            ['minimal', 'Minimal — severity + counts only'],
+            ['minimal', 'Minimal — scan_id, timestamp, verdict, risk_level, counts, device_id'],
+            ['standard', 'Standard — + threat_score, rule metadata, hash-chain witness (default)'],
+            ['full', 'Full — + raw prompt text, LLM output, matched patterns'],
         ].forEach(([v, label]) => {
             const opt = document.createElement('option');
             opt.value = v;
@@ -1414,10 +1467,33 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         });
         addField('Redaction level', redactionSelect);
 
+        // Live hint — changes with selection. Full tier shows a loud
+        // warning so nobody enables it accidentally.
         const hint = document.createElement('div');
-        hint.style.cssText = 'padding:10px;background:var(--bg-secondary,#f5f7fa);border-radius:6px;font-size:12px;color:var(--text-secondary);';
-        hint.textContent = 'Payloads use OCSF 1.3.0 schema. Metadata-only: prompts, outputs, matched patterns, and reasoning text never leave this machine, even to your SIEM.';
+        hint.style.cssText = 'padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.5;';
         body.appendChild(hint);
+
+        const paintHint = () => {
+            const lvl = redactionSelect.value;
+            if (lvl === 'full') {
+                hint.style.background = 'rgba(239,68,68,0.12)';
+                hint.style.color = '#fca5a5';
+                hint.style.border = '1px solid rgba(239,68,68,0.4)';
+                hint.innerHTML = '<strong>⚠ Full tier — raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
+            } else if (lvl === 'minimal') {
+                hint.style.background = 'var(--bg-tertiary)';
+                hint.style.color = 'var(--text-secondary)';
+                hint.style.border = '1px solid var(--border-default)';
+                hint.innerHTML = 'Minimal — scan_id, timestamp, verdict, risk_level, detected count, device_id. Useful for high-volume ops dashboards. No threat scores, no rule IDs; hash-chain witness (on tool-call audits) is dropped at this tier.';
+            } else {
+                hint.style.background = 'var(--bg-tertiary)';
+                hint.style.color = 'var(--text-secondary)';
+                hint.style.border = '1px solid var(--border-default)';
+                hint.innerHTML = 'Standard (default, most common) — includes threat_score, rule metadata, conversation/model IDs, and on tool-call audits the SHA-256 hash-chain witness (prev_hash/row_hash) so your SIEM can re-verify integrity off-host. <strong>Prompt text + LLM output never leave this machine</strong> at this tier.';
+            }
+        };
+        redactionSelect.addEventListener('change', paintHint);
+        paintHint();
 
         Modal.show({
             title: isEdit ? 'Edit SIEM Destination' : 'Add SIEM Destination',
@@ -1441,6 +1517,22 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                         if (!payload.name || !payload.url) {
                             if (window.Toast) Toast.error('Name and URL are required');
                             return;
+                        }
+                        // Full-tier gate: require explicit confirmation before
+                        // a destination starts receiving prompt text + LLM output.
+                        // Matches the "two rounds of consent" standard for
+                        // high-blast-radius opt-ins.
+                        const priorLevel = existing?.redaction_level || 'standard';
+                        const newLevel = redactionSelect.value;
+                        const escalatingToFull = newLevel === 'full' && priorLevel !== 'full';
+                        if (escalatingToFull) {
+                            const ok = window.confirm(
+                                'Enabling FULL redaction tier\n\n' +
+                                'This destination will receive the full PROMPT TEXT, LLM OUTPUT, and MATCHED PATTERNS in every forwarded event.\n\n' +
+                                'Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.).\n\n' +
+                                'Continue?'
+                            );
+                            if (!ok) return;
                         }
                         // Secret handling: "-" means clear, empty means leave as-is on edit
                         const secretRaw = secretInput.value;

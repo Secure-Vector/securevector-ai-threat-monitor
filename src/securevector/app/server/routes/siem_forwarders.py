@@ -31,6 +31,8 @@ from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.external_forwarders import (
     ExternalForwardOutboxRepository,
     ExternalForwardersRepository,
+    is_siem_forwarding_enabled,
+    set_siem_forwarding_enabled,
 )
 from securevector.app.services import forwarder_secrets, siem_ocsf
 
@@ -45,7 +47,7 @@ router = APIRouter()
 
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
-RedactionLevel = Literal["standard", "minimal"]
+RedactionLevel = Literal["standard", "minimal", "full"]
 
 
 class ForwarderCreate(BaseModel):
@@ -129,6 +131,33 @@ async def list_forwarders() -> dict[str, Any]:
     for item in items:
         item["pending"] = await outbox.pending_count(int(item["id"]))
     return {"items": items, "total": len(items)}
+
+
+# ── Global kill-switch (v24) ───────────────────────────────────────────
+# MUST be declared BEFORE /siem-forwarders/{forwarder_id} — FastAPI picks
+# the first matching route in declaration order. If this were below the
+# `{forwarder_id}` route, `global-settings` would be parsed as an int id
+# and the request would 422.
+
+
+class SiemGlobalSettings(BaseModel):
+    """Shape of GET/PUT /api/siem-forwarders/global-settings."""
+
+    enabled: bool
+
+
+@router.get("/siem-forwarders/global-settings", response_model=SiemGlobalSettings)
+async def get_global_siem_settings() -> SiemGlobalSettings:
+    db = get_database()
+    return SiemGlobalSettings(enabled=await is_siem_forwarding_enabled(db))
+
+
+@router.put("/siem-forwarders/global-settings", response_model=SiemGlobalSettings)
+async def set_global_siem_settings(body: SiemGlobalSettings) -> SiemGlobalSettings:
+    db = get_database()
+    await set_siem_forwarding_enabled(db, body.enabled)
+    logger.info(f"SIEM forwarding globally {'enabled' if body.enabled else 'disabled'}")
+    return SiemGlobalSettings(enabled=body.enabled)
 
 
 @router.get("/siem-forwarders/{forwarder_id}")
