@@ -166,6 +166,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         23: migrate_to_v23,
         24: migrate_to_v24,
         25: migrate_to_v25,
+        26: migrate_to_v26,
     }
 
     if version in migrations:
@@ -1128,6 +1129,49 @@ async def migrate_to_v25(db: DatabaseConnection) -> None:
         "VALUES (25, CURRENT_TIMESTAMP, 'SIEM forwarder redaction_level allows full tier')"
     )
     logger.info("Applied migration v25: redaction_level accepts 'full'")
+
+
+# ---------------------------------------------------------------------------
+# v26 — SOC-grade filtering: min_severity threshold + rate limit
+# ---------------------------------------------------------------------------
+#
+# SOC analyst review flagged two alert-fatigue risks: (1) threats_only
+# still forwards WARN-level noise, and (2) a misbehaving agent could
+# fire thousands of scans/sec with no cap.
+#
+# Adds two columns to external_forwarders:
+#   min_severity         : 'block' | 'detected' | 'warn' — default 'review'
+#                          which drops WARN-tier noise. Legacy values
+#                          still accepted; see _passes_filter.
+#   rate_limit_per_minute: 0 = unlimited (default). When exceeded, new
+#                          events are dropped in-window and the next
+#                          allowed event carries suppressed_count in
+#                          unmapped so the SIEM sees the burst summary.
+async def migrate_to_v26(db: DatabaseConnection) -> None:
+    """v25 -> v26: SOC-grade filtering on external_forwarders."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    existing = {row[1] for row in await cur.fetchall()}
+
+    if existing:
+        # Simple ALTER — no CHECK constraint, validated in Pydantic
+        # so we skip another table-rebuild cycle.
+        if "min_severity" not in existing:
+            await conn.execute(
+                "ALTER TABLE external_forwarders "
+                "ADD COLUMN min_severity TEXT NOT NULL DEFAULT 'review'"
+            )
+        if "rate_limit_per_minute" not in existing:
+            await conn.execute(
+                "ALTER TABLE external_forwarders "
+                "ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 0"
+            )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (26, CURRENT_TIMESTAMP, 'SOC filtering: min_severity + rate_limit_per_minute')"
+    )
+    logger.info("Applied migration v26: min_severity + rate_limit_per_minute")
 
 
 # Future migration functions would be defined here:

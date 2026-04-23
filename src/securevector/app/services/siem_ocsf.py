@@ -32,6 +32,11 @@ from typing import Any, Callable, Optional
 OCSF_VERSION = "1.3.0"
 PRODUCT_NAME = "SecureVector Local Threat Monitor"
 VENDOR_NAME = "SecureVector"
+# Item 16 — schema revision marker independent of OCSF version.
+# Downstream dashboards can branch on this when we change the shape of
+# `unmapped` fields or add new top-level keys. Bump on any breaking
+# change to the emitted event.
+SECUREVECTOR_SCHEMA_VERSION = "securevector:4.0"
 
 # OCSF severity_id mapping
 #   1=Informational 2=Low 3=Medium 4=High 5=Critical 6=Fatal 99=Other
@@ -52,6 +57,14 @@ _ACTIVITY_CREATE = 1
 _PROCESS_LAUNCH = 1
 
 
+def _severity_from_rule(rule_severity: str) -> Optional[int]:
+    """Per-rule severity → OCSF severity_id. Returns None if unknown so
+    callers can fall back to verdict-based scoring."""
+    if not rule_severity:
+        return None
+    return _SEVERITY_TO_ID.get(str(rule_severity).lower())
+
+
 def _now_millis() -> int:
     return int(time.time() * 1000)
 
@@ -70,15 +83,21 @@ def _iso_to_millis(iso: Optional[str]) -> int:
 
 
 def _verdict_to_severity_id(verdict: str, threat_score: float) -> int:
-    """Map our verdict + threat_score to OCSF severity_id."""
+    """Map our verdict + threat_score to OCSF severity_id.
+
+    v26 vocab: BLOCK / DETECTED / ALLOW. REVIEW + WARN collapse to DETECTED
+    at the encoder level — SOC analysts can filter on severity_id without
+    having to care about the internal distinction. The old values are still
+    accepted for rows already in the outbox at upgrade time.
+    """
     v = (verdict or "").upper()
     if v == "BLOCK":
         return 5 if threat_score >= 0.9 else 4  # Critical / High
-    if v == "REVIEW":
+    if v in ("DETECTED", "REVIEW"):
         return 3  # Medium
     if v == "WARN":
-        return 2  # Low
-    return 1  # Informational (ALLOW shouldn't reach here under threats_only filter)
+        return 2  # Low — deprecated tier, still map cleanly
+    return 1  # Informational (ALLOW / unknown)
 
 
 def _metadata_block() -> dict[str, Any]:
@@ -89,6 +108,14 @@ def _metadata_block() -> dict[str, Any]:
             "vendor_name": VENDOR_NAME,
         },
         "log_name": "securevector-local-scan",
+        # Item 16 — vendor schema revision in OCSF's extension slot.
+        # `metadata.version` is pinned to OCSF 1.3.0 so dashboards parse
+        # correctly; our own schema rev lives here so they can branch on
+        # shape changes independently of OCSF.
+        "extension": {
+            "name": "securevector",
+            "version": SECUREVECTOR_SCHEMA_VERSION,
+        },
     }
 
 
@@ -96,8 +123,8 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
     """Encode a scan-result payload as an OCSF 2001 Security Finding.
 
     `redaction` — one of:
-      - "minimal"   — severity + verdict + device_id only
-      - "standard"  — + threat_score, rule ids, model/conversation
+      - "minimal"   — severity + verdict + device.uid + SOC-correlation
+      - "standard"  — + threat_score, rule ids, model/conversation, MITRE
       - "full"      — + raw_data (prompt text), llm_output, matched_patterns
 
     Per-destination stripping already happened at enqueue time, so if a
@@ -105,39 +132,104 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
     explicitly opted in. We still key on `redaction` here for belt-and-
     suspenders: two independent gates (repo-level + encoder-level) have
     to agree before raw data reaches the wire.
+
+    v26 field placement (OCSF-native where possible):
+      - device_id           → `device.uid`
+      - confidence_score    → top-level `confidence` (0-100) + `confidence_score` (0.0-1.0)
+      - mitre_techniques    → `finding.techniques` (list of {uid, name})
+      - actor_user/process  → `actor.user` / `actor.process`
+      - worst_rule_severity → overrides verdict-based severity_id
+      - finding_group_id    → `finding.related_events_uid` (SOC clustering)
+      - suppressed_count    → top-level + unmapped (burst-summary signal)
     """
     scan_id = str(payload.get("scan_id") or "")
     verdict = str(payload.get("verdict") or "ALLOW").upper()
     threat_score = float(payload.get("threat_score") or 0.0)
-    severity_id = _verdict_to_severity_id(verdict, threat_score)
 
-    finding = {
+    # Severity resolution: per-rule override wins over verdict+score.
+    severity_id = _verdict_to_severity_id(verdict, threat_score)
+    rule_sev = _severity_from_rule(str(payload.get("worst_rule_severity") or ""))
+    if rule_sev is not None:
+        severity_id = max(severity_id, rule_sev)
+
+    # MITRE techniques. OCSF finding.techniques items are {uid, name}.
+    techniques_raw = payload.get("mitre_techniques") or []
+    techniques: list[dict[str, str]] = []
+    for t in techniques_raw:
+        if isinstance(t, str) and t:
+            techniques.append({"uid": t, "name": t})
+        elif isinstance(t, dict):
+            uid = str(t.get("uid") or t.get("id") or "")
+            name = str(t.get("name") or uid)
+            if uid:
+                techniques.append({"uid": uid, "name": name})
+
+    finding: dict[str, Any] = {
         "uid": scan_id,
         "title": _finding_title(payload),
         "types": list(payload.get("detected_types") or []) or ["threat_detected"],
     }
+    if techniques:
+        finding["techniques"] = techniques
+    # SOC clustering: events sharing a finding_group_id are the same
+    # attack refired. Goes in `related_events_uid` per OCSF 1.3.0.
+    group_id = payload.get("finding_group_id")
+    if group_id:
+        finding["related_events_uid"] = [str(group_id)]
+    # Item 14 — OCSF-idiomatic way to express "this finding covers N
+    # matches" is a `related_events[]` array, not a scalar count.
+    # Each matched rule becomes one related_event with type_uid=2 (Rule Match).
+    rule_ids_for_related = payload.get("matched_rule_ids") or []
+    if rule_ids_for_related:
+        finding["related_events"] = [
+            {"type_uid": 2, "type": "Rule Match", "uid": str(rid)}
+            for rid in rule_ids_for_related
+        ]
 
     observables = [
         {"type_id": 0, "name": "verdict", "value": verdict},
         {"type_id": 0, "name": "risk_level", "value": str(payload.get("risk_level") or "")},
     ]
 
+    # ── Actor block (user + process). Only emit when we have something
+    # to say — empty actor is noise in dashboards.
+    actor: dict[str, Any] = {}
+    if payload.get("actor_user"):
+        actor["user"] = {"name": str(payload["actor_user"])}
+    if payload.get("actor_process"):
+        actor["process"] = {"name": str(payload["actor_process"])}
+
+    # ── Device block — `device.uid` is the proper OCSF path for a stable
+    # per-machine identifier. Pre-v26 we stuffed it into unmapped; now
+    # dashboards can pivot on `device.uid` without digging into the blob.
+    device: dict[str, Any] = {}
+    if payload.get("device_id"):
+        device["uid"] = str(payload["device_id"])
+        device["type_id"] = 0  # Unknown — we don't try to classify host OS
+        device["type"] = "Endpoint"
+
     unmapped: dict[str, Any] = {
         "threat_score": threat_score,
-        "confidence_score": float(payload.get("confidence_score") or 0.0),
         "detected_items_count": int(payload.get("detected_items_count") or 0),
         "detected_types": list(payload.get("detected_types") or []),
         "ml_status": str(payload.get("ml_status") or ""),
         "scan_duration_ms": float(payload.get("scan_duration_ms") or 0.0),
     }
-    # device_id is the SHA-256-derived wire form; kept at every tier.
-    if payload.get("device_id"):
-        unmapped["device_id"] = str(payload["device_id"])
+
+    # Burst-summary: destination sees how many events were collapsed into
+    # this one. Kept at every tier — same reason as device.uid.
+    suppressed_count = int(payload.get("suppressed_count") or 0)
+
     if redaction != "minimal":
         if payload.get("conversation_id"):
             unmapped["conversation_id"] = str(payload["conversation_id"])
         if payload.get("model_id"):
             unmapped["model_id"] = str(payload["model_id"])
+        rule_ids = payload.get("matched_rule_ids") or []
+        if rule_ids:
+            unmapped["matched_rule_ids"] = [str(r) for r in rule_ids]
+        if payload.get("worst_rule_severity"):
+            unmapped["worst_rule_severity"] = str(payload["worst_rule_severity"])
 
     # Full tier — raw prompt text lands in OCSF's `raw_data` slot (that's
     # what the schema field is for), LLM output + matched patterns go in
@@ -154,7 +246,12 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         if isinstance(mp, list) and mp:
             unmapped["matched_patterns"] = [str(m) for m in mp]
 
-    return {
+    # Top-level confidence — OCSF 1.3 promotes this out of unmapped.
+    # We emit both the 0-100 int (confidence) and the 0.0-1.0 float
+    # (confidence_score) so dashboards that key on either shape work.
+    confidence_score = float(payload.get("confidence_score") or 0.0)
+
+    event: dict[str, Any] = {
         "metadata": _metadata_block(),
         "category_uid": 2,
         "class_uid": 2001,
@@ -162,12 +259,22 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         "activity_id": _ACTIVITY_CREATE,
         "severity_id": severity_id,
         "severity": verdict,
+        "confidence": int(round(confidence_score * 100)),
+        "confidence_score": confidence_score,
         "time": _iso_to_millis(payload.get("timestamp")),
         "finding": finding,
         "observables": observables,
         "raw_data": raw_data,
         "unmapped": unmapped,
     }
+    if device:
+        event["device"] = device
+    if actor:
+        event["actor"] = actor
+    if suppressed_count > 0:
+        event["suppressed_count"] = suppressed_count
+        unmapped["suppressed_count"] = suppressed_count
+    return event
 
 
 def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standard") -> dict[str, Any]:
@@ -201,11 +308,35 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         "prev_hash": payload.get("prev_hash"),
         "row_hash": str(payload.get("row_hash") or ""),
     }
-    # Attribution: which machine produced this audit row. Independent of
-    # redaction — it's already hashed at source, and fleet operators need
-    # it even in "minimal" mode to tell their laptops apart.
+
+    # Device / actor / MITRE — same promotion as the scan encoder so
+    # dashboards can reuse pivots across both classes.
+    device: dict[str, Any] = {}
     if payload.get("device_id"):
-        unmapped["device_id"] = str(payload["device_id"])
+        device["uid"] = str(payload["device_id"])
+        device["type_id"] = 0
+        device["type"] = "Endpoint"
+
+    actor: dict[str, Any] = {}
+    if payload.get("actor_user"):
+        actor["user"] = {"name": str(payload["actor_user"])}
+    if payload.get("actor_process"):
+        actor["process"] = {"name": str(payload["actor_process"])}
+
+    techniques_raw = payload.get("mitre_techniques") or []
+    techniques: list[dict[str, str]] = []
+    for t in techniques_raw:
+        if isinstance(t, str) and t:
+            techniques.append({"uid": t, "name": t})
+        elif isinstance(t, dict):
+            uid = str(t.get("uid") or t.get("id") or "")
+            name = str(t.get("name") or uid)
+            if uid:
+                techniques.append({"uid": uid, "name": name})
+
+    group_id = payload.get("finding_group_id")
+    suppressed_count = int(payload.get("suppressed_count") or 0)
+
     if redaction == "minimal":
         # Minimal keeps the integrity witness (that's the point) but
         # drops the specific tool identity.
@@ -221,7 +352,7 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         if payload.get("reason_full"):
             unmapped["reason_full"] = str(payload["reason_full"])
 
-    return {
+    event: dict[str, Any] = {
         "metadata": _metadata_block(),
         "category_uid": 1,
         "class_uid": 1007,
@@ -233,6 +364,18 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         "raw_data": raw_data,
         "unmapped": unmapped,
     }
+    if device:
+        event["device"] = device
+    if actor:
+        event["actor"] = actor
+    if techniques:
+        event["techniques"] = techniques
+    if group_id:
+        event["related_events_uid"] = [str(group_id)]
+    if suppressed_count > 0:
+        event["suppressed_count"] = suppressed_count
+        unmapped["suppressed_count"] = suppressed_count
+    return event
 
 
 def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") -> list[dict[str, Any]]:

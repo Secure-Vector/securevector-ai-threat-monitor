@@ -55,6 +55,30 @@ async def _siem_enqueue_tool_audit(
     if not fwds:
         return
 
+    # ── v26 SOC-context. Best-effort; None on failure.
+    actor_user: Optional[str] = None
+    try:
+        import getpass
+        actor_user = getpass.getuser()
+    except Exception:
+        pass
+    # actor_process is "who invoked the tool?" — we don't have the source
+    # here, but the tool_id carries enough attribution for audits.
+    actor_process: Optional[str] = str(tool_id) if tool_id else None
+
+    # finding_group_id clusters repeated invocations of the same
+    # blocked/allowed tool in the same hour, so a runaway loop shows up
+    # as one finding rather than thousands.
+    finding_group_id: Optional[str] = None
+    try:
+        from datetime import datetime
+        ca = str(called_at)
+        hour = ca[:13] if len(ca) >= 13 else ca  # "YYYY-MM-DDTHH"
+        seed = f"{tool_id}|{function_name}|{action}|{hour}".encode("utf-8")
+        finding_group_id = hashlib.sha256(seed).hexdigest()[:16]
+    except Exception:
+        pass
+
     # audit_id isn't known at this call site (we only have seq + row_hash),
     # so pass 0 — consumers keying on row_hash are unaffected, and the OCSF
     # encoder surfaces audit_id in `unmapped` for completeness.
@@ -72,6 +96,11 @@ async def _siem_enqueue_tool_audit(
         device_id=device_id,
         args_full=args_full,
         reason_full=reason_full,
+        # v26 SOC-context
+        actor_user=actor_user,
+        actor_process=actor_process,
+        finding_group_id=finding_group_id,
+        mitre_techniques=None,
     )
 
     outbox = ExternalForwardOutboxRepository(db)

@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 OutboxKind = Literal["scan", "output_scan", "tool_audit"]
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
+# v26 — severity threshold for scan events. A destination set to
+# 'review' drops the noisy WARN tier (low-confidence detections).
+# 'block' is the tightest — only events we actively stopped. 'warn'
+# is the loosest — everything our scanner flagged. Legacy SOC note:
+# "review" is the right default for most production SIEMs.
+MinSeverity = Literal["block", "review", "warn"]
 # Three tiers of what a destination receives:
 #   - minimal  : severity + class + verdict only (ops dashboards)
 #   - standard : + rule metadata, threat_score, hash-chain witness (default)
@@ -56,6 +62,7 @@ RedactionLevel = Literal["standard", "minimal", "full"]
 # ---------------------------------------------------------------------------
 
 # Fields every tier receives — severity summary + device + integrity
+# + SOC correlation context (actor, group_id, MITRE techniques).
 _SCAN_MINIMAL = frozenset({
     "scan_id",
     "timestamp",
@@ -63,6 +70,17 @@ _SCAN_MINIMAL = frozenset({
     "risk_level",
     "detected_items_count",
     "device_id",
+    # SOC-visibility essentials. Keeping these in `minimal` too because
+    # ops dashboards that pivot on user/host or ATT&CK need them even
+    # at the smallest tier.
+    "actor_user",
+    "actor_process",
+    "finding_group_id",
+    "mitre_techniques",
+    # Burst suppression: if rate-limiter dropped events in the last
+    # window, the next allowed event carries this count so the SIEM
+    # sees a summary instead of losing the burst silently.
+    "suppressed_count",
 })
 
 # Default "most commonly forwarded" set. Adds threat_score, rule metadata,
@@ -75,6 +93,10 @@ _SCAN_STANDARD = _SCAN_MINIMAL | frozenset({
     "scan_duration_ms",
     "model_id",
     "conversation_id",
+    # Per-rule severity override — lets the encoder pick severity_id
+    # based on the worst matched rule, not just the verdict.
+    "worst_rule_severity",
+    "matched_rule_ids",
 })
 
 # Full forensic payload — adds raw prompt text, LLM output, pattern details.
@@ -103,6 +125,12 @@ _TOOL_AUDIT_MINIMAL = frozenset({
     "seq",
     "action",
     "device_id",
+    # SOC correlation context also carried at minimal tier.
+    "actor_user",
+    "actor_process",
+    "finding_group_id",
+    "mitre_techniques",
+    "suppressed_count",
 })
 
 _TOOL_AUDIT_STANDARD = _TOOL_AUDIT_MINIMAL | frozenset({
@@ -187,6 +215,13 @@ def build_scan_payload(
     prompt_text: Optional[str] = None,
     llm_output: Optional[str] = None,
     matched_patterns: Optional[list[str]] = None,
+    # v26 SOC-context fields — actor, ATT&CK, correlation group
+    actor_user: Optional[str] = None,
+    actor_process: Optional[str] = None,
+    finding_group_id: Optional[str] = None,
+    mitre_techniques: Optional[list[str]] = None,
+    worst_rule_severity: Optional[str] = None,
+    matched_rule_ids: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     payload = {
         "scan_id": scan_id,
@@ -205,6 +240,13 @@ def build_scan_payload(
         "prompt_text": prompt_text,
         "llm_output": llm_output,
         "matched_patterns": list(matched_patterns) if matched_patterns else None,
+        # v26 SOC-context
+        "actor_user": actor_user,
+        "actor_process": actor_process,
+        "finding_group_id": finding_group_id,
+        "mitre_techniques": list(mitre_techniques) if mitre_techniques else None,
+        "worst_rule_severity": worst_rule_severity,
+        "matched_rule_ids": list(matched_rule_ids) if matched_rule_ids else None,
     }
     _assert_metadata_only(payload, _SCAN_ALLOWED, kind="scan")
     return payload
@@ -226,6 +268,11 @@ def build_tool_audit_payload(
     # Full-tier only: untruncated args + full policy reason string.
     args_full: Optional[str] = None,
     reason_full: Optional[str] = None,
+    # v26 SOC-context.
+    actor_user: Optional[str] = None,
+    actor_process: Optional[str] = None,
+    finding_group_id: Optional[str] = None,
+    mitre_techniques: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     payload = {
         "audit_id": audit_id,
@@ -241,9 +288,74 @@ def build_tool_audit_payload(
         "prev_hash": prev_hash,
         "row_hash": row_hash,
         "device_id": device_id,
+        # v26 SOC-context
+        "actor_user": actor_user,
+        "actor_process": actor_process,
+        "finding_group_id": finding_group_id,
+        "mitre_techniques": list(mitre_techniques) if mitre_techniques else None,
     }
     _assert_metadata_only(payload, _TOOL_AUDIT_ALLOWED, kind="tool_audit")
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Per-destination burst guard (v26, in-memory)
+#
+# When an agent misbehaves and fires thousands of scans/sec, we don't
+# want to drown the SIEM. Each forwarder carries rate_limit_per_minute
+# (0 = unlimited). When exceeded:
+#   1. New events within the 60s window are dropped and a suppressed
+#      counter advances.
+#   2. The NEXT allowed event (either when the window rolls over or
+#      when rate is back under cap) carries `suppressed_count` in its
+#      payload, so the SIEM sees a summary instead of losing the burst
+#      silently.
+#
+# State lives in process memory — loss across restarts is acceptable
+# because the WHOLE POINT is tamping bursts, not forensic accounting.
+# ---------------------------------------------------------------------------
+import time as _time  # local alias, avoids name clash
+
+
+class _BurstGuard:
+    def __init__(self) -> None:
+        # forwarder_id -> {'window_start': monotonic, 'count': int, 'suppressed': int}
+        self._state: dict[int, dict[str, float]] = {}
+
+    def check(self, forwarder_id: int, rate_limit_per_minute: int) -> tuple[bool, int]:
+        """Returns (allow, suppressed_count_to_report).
+
+        - allow=True: send this event. If suppressed_count_to_report > 0,
+          the caller should inject it into the payload so the SIEM sees
+          the burst summary.
+        - allow=False: drop this event. The suppressed counter advances
+          and will surface on the next allowed event.
+
+        rate_limit_per_minute=0 means unlimited — always returns (True, 0).
+        """
+        if rate_limit_per_minute <= 0:
+            return True, 0
+        now = _time.monotonic()
+        state = self._state.setdefault(
+            forwarder_id,
+            {"window_start": now, "count": 0.0, "suppressed": 0.0},
+        )
+        # Roll the window if > 60s elapsed
+        if now - state["window_start"] > 60.0:
+            state["window_start"] = now
+            state["count"] = 0.0
+            # Note: we keep `suppressed` to surface on the next allowed
+            # event; it gets reported + zeroed there, not here.
+        if state["count"] >= rate_limit_per_minute:
+            state["suppressed"] += 1
+            return False, 0
+        state["count"] += 1
+        reported = int(state["suppressed"])
+        state["suppressed"] = 0
+        return True, reported
+
+
+_BURST_GUARD = _BurstGuard()
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +435,8 @@ class ExternalForwardersRepository:
         include_tool_audits: bool = True,
         redaction_level: RedactionLevel = "standard",
         enabled: bool = True,
+        min_severity: MinSeverity = "review",
+        rate_limit_per_minute: int = 0,
     ) -> dict[str, Any]:
         if kind not in ("webhook", "splunk_hec", "datadog", "otlp_http"):
             raise ValueError(f"unknown forwarder kind: {kind!r}")
@@ -330,6 +444,10 @@ class ExternalForwardersRepository:
             # http:// is tolerated for local dev only; the UI layer
             # warns the user when they use it.
             raise ValueError("forwarder URL must be http(s)://")
+        if min_severity not in ("block", "review", "warn"):
+            raise ValueError(f"unknown min_severity: {min_severity!r}")
+        if int(rate_limit_per_minute) < 0 or int(rate_limit_per_minute) > 10000:
+            raise ValueError("rate_limit_per_minute must be between 0 and 10000")
 
         secret_ref = forwarder_secrets.save_secret(secret) if secret else None
         headers_json = json.dumps(headers, separators=(",", ":")) if headers else None
@@ -340,13 +458,15 @@ class ExternalForwardersRepository:
             INSERT INTO external_forwarders
                 (kind, name, url, secret_ref, headers_json,
                  event_filter, include_tool_audits, redaction_level, enabled,
+                 min_severity, rate_limit_per_minute,
                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 kind, name.strip(), url.strip(), secret_ref, headers_json,
                 event_filter, 1 if include_tool_audits else 0, redaction_level,
                 1 if enabled else 0,
+                min_severity, int(rate_limit_per_minute),
             ),
         )
         await conn.commit()
@@ -366,6 +486,8 @@ class ExternalForwardersRepository:
         include_tool_audits: Optional[bool] = None,
         redaction_level: Optional[RedactionLevel] = None,
         enabled: Optional[bool] = None,
+        min_severity: Optional[MinSeverity] = None,
+        rate_limit_per_minute: Optional[int] = None,
     ) -> Optional[dict[str, Any]]:
         current = await self.get(forwarder_id)
         if current is None:
@@ -404,6 +526,17 @@ class ExternalForwardersRepository:
         if enabled is not None:
             sets.append("enabled = ?")
             vals.append(1 if enabled else 0)
+        if min_severity is not None:
+            if min_severity not in ("block", "review", "warn"):
+                raise ValueError(f"unknown min_severity: {min_severity!r}")
+            sets.append("min_severity = ?")
+            vals.append(min_severity)
+        if rate_limit_per_minute is not None:
+            n = int(rate_limit_per_minute)
+            if n < 0 or n > 10000:
+                raise ValueError("rate_limit_per_minute must be between 0 and 10000")
+            sets.append("rate_limit_per_minute = ?")
+            vals.append(n)
 
         if not sets:
             return current
@@ -487,6 +620,15 @@ class ExternalForwardersRepository:
         await conn.commit()
 
 
+def _row_get(row: Any, key: str, default: Any = None) -> Any:
+    """Safe lookup on sqlite3.Row / aiosqlite.Row which don't implement
+    .get(). Returns `default` for missing columns (pre-migration rows)."""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
     headers: Optional[dict[str, str]] = None
     raw_headers = row["headers_json"]
@@ -510,6 +652,9 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "include_tool_audits": bool(row["include_tool_audits"]),
         "redaction_level": row["redaction_level"],
         "enabled": bool(row["enabled"]),
+        # v26 — SOC-tuning fields; column-safe fallback for pre-v26 rows.
+        "min_severity": _row_get(row, "min_severity", "review") or "review",
+        "rate_limit_per_minute": int(_row_get(row, "rate_limit_per_minute", 0) or 0),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "last_success_at": row["last_success_at"],
@@ -561,12 +706,26 @@ class ExternalForwardOutboxRepository:
         for fwd in forwarders:
             if not _passes_filter(fwd, kind, payload):
                 continue
+
+            # v26 burst guard — drop events that exceed the per-destination
+            # rate limit. When allowed, the guard returns any suppressed
+            # count accumulated since the last allowed event so we can
+            # surface it in the payload.
+            rate_limit = int(fwd.get("rate_limit_per_minute") or 0)
+            allow, suppressed = _BURST_GUARD.check(int(fwd["id"]), rate_limit)
+            if not allow:
+                continue
+
             # Per-destination redaction: STRIP fields the destination isn't
-            # entitled to see, BEFORE the row lands in the outbox. If the
-            # outbox is ever dumped mid-flight, a standard-level
-            # destination's rows have no prompt text to leak.
+            # entitled to see, BEFORE the row lands in the outbox.
             level = str(fwd.get("redaction_level") or "standard")
             redacted = _redact_for_destination(payload, kind=kind, redaction_level=level)
+            # Inject burst-summary counter if the rate-limiter accumulated
+            # any drops. This is the "N suppressed" signal the SIEM needs
+            # so the burst isn't silently lost.
+            if suppressed > 0:
+                redacted["suppressed_count"] = suppressed
+
             serialized = json.dumps(redacted, separators=(",", ":"), sort_keys=True)
             await conn.execute(
                 """
@@ -686,8 +845,40 @@ class ExternalForwardOutboxRepository:
         return int(row["n"]) if row else 0
 
 
+# v26 — severity threshold ranks. Higher number = more severe.
+# `min_severity='review'` default means WARN (rank 1) gets dropped,
+# REVIEW/DETECTED (rank 2) and BLOCK (rank 3) pass through. SOC analysts
+# asked for this explicitly: WARN is low-confidence flagging and at
+# scale it drowns the feed without being individually actionable.
+_SEVERITY_RANK = {
+    "warn":     1,
+    "detected": 2,  # new consolidated tier (collapses WARN+REVIEW in output)
+    "review":   2,  # legacy; treated equivalent to detected at threshold time
+    "block":    3,
+}
+
+
+def _verdict_rank(verdict: str) -> int:
+    """Return the severity rank of a scan verdict, 0 if unknown/ALLOW."""
+    v = (verdict or "").upper()
+    if v == "BLOCK":
+        return _SEVERITY_RANK["block"]
+    if v in ("REVIEW", "DETECTED"):
+        return _SEVERITY_RANK["detected"]
+    if v == "WARN":
+        return _SEVERITY_RANK["warn"]
+    return 0  # ALLOW / unknown
+
+
 def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> bool:
-    """Does this event pass the forwarder's event_filter + per-kind toggles?"""
+    """Does this event pass the forwarder's filters?
+
+    Two independent gates:
+      1. Kind toggle — respect event_filter and include_tool_audits for
+         audit events. Backward-compatible with pre-v26 configs.
+      2. Severity threshold — scan events must meet min_severity.
+         Added in v26; default 'review' drops WARN-tier noise.
+    """
     event_filter = fwd.get("event_filter", "threats_only")
     include_audits = bool(fwd.get("include_tool_audits", True))
 
@@ -696,12 +887,19 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
             return False
         return include_audits
 
-    # scan or output_scan
+    # scan or output_scan: kind gate first, then severity gate
     if event_filter == "audits_only":
         return False
     if event_filter == "threats_only":
         verdict = (payload.get("verdict") or "").upper()
-        # Anything other than ALLOW counts as a threat — matches how the
-        # scan engine classifies verdicts.
-        return verdict not in ("", "ALLOW")
-    return True  # 'all'
+        if verdict in ("", "ALLOW"):
+            return False
+
+    # v26 severity threshold — enforce if configured. Defaults to 'review'
+    # which drops WARN. Safe to apply on top of the kind gate above.
+    min_sev = fwd.get("min_severity") or "review"
+    threshold = _SEVERITY_RANK.get(str(min_sev).lower(), 2)
+    if _verdict_rank(payload.get("verdict") or "") < threshold:
+        return False
+
+    return True

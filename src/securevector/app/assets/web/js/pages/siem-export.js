@@ -42,6 +42,26 @@ const SiemExportPage = {
         `;
         container.appendChild(trustPill);
 
+        // ── Shared-env RBAC note ──────────────────────────────────────
+        // The local app's API binds to 127.0.0.1 and has no per-user
+        // access control — anyone on that loopback can change config.
+        // That's fine for a personal laptop, NOT fine for a shared
+        // dev/jump host. Point those users at the cloud app, which has
+        // the RBAC surface. Small inline note (not a blocker).
+        const rbacNote = document.createElement('div');
+        rbacNote.className = 'siem-rbac-note';
+        rbacNote.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:14px;border:1px solid var(--border-default);background:var(--bg-tertiary);border-radius:8px;font-size:12px;color:var(--text-secondary);line-height:1.55;';
+        rbacNote.innerHTML = `
+            <span aria-hidden="true" style="color:var(--text-muted);font-weight:700;flex-shrink:0;">i</span>
+            <span>
+                <strong style="color:var(--text-primary);">Shared machine?</strong>
+                This local app is designed for a single operator — the API on <code>127.0.0.1</code> has no per-user access control. If multiple people share this host and you need RBAC, use the
+                <a href="https://app.securevector.io" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">SecureVector Cloud app</a>,
+                which supports teams, roles, and audit of who changed what.
+            </span>
+        `;
+        container.appendChild(rbacNote);
+
         // ── Global kill-switch (v24) ──────────────────────────────────
         // Single toggle that turns ALL forwarding off at the enqueue
         // boundary. Default ON, but no events flow until a destination
@@ -171,6 +191,8 @@ const SiemExportPage = {
                         Tool-call audits emit class <code>1007</code> (Process Activity), with the
                         SHA-256 hash chain in <code>unmapped</code> so your SIEM can re-verify integrity off-host.
                     </div>
+                    <div style="margin-top:8px;"><strong>All timestamps are UTC</strong> (<code>time</code> = Unix epoch milliseconds). Dashboards render in the viewer's local zone; raw events never are.</div>
+                    <div style="margin-top:6px;">Schema revision <code>securevector:4.0</code> in <code>metadata.extension</code> — bump on breaking change.</div>
                 </div>
             `,
         }));

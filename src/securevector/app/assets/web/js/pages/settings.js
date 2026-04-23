@@ -1467,6 +1467,39 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         });
         addField('Redaction level', redactionSelect);
 
+        // ── v26 — Severity threshold (alert-fatigue defense) ────────────
+        // Drops low-confidence WARN noise by default. SOC analysts asked
+        // for this explicitly: at scale, WARN events drown the feed and
+        // aren't individually actionable.
+        const sevSelect = document.createElement('select');
+        sevSelect.className = 'filter-select';
+        [
+            ['block',  'Block only — events this scanner actively stopped'],
+            ['review', 'Review+ — detections worth triaging (recommended default)'],
+            ['warn',   'Warn+ — everything the scanner flagged, including low confidence'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.min_severity || 'review') === v) opt.selected = true;
+            sevSelect.appendChild(opt);
+        });
+        addField('Minimum severity', sevSelect);
+
+        // ── v26 — Per-destination rate limit (burst guard) ──────────────
+        // 0 = unlimited. When set, events above the cap are dropped and
+        // the count is surfaced on the next allowed event so the SIEM
+        // sees "N suppressed" instead of silently losing the burst.
+        const rateInput = document.createElement('input');
+        rateInput.type = 'number';
+        rateInput.className = 'filter-select';
+        rateInput.min = '0';
+        rateInput.max = '10000';
+        rateInput.step = '10';
+        rateInput.placeholder = '0 (unlimited)';
+        rateInput.value = String(existing?.rate_limit_per_minute ?? 0);
+        addField('Rate limit (events/min, 0 = unlimited)', rateInput);
+
         // Live hint — changes with selection. Full tier shows a loud
         // warning so nobody enables it accidentally.
         const hint = document.createElement('div');
@@ -1506,6 +1539,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                     primary: true,
                     closeOnClick: false,
                     onClick: async () => {
+                        const rateParsed = parseInt(rateInput.value, 10);
                         const payload = {
                             kind: kindSelect.value,
                             name: nameInput.value.trim(),
@@ -1513,6 +1547,8 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                             event_filter: filterSelect.value,
                             include_tool_audits: auditsChk.checked,
                             redaction_level: redactionSelect.value,
+                            min_severity: sevSelect.value,
+                            rate_limit_per_minute: Number.isFinite(rateParsed) && rateParsed >= 0 ? rateParsed : 0,
                         };
                         if (!payload.name || !payload.url) {
                             if (window.Toast) Toast.error('Name and URL are required');

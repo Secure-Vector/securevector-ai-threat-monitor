@@ -48,6 +48,10 @@ router = APIRouter()
 ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
 RedactionLevel = Literal["standard", "minimal", "full"]
+# v26 — SOC-tuning. `review` drops WARN-tier noise by default; `block`
+# forwards only actively stopped events; `warn` forwards everything the
+# scanner flagged.
+MinSeverity = Literal["block", "review", "warn"]
 
 
 class ForwarderCreate(BaseModel):
@@ -63,6 +67,8 @@ class ForwarderCreate(BaseModel):
     include_tool_audits: bool = True
     redaction_level: RedactionLevel = "standard"
     enabled: bool = True
+    min_severity: MinSeverity = "review"
+    rate_limit_per_minute: int = Field(default=0, ge=0, le=10000)
 
     @field_validator("url")
     @classmethod
@@ -84,6 +90,8 @@ class ForwarderUpdate(BaseModel):
     include_tool_audits: Optional[bool] = None
     redaction_level: Optional[RedactionLevel] = None
     enabled: Optional[bool] = None
+    min_severity: Optional[MinSeverity] = None
+    rate_limit_per_minute: Optional[int] = Field(default=None, ge=0, le=10000)
 
     @field_validator("url")
     @classmethod
@@ -115,6 +123,8 @@ async def create_forwarder(req: ForwarderCreate) -> dict[str, Any]:
             include_tool_audits=req.include_tool_audits,
             redaction_level=req.redaction_level,
             enabled=req.enabled,
+            min_severity=req.min_severity,
+            rate_limit_per_minute=req.rate_limit_per_minute,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -187,6 +197,8 @@ async def update_forwarder(forwarder_id: int, req: ForwarderUpdate) -> dict[str,
             include_tool_audits=req.include_tool_audits,
             redaction_level=req.redaction_level,
             enabled=req.enabled,
+            min_severity=req.min_severity,
+            rate_limit_per_minute=req.rate_limit_per_minute,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

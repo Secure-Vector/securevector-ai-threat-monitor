@@ -35,6 +35,7 @@ async def _siem_enqueue_scan(
     session_id: Optional[str],
     db: DatabaseConnection,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     # Raw-data fields for `full` redaction destinations. Stripped at the
     # repo layer for standard/minimal destinations before they hit the
     # outbox, so it's safe to pass these unconditionally.
@@ -64,16 +65,17 @@ async def _siem_enqueue_scan(
     if not fwds:
         return
 
-    # Verdict mapping matches the scan engine: >=80 → BLOCK, >=50 → REVIEW,
-    # anything with a detected threat but below 50 → WARN, else ALLOW.
+    # Verdict mapping matches the scan engine. v26 collapses the old
+    # WARN/REVIEW split into a single DETECTED tier at the wire level —
+    # SOC dashboards don't need to know the internal shade of gray.
     if risk_score >= 80:
         verdict = "BLOCK"
         risk_level = "critical"
     elif risk_score >= 50:
-        verdict = "REVIEW"
+        verdict = "DETECTED"
         risk_level = "high"
     elif is_threat:
-        verdict = "WARN"
+        verdict = "DETECTED"
         risk_level = "medium"
     else:
         verdict = "ALLOW"
@@ -97,6 +99,63 @@ async def _siem_enqueue_scan(
             if isinstance(pat, str) and pat:
                 matched_patterns.append(pat)
 
+    # ── v26 SOC-context. Computed once, sent to every forwarder that
+    # passes the filter. Failures here fall through to None — we never
+    # block the scan on observability metadata.
+    actor_user: Optional[str] = None
+    actor_process: Optional[str] = None
+    try:
+        import getpass
+        actor_user = getpass.getuser()
+    except Exception:
+        pass
+    if source:
+        actor_process = str(source)
+
+    # MITRE + per-rule severity aggregation. Rule dicts may carry these
+    # either at the top level (new rules) or nested in `metadata`
+    # (legacy). Handle both; unknowns drop silently.
+    _SEV_RANK_LOCAL = {"info": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}
+    mitre_techniques: list[str] = []
+    matched_rule_ids: list[str] = []
+    worst_rule_severity: Optional[str] = None
+    worst_rank = 0
+    for mr in matched_rules or []:
+        if not isinstance(mr, dict):
+            continue
+        rid = mr.get("rule_id") or mr.get("id")
+        if rid and str(rid) not in matched_rule_ids:
+            matched_rule_ids.append(str(rid))
+        # Pull MITRE from either top-level mitre_techniques list or a
+        # metadata.mitre list, deduping while preserving order.
+        tech = mr.get("mitre_techniques") or (
+            mr.get("metadata", {}) or {}
+        ).get("mitre") or []
+        for t in tech if isinstance(tech, list) else []:
+            t_str = str(t).strip()
+            if t_str and t_str not in mitre_techniques:
+                mitre_techniques.append(t_str)
+        sev = str(mr.get("severity") or "").lower()
+        rank = _SEV_RANK_LOCAL.get(sev, 0)
+        if rank > worst_rank:
+            worst_rank = rank
+            worst_rule_severity = sev
+
+    # Stable finding_group_id clusters recurring attacks in the SIEM.
+    # Key = (sorted rule ids, conversation/session, hour bucket) — two
+    # events from the same conv hitting the same rule inside one hour
+    # deduplicate to one finding for triage. Cheap SHA-256, truncated
+    # to 16 hex chars.
+    finding_group_id: Optional[str] = None
+    if matched_rule_ids:
+        try:
+            hour_bucket = (timestamp or datetime.utcnow()).strftime("%Y-%m-%dT%H")
+        except Exception:
+            hour_bucket = datetime.utcnow().strftime("%Y-%m-%dT%H")
+        seed = "|".join(sorted(matched_rule_ids))
+        seed += f"|{session_id or ''}|{hour_bucket}"
+        finding_group_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
     payload = build_scan_payload(
         scan_id=scan_id,
         timestamp=timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
@@ -114,6 +173,13 @@ async def _siem_enqueue_scan(
         prompt_text=prompt_text,
         llm_output=llm_output,
         matched_patterns=matched_patterns or None,
+        # v26 SOC-context
+        actor_user=actor_user,
+        actor_process=actor_process,
+        finding_group_id=finding_group_id,
+        mitre_techniques=mitre_techniques or None,
+        worst_rule_severity=worst_rule_severity,
+        matched_rule_ids=matched_rule_ids or None,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
@@ -360,6 +426,7 @@ class ThreatIntelRepository:
                 session_id=session_id,
                 db=self.db,
                 device_id=device_id,
+                source=source,
                 # Raw text — only delivered to destinations at redaction_level=full.
                 # Standard/minimal destinations get this stripped before the outbox.
                 prompt_text=text,
