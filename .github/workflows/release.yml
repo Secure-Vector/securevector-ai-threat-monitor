@@ -3,6 +3,16 @@ name: Release
 on:
   release:
     types: [published]
+  # Manual fallback: the `release: published` event is suppressed when the
+  # release is created by the default GITHUB_TOKEN (softprops in
+  # build-installers.yml), so this lets ops manually publish to PyPI after
+  # the binary build + GitHub release is up. Takes a tag ref; defaults to
+  # the latest tag on the branch it's dispatched from.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. v3.5.0)'
+        required: true
 
 jobs:
   publish:
@@ -15,7 +25,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+      with:
+        # On manual dispatch, check out the supplied tag so the built
+        # wheel's version matches the release tag. On the release event,
+        # GitHub already checks out the tagged commit by default.
+        ref: ${{ github.event.inputs.tag || github.ref }}
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
