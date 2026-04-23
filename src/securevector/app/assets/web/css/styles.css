@@ -5739,3 +5739,136 @@ thead tr:hover #records-select-all,
     font-size: 12px;
     padding: 4px 10px;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Compact toolbar buttons
+ *
+ * The default .btn is padded for page-level primary actions (Save, Cancel
+ * at the bottom of a form). That padding reads as bulky inside toolbars
+ * where 3–4 small utility actions (Auto Refresh / Export CSV / Export PDF)
+ * sit next to each other. `.btn-compact` dials them down to toolbar scale:
+ * smaller padding, slightly smaller type, tight letter-spacing. Theming
+ * stays — the variant composes with .btn-secondary / .btn-primary.
+ * ───────────────────────────────────────────────────────────────────── */
+.btn.btn-compact {
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+    border-radius: var(--radius-sm, 6px);
+    gap: 6px;
+}
+.btn.btn-compact:active {
+    transform: translateY(1px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Audit-chain integrity banner
+ *
+ * Three states (ok | fail | unknown) driven by class names on
+ * `.sv-integrity-banner`. All colors come from theme-aware CSS variables
+ * so the banner renders correctly in BOTH light and dark modes — the
+ * previous hard-coded white background was unreadable in dark theme.
+ * The banner is positioned above the 7-day chart. The Re-verify action
+ * lives in its own `.sv-integrity-actions` slot right below the banner.
+ * ───────────────────────────────────────────────────────────────────── */
+.sv-integrity-banner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0 0 12px 0;
+    padding: 14px 44px 14px 18px; /* right padding leaves room for close */
+    border-radius: 10px;
+    border: 1px solid var(--border-default);
+    border-left: 6px solid var(--text-muted);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 14px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    min-height: 56px;
+}
+.sv-integrity-banner .sv-integrity-icon {
+    font-size: 22px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.sv-integrity-banner .sv-integrity-text {
+    flex: 1;
+    line-height: 1.45;
+}
+.sv-integrity-banner .sv-integrity-meta {
+    color: var(--text-secondary);
+    opacity: 0.85;
+}
+.sv-integrity-banner .sv-integrity-device {
+    font-family: monospace;
+    font-size: 12.5px;
+}
+.sv-integrity-banner .sv-integrity-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+}
+.sv-integrity-banner .sv-integrity-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* OK state — verified chain. Green accent that works in both themes. */
+.sv-integrity-banner.ok {
+    border-color: rgba(16, 185, 129, 0.35);
+    border-left-color: #10b981;
+    background: rgba(16, 185, 129, 0.08);
+    color: var(--text-primary);
+}
+.sv-integrity-banner.ok .sv-integrity-icon { color: #10b981; }
+[data-theme="light"] .sv-integrity-banner.ok {
+    background: #ecfdf5;
+    color: #065f46;
+}
+
+/* FAIL state — tampered chain. Red, loud. */
+.sv-integrity-banner.fail {
+    border-color: rgba(239, 68, 68, 0.4);
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--text-primary);
+}
+.sv-integrity-banner.fail .sv-integrity-icon { color: #ef4444; }
+[data-theme="light"] .sv-integrity-banner.fail {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+/* Unknown state — endpoint didn't respond. Neutral. */
+.sv-integrity-banner.unknown,
+.sv-integrity-banner.loading {
+    border-left-color: var(--text-muted);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+}
+
+/* Re-verify lives in its own slot so the banner stays clean +
+   dismissible. Right-aligned to mirror table action toolbars. */
+.sv-integrity-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin: -4px 0 18px 0;
+}
+.sv-integrity-actions .sv-integrity-reverify {
+    color: var(--text-secondary);
+}

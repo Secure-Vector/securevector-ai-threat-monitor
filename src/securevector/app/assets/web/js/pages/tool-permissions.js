@@ -802,25 +802,46 @@ const ToolPermissionsPage = {
         // with, deleted, or corrupted. The endpoint is also the one
         // ops / support can hit programmatically — the banner is just
         // a visible reassurance that the local ledger is honest.
+        // Integrity banner uses CSS classes so dark-mode shows correct
+        // contrast instead of a white card on a dark background. The
+        // classes (sv-integrity-banner, .ok/.fail/.unknown) are defined
+        // in styles.css with dark-mode-aware color tokens.
         const integrityBanner = document.createElement('div');
         integrityBanner.id = 'audit-integrity-banner';
-        // Hard-coded colors instead of CSS vars — users kept missing
-        // this banner because the vars render as near-background grey.
-        // Now: explicit white-ish card with a colored left accent,
-        // prominent shadow, and a min-height so it can't collapse to
-        // a sliver.
-        integrityBanner.style.cssText = 'margin: 0 0 18px 0; padding: 16px 18px; border-radius: 10px; display: flex; align-items: center; gap: 14px; font-size: 14px; border: 1px solid #d1d5db; border-left: 6px solid #6b7280; background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.06); min-height: 60px; color: #1f2937;';
+        integrityBanner.className = 'sv-integrity-banner';
+        // Dismissed state persists across page reloads so a quiet
+        // green "all verified" banner doesn't nag the user every visit.
+        // Only the OK state honors the dismiss; failure + unknown
+        // always re-show (the user needs to see those).
+        const _dismissKey = 'sv-audit-integrity-dismissed';
+        if (sessionStorage.getItem(_dismissKey) === '1') {
+            integrityBanner.style.display = 'none';
+        }
         container.appendChild(integrityBanner);
         console.log('[sv-audit] integrity banner mounted');
 
+        // Re-verify lives in its own slot ABOVE the chart, not inside
+        // the banner. Banner is evidence; button is action — separating
+        // them keeps each readable and lets the banner be dismissible.
+        const integrityActions = document.createElement('div');
+        integrityActions.className = 'sv-integrity-actions';
+        const reverifyBtn = document.createElement('button');
+        reverifyBtn.type = 'button';
+        reverifyBtn.className = 'btn btn-secondary btn-compact sv-integrity-reverify';
+        reverifyBtn.textContent = '↻ Re-verify audit chain';
+        reverifyBtn.title = 'Re-walk the SHA-256 hash chain over all tool-call audit rows.';
+        integrityActions.appendChild(reverifyBtn);
+        container.appendChild(integrityActions);
+
         const renderIntegrity = async () => {
             console.log('[sv-audit] verifying chain…');
+            // Reset state each render so repeated re-verifies don't
+            // stack stale classes.
+            integrityBanner.className = 'sv-integrity-banner loading';
+            integrityBanner.style.display = '';
             integrityBanner.textContent = '';
-            integrityBanner.style.background = '#ffffff';
-            integrityBanner.style.borderLeftColor = '#6b7280';
-            integrityBanner.style.color = '#1f2937';
             const loading = document.createElement('span');
-            loading.style.cssText = 'flex:1;font-weight:600;';
+            loading.className = 'sv-integrity-text';
             loading.textContent = 'Verifying audit chain…';
             integrityBanner.appendChild(loading);
 
@@ -832,72 +853,80 @@ const ToolPermissionsPage = {
                 result = { ok: null };
             }
             console.log('[sv-audit] integrity result', result);
-            // Stash for per-row decoration — `makeRow` reads this to
-            // red-border + badge the specific row whose hash failed.
             self.auditIntegrity = result;
             self._refreshAuditRowIntegrity();
-            // Fetch the device_id so the banner can show which machine
-            // this chain belongs to. Non-blocking — if it fails the
-            // banner still renders without the device tag.
+
             let deviceId = null;
             try {
                 const di = await API.getDeviceId();
                 deviceId = di && di.device_id;
             } catch (_) { /* ignore */ }
+
             integrityBanner.textContent = '';
+            const stateClass = result.ok === true ? 'ok' : result.ok === false ? 'fail' : 'unknown';
+            integrityBanner.className = 'sv-integrity-banner ' + stateClass;
 
             const icon = document.createElement('span');
-            icon.style.cssText = 'font-size: 22px; line-height: 1;';
+            icon.className = 'sv-integrity-icon';
             const text = document.createElement('span');
-            text.style.flex = '1';
+            text.className = 'sv-integrity-text';
             integrityBanner.appendChild(icon);
             integrityBanner.appendChild(text);
 
             if (result.ok === true) {
                 icon.textContent = '✓';
-                icon.style.color = '#10b981';
-                integrityBanner.style.background = '#ecfdf5';
-                integrityBanner.style.borderColor = '#10b981';
-                integrityBanner.style.borderLeftColor = '#10b981';
-                integrityBanner.style.color = '#065f46';
                 const count = Number(result.total || 0);
                 const when = result.last_verified_at
                     ? new Date(result.last_verified_at).toLocaleString()
                     : 'just now';
                 const entryLabel = count === 1 ? 'entry' : 'entries';
                 const deviceFrag = deviceId
-                    ? ' · <span style="color:#065f46;opacity:0.75;font-family:monospace;" title="Stable per-device identifier. Hashed from the OS machine UUID — the raw value never leaves this machine.">device ' + deviceId + '</span>'
+                    ? ' · <span class="sv-integrity-meta sv-integrity-device" title="Stable per-device identifier. Hashed from the OS machine UUID — the raw value never leaves this machine.">device ' + deviceId + '</span>'
                     : '';
                 text.innerHTML = '<strong>Audit chain verified</strong> — '
                     + count + ' ' + entryLabel + ' intact '
-                    + '<span style="color:#065f46;opacity:0.75;">· checked ' + when + '</span>'
+                    + '<span class="sv-integrity-meta">· checked ' + when + '</span>'
                     + deviceFrag;
             } else if (result.ok === false) {
                 icon.textContent = '⚠';
-                icon.style.color = '#ef4444';
-                integrityBanner.style.background = '#fef2f2';
-                integrityBanner.style.borderColor = '#ef4444';
-                integrityBanner.style.borderLeftColor = '#ef4444';
-                integrityBanner.style.color = '#991b1b';
                 const at = result.tampered_at != null ? '#' + result.tampered_at : '(unknown seq)';
                 const reason = result.reason ? ' · ' + result.reason : '';
                 text.innerHTML = '<strong>Audit chain tampered at seq ' + at + '</strong>'
                     + (result.tampered_id ? ' · row id ' + result.tampered_id : '')
                     + reason;
+                // Failure + unknown re-show even if previously dismissed —
+                // the user must see this.
+                sessionStorage.removeItem(_dismissKey);
+                integrityBanner.style.display = '';
             } else {
                 icon.textContent = '…';
-                icon.style.color = '#6b7280';
                 text.innerHTML = '<strong>Integrity check unavailable</strong> — endpoint did not respond.';
+                sessionStorage.removeItem(_dismissKey);
+                integrityBanner.style.display = '';
             }
 
-            const reverifyBtn = document.createElement('button');
-            reverifyBtn.className = 'btn btn-primary';
-            reverifyBtn.style.cssText = 'padding: 6px 14px; font-size: 12px; font-weight: 600; flex-shrink: 0;';
-            reverifyBtn.textContent = '↻ Re-verify';
-            reverifyBtn.title = 'Re-walk the hash chain and update this banner.';
-            reverifyBtn.addEventListener('click', () => renderIntegrity());
-            integrityBanner.appendChild(reverifyBtn);
+            // Close button — only useful on the OK state, but we render
+            // it on all states so the dismissal affordance is consistent.
+            // Failure/unknown will re-show on next render (see above).
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'sv-integrity-close';
+            closeBtn.setAttribute('aria-label', 'Dismiss banner');
+            closeBtn.title = 'Dismiss';
+            closeBtn.textContent = '✕';
+            closeBtn.addEventListener('click', () => {
+                integrityBanner.style.display = 'none';
+                if (result.ok === true) {
+                    sessionStorage.setItem(_dismissKey, '1');
+                }
+            });
+            integrityBanner.appendChild(closeBtn);
         };
+        reverifyBtn.addEventListener('click', () => {
+            // Clear dismiss state so re-verify always shows the result
+            sessionStorage.removeItem(_dismissKey);
+            renderIntegrity();
+        });
         // Fire-and-forget; the chart + rows render regardless of this call.
         renderIntegrity();
 
@@ -1353,6 +1382,16 @@ const ToolPermissionsPage = {
             typeEl.textContent = typeText;
             metaRow.appendChild(section('Type', typeEl));
             wrap.appendChild(metaRow);
+
+            // Device attribution — which machine recorded this row.
+            // Hashed form only; raw OS identifier never leaves the device.
+            if (entry.device_id) {
+                const devEl = document.createElement('span');
+                devEl.style.cssText = 'font-family: monospace; font-size: 12px; color: var(--text-secondary);';
+                devEl.textContent = entry.device_id;
+                devEl.title = 'Stable per-device identifier (SHA-256-hashed from the OS machine UUID). Survives app reinstall on the same hardware.';
+                wrap.appendChild(section('Device', devEl));
+            }
 
             // Args preview
             if (entry.args_preview) {

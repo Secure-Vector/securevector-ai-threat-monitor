@@ -50,6 +50,9 @@ class ThreatIntelRecord:
     llm_model_used: Optional[str] = None
     llm_tokens_used: int = 0
     action_taken: str = "logged"  # "logged" or "blocked"
+    # Per-machine attribution. None for rows written before v21 migration;
+    # present for everything new. See `app.utils.device_id` for derivation.
+    device_id: Optional[str] = None
 
     @property
     def text_preview(self) -> str:
@@ -88,6 +91,7 @@ class ThreatIntelRecord:
             "llm_model_used": self.llm_model_used,
             "llm_tokens_used": self.llm_tokens_used,
             "action_taken": self.action_taken,
+            "device_id": self.device_id,
         }
         return result
 
@@ -502,4 +506,5 @@ class ThreatIntelRepository:
             llm_model_used=safe_get("llm_model_used"),
             llm_tokens_used=int(safe_get("llm_tokens_used", 0) or 0),
             action_taken=safe_get("action_taken", "logged"),
+            device_id=safe_get("device_id"),
         )

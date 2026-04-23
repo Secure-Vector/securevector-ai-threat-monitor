@@ -139,9 +139,10 @@ const ThreatsPage = {
         };
         bar.appendChild(deleteBtn);
 
-        // Auto-refresh toggle
+        // Auto-refresh toggle — compact toolbar style so it reads as a
+        // utility action, not a page-level primary button.
         const refreshBtn = document.createElement('button');
-        refreshBtn.className = 'btn btn-secondary auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
+        refreshBtn.className = 'btn btn-secondary btn-compact auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
         refreshBtn.textContent = '↻ Auto Refresh';
         refreshBtn.title = 'Auto refresh every 30 seconds';
         refreshBtn.addEventListener('click', () => {
@@ -150,17 +151,17 @@ const ThreatsPage = {
         });
         bar.appendChild(refreshBtn);
 
-        // Export buttons — CSV + PDF, both using the same theme class so they
-        // pair cleanly in the toolbar.
+        // Export buttons — matched compact size. The CSV icon comes first
+        // because it's the more common action on this page.
         const exportCsvBtn = document.createElement('button');
-        exportCsvBtn.className = 'btn btn-secondary';
+        exportCsvBtn.className = 'btn btn-secondary btn-compact';
         exportCsvBtn.textContent = 'Export CSV';
         exportCsvBtn.title = 'Download threats as CSV';
         exportCsvBtn.addEventListener('click', () => this.exportToCSV());
         bar.appendChild(exportCsvBtn);
 
         const exportPdfBtn = document.createElement('button');
-        exportPdfBtn.className = 'btn btn-secondary';
+        exportPdfBtn.className = 'btn btn-secondary btn-compact';
         exportPdfBtn.textContent = 'Export PDF';
         exportPdfBtn.title = 'Download threat report as PDF';
         exportPdfBtn.addEventListener('click', () => this.exportToPDF());
@@ -886,6 +887,10 @@ const ThreatsPage = {
             { label: 'Processing Time', value: (threat.processing_time_ms || 0) + 'ms' },
             { label: 'Source', value: threat.source_identifier || 'Local' },
             { label: 'Client', value: this.parseUserAgent(threat.user_agent) },
+            // Per-machine attribution: the hashed device_id tells a SOC which
+            // laptop saw this threat when the same n8n/agent account is used
+            // across a fleet. Null for pre-v21 rows — skip in that case.
+            { label: 'Device', value: threat.device_id || null, mono: true, tooltip: 'Stable per-device identifier (SHA-256-hashed from the OS machine UUID). Survives app reinstall on the same hardware.' },
         ];
 
         const grid = document.createElement('div');
@@ -904,6 +909,13 @@ const ThreatsPage = {
 
             const value = document.createElement('span');
             value.className = 'detail-value';
+            if (field.mono) {
+                value.style.fontFamily = 'monospace';
+                value.style.fontSize = '12px';
+            }
+            if (field.tooltip) {
+                value.title = field.tooltip;
+            }
             value.textContent = field.value;
             row.appendChild(value);
 
