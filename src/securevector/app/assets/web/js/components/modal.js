@@ -114,15 +114,23 @@ const Modal = {
      * Close the active modal
      */
     close() {
-        if (this.activeModal) {
-            this.activeModal.classList.remove('active');
-            setTimeout(() => {
-                if (this.activeModal && this.activeModal.parentNode) {
-                    this.activeModal.parentNode.removeChild(this.activeModal);
-                }
-                this.activeModal = null;
-            }, 200);
-        }
+        if (!this.activeModal) return;
+        // CAPTURE the overlay reference synchronously. The 200ms animation
+        // delay before DOM removal used to read `this.activeModal` inside
+        // the setTimeout callback — but any `Modal.show()` call in the
+        // intervening 200ms reassigns `this.activeModal` to the NEW
+        // overlay, so the delayed removal would remove the wrong modal
+        // and leave the old one orphaned in the DOM. Now we close on
+        // whatever `activeModal` pointed at at the moment close() was
+        // called, not whatever it happens to be 200ms later.
+        const closing = this.activeModal;
+        this.activeModal = null;  // free the slot synchronously so show() is safe to call in the same tick
+        closing.classList.remove('active');
+        setTimeout(() => {
+            if (closing.parentNode) {
+                closing.parentNode.removeChild(closing);
+            }
+        }, 200);
     },
 
     /**

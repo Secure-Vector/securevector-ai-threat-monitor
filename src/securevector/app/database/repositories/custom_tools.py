@@ -5,12 +5,49 @@ Users can register their own agent tools (e.g. research, transcribe)
 and control permissions through the same block/allow system as essential tools.
 """
 
+import hashlib
 import logging
 from typing import Optional
 
 from securevector.app.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
+
+# Sentinel prev_hash for the first row in the chain.
+_AUDIT_GENESIS_HASH = "GENESIS"
+
+
+def _compute_audit_row_hash(
+    *,
+    prev_hash: str,
+    seq: int,
+    tool_id: str,
+    function_name: str,
+    action: str,
+    risk: Optional[str],
+    reason: Optional[str],
+    is_essential: int,
+    args_preview: Optional[str],
+    called_at: str,
+) -> str:
+    """Compute the hex SHA-256 row_hash used for the tool_call_audit hash chain.
+
+    Canonical serialization is a newline-separated join of the fields in a
+    fixed order. Must match exactly what `migrate_to_v20` used for backfill.
+    """
+    canonical = "\n".join([
+        prev_hash,
+        str(seq),
+        str(tool_id),
+        str(function_name),
+        str(action),
+        str(risk or ""),
+        str(reason or ""),
+        str(is_essential),
+        str(args_preview or ""),
+        str(called_at),
+    ])
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class CustomToolsRepository:
@@ -212,6 +249,10 @@ class CustomToolsRepository:
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
+        Each row is appended to a SHA-256 hash chain via (seq, prev_hash, row_hash).
+        Any later tampering with a persisted row is detectable by re-running
+        `verify_audit_chain()` (or hitting GET /api/audit/integrity).
+
         Args:
             tool_id: Resolved registry tool ID (or function_name if unknown).
             function_name: Actual function name from LLM response.
@@ -221,22 +262,159 @@ class CustomToolsRepository:
             is_essential: True if matched in essential registry.
             args_preview: First 200 chars of the tool arguments.
         """
-        await self.db.execute(
+        conn = await self.db.connect()
+
+        # Atomically: read tail of chain → compute new row_hash → insert.
+        # SQLite's default isolation level gives us a single-writer transaction here.
+        async with conn.execute(
+            "SELECT seq, row_hash FROM tool_call_audit ORDER BY seq DESC LIMIT 1"
+        ) as cursor:
+            tail = await cursor.fetchone()
+
+        if tail is None:
+            next_seq = 1
+            prev_hash = _AUDIT_GENESIS_HASH
+        else:
+            next_seq = int(tail["seq"] or 0) + 1
+            prev_hash = tail["row_hash"] or _AUDIT_GENESIS_HASH
+
+        # Resolve called_at deterministically so row_hash is reproducible on reads.
+        # SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC.
+        async with conn.execute("SELECT CURRENT_TIMESTAMP AS ts") as cursor:
+            ts_row = await cursor.fetchone()
+        called_at = str(ts_row["ts"])
+
+        resolved_tool_id = tool_id or function_name
+        essential_int = 1 if is_essential else 0
+
+        row_hash = _compute_audit_row_hash(
+            prev_hash=prev_hash,
+            seq=next_seq,
+            tool_id=resolved_tool_id,
+            function_name=function_name,
+            action=action,
+            risk=risk,
+            reason=reason,
+            is_essential=essential_int,
+            args_preview=args_preview,
+            called_at=called_at,
+        )
+
+        # Stable per-device identifier stamped on every row. Derived
+        # from the OS machine ID (survives reinstalls), SHA-256-hashed.
+        # Not part of the canonical hash-chain serialization — see
+        # migration v21's comment block for why this is metadata, not
+        # material.
+        from securevector.app.utils.device_id import get_device_id
+        device_id = get_device_id()
+
+        await conn.execute(
             """
             INSERT INTO tool_call_audit
-                (tool_id, function_name, action, risk, reason, is_essential, args_preview)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (tool_id, function_name, action, risk, reason, is_essential,
+                 args_preview, called_at, seq, prev_hash, row_hash, device_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                tool_id or function_name,
+                resolved_tool_id,
                 function_name,
                 action,
                 risk,
                 reason,
-                1 if is_essential else 0,
+                essential_int,
                 args_preview,
+                called_at,
+                next_seq,
+                prev_hash,
+                row_hash,
+                device_id,
             ),
         )
+        await conn.commit()
+
+    async def verify_audit_chain(self) -> dict:
+        """Walk the tool_call_audit hash chain and report integrity status.
+
+        Returns:
+            dict with keys:
+              - ok            (bool)    — True iff every row_hash recomputes
+              - total         (int)     — rows scanned
+              - tampered_at   (int|None) — seq of the first row that failed
+              - tampered_id   (int|None) — DB id of the first row that failed
+              - reason        (str|None) — short human-readable diagnosis
+              - last_verified_at (str)   — ISO timestamp of this check
+        """
+        from datetime import datetime, timezone
+
+        conn = await self.db.connect()
+        cursor = await conn.execute(
+            """
+            SELECT id, seq, prev_hash, row_hash,
+                   tool_id, function_name, action,
+                   COALESCE(risk, '') AS risk,
+                   COALESCE(reason, '') AS reason,
+                   is_essential,
+                   COALESCE(args_preview, '') AS args_preview,
+                   called_at
+            FROM tool_call_audit
+            ORDER BY seq ASC
+            """
+        )
+        rows = await cursor.fetchall()
+
+        prev_hash = _AUDIT_GENESIS_HASH
+        expected_seq = 1
+        for row in rows:
+            if row["seq"] != expected_seq:
+                return {
+                    "ok": False,
+                    "total": len(rows),
+                    "tampered_at": expected_seq,
+                    "tampered_id": row["id"],
+                    "reason": f"seq gap: expected {expected_seq}, got {row['seq']}",
+                    "last_verified_at": datetime.now(timezone.utc).isoformat(),
+                }
+            if row["prev_hash"] != prev_hash:
+                return {
+                    "ok": False,
+                    "total": len(rows),
+                    "tampered_at": row["seq"],
+                    "tampered_id": row["id"],
+                    "reason": "prev_hash does not match previous row's row_hash",
+                    "last_verified_at": datetime.now(timezone.utc).isoformat(),
+                }
+            recomputed = _compute_audit_row_hash(
+                prev_hash=row["prev_hash"],
+                seq=row["seq"],
+                tool_id=row["tool_id"],
+                function_name=row["function_name"],
+                action=row["action"],
+                risk=row["risk"],
+                reason=row["reason"],
+                is_essential=row["is_essential"],
+                args_preview=row["args_preview"],
+                called_at=row["called_at"],
+            )
+            if recomputed != row["row_hash"]:
+                return {
+                    "ok": False,
+                    "total": len(rows),
+                    "tampered_at": row["seq"],
+                    "tampered_id": row["id"],
+                    "reason": "row_hash does not match canonical serialization — row content was modified after insert",
+                    "last_verified_at": datetime.now(timezone.utc).isoformat(),
+                }
+            prev_hash = row["row_hash"]
+            expected_seq += 1
+
+        return {
+            "ok": True,
+            "total": len(rows),
+            "tampered_at": None,
+            "tampered_id": None,
+            "reason": None,
+            "last_verified_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     async def get_audit_log(
         self,
@@ -262,7 +440,8 @@ class CustomToolsRepository:
             rows = await self.db.fetch_all(
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
-                       is_essential, args_preview, called_at
+                       is_essential, args_preview, called_at,
+                       seq, prev_hash, row_hash, device_id
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -277,7 +456,8 @@ class CustomToolsRepository:
             rows = await self.db.fetch_all(
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
-                       is_essential, args_preview, called_at
+                       is_essential, args_preview, called_at,
+                       seq, prev_hash, row_hash, device_id
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?

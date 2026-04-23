@@ -174,6 +174,15 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
             },
         }
 
+    # Device identity — used by the audit UI to display which machine
+    # the chain belongs to. Returns the stable per-device ID derived
+    # from the OS machine identifier (hashed + namespaced — raw OS
+    # UUID is never transmitted).
+    @app.get("/api/system/device-id", tags=["System"])
+    async def get_device():
+        from securevector.app.utils.device_id import get_device_id
+        return {"device_id": get_device_id()}
+
     # Register route modules
     from securevector.app.server.routes import (
         analyze,

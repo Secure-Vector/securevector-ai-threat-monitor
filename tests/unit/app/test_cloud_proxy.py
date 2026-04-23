@@ -103,12 +103,25 @@ class TestCloudProxyService:
         assert "Bearer token not configured" in str(exc_info.value)
 
     @pytest.mark.asyncio
+    @patch("securevector.app.services.cloud_proxy.get_api_key")
     @patch("securevector.app.services.cloud_proxy.get_bearer_token")
     @patch("securevector.app.services.cloud_proxy.httpx.AsyncClient")
     async def test_get_rules_success(
-        self, mock_client_class, mock_get_bearer_token, proxy_service
+        self,
+        mock_client_class,
+        mock_get_bearer_token,
+        mock_get_api_key,
+        proxy_service,
     ):
-        """Test successful rules request to cloud."""
+        """Test successful rules sync request to the rules-intel service.
+
+        `get_rules()` POSTs to `{CLOUD_API_URL}/api/rules/sync` inside a
+        fresh `async with httpx.AsyncClient(...)` block (not the
+        persistent client used by `analyze()` / `threat_analytics()`),
+        so the mock has to resolve `__aenter__` to the client that
+        exposes `.post`.
+        """
+        mock_get_api_key.return_value = "test_api_key"
         mock_get_bearer_token.return_value = "test_bearer_token"
 
         mock_response = MagicMock()
@@ -118,18 +131,29 @@ class TestCloudProxyService:
                 {"id": "rule_001", "name": "Test Rule", "category": "test"},
             ],
             "count": 1,
+            "source": "rules-intel",
         }
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.is_closed = False
-        mock_client_class.return_value = mock_client
+        mock_client.post.return_value = mock_response
+        # `async with httpx.AsyncClient(...) as client:` — AsyncMock
+        # auto-handles __aenter__/__aexit__, but we must make __aenter__
+        # return the client instance whose `.post` we configured above.
+        mock_client_class.return_value.__aenter__.return_value = mock_client
 
         result = await proxy_service.get_rules()
 
         assert len(result["rules"]) == 1
         assert result["rules"][0]["id"] == "rule_001"
-        assert result["source"] == "cloud"
+        assert result["source"] == "rules-intel"
+
+        # Verify both auth headers were sent — cloud_proxy sends whichever
+        # credential is in keychain; the rules-intel authorizer accepts
+        # either X-Api-Key or Authorization: Bearer.
+        _args, kwargs = mock_client.post.call_args
+        headers = kwargs.get("headers", {})
+        assert headers.get("X-Api-Key") == "test_api_key"
+        assert headers.get("Authorization") == "Bearer test_bearer_token"
 
     @pytest.mark.asyncio
     @patch("securevector.app.services.cloud_proxy.httpx.AsyncClient")

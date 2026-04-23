@@ -112,9 +112,22 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 analysis_source="disabled",
             )
 
+        # Output scans run locally with the same bundled ruleset as input
+        # scans — PII, secrets, harmful-content, and data-leak patterns
+        # fire just as well against an LLM completion as against a
+        # prompt. When Cloud Connect is on we route to the cloud for
+        # ML-grade analysis (Llama Guard); otherwise we serve whatever
+        # the regex layer catches. Local is always the floor — never
+        # "skipped because cloud is off".
+
         skip_cloud = (request.metadata or {}).get("skip_cloud", False)
+        # Cloud analysis is ONLY invoked when Cloud Connect is turned on
+        # (``settings.cloud_mode_enabled``) and the caller hasn't set
+        # ``metadata.skip_cloud=true``. With Cloud Connect off, we never
+        # enter this branch — both the input ``/analyze`` and output
+        # ``/analyze/output`` cloud endpoints stay untouched, and the
+        # scan drops straight to the local ruleset below.
         if settings.cloud_mode_enabled and not skip_cloud:
-            # Try cloud analysis
             try:
                 from securevector.app.services.cloud_proxy import (
                     get_cloud_proxy,
@@ -122,10 +135,26 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 )
 
                 proxy = get_cloud_proxy()
-                cloud_result = await proxy.analyze(
-                    text=request.text,
-                    metadata=request.metadata,
-                )
+                if is_llm_response:
+                    # ``proxy.analyze_output`` → cloud ``POST /analyze/output``.
+                    # Reached only when Cloud Connect is on (see guard above).
+                    # Local regex rules still run in the cloud-failure
+                    # fallback path; the cloud response supplements them
+                    # with Llama Guard ML scoring.
+                    cloud_result = await proxy.analyze_output(
+                        output_text=request.text,
+                        metadata=request.metadata,
+                        model_id=(request.metadata or {}).get("model_id"),
+                        conversation_id=(request.metadata or {}).get("conversation_id")
+                            or request.session_id,
+                    )
+                else:
+                    # ``proxy.analyze`` → cloud ``POST /analyze``.
+                    # Reached only when Cloud Connect is on (see guard above).
+                    cloud_result = await proxy.analyze(
+                        text=request.text,
+                        metadata=request.metadata,
+                    )
 
                 # Cloud returned result - use it directly
                 processing_time_ms = int(
@@ -172,7 +201,15 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 )
 
             except Exception as e:
-                # Cloud failed, fallback to local
+                # Cloud failed. Fall back to the local ruleset for both
+                # input and output scans — local results are a real
+                # answer (regex-layer catches most PII / secrets /
+                # injection / harmful-content patterns), and a security
+                # firewall should never silently fail-open with
+                # `is_threat=False` just because the ML uplift was
+                # unreachable. The `analysis_source="local_fallback"`
+                # string lets the caller see that the cloud leg didn't
+                # land, without hiding the real result.
                 logger.warning(f"Cloud analysis failed, falling back to local: {e}")
                 analysis_source = "local_fallback"
 

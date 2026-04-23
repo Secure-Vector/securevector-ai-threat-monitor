@@ -182,6 +182,43 @@ const API = {
         }
     },
 
+    // ==================== Cloud Rule Sync (preview → review → apply) ====================
+
+    async syncPreviewStart() {
+        return this.request('/api/rules/sync/preview', { method: 'POST' });
+    },
+
+    async syncPreviewPage(token, page = 1, perPage = 10) {
+        const qs = `?page=${encodeURIComponent(page)}&per_page=${encodeURIComponent(perPage)}`;
+        return this.request(`/api/rules/sync/preview/${encodeURIComponent(token)}${qs}`);
+    },
+
+    async syncPreviewApply(token, replaceExisting = false, opts = {}) {
+        const body = {
+            preview_token: token,
+            replace_existing: replaceExisting,
+        };
+        // Selective save — pass a list of rule_ids to apply ONLY those, or
+        // a list of rule_ids to skip, or neither to apply everything. The
+        // server prefers `selected_rule_ids` when both are set.
+        if (Array.isArray(opts.selectedRuleIds)) {
+            body.selected_rule_ids = opts.selectedRuleIds;
+        }
+        if (Array.isArray(opts.skipRuleIds)) {
+            body.skip_rule_ids = opts.skipRuleIds;
+        }
+        return this.request('/api/rules/sync/apply', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    },
+
+    async syncPreviewDiscard(token) {
+        return this.request(`/api/rules/sync/preview/${encodeURIComponent(token)}`, {
+            method: 'DELETE',
+        });
+    },
+
     // ==================== General Settings ====================
 
     async getSettings() {
@@ -330,6 +367,16 @@ const API = {
         return this.request('/api/tool-permissions/call-audit/stats').catch(() => ({
             total: 0, blocked: 0, allowed: 0, log_only: 0,
         }));
+    },
+
+    async getToolCallAuditIntegrity() {
+        return this.request('/api/tool-permissions/call-audit/integrity').catch(() => ({
+            ok: null, total: 0, tampered_at: null, tampered_id: null, reason: null, last_verified_at: null,
+        }));
+    },
+
+    async getDeviceId() {
+        return this.request('/api/system/device-id').catch(() => ({ device_id: null }));
     },
 
     async deleteToolCallAuditEntries(ids) {
