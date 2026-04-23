@@ -24,6 +24,24 @@ const SiemExportPage = {
             );
         }
 
+        // ── "Your data stays yours" reassurance pill ─────────────────
+        // A small inline badge right below the page header, making the
+        // free + local + no-signup stance obvious at first glance.
+        // Sits above every other card so it frames everything below.
+        const trustPill = document.createElement('div');
+        trustPill.className = 'siem-trust-pill';
+        trustPill.style.cssText = 'display:inline-flex;align-items:center;gap:10px;padding:8px 14px;margin-bottom:14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.08);border-radius:999px;font-size:12.5px;color:var(--text-primary);';
+        trustPill.innerHTML = `
+            <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#10b981;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <span>
+                <strong style="color:#10b981;">Your data stays yours.</strong>
+                <span style="color:var(--text-secondary);">Free, local, no signup. Events go straight from this machine to your SIEM — never through SecureVector.</span>
+            </span>
+        `;
+        container.appendChild(trustPill);
+
         // ── Global kill-switch (v24) ──────────────────────────────────
         // Single toggle that turns ALL forwarding off at the enqueue
         // boundary. Default ON, but no events flow until a destination

@@ -13,7 +13,6 @@ const Sidebar = {
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
         { id: 'skill-permissions', label: 'Skill Policy', icon: 'shield', tooltip: 'Manage scan policy permissions and trusted publishers' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
-        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
@@ -23,6 +22,12 @@ const Sidebar = {
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
+        // SIEM Forwarder is an outbound pipe to external SOC systems —
+        // same pattern as Integrations (inbound pipe from agent
+        // frameworks), hence Connect section, not Configure. Configure
+        // is for things that change SecureVector's BEHAVIOUR (rules,
+        // permissions, budgets); this only changes DELIVERY.
+        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
             { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
@@ -146,7 +151,9 @@ const Sidebar = {
 
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
             const persistNewItems = ['rules'];
-            const sessionNewItems = ['skill-scanner', 'skill-permissions'];
+            // Session-only NEW badges: first-view highlight that auto-dismisses
+            // after 30s so the sidebar doesn't stay permanently shouty.
+            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export'];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist
