@@ -1,0 +1,46 @@
+SecureVector SIEM Dashboard Templates
+=====================================
+
+The files under this directory (Splunk XML, Microsoft Sentinel workbook JSON,
+Grafana dashboard JSON, etc.) are MIT-licensed starter templates authored by
+the SecureVector maintainers. They are provided AS-IS, with no warranty, and
+are intended as a starting point for operators — NOT as finished, production-
+validated detection content.
+
+BEFORE RELYING ON THESE TEMPLATES FOR PRODUCTION DETECTION OR COMPLIANCE
+REPORTING: import them into your own SIEM/observability stack, verify that
+every panel renders correctly against real events, and adjust queries,
+sourcetypes, table names, or data-source UIDs to match your environment.
+
+Trademark notice
+----------------
+
+"Splunk" and "Splunk Enterprise Security" are registered trademarks of
+Splunk Inc.
+"Microsoft", "Sentinel", and "Azure Monitor" are registered trademarks of
+Microsoft Corporation.
+"Grafana" and "Loki" are registered trademarks of Raintank Inc. dba Grafana
+Labs.
+"Datadog" is a registered trademark of Datadog, Inc.
+"Google Chronicle" is a trademark of Google LLC.
+"IBM QRadar" is a registered trademark of International Business Machines
+Corporation.
+"MITRE ATT&CK" and "ATT&CK" are registered trademarks of The MITRE
+Corporation.
+"OCSF" (Open Cybersecurity Schema Framework) is a project of The Linux
+Foundation.
+
+These templates and the SecureVector project are NOT affiliated with,
+endorsed by, sponsored by, or otherwise formally associated with any of the
+above trademark holders. Product and vendor names are used solely for the
+purpose of identifying the platforms that each template is intended to
+target (nominative fair use).
+
+Upstream licenses
+-----------------
+
+- OCSF schema definitions — Apache License 2.0, The Linux Foundation.
+  https://github.com/ocsf/ocsf-schema
+- MITRE ATT&CK knowledge base — Creative Commons Attribution 4.0
+  International (CC BY 4.0), The MITRE Corporation.
+  https://attack.mitre.org/resources/legal-and-branding/terms-of-use/
