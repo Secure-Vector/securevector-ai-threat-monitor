@@ -1,8 +1,12 @@
 # SIEM dashboard templates
 
 Pre-built overviews of SecureVector events (OCSF 1.3.0) for common SIEMs. Each
-template assumes you have a SIEM Forwarder configured (Configure → Connect →
-SIEM Forwarder inside the app) pointing at the corresponding destination.
+template assumes you have a SIEM Forwarder configured (Connect → SIEM Forwarder
+inside the app) pointing at the corresponding destination.
+
+**MIT-licensed, AS-IS.** See [`LICENSE`](LICENSE) + [`NOTICE`](NOTICE). Import
+into your own stack and verify panels render against real events before relying
+on them for production detections.
 
 ## Splunk
 
@@ -31,7 +35,36 @@ Field paths assume the default HEC ingest; sourcetype `securevector:ocsf`.
 File: [`sentinel/securevector-workbook.json`](sentinel/securevector-workbook.json)
 
 Minimal KQL workbook covering the same tiles as the Splunk dashboard. Import:
-Sentinel → Workbooks → Advanced Editor → paste JSON → Apply → Save.
+Sentinel → Workbooks → Advanced Editor → paste JSON → Apply → Save. Set the
+`TableName` parameter to match your DCR custom table (default
+`Custom-SecureVector_CL`).
+
+## Datadog
+
+File: [`datadog/securevector-dashboard.json`](datadog/securevector-dashboard.json)
+
+Log-based dashboard for the Datadog destination kind. Import: Datadog →
+Dashboards → New Dashboard → top-right menu → Import Dashboard JSON → paste.
+
+Before the widgets render cleanly, configure Datadog Logs facets for:
+`@severity`, `@class_uid`, `@unmapped.action`, `@actor.user.name`,
+`@finding.techniques`, `@device.uid`. Logs → Configuration → Facets.
+
+## Grafana (Loki)
+
+File: [`grafana/securevector-dashboard.json`](grafana/securevector-dashboard.json)
+
+Starter dashboard for the indie / homelab path: SecureVector **Local NDJSON
+file** destination → Promtail/Alloy → Loki → Grafana. Import: Grafana →
+Dashboards → New → Import → paste JSON → pick your Loki datasource. Adjust
+the `$job` textbox variable to match your Promtail pipeline label (default
+`securevector`).
+
+Note: Loki's JSON parser flattens arrays to indexed keys (e.g.
+`finding_techniques_0_uid`), so the MITRE-by-technique breakdown from the
+Splunk / Sentinel templates doesn't port cleanly. This template uses
+`finding.title` as the flat-string breakdown instead; if you need
+technique-level pivots in Grafana, pre-flatten the array in Promtail.
 
 ## Field reference
 

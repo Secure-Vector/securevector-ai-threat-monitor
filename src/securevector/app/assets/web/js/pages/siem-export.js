@@ -200,8 +200,10 @@ const SiemExportPage = {
                 </div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;">
-                <button type="button" class="btn btn-secondary btn-compact" data-tpl="sentinel">Sentinel workbook</button>
-                <button type="button" class="btn btn-secondary btn-compact" data-tpl="splunk">Splunk dashboard</button>
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="sentinel">Sentinel</button>
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="splunk">Splunk</button>
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="datadog">Datadog</button>
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="grafana">Grafana</button>
                 <a href="#" data-sv-goto-guide="section-siem-forwarder" class="btn btn-secondary btn-compact" style="text-decoration:none;">Install steps →</a>
             </div>
         `;
@@ -249,6 +251,7 @@ const SiemExportPage = {
                 'Click <strong>Advanced Editor</strong>.',
                 'Paste the JSON below, click <strong>Apply</strong> → <strong>Save</strong>.',
                 'Set the <code>TableName</code> parameter to match your DCR custom table (default: <code>Custom-SecureVector_CL</code>).',
+                '<em>Starter template — verify in your stack before relying for production detections.</em>',
             ],
         },
         splunk: {
@@ -261,6 +264,34 @@ const SiemExportPage = {
                 'Click <strong>Source</strong> (top-right of the editor).',
                 'Paste the XML below, Save.',
                 'Assumes sourcetype <code>securevector:ocsf</code> on the HEC ingest — adjust if your HEC ingest uses a different sourcetype.',
+                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+            ],
+        },
+        grafana: {
+            title: 'Grafana dashboard (Loki)',
+            path: '/siem-templates/grafana-dashboard.json',
+            filename: 'securevector-dashboard.json',
+            githubBlob: 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/siem/grafana/securevector-dashboard.json',
+            steps: [
+                'Data flow: SecureVector <strong>Local NDJSON file</strong> destination → <strong>Promtail / Alloy</strong> → <strong>Loki</strong> → Grafana.',
+                'Point Promtail/Alloy at your SecureVector NDJSON file (default <code>~/.securevector/siem-events.jsonl</code>) with label <code>job=securevector</code>.',
+                'Grafana → <strong>Dashboards</strong> → <strong>New → Import</strong>.',
+                'Paste the JSON below, click <strong>Load</strong>, then pick your Loki datasource and <strong>Import</strong>.',
+                'Adjust the <code>$job</code> variable if your Promtail pipeline uses a different label.',
+                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+            ],
+        },
+        datadog: {
+            title: 'Datadog dashboard',
+            path: '/siem-templates/datadog-dashboard.json',
+            filename: 'securevector-dashboard.json',
+            githubBlob: 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/siem/datadog/securevector-dashboard.json',
+            steps: [
+                'Prereq: configure a SecureVector destination with <strong>kind = datadog</strong>, pointing at <code>https://http-intake.logs.&lt;site&gt;/api/v2/logs</code>.',
+                'In Datadog, go to <strong>Logs → Configuration → Facets</strong> and create facets for the OCSF attributes used here: <code>@severity</code>, <code>@class_uid</code>, <code>@unmapped.action</code>, <code>@actor.user.name</code>, <code>@finding.techniques</code>, <code>@device.uid</code>.',
+                'Datadog → <strong>Dashboards</strong> → <strong>New Dashboard</strong> → top-right menu → <strong>Import Dashboard JSON</strong>.',
+                'Paste the JSON below, save.',
+                '<em>Starter template — verify in your stack before relying for production detections.</em>',
             ],
         },
     },

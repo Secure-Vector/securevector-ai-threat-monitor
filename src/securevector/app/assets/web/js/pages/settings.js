@@ -1227,20 +1227,24 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             }
         }
 
-        // Contextual visibility for the Sentinel + Splunk templates
-        // callout. Show only when at least one destination would
-        // actually use one of the shipped dashboards:
-        //   - kind = splunk_hec               → Splunk XML applies
-        //   - kind = webhook, URL looks like  → Sentinel JSON applies
-        //     a Sentinel DCR (ingest.monitor.azure.com)
-        // If the user only runs file / Datadog / OTLP / Chronicle /
-        // QRadar / generic webhook, the callout stays hidden — the
-        // shipped dashboards don't match those destinations and the
-        // real-estate is better spent on the table + tier reference.
+        // Contextual visibility for the templates callout. Show only
+        // when at least one destination would actually use a shipped
+        // dashboard:
+        //   - kind = splunk_hec                → Splunk XML applies
+        //   - kind = webhook + Sentinel URL    → Sentinel JSON applies
+        //     (ingest.monitor.azure.com)
+        //   - kind = datadog                   → Datadog dashboard JSON
+        //   - kind = file                      → Grafana-via-Loki path
+        //     (file → Promtail/Alloy → Loki → Grafana)
+        // If the user only runs OTLP / Chronicle / QRadar / bare
+        // webhook, the callout stays hidden — no shipped template
+        // matches, don't add noise.
         const tplCallout = document.getElementById('siem-templates-callout');
         if (tplCallout) {
             const showTemplates = items.some(d => {
                 if (d.kind === 'splunk_hec') return true;
+                if (d.kind === 'datadog') return true;
+                if (d.kind === 'file') return true;
                 if (d.kind === 'webhook' && typeof d.url === 'string' && /ingest\.monitor\.azure\.com/i.test(d.url)) return true;
                 return false;
             });

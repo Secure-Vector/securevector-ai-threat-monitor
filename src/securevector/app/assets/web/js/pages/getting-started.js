@@ -1779,7 +1779,28 @@ const GettingStartedPage = {
             '10-panel dashboard for <code>sourcetype=securevector:ocsf</code> — same tile set as the Sentinel workbook, plus hash-chain integrity check.',
         ));
 
+        dashGrid.appendChild(dashCard(
+            'Datadog',
+            'datadog',
+            'Log-based dashboard for the Datadog destination kind. Total + BLOCK + DETECTED query-values, severity timeseries, top MITRE + top actors toplists, recent high-severity log stream. Requires facets configured for the OCSF attributes (@severity, @class_uid, @actor.user.name, etc.).',
+        ));
+
+        dashGrid.appendChild(dashCard(
+            'Grafana (Loki)',
+            'grafana',
+            'For the indie / homelab path: Local NDJSON file → Promtail/Alloy → Loki → Grafana. Total + BLOCK + DETECTED counters, severity timeseries, top findings, top actors, recent high-severity logs panel.',
+        ));
+
+
         dashBody.appendChild(dashGrid);
+
+        const tplNote = document.createElement('div');
+        tplNote.style.cssText = 'margin-top:4px;padding:10px 12px;font-size:11.5px;color:var(--text-muted);line-height:1.55;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:6px;';
+        tplNote.innerHTML = `
+            <strong style="color:var(--text-secondary);">Starter templates, not production-validated.</strong>
+            All four are MIT-licensed and provided AS-IS. Import into your own stack, verify panels render against real events, and adjust queries / facets to match your environment. See the <a href="https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/siem/NOTICE" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">NOTICE</a> for trademark + upstream-license attributions.
+        `;
+        dashBody.appendChild(tplNote);
 
         // ── Field reference ──────────────────────────────────────────
         const fieldBody = collapsibleSection('Field reference');
