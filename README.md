@@ -31,7 +31,7 @@
 <br>
 
 > **New in v4.0.0:**
-> - **SIEM Forwarder** — forward threat detections and tool-call audits to your Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OpenTelemetry collector, or any generic HTTPS webhook. Also writes to a local NDJSON file for zero-infra setups. OCSF 1.3.0 schema with MITRE ATT&CK tagging, actor + device attribution, finding clustering, per-destination severity floor and burst guard. Metadata-only by default; raw data is opt-in per destination. Built on the v3.6.0 audit hash-chain — every forwarded tool-call carries `seq` / `prev_hash` / `row_hash` so your SIEM can re-verify the chain off-host.
+> - **SIEM Forwarder** — ship every threat scan and tool-call audit to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, any HTTPS webhook, or a local NDJSON file. OCSF 1.3.0 with MITRE ATT&CK tags, actor + device attribution, and the tool-audit hash chain verifiable in your SIEM. Metadata-only by default; raw data is opt-in per destination.
 >
 > **v3.6.0 carries forward:**
 > - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
