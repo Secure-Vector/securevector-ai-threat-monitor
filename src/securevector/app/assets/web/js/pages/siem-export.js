@@ -28,20 +28,46 @@ const SiemExportPage = {
             );
         }
 
-        // ── Unified master card: state + toggle + device id ───────────
-        // Previously two separate cards (device-id pin + kill-switch).
-        // Merged because they answer the same question — "what is this
-        // SIEM forwarder doing on this machine?" Layout: title + toggle
-        // on row 1, status line on row 2, device_id + Copy on row 3.
+        // ── Unified master card: state + toggle + device id + add ─────
+        // All three "about this forwarder" controls in one vertical stack.
+        // Previously three separate cards stacked (kill-switch / device id
+        // / add bar) which ate 250+ px of vertical space before the table.
+        //
+        // Row 1: status line + ON/OFF toggle
+        // Row 2: device_id + Copy (subtle divider above)
+        // Row 3: Ready-to-forward blurb + primary "+ Add Destination"
+        //
+        // Title is in the page header already — don't repeat here.
         // Shared-env RBAC callout lives in Guide → SIEM Forwarder.
         const globalCard = document.createElement('div');
         globalCard.className = 'siem-global-switch';
-        globalCard.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--border-default);border-left:4px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);';
-        // Title is in the page header already — don't repeat it here.
-        // Row 1 = status line + toggle; row 2 = device id + Copy.
+        // Dropped the 4px accent left border — pure decoration that
+        // thickens the card visually without adding information. The
+        // dividers between rows carry enough structure.
+        globalCard.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--border-default);border-radius:10px;background:var(--bg-card);';
+        // Vendor pill list removed — the type dropdown inside the Add
+        // modal (optgroups: Native + Via Webhook) already names every
+        // supported destination when the operator actually needs it.
+        // Showing them permanently in the card was noise on the
+        // command surface.
+        // Master card, reading-order layout:
+        //   [Device chip]  [Status line — flex]  [ON/OFF toggle]
+        //        ↑                 ↑                    ↑
+        //     identity          state                action
+        //
+        // Status + toggle are now adjacent (Gestalt proximity — the
+        // toggle controls exactly what the status describes). Device
+        // chip moves to the far left as a host-identity label.
         globalCard.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;">
-                <div id="siem-global-status-line" style="flex:1;min-width:0;font-size:12.5px;color:var(--text-secondary);line-height:1.45;">Loading…</div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-secondary);flex-shrink:0;">
+                    <span>Device</span>
+                    <code id="siem-device-id" title="Filter your SIEM by this value to see only events from this machine. Raw OS UUID never leaves the box (SHA-256 namespaced hash)." style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent-primary);font-size:11.5px;cursor:help;">loading…</code>
+                    <button type="button" id="siem-device-copy" title="Copy device_id" aria-label="Copy device_id" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;background:transparent;border:1px solid var(--border-default);border-radius:4px;color:var(--text-secondary);cursor:pointer;transition:color 0.15s,border-color 0.15s,background 0.15s;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                </div>
+                <div id="siem-global-status-line" style="flex:1;min-width:160px;font-size:12.5px;color:var(--text-secondary);line-height:1.45;text-align:right;">Loading…</div>
                 <label class="siem-global-toggle" style="position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex-shrink:0;">
                     <span id="siem-global-label" style="font-size:13px;font-weight:700;color:var(--text-primary);min-width:32px;text-align:right;">—</span>
                     <span style="position:relative;display:inline-block;width:44px;height:24px;">
@@ -51,27 +77,19 @@ const SiemExportPage = {
                     </span>
                 </label>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--border-default);font-size:12px;color:var(--text-secondary);flex-wrap:wrap;">
-                <span><strong style="color:var(--text-primary);">This device</strong> — filter your SIEM by</span>
-                <code id="siem-device-id" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent-primary);font-size:12px;">loading…</code>
-                <button type="button" id="siem-device-copy" class="btn btn-secondary btn-compact" title="Copy device_id">Copy</button>
-                <span style="opacity:0.85;">to see only events from this host.</span>
-            </div>
         `;
-        container.appendChild(globalCard);
-
-        // Wire the device-id Copy + fetch (was on its own card before).
-        const _copyBtn = globalCard.querySelector('#siem-device-copy');
-        _copyBtn.addEventListener('click', async () => {
+        // Wire Copy + device-id fetch on the master card's chip.
+        const _devCopy = globalCard.querySelector('#siem-device-copy');
+        _devCopy.addEventListener('click', async () => {
             const idEl = document.getElementById('siem-device-id');
             const val = idEl ? idEl.textContent : '';
             if (!val || val === 'loading…') return;
             try {
                 await navigator.clipboard.writeText(val);
-                const prev = _copyBtn.textContent;
-                _copyBtn.textContent = '✓ Copied';
-                setTimeout(() => { _copyBtn.textContent = prev; }, 1400);
-            } catch (_) { /* clipboard denied */ }
+                const prev = _devCopy.innerHTML;
+                _devCopy.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                setTimeout(() => { _devCopy.innerHTML = prev; }, 1400);
+            } catch (_) { /* clipboard denied — silent */ }
         });
         API.getDeviceId().then(d => {
             const idEl = document.getElementById('siem-device-id');
@@ -80,6 +98,16 @@ const SiemExportPage = {
             const idEl = document.getElementById('siem-device-id');
             if (idEl) idEl.textContent = 'unavailable';
         });
+        // Master-card Add button removed — single + Add SIEM destination
+        // now lives inline with the destinations-table meta row
+        // (rendered by SettingsPage.renderSiemForwarders). One button,
+        // right above the table, matches the Rules-page pattern.
+        container.appendChild(globalCard);
+
+        // Device-id chip + Copy button moved to the destinations-table
+        // meta row (SettingsPage.renderSiemForwarders). The chip and
+        // its wiring are installed by that renderer; nothing else to
+        // do here in the master card.
 
         const checkbox = globalCard.querySelector('#siem-global-checkbox');
         const labelEl = globalCard.querySelector('#siem-global-label');
@@ -100,7 +128,10 @@ const SiemExportPage = {
             // destination while forwarding is globally paused leads to
             // silent dead ends ("I added it but nothing flows"), so we
             // disable the entry point and explain why via the tooltip.
-            const addBtnEl = document.getElementById('siem-add-btn');
+            // Gate the inline Add button that lives above the destinations
+            // table (id: siem-inline-add-btn). Master-card Add button was
+            // removed; this is now the single entry point.
+            const addBtnEl = document.getElementById('siem-inline-add-btn');
             if (addBtnEl) {
                 addBtnEl.disabled = !enabled;
                 addBtnEl.style.opacity = enabled ? '' : '0.55';
@@ -130,56 +161,12 @@ const SiemExportPage = {
             }
         });
 
-        // ── Primary action: Add Destination ───────────────────────────
-        // The primary CTA lives above the tier reference — operators who
-        // already know the redaction trade-off (the common case on
-        // return visits) see the action first. The tier reference sits
-        // immediately below so first-timers still read it before saving
-        // (expanded-by-default).
-        const addBar = document.createElement('div');
-        addBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-card);';
-        // Vendor names get accent styling so they pop visually — helps
-        // operators instantly see supported destinations at a glance.
-        const vendorPill = (label) => `<span style="color:var(--accent-primary);font-weight:600;">${label}</span>`;
-        const vendorsHtml = [
-            'Local NDJSON file', 'Splunk HEC', 'Datadog',
-            'Microsoft Sentinel', 'Google Chronicle', 'IBM QRadar',
-            'OTLP', 'generic webhook',
-        ].map(vendorPill).join(', ');
-        addBar.innerHTML = `
-            <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
-                <strong style="color:var(--text-primary);">Ready to forward?</strong>
-                <span style="opacity:0.85;">Wire a destination — ${vendorsHtml}.</span>
-            </div>
-        `;
-        const addBtn = document.createElement('button');
-        addBtn.type = 'button';
-        addBtn.id = 'siem-add-btn';
-        addBtn.className = 'btn btn-primary';
-        addBtn.textContent = '+ Add Destination';
-        addBtn.style.cssText = 'flex-shrink:0;';
-        addBtn.addEventListener('click', () => {
-            if (addBtn.disabled) return;
-            if (window.SettingsPage && typeof SettingsPage._showSiemEditor === 'function') {
-                SettingsPage._showSiemEditor(null);
-            }
-        });
-        addBar.appendChild(addBtn);
-        container.appendChild(addBar);
-
-        // ── Redaction tiers — quick reference (collapsible) ──────────
-        // Sits directly UNDER the Add bar so first-timers still see the
-        // ships/strips trade-off before opening the editor. Expanded by
-        // default; operators who already know can collapse it.
-        const tierRef = this._buildTierReference();
-        container.appendChild(tierRef);
-
-        // ── Destinations (CRUD table lives on SettingsPage) ──────────
-        // Render directly into the page container (no Card wrapper) so
-        // the table uses the full horizontal width — the previous
-        // gradient-card wrapper added ~40px of padding on each side
-        // which read as dead space. The table's own border + radius
-        // handle visual grouping.
+        // ── Destinations table ───────────────────────────────────────
+        // The primary surface for daily ops — moved above the tier
+        // reference because returning operators open the page to check
+        // health / counts, not to re-read the redaction trade-off.
+        // Full-width render (no Card wrapper) so the table uses every
+        // pixel of horizontal space.
         const forwardersBody = document.createElement('div');
         container.appendChild(forwardersBody);
 
@@ -189,22 +176,27 @@ const SiemExportPage = {
             forwardersBody.textContent = 'SIEM forwarders module not loaded.';
         }
 
-
-        // (Guide footer moved into the tier reference card — see
-        // _buildTierReference. Keeps "reference material" next to the
-        // reference itself instead of trailing below the table.)
+        // ── Redaction tiers — quick reference (collapsible) ──────────
+        // Moved BELOW the destinations table — tier reference is
+        // read-once material (pick a tier when you add), not part of
+        // the daily ritual. First-timers still see the trade-off via
+        // the editor-modal dropdown hints + the Guide deep-link in
+        // this card's footer. Collapsed by default here.
+        // Extra top margin so the collapsible doesn't hug the table's
+        // bottom border — visually separates "data" from "reference."
+        const tierRef = this._buildTierReference();
+        tierRef.style.marginTop = '20px';
+        container.appendChild(tierRef);
     },
 
     _buildTierReference() {
-        // Native <details> = zero-JS collapsible. Expanded by default:
-        // picking a redaction tier is the highest-blast-radius decision
-        // on this page (wrong choice = raw prompts leaving the box), so
-        // the ships/strips trade-off should be visible without a click.
-        // Operators who don't need the reminder can collapse it; the
-        // browser remembers their choice via the element's open state
-        // for the session. Full depth lives in Guide → SIEM Forwarder.
+        // Native <details> = zero-JS collapsible. Collapsed by default
+        // now that the tier reference lives BELOW the destinations
+        // table — it's read-once reference material (pick a tier when
+        // you add), not part of the daily ritual. First-timers still
+        // see the trade-off via the editor-modal dropdown hints + the
+        // Guide deep-link in this card's footer. Open on click.
         const details = document.createElement('details');
-        details.open = true;
         details.style.cssText = 'margin-bottom:16px;border:1px solid var(--border-default);border-radius:10px;background:var(--bg-card);overflow:hidden;';
 
         const summary = document.createElement('summary');

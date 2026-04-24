@@ -368,10 +368,11 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(fwd["url"], content=body, headers=headers)
     except Exception as e:
-        # Explicit str() cast to break CodeQL's taint flow; `kind` is
-        # a category literal, not a secret, but `fwd` as a whole is
-        # tainted because it carries `secret_ref` elsewhere.
-        logger.warning("test_forwarder(%s) failed", str(fwd.get("kind") or ""), exc_info=True)
+        # Static warning — fwd-derived values omitted from the log arg
+        # list so CodeQL's taint tracker can't connect them to any
+        # `secret_ref` in the dict. Full exception incl. stack is
+        # captured by `exc_info=True` for diagnostic purposes.
+        logger.warning("test_forwarder failed", exc_info=True)
         return {
             "ok": False,
             "status_code": 0,

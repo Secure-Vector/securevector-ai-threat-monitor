@@ -186,11 +186,11 @@ class ExternalForwarderService:
             # Shouldn't happen — app-layer validation limits `kind`.
             # Defensive: drop rows so a misconfigured destination doesn't
             # fill the outbox forever.
-            # Break CodeQL's taint flow explicitly: cast through str()
-            # so the analyzer sees the log arg as a freshly-built string
-            # rather than a dict-lookup derived from the (tainted) fwd row.
-            _safe_kind = str(kind) if kind else ""
-            logger.error("external_forwarder: no translator for kind=%r", _safe_kind)
+            # Static log message only — CodeQL flags any log-arg derived
+            # from `fwd` because the dict also holds `secret_ref`. The
+            # operator can cross-reference the DB row (mark_failed sets
+            # last_error) to recover the specific kind.
+            logger.error("external_forwarder: no translator for requested kind")
             await outbox_repo.mark_failed(ids, f"unknown kind: {kind}")
             await outbox_repo.drop_exceeded(fid, max_attempts=1)
             return
@@ -225,14 +225,13 @@ class ExternalForwarderService:
             await outbox_repo.mark_delivered(ids)
             await fwds_repo.mark_success(fid, delivered=len(ids))
             self._breaker_until.pop(fid, None)
-            # Break taint flow via explicit primitive casts — CodeQL
-            # recognizes int()/str() as sanitizers. None of these values
-            # are secret (fid=int PK, kind=category literal, status=HTTP
-            # code, len(ids)=batch size).
-            logger.info(
-                "external_forwarder: id=%d kind=%s delivered %d event(s) (HTTP %d)",
-                int(fid), str(kind), int(len(ids)), int(status),
-            )
+            # Static success log — drop all fwd-derived interpolation
+            # so CodeQL's taint tracker can't see any connection to
+            # `secret_ref`. Operator visibility comes from the DB:
+            # mark_success bumps last_success_at + events_sent, which
+            # the UI surfaces. Detailed telemetry belongs in metrics,
+            # not in a general log line.
+            logger.info("external_forwarder: batch delivered")
             return
 
         # Permanent 4xx (except 408 Request Timeout / 429 Too Many Requests)
@@ -307,12 +306,10 @@ class ExternalForwarderService:
         await outbox_repo.mark_delivered(ids)
         await fwds_repo.mark_success(fid, delivered=len(ids))
         self._breaker_until.pop(fid, None)
-        # Explicit primitive cast to break CodeQL taint flow.
-        # `expanded` is the user-configured file path, not a secret.
-        logger.info(
-            "external_forwarder: id=%d kind=file delivered %d event(s) -> %s",
-            int(fid), int(len(ids)), str(expanded),
-        )
+        # Static success log — no interpolation of fwd-derived values
+        # (CodeQL flags those as potential secret leaks). DB row carries
+        # last_success_at + events_sent for operator-facing detail.
+        logger.info("external_forwarder: file batch delivered")
 
     def _maybe_trip_breaker(self, forwarder_id: int, consecutive: int, *, hard: bool = False) -> None:
         """Exponential backoff once consecutive failures cross the threshold.

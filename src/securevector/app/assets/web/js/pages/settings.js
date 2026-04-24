@@ -1136,18 +1136,57 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;';
         const meta = document.createElement('div');
         meta.id = 'siem-meta';
-        meta.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        meta.style.cssText = 'font-size:13px;color:var(--text-secondary);flex:1;min-width:0;';
         meta.textContent = 'Loading destinations…';
         intro.appendChild(meta);
+
+        // Device chip lives on the master card (siem-export.js) — it's
+        // a master-level property of the host, not a per-destination
+        // one. Keeping it out of this row avoids the "this destination
+        // has device X" semantic confusion.
+
+        // Add Destination inline with the count meta row — zero extra
+        // vertical space (the row already exists), but the primary CTA
+        // is still close to the table where the operator is looking.
+        // This complements the Add button in the master card up top;
+        // either one opens the same editor.
+        // Full-size primary button to match the Rules page pattern
+        // (where "+ Create Rule" sits inline with the filter bar).
+        // No btn-compact — matches standard table toolbar sizing.
+        // Pulse class is applied ONLY when the table has no destinations
+        // — see _refreshSiemForwardersTable. First-time operators see
+        // the attention pulse; returning users with destinations see a
+        // calm button.
+        const inlineAdd = document.createElement('button');
+        inlineAdd.type = 'button';
+        inlineAdd.className = 'btn btn-primary';
+        inlineAdd.id = 'siem-inline-add-btn';
+        inlineAdd.textContent = '+ Add SIEM destination';
+        inlineAdd.style.cssText = 'flex-shrink:0;';
+        inlineAdd.addEventListener('click', () => {
+            if (inlineAdd.disabled) return;
+            this._showSiemEditor(null);
+        });
+        // Mirror the master-toggle gating — inline button disables when
+        // SIEM forwarding is globally paused. Best-effort: fetch state,
+        // fall open if API misbehaves.
+        API.getSiemGlobalSettings().then(s => {
+            const enabled = !!(s && s.enabled);
+            inlineAdd.disabled = !enabled;
+            inlineAdd.style.opacity = enabled ? '' : '0.55';
+            inlineAdd.style.cursor = enabled ? 'pointer' : 'not-allowed';
+            inlineAdd.title = enabled ? '' : 'SIEM Forwarder is paused. Enable the master toggle above.';
+        }).catch(() => { /* leave default enabled on API error */ });
+        intro.appendChild(inlineAdd);
         container.appendChild(intro);
 
-        // Table wrapper — uses app-standard .table-wrapper + .data-table
-        // so visual density and hover/sort behavior match Threats and
-        // Costs pages. The `id` is retained so _refreshSiemForwardersTable
-        // can repaint after create/edit/delete/test.
+        // Table wrapper — app-standard `.table-container` + `.data-table`,
+        // matching Threats / Tool Activity / Costs visually. The `id` is
+        // retained so _refreshSiemForwardersTable can repaint after
+        // create/edit/delete/test.
         const tableWrap = document.createElement('div');
         tableWrap.id = 'siem-forwarders-table';
-        tableWrap.className = 'table-wrapper';
+        tableWrap.className = 'table-container';
         container.appendChild(tableWrap);
 
         await this._refreshSiemForwardersTable();
@@ -1175,10 +1214,23 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                 : '';
         }
 
+        // Pulse the Add button only while the user has NO destinations.
+        // Once they've wired one, the pulse becomes noise on return
+        // visits — kill it. This runs on every refresh, so the class
+        // goes on/off as the list state changes.
+        const addBtnForPulse = document.getElementById('siem-inline-add-btn');
+        if (addBtnForPulse) {
+            if (items.length === 0) {
+                addBtnForPulse.classList.add('sv-siem-add-pulse');
+            } else {
+                addBtnForPulse.classList.remove('sv-siem-add-pulse');
+            }
+        }
+
         wrap.textContent = '';
         if (!items.length) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'padding:24px 16px;text-align:center;color:var(--text-secondary);background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-lg);';
+            empty.style.cssText = 'padding:14px 16px;text-align:center;color:var(--text-secondary);background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-lg);';
             // Vendor names get accent color so supported destinations
             // pop at a glance. Keep the prose uncolored.
             const _vp = (l) => `<span style="color:var(--accent-primary);font-weight:600;">${l}</span>`;
@@ -1268,6 +1320,12 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         });
         table.appendChild(tbody);
         wrap.appendChild(table);
+
+        // Click-to-sort on column headers, same as Threats / Costs.
+        // Exposed globally by app.js; safe no-op if not loaded yet.
+        if (typeof window.makeTableSortable === 'function') {
+            window.makeTableSortable(table);
+        }
     },
 
     _siemCell(text, style = {}) {
@@ -1303,8 +1361,8 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         }[filter] || filter;
 
         let label = base;
-        if (filter === 'threats_only' && includeAudits) label = `${base} + audits`;
-        else if (filter === 'all' && !includeAudits) label = `${base} (no audits)`;
+        if (filter === 'threats_only' && includeAudits) label = `${base} + Audits`;
+        else if (filter === 'all' && !includeAudits) label = `${base} (no Audits)`;
 
         // Severity floor — append only when it differs from the implicit
         // default (review) so the common case stays compact.
