@@ -1245,7 +1245,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         table.className = 'data-table';
         const thead = document.createElement('thead');
         const trHead = document.createElement('tr');
-        ['On', 'Name', 'Kind', 'Filter', 'Health', 'Last sent', 'Sent', 'Pending', ''].forEach(label => {
+        ['On', 'Name', 'Kind', 'Filter', 'Tier', 'Health', 'Last sent', 'Sent', 'Pending', ''].forEach(label => {
             const th = document.createElement('th');
             th.textContent = label;
             trHead.appendChild(th);
@@ -1276,6 +1276,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             tr.appendChild(this._siemCell(row.name, { fontWeight: '600' }));
             tr.appendChild(this._siemCell(this._siemKindLabel(row.kind)));
             tr.appendChild(this._siemCell(this._siemFilterLabel(row)));
+            tr.appendChild(this._siemTierCell(row.redaction_level));
             tr.appendChild(this._siemCell(this._siemHealthLabel(row)));
             tr.appendChild(this._siemCell(this._siemLastSentLabel(row.last_success_at)));
             tr.appendChild(this._siemCell(this._siemEventsSentLabel(row.events_sent)));
@@ -1376,6 +1377,15 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         if (rate > 0) label += ` · ≤${rate}/min`;
 
         return label;
+    },
+
+    _siemTierCell(level) {
+        // Plain text — same typography as other columns. No icons, no
+        // color coding. Tier is a config attribute, not a warning.
+        const td = document.createElement('td');
+        const lvl = String(level || 'minimal').toLowerCase();
+        td.textContent = lvl.charAt(0).toUpperCase() + lvl.slice(1);
+        return td;
     },
 
     _siemEventsSentLabel(count) {

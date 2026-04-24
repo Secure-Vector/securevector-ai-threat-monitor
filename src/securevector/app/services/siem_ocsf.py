@@ -208,13 +208,25 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         device["type_id"] = 0  # Unknown — we don't try to classify host OS
         device["type"] = "Endpoint"
 
-    unmapped: dict[str, Any] = {
-        "threat_score": threat_score,
-        "detected_items_count": int(payload.get("detected_items_count") or 0),
-        "detected_types": list(payload.get("detected_types") or []),
-        "ml_status": str(payload.get("ml_status") or ""),
-        "scan_duration_ms": float(payload.get("scan_duration_ms") or 0.0),
-    }
+    # Emit unmapped fields conditionally — only when the payload
+    # carries them. Previously we wrote zero/empty defaults for every
+    # field regardless of redaction tier, so `minimal` destinations
+    # saw misleading `threat_score: 0.0` + `detected_types: []` even
+    # though those fields were stripped by the repo-level redaction.
+    # Conditional emission honors the "at enqueue time" stripping
+    # contract: if the repo stripped it, the encoder doesn't resurrect
+    # it with a default.
+    unmapped: dict[str, Any] = {}
+    if "threat_score" in payload and payload.get("threat_score") is not None:
+        unmapped["threat_score"] = float(payload["threat_score"])
+    if "detected_items_count" in payload and payload.get("detected_items_count") is not None:
+        unmapped["detected_items_count"] = int(payload["detected_items_count"])
+    if payload.get("detected_types"):
+        unmapped["detected_types"] = list(payload["detected_types"])
+    if payload.get("ml_status"):
+        unmapped["ml_status"] = str(payload["ml_status"])
+    if "scan_duration_ms" in payload and payload.get("scan_duration_ms") is not None:
+        unmapped["scan_duration_ms"] = float(payload["scan_duration_ms"])
 
     # Burst-summary: destination sees how many events were collapsed into
     # this one. Kept at every tier — same reason as device.uid.
