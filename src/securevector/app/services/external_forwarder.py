@@ -171,18 +171,26 @@ class ExternalForwarderService:
         url = fwd["url"]
         ids = [int(r["id"]) for r in batch]
 
+        redaction = fwd.get("redaction_level") or "standard"
+        events = siem_ocsf.encode_batch(batch, redaction=redaction)
+
+        # `file` is a local NDJSON append — no HTTP, no translator, no
+        # auth. Keeps the same outbox / breaker / delivered accounting
+        # as network destinations so health views are uniform.
+        if kind == "file":
+            await self._deliver_to_file(fwd, events, ids, fwds_repo, outbox_repo)
+            return
+
         translator = siem_ocsf.TRANSLATORS.get(kind)
         if translator is None:
-            # Shouldn't happen — CHECK constraint limits `kind`. But if
-            # it does, we drop rows so a misconfigured destination doesn't
+            # Shouldn't happen — app-layer validation limits `kind`.
+            # Defensive: drop rows so a misconfigured destination doesn't
             # fill the outbox forever.
             logger.error(f"external_forwarder: no translator for kind={kind!r}")
             await outbox_repo.mark_failed(ids, f"unknown kind: {kind}")
             await outbox_repo.drop_exceeded(fid, max_attempts=1)
             return
 
-        redaction = fwd.get("redaction_level") or "standard"
-        events = siem_ocsf.encode_batch(batch, redaction=redaction)
         body, content_type, extra_headers = translator(events, fwd)
 
         try:
@@ -211,7 +219,7 @@ class ExternalForwarderService:
 
         if 200 <= status < 300:
             await outbox_repo.mark_delivered(ids)
-            await fwds_repo.mark_success(fid)
+            await fwds_repo.mark_success(fid, delivered=len(ids))
             self._breaker_until.pop(fid, None)
             logger.info(
                 f"external_forwarder: id={fid} kind={kind} delivered "
@@ -239,6 +247,62 @@ class ExternalForwarderService:
         await fwds_repo.mark_failure(fid, err)
         self._maybe_trip_breaker(fid, int(fwd.get("consecutive_fails") or 0) + 1)
         logger.debug(f"external_forwarder: id={fid} transient {status}: {text_preview}")
+
+    async def _deliver_to_file(
+        self,
+        fwd: dict[str, Any],
+        events: list[dict[str, Any]],
+        ids: list[int],
+        fwds_repo: ExternalForwardersRepository,
+        outbox_repo: ExternalForwardOutboxRepository,
+    ) -> None:
+        """Append encoded OCSF events to a local NDJSON file.
+
+        Zero-infra indie destination. `url` column holds the filesystem
+        path; empty / '~/…' values expand to the app data directory
+        default. Each event is a single NDJSON line so `jq`, `grep`,
+        and `tail -f` work without shimming.
+
+        Redaction tier was already applied at encode time — a file
+        destination at `minimal` never receives prompt text, regardless
+        of what the scan callsite passed in.
+        """
+        import json as _json
+        import os as _os
+        from pathlib import Path as _Path
+
+        fid = int(fwd["id"])
+        raw_path = (fwd.get("url") or "").strip()
+        if not raw_path:
+            try:
+                from securevector.app.utils.platform import user_data_dir
+                raw_path = str(_Path(user_data_dir(None, None)) / "siem-events.jsonl")
+            except Exception:
+                raw_path = str(_Path.home() / ".securevector" / "siem-events.jsonl")
+        expanded = _os.path.expanduser(raw_path)
+
+        try:
+            path = _Path(expanded)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                for ev in events:
+                    f.write(_json.dumps(ev, separators=(",", ":"), ensure_ascii=False))
+                    f.write("\n")
+        except OSError as e:
+            err = f"file write: {type(e).__name__}: {e!s}"[:500]
+            await outbox_repo.mark_failed(ids, err)
+            await fwds_repo.mark_failure(fid, err)
+            self._maybe_trip_breaker(fid, int(fwd.get("consecutive_fails") or 0) + 1)
+            logger.warning(f"external_forwarder: id={fid} file-write failed: {err}")
+            return
+
+        await outbox_repo.mark_delivered(ids)
+        await fwds_repo.mark_success(fid, delivered=len(ids))
+        self._breaker_until.pop(fid, None)
+        logger.info(
+            f"external_forwarder: id={fid} kind=file delivered "
+            f"{len(ids)} event(s) → {expanded}"
+        )
 
     def _maybe_trip_breaker(self, forwarder_id: int, consecutive: int, *, hard: bool = False) -> None:
         """Exponential backoff once consecutive failures cross the threshold.

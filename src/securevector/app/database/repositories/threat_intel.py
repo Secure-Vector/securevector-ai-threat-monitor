@@ -126,11 +126,16 @@ async def _siem_enqueue_scan(
         rid = mr.get("rule_id") or mr.get("id")
         if rid and str(rid) not in matched_rule_ids:
             matched_rule_ids.append(str(rid))
-        # Pull MITRE from either top-level mitre_techniques list or a
-        # metadata.mitre list, deduping while preserving order.
-        tech = mr.get("mitre_techniques") or (
-            mr.get("metadata", {}) or {}
-        ).get("mitre") or []
+        # Pull MITRE from either top-level mitre_techniques (the
+        # normalized field set by analysis_service._compile_rules), or
+        # the raw rule metadata shape `mitre_attack_ids` used by
+        # community YAML rules. Dedup preserves first-seen order.
+        tech = (
+            mr.get("mitre_techniques")
+            or (mr.get("metadata", {}) or {}).get("mitre_attack_ids")
+            or (mr.get("metadata", {}) or {}).get("mitre")
+            or []
+        )
         for t in tech if isinstance(tech, list) else []:
             t_str = str(t).strip()
             if t_str and t_str not in mitre_techniques:

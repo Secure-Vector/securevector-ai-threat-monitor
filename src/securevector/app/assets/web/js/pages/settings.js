@@ -1124,79 +1124,30 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     async renderSiemForwarders(container) {
         container.textContent = '';
 
-        // ── Device attribution badge ─────────────────────────────────
-        // Every event this app forwards to Splunk / Datadog / OTLP /
-        // webhook carries a stable `device_id` in its OCSF unmapped
-        // block. Showing that value prominently here lets the user
-        // write a SIEM filter like `device_id = "sv-…"` to slice by
-        // this specific machine, and confirms which machine they're
-        // looking at before they paste tokens into the editor.
-        //
-        // The id is purely cosmetic here — the backend already stamps
-        // it on every event at build time in
-        // `database/repositories/external_forwarders.py`.
-        const deviceBanner = document.createElement('div');
-        deviceBanner.className = 'siem-device-banner';
-        deviceBanner.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--border-default);border-left:4px solid var(--accent-primary);border-radius:8px;background:var(--bg-tertiary);';
-        const devIcon = document.createElement('span');
-        devIcon.style.cssText = 'font-size:18px;line-height:1;flex-shrink:0;';
-        devIcon.textContent = '🖥';
-        deviceBanner.appendChild(devIcon);
-        const devText = document.createElement('div');
-        devText.style.cssText = 'flex:1;font-size:13px;color:var(--text-secondary);line-height:1.4;';
-        devText.innerHTML = '<strong style="color:var(--text-primary);">Events from this device →</strong> device_id = <span id="siem-device-id" style="font-family:monospace;color:var(--accent-primary);">loading…</span><br><span style="font-size:12px;opacity:0.85;">Filter your SIEM by this value to see only events from this machine. Raw OS UUID never leaves the box (SHA-256 namespaced hash).</span>';
-        deviceBanner.appendChild(devText);
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.className = 'btn btn-secondary btn-compact';
-        copyBtn.textContent = 'Copy';
-        copyBtn.title = 'Copy device_id to clipboard';
-        copyBtn.style.cssText = 'flex-shrink:0;';
-        copyBtn.addEventListener('click', async () => {
-            const idEl = document.getElementById('siem-device-id');
-            const val = idEl ? idEl.textContent : '';
-            if (!val || val === 'loading…') return;
-            try {
-                await navigator.clipboard.writeText(val);
-                const prev = copyBtn.textContent;
-                copyBtn.textContent = '✓ Copied';
-                setTimeout(() => { copyBtn.textContent = prev; }, 1400);
-            } catch (_) { /* clipboard denied — ignore silently */ }
-        });
-        deviceBanner.appendChild(copyBtn);
-        container.appendChild(deviceBanner);
+        // Device attribution banner now lives at the top of the SIEM
+        // Forwarder page (merged with the trust-posture banner). This
+        // sub-section is just the status line + table now.
 
-        // Fire-and-forget fetch. If it fails, the banner stays with
-        // "loading…" — not ideal but non-fatal (the SIEM table still
-        // renders below).
-        API.getDeviceId().then(d => {
-            const idEl = document.getElementById('siem-device-id');
-            if (idEl && d && d.device_id) idEl.textContent = d.device_id;
-        }).catch(() => {
-            const idEl = document.getElementById('siem-device-id');
-            if (idEl) idEl.textContent = 'unavailable';
-        });
-
-        // Intro + health line (populated after list loads)
+        // Health/status line only. The primary "+ Add Destination"
+        // button lives up top on the SIEM Forwarder page next to the
+        // master enable toggle — it's not duplicated here. A compact
+        // Refresh button sits right to handle stale-state recovery.
         const intro = document.createElement('div');
-        intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;';
+        intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;';
         const meta = document.createElement('div');
         meta.id = 'siem-meta';
         meta.style.cssText = 'font-size:13px;color:var(--text-secondary);';
         meta.textContent = 'Loading destinations…';
         intro.appendChild(meta);
-
-        const addBtn = document.createElement('button');
-        addBtn.className = 'btn btn-primary';
-        addBtn.textContent = '+ Add Destination';
-        addBtn.addEventListener('click', () => this._showSiemEditor(null));
-        intro.appendChild(addBtn);
         container.appendChild(intro);
 
-        // Table wrapper
+        // Table wrapper — uses app-standard .table-wrapper + .data-table
+        // so visual density and hover/sort behavior match Threats and
+        // Costs pages. The `id` is retained so _refreshSiemForwardersTable
+        // can repaint after create/edit/delete/test.
         const tableWrap = document.createElement('div');
         tableWrap.id = 'siem-forwarders-table';
-        tableWrap.style.cssText = 'border:1px solid var(--border,#e0e0e0);border-radius:6px;overflow:hidden;';
+        tableWrap.className = 'table-wrapper';
         container.appendChild(tableWrap);
 
         await this._refreshSiemForwardersTable();
@@ -1217,28 +1168,34 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         }
         const items = resp.items || [];
         if (meta) {
+            // When empty, the empty-state card below carries the full
+            // explanation. Keep this line short so we don't duplicate.
             meta.textContent = items.length
-                ? `${items.length} destination${items.length === 1 ? '' : 's'} configured. Metadata-only; prompts and outputs never leave this machine.`
-                : 'No destinations yet. Add a Splunk, Datadog, webhook, or OTLP endpoint to stream threats into your SOC workflow.';
+                ? `${items.length} destination${items.length === 1 ? '' : 's'} configured. Metadata-only by default; raw data is opt-in per destination.`
+                : '';
         }
 
         wrap.textContent = '';
         if (!items.length) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'padding:16px;text-align:center;color:var(--text-secondary);';
-            empty.textContent = 'No SIEM destinations configured.';
+            empty.style.cssText = 'padding:24px 16px;text-align:center;color:var(--text-secondary);background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-lg);';
+            // Vendor names get accent color so supported destinations
+            // pop at a glance. Keep the prose uncolored.
+            const _vp = (l) => `<span style="color:var(--accent-primary);font-weight:600;">${l}</span>`;
+            empty.innerHTML = `<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">No SIEM destinations yet</div><div style="font-size:12.5px;line-height:1.55;">Use the <strong>+ Add Destination</strong> button above to wire your first ${_vp('Local NDJSON file')}, ${_vp('Splunk HEC')}, ${_vp('Datadog')}, ${_vp('Microsoft Sentinel')}, ${_vp('Google Chronicle')}, ${_vp('IBM QRadar')}, ${_vp('OTLP')}, or ${_vp('generic webhook')} endpoint.</div>`;
             wrap.appendChild(empty);
             return;
         }
 
+        // App-standard .data-table — same class the Threats and Costs
+        // pages use, so density, hover, and header casing match.
         const table = document.createElement('table');
-        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+        table.className = 'data-table';
         const thead = document.createElement('thead');
         const trHead = document.createElement('tr');
-        ['', 'Name', 'Kind', 'Filter', 'Health', 'Pending', ''].forEach(label => {
+        ['On', 'Name', 'Kind', 'Filter', 'Health', 'Last sent', 'Sent', 'Pending', ''].forEach(label => {
             const th = document.createElement('th');
             th.textContent = label;
-            th.style.cssText = 'text-align:left;padding:8px;border-bottom:1px solid var(--border,#e0e0e0);font-weight:600;';
             trHead.appendChild(th);
         });
         thead.appendChild(trHead);
@@ -1249,7 +1206,6 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             const tr = document.createElement('tr');
             // Enabled toggle
             const tdToggle = document.createElement('td');
-            tdToggle.style.cssText = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);';
             const toggle = document.createElement('input');
             toggle.type = 'checkbox';
             toggle.checked = !!row.enabled;
@@ -1267,31 +1223,33 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
             tr.appendChild(this._siemCell(row.name, { fontWeight: '600' }));
             tr.appendChild(this._siemCell(this._siemKindLabel(row.kind)));
-            tr.appendChild(this._siemCell(this._siemFilterLabel(row.event_filter, row.include_tool_audits)));
+            tr.appendChild(this._siemCell(this._siemFilterLabel(row)));
             tr.appendChild(this._siemCell(this._siemHealthLabel(row)));
+            tr.appendChild(this._siemCell(this._siemLastSentLabel(row.last_success_at)));
+            tr.appendChild(this._siemCell(this._siemEventsSentLabel(row.events_sent)));
             tr.appendChild(this._siemCell(String(row.pending ?? 0)));
 
             // Actions
             const tdActions = document.createElement('td');
-            tdActions.style.cssText = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);white-space:nowrap;text-align:right;';
+            tdActions.style.cssText = 'white-space:nowrap;text-align:right;';
 
             const testBtn = document.createElement('button');
-            testBtn.className = 'btn btn-secondary';
-            testBtn.style.cssText = 'margin-right:6px;padding:4px 10px;font-size:12px;';
+            testBtn.className = 'btn btn-secondary btn-compact';
+            testBtn.style.cssText = 'margin-right:6px;';
             testBtn.textContent = 'Test';
             testBtn.addEventListener('click', () => this._testSiemForwarder(row.id, testBtn));
             tdActions.appendChild(testBtn);
 
             const editBtn = document.createElement('button');
-            editBtn.className = 'btn btn-secondary';
-            editBtn.style.cssText = 'margin-right:6px;padding:4px 10px;font-size:12px;';
+            editBtn.className = 'btn btn-secondary btn-compact';
+            editBtn.style.cssText = 'margin-right:6px;';
             editBtn.textContent = 'Edit';
             editBtn.addEventListener('click', () => this._showSiemEditor(row));
             tdActions.appendChild(editBtn);
 
             const delBtn = document.createElement('button');
-            delBtn.className = 'btn btn-secondary';
-            delBtn.style.cssText = 'padding:4px 10px;font-size:12px;color:var(--danger,#c0392b);';
+            delBtn.className = 'btn btn-secondary btn-compact';
+            delBtn.style.cssText = 'color:var(--danger,#c0392b);';
             delBtn.textContent = 'Delete';
             delBtn.addEventListener('click', async () => {
                 if (!confirm(`Delete destination "${row.name}"? Its queued events will be dropped.`)) return;
@@ -1315,9 +1273,10 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
     _siemCell(text, style = {}) {
         const td = document.createElement('td');
         td.textContent = text == null ? '' : String(text);
-        const base = 'padding:8px;border-bottom:1px solid var(--border,#f0f0f0);vertical-align:top;';
-        const extras = Object.entries(style).map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';');
-        td.style.cssText = base + extras;
+        if (Object.keys(style).length) {
+            const extras = Object.entries(style).map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';');
+            td.style.cssText = extras;
+        }
         return td;
     },
 
@@ -1330,15 +1289,62 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         }[kind] || kind;
     },
 
-    _siemFilterLabel(filter, includeAudits) {
+    _siemFilterLabel(row) {
+        // Show the full filter stack — kind + severity floor + rate limit —
+        // so operators see exactly what's being dropped vs. what reaches
+        // the SIEM. Previously this only surfaced the kind, which hid the
+        // effect of v26's min_severity + burst guard.
+        const filter = row.event_filter;
+        const includeAudits = row.include_tool_audits;
         const base = {
             all: 'All events',
-            threats_only: 'Threats only',
+            threats_only: 'Threats',
             audits_only: 'Audits only',
         }[filter] || filter;
-        if (filter === 'threats_only' && includeAudits) return `${base} + audits`;
-        if (filter === 'all' && !includeAudits) return `${base} (no audits)`;
-        return base;
+
+        let label = base;
+        if (filter === 'threats_only' && includeAudits) label = `${base} + audits`;
+        else if (filter === 'all' && !includeAudits) label = `${base} (no audits)`;
+
+        // Severity floor — append only when it differs from the implicit
+        // default (review) so the common case stays compact.
+        const sev = row.min_severity || 'review';
+        if (filter !== 'audits_only' && sev !== 'review') {
+            label += ` · ≥${sev}`;
+        }
+
+        // Rate limit — same rule: only show when set (0 = unlimited).
+        const rate = Number(row.rate_limit_per_minute || 0);
+        if (rate > 0) label += ` · ≤${rate}/min`;
+
+        return label;
+    },
+
+    _siemEventsSentLabel(count) {
+        // Lifetime counter — compact formatting so the column stays narrow.
+        const n = Number(count || 0);
+        if (!Number.isFinite(n) || n <= 0) return '0';
+        if (n < 1000) return String(n);
+        if (n < 1_000_000) return (n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, '') + 'k';
+        return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    },
+
+    _siemLastSentLabel(iso) {
+        // Compact relative time. "Never" is a meaningful red flag for a
+        // destination that's been configured a while — surface it clearly.
+        if (!iso) return 'Never';
+        const then = Date.parse(iso);
+        if (!Number.isFinite(then)) return '—';
+        const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+        if (secs < 60) return 'Just now';
+        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+        if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+        const days = Math.floor(secs / 86400);
+        if (days < 14) return `${days}d ago`;
+        // Older: show date
+        try {
+            return new Date(then).toISOString().slice(0, 10);
+        } catch { return '—'; }
     },
 
     _siemHealthLabel(row) {
@@ -1355,7 +1361,32 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         try {
             const res = await API.testSiemForwarder(id);
             if (res.ok) {
-                if (window.Toast) Toast.success(`Test OK (HTTP ${res.status_code}, ${res.latency_ms}ms)`);
+                // Honest verification UX. The backend returns a
+                // `verified` field so the toast reflects what we
+                // actually know:
+                //   indexed            — Splunk ACK confirmed (green, strong)
+                //   pending            — ACK not yet acknowledged in 3s
+                //   accepted_with_ack  — HEC returned ackId but poll didn't reach
+                //   accepted           — HTTP 2xx only (indexing unknown)
+                //   written            — File destination, line on disk
+                if (window.Toast) {
+                    const v = res.verified || 'accepted';
+                    const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
+                    let msg;
+                    if (v === 'indexed') {
+                        msg = `Indexed ✓ (${latency}) — Splunk confirmed the event`;
+                    } else if (v === 'pending') {
+                        msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s, check your HEC channel`;
+                    } else if (v === 'written') {
+                        msg = `Written to disk (${res.latency_ms}ms) — ${res.response_preview || 'file destination OK'}`;
+                    } else if (v === 'accepted_with_ack') {
+                        const ack = res.ack_id ? ` · ackId ${String(res.ack_id).slice(0, 12)}` : '';
+                        msg = `Accepted (${latency}) — ACK poll unreachable${ack}`;
+                    } else {
+                        msg = `Accepted (${latency}) — indexing not verified`;
+                    }
+                    Toast.success(msg);
+                }
             } else if (window.Toast) {
                 Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
             }
@@ -1392,20 +1423,52 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         nameInput.value = existing?.name || '';
         addField('Destination name', nameInput);
 
+        // Destination type dropdown. Two optgroups:
+        //   Native — own translator (custom JSON envelope per vendor)
+        //   Via Webhook — vendor accepts the Generic Webhook shape;
+        //     labels carry the brand name so operators find them by
+        //     product, but the wire kind is always `webhook`.
+        // Backend supports 4 real kinds today; brand-name webhook entries
+        // are UI convenience. On edit we can only restore the GENERIC
+        // Webhook entry in that group (DB doesn't record the preset).
         const kindSelect = document.createElement('select');
         kindSelect.className = 'filter-select';
+
+        const nativeGroup = document.createElement('optgroup');
+        nativeGroup.label = 'Native (dedicated translator)';
         [
-            ['webhook', 'Generic Webhook (JSON POST)'],
+            ['file',       'Local NDJSON file (zero infra — append to disk)'],
             ['splunk_hec', 'Splunk HTTP Event Collector'],
-            ['datadog', 'Datadog Logs'],
-            ['otlp_http', 'OpenTelemetry Collector (OTLP/HTTP)'],
+            ['datadog',    'Datadog Logs'],
+            ['otlp_http',  'OpenTelemetry Collector (OTLP/HTTP)'],
         ].forEach(([v, label]) => {
             const opt = document.createElement('option');
             opt.value = v;
             opt.textContent = label;
             if (existing?.kind === v) opt.selected = true;
-            kindSelect.appendChild(opt);
+            nativeGroup.appendChild(opt);
         });
+        kindSelect.appendChild(nativeGroup);
+
+        const webhookGroup = document.createElement('optgroup');
+        webhookGroup.label = 'Via Webhook (JSON + bearer-style auth)';
+        [
+            ['webhook',          'Generic Webhook (JSON POST)',         null],
+            ['webhook:qradar',   'IBM QRadar',                          'https://<qradar-host>/api/siem/events'],
+            ['webhook:sentinel', 'Microsoft Sentinel (Log Analytics)',  'https://<dce>.ingest.monitor.azure.com/...'],
+            ['webhook:chronicle','Google Chronicle SIEM',               'https://malachiteingestion-pa.googleapis.com/v2/udmevents:batchCreate'],
+        ].forEach(([v, label, urlHint]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if (urlHint) opt.dataset.urlHint = urlHint;
+            // Generic webhook is the canonical restore point for any
+            // existing row with kind=webhook — branded variants don't
+            // round-trip through the DB.
+            if (existing?.kind === 'webhook' && v === 'webhook') opt.selected = true;
+            webhookGroup.appendChild(opt);
+        });
+        kindSelect.appendChild(webhookGroup);
         addField('Destination type', kindSelect);
 
         const urlInput = document.createElement('input');
@@ -1413,7 +1476,47 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         urlInput.className = 'filter-select';
         urlInput.placeholder = 'https://…';
         urlInput.value = existing?.url || '';
-        addField('URL', urlInput);
+        // Keep a reference to the <span> label so we can relabel when
+        // the user picks File kind (URL → Path).
+        const urlLabel = document.createElement('span');
+        urlLabel.textContent = 'URL';
+        urlLabel.style.color = 'var(--text-secondary)';
+        const urlWrap = document.createElement('label');
+        urlWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:13px;';
+        urlWrap.appendChild(urlLabel);
+        urlWrap.appendChild(urlInput);
+        body.appendChild(urlWrap);
+
+        // Adapt the URL field to whatever destination kind is selected:
+        //   file     → label "File path", placeholder shows the default
+        //   webhook  → brand-specific URL hint (QRadar/Sentinel/etc.)
+        //   others   → generic https:// placeholder
+        const refreshUrlField = () => {
+            const v = kindSelect.value;
+            if (v === 'file') {
+                urlLabel.textContent = 'File path (leave blank for default)';
+                urlInput.placeholder = '~/.securevector/siem-events.jsonl — or any absolute path';
+            } else {
+                urlLabel.textContent = 'URL';
+                urlInput.placeholder = 'https://…';
+            }
+        };
+        refreshUrlField();
+        kindSelect.addEventListener('change', refreshUrlField);
+
+        // When the user picks a branded webhook preset, silently seed
+        // the URL field with the vendor's endpoint shape (if empty) so
+        // they only have to fill in the host. The synthetic `webhook:*`
+        // value is stripped back to `webhook` at save time — see payload
+        // construction below. Listener is attached AFTER urlInput is
+        // declared to avoid any TDZ surprise on hot-reloads.
+        kindSelect.addEventListener('change', () => {
+            const opt = kindSelect.selectedOptions[0];
+            const hint = opt && opt.dataset && opt.dataset.urlHint;
+            if (hint && (!urlInput.value || urlInput.value.trim() === '')) {
+                urlInput.value = hint;
+            }
+        });
 
         const secretInput = document.createElement('input');
         secretInput.type = 'password';
@@ -1423,12 +1526,36 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             : 'API key / HEC token (optional for webhooks)';
         addField('Secret', secretInput);
 
+        // Inline storage disclosure — security-minded operators always
+        // ask where a saved token ends up. Answer it right under the
+        // field so they don't have to go hunt in docs.
+        const secretHint = document.createElement('div');
+        secretHint.style.cssText = 'margin-top:-6px;padding:6px 10px;font-size:11.5px;color:var(--text-muted);line-height:1.5;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:6px;';
+        secretHint.innerHTML = `
+            <strong style="color:var(--text-secondary);">Where is this stored?</strong>
+            In a separate file with <code>0600</code> permissions (owner-only) inside your app data directory — <strong>never in SQLite</strong>. The database row carries only an opaque reference. Deleted when you delete this destination.
+            <a href="#" data-sv-goto-guide="section-siem-forwarder" style="color:var(--accent-primary);text-decoration:underline;">Details →</a>
+        `;
+        secretHint.querySelector('[data-sv-goto-guide]')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-siem-forwarder';
+                Sidebar.navigate('guide');
+            }
+        });
+        body.appendChild(secretHint);
+
+        // Event filter. Paired with the "include tool audits" checkbox
+        // below — the labels below reflect what the default combo (this
+        // dropdown + checkbox-on) ships, so operators aren't surprised.
+        // Default combo = threats_only + audits = "Threats + tool-call
+        // audits". That's the recommended SOC feed shape.
         const filterSelect = document.createElement('select');
         filterSelect.className = 'filter-select';
         [
-            ['threats_only', 'Threats only (verdict ≠ ALLOW) — recommended'],
-            ['all', 'All scans (includes ALLOW)'],
-            ['audits_only', 'Tool-call audits only'],
+            ['threats_only', 'Threats + tool-call audits — default, recommended'],
+            ['all',          'Everything (includes ALLOW scans)'],
+            ['audits_only',  'Tool-call audits only'],
         ].forEach(([v, label]) => {
             const opt = document.createElement('option');
             opt.value = v;
@@ -1455,14 +1582,14 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const redactionSelect = document.createElement('select');
         redactionSelect.className = 'filter-select';
         [
-            ['minimal', 'Minimal — scan_id, timestamp, verdict, risk_level, counts, device_id'],
-            ['standard', 'Standard — + threat_score, rule metadata, hash-chain witness (default)'],
+            ['minimal', 'Minimal — verdict, risk_level, counts, device.uid, actor, MITRE (default · safest)'],
+            ['standard', 'Standard — + threat_score, rule metadata, hash-chain witness'],
             ['full', 'Full — + raw prompt text, LLM output, matched patterns'],
         ].forEach(([v, label]) => {
             const opt = document.createElement('option');
             opt.value = v;
             opt.textContent = label;
-            if ((existing?.redaction_level || 'standard') === v) opt.selected = true;
+            if ((existing?.redaction_level || 'minimal') === v) opt.selected = true;
             redactionSelect.appendChild(opt);
         });
         addField('Redaction level', redactionSelect);
@@ -1512,17 +1639,32 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                 hint.style.background = 'rgba(239,68,68,0.12)';
                 hint.style.color = '#fca5a5';
                 hint.style.border = '1px solid rgba(239,68,68,0.4)';
-                hint.innerHTML = '<strong>⚠ Full tier — raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
+                hint.innerHTML = '<strong>⚠ Full tier — raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Each raw field is capped at <strong>8&nbsp;KB</strong> with an explicit truncation marker — enough to triage, bounded against runaway SIEM ingest. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
             } else if (lvl === 'minimal') {
                 hint.style.background = 'var(--bg-tertiary)';
                 hint.style.color = 'var(--text-secondary)';
                 hint.style.border = '1px solid var(--border-default)';
-                hint.innerHTML = 'Minimal — scan_id, timestamp, verdict, risk_level, detected count, device_id. Useful for high-volume ops dashboards. No threat scores, no rule IDs; hash-chain witness (on tool-call audits) is dropped at this tier.';
+                hint.innerHTML = `
+                    <strong style="color:var(--text-primary);">Minimal</strong> — lowest-volume ops dashboards.
+                    <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
+                        <li>Forwards: scan_id, timestamp, verdict, risk_level, detected count, <code>device.uid</code></li>
+                        <li>Strips: threat scores, rule IDs, conversation/model IDs</li>
+                        <li>Hash-chain witness (on tool-call audits) is dropped at this tier</li>
+                    </ul>
+                `;
             } else {
                 hint.style.background = 'var(--bg-tertiary)';
                 hint.style.color = 'var(--text-secondary)';
                 hint.style.border = '1px solid var(--border-default)';
-                hint.innerHTML = 'Standard (default, most common) — includes threat_score, rule metadata, conversation/model IDs, and on tool-call audits the SHA-256 hash-chain witness (prev_hash/row_hash) so your SIEM can re-verify integrity off-host. <strong>Prompt text + LLM output never leave this machine</strong> at this tier.';
+                hint.innerHTML = `
+                    <strong style="color:var(--text-primary);">Standard</strong> — default, most production feeds.
+                    <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
+                        <li>threat_score, confidence_score, rule metadata</li>
+                        <li>conversation_id, model_id, scan duration, ML status</li>
+                        <li>Tool-call audits carry SHA-256 hash-chain witness (<code>prev_hash</code>/<code>row_hash</code>) so your SIEM can re-verify integrity off-host</li>
+                        <li><strong>Prompt text, LLM output, and matched patterns never leave this machine</strong> at this tier</li>
+                    </ul>
+                `;
             }
         };
         redactionSelect.addEventListener('change', paintHint);
@@ -1540,8 +1682,14 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                     closeOnClick: false,
                     onClick: async () => {
                         const rateParsed = parseInt(rateInput.value, 10);
+                        // Branded webhook presets (webhook:qradar etc.)
+                        // collapse to the generic `webhook` kind at save
+                        // time — backend has no concept of the preset,
+                        // it's purely a UI convenience for URL hints.
+                        const rawKind = kindSelect.value;
+                        const kind = rawKind.startsWith('webhook:') ? 'webhook' : rawKind;
                         const payload = {
-                            kind: kindSelect.value,
+                            kind,
                             name: nameInput.value.trim(),
                             url: urlInput.value.trim(),
                             event_filter: filterSelect.value,
@@ -1565,6 +1713,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                             const ok = window.confirm(
                                 'Enabling FULL redaction tier\n\n' +
                                 'This destination will receive the full PROMPT TEXT, LLM OUTPUT, and MATCHED PATTERNS in every forwarded event.\n\n' +
+                                'Each raw field is capped at 8 KB with a truncation marker — enough for triage, bounded against runaway ingest.\n\n' +
                                 'Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.).\n\n' +
                                 'Continue?'
                             );

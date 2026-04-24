@@ -45,7 +45,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
+ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http", "file"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
 RedactionLevel = Literal["standard", "minimal", "full"]
 # v26 — SOC-tuning. `review` drops WARN-tier noise by default; `block`
@@ -65,7 +65,12 @@ class ForwarderCreate(BaseModel):
     headers: Optional[dict[str, str]] = None
     event_filter: EventFilter = "threats_only"
     include_tool_audits: bool = True
-    redaction_level: RedactionLevel = "standard"
+    # Default to `minimal` — safer posture for new destinations. Ships
+    # verdict + attribution + MITRE + device.uid, strips threat_scores
+    # / rule_ids / hash-chain. Operators who want the richer SOC payload
+    # opt in via the editor dropdown. Rationale: indie operators
+    # clicking through defaults shouldn't ship more than they intended.
+    redaction_level: RedactionLevel = "minimal"
     enabled: bool = True
     min_severity: MinSeverity = "review"
     rate_limit_per_minute: int = Field(default=0, ge=0, le=10000)
@@ -73,9 +78,16 @@ class ForwarderCreate(BaseModel):
     @field_validator("url")
     @classmethod
     def _url_scheme(cls, v: str) -> str:
-        if not v.lower().startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        return v
+        # URL validation is kind-dependent, but Pydantic field_validator
+        # can't see sibling fields without model_validator. The repo
+        # layer enforces the correct rule per kind — this validator
+        # accepts either scheme (http/https) OR a filesystem path so
+        # file destinations don't get blocked at the API boundary.
+        if v.lower().startswith(("http://", "https://")):
+            return v
+        if v.startswith("/") or v.startswith("~") or v == "":
+            return v
+        raise ValueError("URL must be http(s):// or an absolute file path")
 
 
 class ForwarderUpdate(BaseModel):
@@ -98,9 +110,11 @@ class ForwarderUpdate(BaseModel):
     def _url_scheme(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        if not v.lower().startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        return v
+        if v.lower().startswith(("http://", "https://")):
+            return v
+        if v.startswith("/") or v.startswith("~") or v == "":
+            return v
+        raise ValueError("URL must be http(s):// or an absolute file path")
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +265,52 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
         "conversation_id": None,
     }
     event = siem_ocsf.encode_scan_event(synth_payload, redaction=fwd["redaction_level"])
+
+    # File destination: write one line, no HTTP. Same synthetic event is
+    # appended to the operator's NDJSON file so they can verify the
+    # destination is wired up end-to-end (perms OK, path writable).
+    if fwd["kind"] == "file":
+        import json as _json
+        import os as _os
+        import time as _time
+        from pathlib import Path as _Path
+        raw_path = (fwd.get("url") or "").strip()
+        if not raw_path:
+            try:
+                from securevector.app.utils.platform import user_data_dir
+                raw_path = str(_Path(user_data_dir(None, None)) / "siem-events.jsonl")
+            except Exception:
+                raw_path = str(_Path.home() / ".securevector" / "siem-events.jsonl")
+        expanded = _os.path.expanduser(raw_path)
+        start = _time.perf_counter()
+        try:
+            path = _Path(expanded)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(_json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n")
+            latency_ms = int((_time.perf_counter() - start) * 1000)
+            await repo.mark_success(forwarder_id)
+            return {
+                "ok": True,
+                "status_code": 200,  # synthetic — no HTTP semantics here
+                "latency_ms": latency_ms,
+                "response_preview": f"wrote 1 line to {expanded}",
+                # File writes ARE verifiable — the event is on disk, not
+                # in a remote ingest queue. Honest label reflects that.
+                "verified": "written",
+                "ack_id": None,
+            }
+        except Exception as e:
+            err = f"{type(e).__name__}: {e!s}"
+            await repo.mark_failure(forwarder_id, f"test: {err}")
+            return {
+                "ok": False,
+                "status_code": 0,
+                "latency_ms": int((_time.perf_counter() - start) * 1000),
+                "error": err,
+                "response_preview": f"write failed: {expanded}",
+            }
+
     translator = siem_ocsf.TRANSLATORS.get(fwd["kind"])
     if translator is None:
         raise HTTPException(status_code=500, detail=f"unknown kind: {fwd['kind']}")
@@ -271,6 +331,12 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Datadog API key not configured")
     if kind == "splunk_hec":
         headers["Authorization"] = f"Splunk {secret}"
+        # Per-request channel is required for Splunk HEC's indexer-ack
+        # feature. If the HEC token has acks enabled, the POST response
+        # will carry `ackId` which the follow-up /ack call verifies.
+        # If acks are off, this header is ignored — harmless.
+        import uuid as _uuid
+        headers.setdefault("X-Splunk-Request-Channel", str(_uuid.uuid4()))
     elif kind == "datadog":
         headers["DD-API-KEY"] = secret or ""
     elif secret:
@@ -295,11 +361,98 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
         await repo.mark_success(forwarder_id)
     else:
         await repo.mark_failure(forwarder_id, f"test: HTTP {resp.status_code}")
+
+    # Honest verification status. HTTP 2xx from most SIEM ingest endpoints
+    # only proves the bytes were accepted — not that the event became
+    # searchable. The most common failure mode for new users is Splunk
+    # HEC accepting the payload but dropping it into `_internal` because
+    # the sourcetype isn't mapped.
+    #
+    # When a Splunk HEC response carries an `ackId`, surface it so the
+    # user can verify the write on their HEC channel — that's the only
+    # built-in Splunk-side proof of indexing. Other vendors don't expose
+    # a simple sync ACK, so we explicitly label the test as
+    # "accepted, not verified indexed" to avoid false confidence.
+    verified = "accepted"  # default: bytes reached the endpoint
+    ack_id: Optional[str] = None
+    indexing_poll_ms: Optional[int] = None
+    if ok and kind == "splunk_hec":
+        try:
+            body_json = resp.json()
+            if isinstance(body_json, dict) and body_json.get("ackId") is not None:
+                ack_id = str(body_json.get("ackId"))
+                verified = "accepted_with_ack"
+        except Exception:
+            pass
+
+        # CISO #3 — verify-back. If HEC returned an ackId, call the
+        # ACK endpoint to confirm Splunk actually indexed the event.
+        # This closes the "HEC 200 but sourcetype drops the event"
+        # failure mode that used to show green in the UI. We poll up
+        # to ~3s; if ACK never flips true, surface "pending" — the
+        # operator sees the distinction instead of a false green.
+        #
+        # Splunk's ACK endpoint requires the channel to have been set
+        # via the `X-Splunk-Request-Channel` header on the original
+        # POST AND acks to be enabled on the HEC token. If the token
+        # doesn't have acks enabled, the response won't carry ackId
+        # and we'll never reach this branch — test stays "accepted."
+        if ack_id is not None:
+            ack_url = fwd["url"]
+            # Replace /event with /ack per Splunk HEC endpoint shape.
+            # Common URLs: /services/collector, /services/collector/event, /services/collector/raw
+            for needle in ("/services/collector/event", "/services/collector/raw", "/services/collector"):
+                if ack_url.endswith(needle):
+                    ack_url = ack_url[:-len(needle)] + "/services/collector/ack"
+                    break
+            ack_headers = dict(headers)
+            ack_headers["Content-Type"] = "application/json"
+            ack_start = _time.perf_counter()
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as ack_client:
+                    # Poll up to 3 times @ 1s — ACK lag is typically <1s.
+                    ack_payload = {"acks": [int(ack_id)]} if ack_id.isdigit() else {"acks": [ack_id]}
+                    for _ in range(3):
+                        ack_resp = await ack_client.post(
+                            ack_url,
+                            json=ack_payload,
+                            headers=ack_headers,
+                        )
+                        if 200 <= ack_resp.status_code < 300:
+                            try:
+                                ack_json = ack_resp.json()
+                                acks_map = (ack_json or {}).get("acks") or {}
+                                # Splunk returns {"acks": {"<id>": true/false}}
+                                if any(bool(v) for v in acks_map.values()):
+                                    verified = "indexed"
+                                    break
+                            except Exception:
+                                pass
+                        # Not yet acknowledged — back off briefly.
+                        import asyncio as _asyncio
+                        await _asyncio.sleep(1.0)
+                    if verified != "indexed":
+                        verified = "pending"
+                indexing_poll_ms = int((_time.perf_counter() - ack_start) * 1000)
+            except Exception:
+                # ACK endpoint unreachable or auth bad — don't flip the
+                # main "ok" verdict, just leave verified=accepted_with_ack.
+                indexing_poll_ms = int((_time.perf_counter() - ack_start) * 1000)
+
     return {
         "ok": ok,
         "status_code": resp.status_code,
         "latency_ms": latency_ms,
         "response_preview": (resp.text or "")[:200],
+        # v26 + CISO-#3: honesty fields. `verified` is one of:
+        #   "accepted"           — HTTP 2xx only (bytes accepted; indexing not proven)
+        #   "accepted_with_ack"  — HEC returned an ackId but ACK endpoint wasn't reached
+        #   "pending"            — ACK endpoint reached, event not yet acknowledged in 3s
+        #   "indexed"            — Splunk ACK endpoint returned acks: true — provably searchable
+        #   "written"            — File destination, line written to disk
+        "verified": verified,
+        "ack_id": ack_id,
+        "indexing_poll_ms": indexing_poll_ms,
     }
 
 

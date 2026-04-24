@@ -196,6 +196,35 @@ html, body {
     background-clip: text;
 }
 
+/* Brand text column — stacks the wordmark and tagline vertically next
+   to the favicon. Line-height tight so the two lines hug the header bar. */
+.sidebar-logo-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    gap: 2px;
+}
+
+/* Tagline under the SecureVector wordmark. Theme-aware — uses
+   --text-muted so it tracks whatever palette is active. Kept on a
+   single line: nowrap + tightened tracking so it fits the header
+   width under the wordmark without wrapping. */
+.sidebar-tagline {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Collapsed sidebar: hide tagline alongside the wordmark. */
+.sidebar.collapsed .sidebar-tagline {
+    display: none;
+}
+
 /* Cloud Toggle in Header */
 .cloud-toggle-wrapper {
     margin-right: 8px;

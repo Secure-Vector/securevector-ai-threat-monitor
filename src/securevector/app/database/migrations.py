@@ -167,6 +167,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         24: migrate_to_v24,
         25: migrate_to_v25,
         26: migrate_to_v26,
+        27: migrate_to_v27,
+        28: migrate_to_v28,
     }
 
     if version in migrations:
@@ -1172,6 +1174,126 @@ async def migrate_to_v26(db: DatabaseConnection) -> None:
         "VALUES (26, CURRENT_TIMESTAMP, 'SOC filtering: min_severity + rate_limit_per_minute')"
     )
     logger.info("Applied migration v26: min_severity + rate_limit_per_minute")
+
+
+async def migrate_to_v27(db: DatabaseConnection) -> None:
+    """v26 -> v27: Drop CHECK(kind IN (...)) on external_forwarders.
+
+    Rationale: every new destination kind ('file', future brands) would
+    otherwise need its own migration just to expand the CHECK list.
+    Pydantic at the API layer + Literal at the repo layer already
+    enforce the valid kinds, so the CHECK is belt-and-suspenders that
+    pays a rebuild cost for no real integrity gain.
+
+    SQLite can't ALTER a CHECK in place — rebuild the table preserving
+    all columns, data, and other constraints. Idempotent via a staging
+    table name cleanup at the top.
+    """
+    conn = await db.connect()
+
+    # Skip if the table doesn't exist (fresh install) — new schema
+    # created in SCHEMA_SQL won't carry the CHECK.
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='external_forwarders'"
+    )
+    if not await cur.fetchone():
+        await conn.execute(
+            "INSERT INTO schema_version (version, applied_at, description) "
+            "VALUES (27, CURRENT_TIMESTAMP, 'Drop kind CHECK on external_forwarders')"
+        )
+        await conn.commit()
+        return
+
+    # Inspect current columns so the rebuild preserves v26 additions.
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = [row[1] for row in await cur.fetchall()]
+    has_min_sev = "min_severity" in cols
+    has_rate = "rate_limit_per_minute" in cols
+
+    # Staging cleanup in case a prior attempt left debris.
+    await conn.execute("DROP TABLE IF EXISTS external_forwarders_v27")
+
+    # Rebuild with no CHECK on `kind`. Every other constraint preserved.
+    extra_cols = ""
+    extra_cols_list = ""
+    extra_select = ""
+    if has_min_sev:
+        extra_cols += "    min_severity          TEXT NOT NULL DEFAULT 'review',\n"
+        extra_cols_list += ", min_severity"
+        extra_select += ", min_severity"
+    if has_rate:
+        extra_cols += "    rate_limit_per_minute INTEGER NOT NULL DEFAULT 0,\n"
+        extra_cols_list += ", rate_limit_per_minute"
+        extra_select += ", rate_limit_per_minute"
+
+    await conn.executescript(f"""
+        CREATE TABLE external_forwarders_v27 (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind                TEXT    NOT NULL,
+            name                TEXT    NOT NULL,
+            url                 TEXT    NOT NULL,
+            secret_ref          TEXT,
+            headers_json        TEXT,
+            event_filter        TEXT    NOT NULL DEFAULT 'threats_only'
+                                CHECK (event_filter IN ('all','threats_only','audits_only')),
+            include_tool_audits INTEGER NOT NULL DEFAULT 1,
+            redaction_level     TEXT    NOT NULL DEFAULT 'standard'
+                                CHECK (redaction_level IN ('minimal','standard','full')),
+            enabled             INTEGER NOT NULL DEFAULT 1,
+        {extra_cols}    created_at          TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_success_at     TEXT,
+            last_failure_at     TEXT,
+            consecutive_fails   INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT
+        );
+
+        INSERT INTO external_forwarders_v27
+            (id, kind, name, url, secret_ref, headers_json,
+             event_filter, include_tool_audits, redaction_level, enabled{extra_cols_list},
+             created_at, updated_at, last_success_at, last_failure_at,
+             consecutive_fails, last_error)
+        SELECT id, kind, name, url, secret_ref, headers_json,
+               event_filter, include_tool_audits, redaction_level, enabled{extra_select},
+               created_at, updated_at, last_success_at, last_failure_at,
+               consecutive_fails, last_error
+        FROM external_forwarders;
+
+        DROP TABLE external_forwarders;
+        ALTER TABLE external_forwarders_v27 RENAME TO external_forwarders;
+    """)
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (27, CURRENT_TIMESTAMP, 'Drop kind CHECK on external_forwarders (allow new kinds via app-layer validation)')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v27: dropped kind CHECK on external_forwarders")
+
+
+async def migrate_to_v28(db: DatabaseConnection) -> None:
+    """v27 -> v28: Lifetime events_sent counter on external_forwarders.
+
+    Surfaces "total events this destination has received" as a column
+    in the UI. Cumulative across app restarts — persists with the row,
+    unlike the outbox pending_count which purges after 7 days.
+
+    Simple ALTER — DEFAULT 0 backfills all existing rows.
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if cols and "events_sent" not in cols:
+        await conn.execute(
+            "ALTER TABLE external_forwarders "
+            "ADD COLUMN events_sent INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (28, CURRENT_TIMESTAMP, 'external_forwarders.events_sent lifetime counter')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v28: events_sent counter on external_forwarders")
 
 
 # Future migration functions would be defined here:

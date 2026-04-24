@@ -37,7 +37,9 @@ from securevector.app.services import forwarder_secrets
 logger = logging.getLogger(__name__)
 
 OutboxKind = Literal["scan", "output_scan", "tool_audit"]
-ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http"]
+# `file` = local NDJSON append, indie-friendly destination with zero
+# infra. URL column is reinterpreted as a filesystem path for this kind.
+ForwarderKind = Literal["webhook", "splunk_hec", "datadog", "otlp_http", "file"]
 EventFilter = Literal["all", "threats_only", "audits_only"]
 # v26 — severity threshold for scan events. A destination set to
 # 'review' drops the noisy WARN tier (low-confidence detections).
@@ -160,6 +162,41 @@ _TOOL_AUDIT_FIELDS_BY_LEVEL: dict[str, frozenset[str]] = {
 _TOOL_AUDIT_ALLOWED = _TOOL_AUDIT_FULL
 
 
+# v26 — Full-tier payload size cap. Even when a user enables raw-data
+# forwarding, a single 50KB prompt at 100 events/min is GB/day of ingest
+# into the SIEM — an easy way to blow a customer's Splunk bill. We cap
+# each raw-data field at 8KB with an explicit truncation marker. That's
+# enough context for the analyst to triage the event; the rest stays in
+# the local threat_intel_records table where forensic queries can pull it.
+_FULL_TIER_MAX_BYTES = 8192  # per field: prompt_text, llm_output, args_full
+_FULL_TIER_PATTERN_MAX_BYTES = 1024  # per matched_patterns[] element
+
+
+def _truncate_utf8(value: Optional[str], cap_bytes: int) -> Optional[str]:
+    """Cap a string at `cap_bytes` UTF-8 bytes and append an explicit
+    truncation marker so the SIEM-side analyst knows bytes were dropped
+    rather than silently losing them. Returns None unchanged.
+
+    Truncates on a UTF-8 boundary — never splits a multi-byte codepoint
+    in half, which would break JSON encoding downstream. Short strings
+    pass through unchanged (no marker noise).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    encoded = value.encode("utf-8")
+    if len(encoded) <= cap_bytes:
+        return value
+    # Step back to the nearest valid UTF-8 boundary. A continuation byte
+    # has the top two bits `10xxxxxx` (0x80..0xBF); leading bytes don't.
+    cut = cap_bytes
+    while cut > 0 and (encoded[cut] & 0xC0) == 0x80:
+        cut -= 1
+    dropped = len(encoded) - cut
+    return encoded[:cut].decode("utf-8", errors="ignore") + f"\n...[truncated {dropped} bytes]"
+
+
 def _assert_metadata_only(
     payload: dict[str, Any],
     allowed: Iterable[str],
@@ -223,6 +260,20 @@ def build_scan_payload(
     worst_rule_severity: Optional[str] = None,
     matched_rule_ids: Optional[list[str]] = None,
 ) -> dict[str, Any]:
+    # Full-tier size cap: truncate raw-data fields at 8KB. Even though
+    # standard/minimal destinations will strip these entirely at enqueue
+    # time, we cap here (one place, consistent) so the outbox row for a
+    # full-tier destination never carries a multi-MB prompt. Prevents
+    # a chatty workload from silently blowing customer SIEM ingest.
+    capped_prompt = _truncate_utf8(prompt_text, _FULL_TIER_MAX_BYTES)
+    capped_llm_output = _truncate_utf8(llm_output, _FULL_TIER_MAX_BYTES)
+    capped_patterns: Optional[list[str]] = None
+    if matched_patterns:
+        capped_patterns = [
+            _truncate_utf8(str(p), _FULL_TIER_PATTERN_MAX_BYTES) or ""
+            for p in matched_patterns
+        ]
+
     payload = {
         "scan_id": scan_id,
         "timestamp": timestamp,
@@ -237,9 +288,9 @@ def build_scan_payload(
         "model_id": model_id,
         "conversation_id": conversation_id,
         "device_id": device_id,
-        "prompt_text": prompt_text,
-        "llm_output": llm_output,
-        "matched_patterns": list(matched_patterns) if matched_patterns else None,
+        "prompt_text": capped_prompt,
+        "llm_output": capped_llm_output,
+        "matched_patterns": capped_patterns,
         # v26 SOC-context
         "actor_user": actor_user,
         "actor_process": actor_process,
@@ -274,6 +325,11 @@ def build_tool_audit_payload(
     finding_group_id: Optional[str] = None,
     mitre_techniques: Optional[list[str]] = None,
 ) -> dict[str, Any]:
+    # Same 8KB cap as scans — tool-call args can be chatty too (a vector
+    # with 20k embedded values, a base64 blob pasted into a tool payload).
+    capped_args = _truncate_utf8(args_full, _FULL_TIER_MAX_BYTES)
+    capped_reason = _truncate_utf8(reason_full, _FULL_TIER_MAX_BYTES)
+
     payload = {
         "audit_id": audit_id,
         "seq": seq,
@@ -283,8 +339,8 @@ def build_tool_audit_payload(
         "risk": risk,
         "is_essential": bool(is_essential),
         "called_at": called_at,
-        "args_full": args_full,
-        "reason_full": reason_full,
+        "args_full": capped_args,
+        "reason_full": capped_reason,
         "prev_hash": prev_hash,
         "row_hash": row_hash,
         "device_id": device_id,
@@ -433,17 +489,27 @@ class ExternalForwardersRepository:
         headers: Optional[dict[str, str]] = None,
         event_filter: EventFilter = "threats_only",
         include_tool_audits: bool = True,
-        redaction_level: RedactionLevel = "standard",
+        redaction_level: RedactionLevel = "minimal",
         enabled: bool = True,
         min_severity: MinSeverity = "review",
         rate_limit_per_minute: int = 0,
     ) -> dict[str, Any]:
-        if kind not in ("webhook", "splunk_hec", "datadog", "otlp_http"):
+        if kind not in ("webhook", "splunk_hec", "datadog", "otlp_http", "file"):
             raise ValueError(f"unknown forwarder kind: {kind!r}")
-        if not url.lower().startswith("https://") and not url.lower().startswith("http://"):
-            # http:// is tolerated for local dev only; the UI layer
-            # warns the user when they use it.
-            raise ValueError("forwarder URL must be http(s)://")
+        if kind == "file":
+            # For `file` destinations the `url` column stores an absolute
+            # path. Empty is allowed — the delivery path fills in a
+            # default (app-data-dir/siem-events.jsonl) at send time.
+            if url and not (url.startswith("/") or url.startswith("~")):
+                raise ValueError(
+                    "file forwarder path must be absolute or start with '~' "
+                    "(expands to home directory)"
+                )
+        else:
+            if not url.lower().startswith("https://") and not url.lower().startswith("http://"):
+                # http:// is tolerated for local dev only; the UI layer
+                # warns the user when they use it.
+                raise ValueError("forwarder URL must be http(s)://")
         if min_severity not in ("block", "review", "warn"):
             raise ValueError(f"unknown min_severity: {min_severity!r}")
         if int(rate_limit_per_minute) < 0 or int(rate_limit_per_minute) > 10000:
@@ -500,7 +566,14 @@ class ExternalForwardersRepository:
             sets.append("name = ?")
             vals.append(name.strip())
         if url is not None:
-            if not url.lower().startswith(("http://", "https://")):
+            # File destinations store a filesystem path here (not http).
+            # We read `kind` off the current row to validate appropriately.
+            if str(current.get("kind") or "") == "file":
+                if url and not (url.startswith("/") or url.startswith("~")):
+                    raise ValueError(
+                        "file forwarder path must be absolute or start with '~'"
+                    )
+            elif not url.lower().startswith(("http://", "https://")):
                 raise ValueError("forwarder URL must be http(s)://")
             sets.append("url = ?")
             vals.append(url.strip())
@@ -589,7 +662,14 @@ class ExternalForwardersRepository:
         rows = await cur.fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    async def mark_success(self, forwarder_id: int) -> None:
+    async def mark_success(self, forwarder_id: int, delivered: int = 0) -> None:
+        """Record a successful batch delivery.
+
+        `delivered` = number of events in this batch. Bumps the lifetime
+        `events_sent` counter so the UI can show total-forwarded per
+        destination. Default 0 keeps the test-endpoint / synthetic path
+        from inflating the counter — only real deliveries count.
+        """
         conn = await self.db.connect()
         now = datetime.now(timezone.utc).isoformat()
         await conn.execute(
@@ -597,10 +677,11 @@ class ExternalForwardersRepository:
             UPDATE external_forwarders
                SET last_success_at   = ?,
                    consecutive_fails = 0,
-                   last_error        = NULL
+                   last_error        = NULL,
+                   events_sent       = events_sent + ?
              WHERE id = ?
             """,
-            (now, forwarder_id),
+            (now, int(max(0, delivered)), forwarder_id),
         )
         await conn.commit()
 
@@ -661,6 +742,10 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "last_failure_at": row["last_failure_at"],
         "last_error": row["last_error"],
         "consecutive_fails": int(row["consecutive_fails"] or 0),
+        # v28 — lifetime delivered count. Pre-v28 rows default to 0 via
+        # the column default; _row_get keeps the read safe if the column
+        # somehow doesn't exist on a freshly-seeded dev DB.
+        "events_sent": int(_row_get(row, "events_sent", 0) or 0),
     }
 
 

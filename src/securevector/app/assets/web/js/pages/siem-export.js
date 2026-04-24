@@ -1,16 +1,20 @@
 /**
- * SIEM Forwarder page — top-level Configure item.
+ * SIEM Forwarder page — minimal, action-focused surface.
  *
- * Promoted out of Settings so users discover it as a first-class feature.
- * The page is a thin shell around `SettingsPage.renderSiemForwarders` (the
- * existing CRUD table + editor) plus documentation blocks that explain:
- *   - what actually gets forwarded (metadata only — never prompt text)
- *   - what schema the events use (OCSF 1.3.0)
- *   - which destination kinds are supported and what each one needs to
- *     be configured (URL shape + required auth header)
+ * This page does ONE thing: lets the operator manage the machine-level
+ * forwarding pipe. Global on/off, destinations CRUD, health status.
  *
- * Intentionally delegates the table/editor helpers to SettingsPage so the
- * CRUD code has one home; this page owns the docs + chrome, not the data.
+ * Reference material (OCSF schema, per-tier redaction breakdown, example
+ * payloads, supported-destinations table, Splunk/Sentinel dashboards,
+ * field reference) lives in the Guide → "SIEM Forwarder" section. Keeping
+ * those out of the page's critical path prevents scroll fatigue for the
+ * operator who just needs to add a destination or flip the kill-switch.
+ *
+ * Rationale — SOC analyst posture:
+ *   Day 1 ritual: open the page, add destination, test, done.
+ *   Day 30 ritual: glance at pending + last error, walk away.
+ * Everything else is reference material, which belongs in docs, not on
+ * the command surface.
  */
 
 const SiemExportPage = {
@@ -20,76 +24,62 @@ const SiemExportPage = {
         if (window.Header) {
             Header.setPageInfo(
                 'SIEM Forwarder',
-                'Forward threats and tool-call audits to your SOC. Metadata-only. No signup.',
+                'Forward threats and tool calls detected by SecureVector to your SIEM. Local-first. No signup.',
             );
         }
 
-        // ── "Your data stays yours" reassurance pill ─────────────────
-        // A small inline badge right below the page header, making the
-        // free + local + no-signup stance obvious at first glance.
-        // Sits above every other card so it frames everything below.
-        const trustPill = document.createElement('div');
-        trustPill.className = 'siem-trust-pill';
-        trustPill.style.cssText = 'display:inline-flex;align-items:center;gap:10px;padding:8px 14px;margin-bottom:14px;border:1px solid rgba(16,185,129,0.3);background:rgba(16,185,129,0.08);border-radius:999px;font-size:12.5px;color:var(--text-primary);';
-        trustPill.innerHTML = `
-            <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#10b981;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            </span>
-            <span>
-                <strong style="color:#10b981;">Your data stays yours.</strong>
-                <span style="color:var(--text-secondary);">Free, local, no signup. Events go straight from this machine to your SIEM — never through SecureVector.</span>
-            </span>
-        `;
-        container.appendChild(trustPill);
-
-        // ── Shared-env RBAC note ──────────────────────────────────────
-        // The local app's API binds to 127.0.0.1 and has no per-user
-        // access control — anyone on that loopback can change config.
-        // That's fine for a personal laptop, NOT fine for a shared
-        // dev/jump host. Point those users at the cloud app, which has
-        // the RBAC surface. Small inline note (not a blocker).
-        const rbacNote = document.createElement('div');
-        rbacNote.className = 'siem-rbac-note';
-        rbacNote.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:14px;border:1px solid var(--border-default);background:var(--bg-tertiary);border-radius:8px;font-size:12px;color:var(--text-secondary);line-height:1.55;';
-        rbacNote.innerHTML = `
-            <span aria-hidden="true" style="color:var(--text-muted);font-weight:700;flex-shrink:0;">i</span>
-            <span>
-                <strong style="color:var(--text-primary);">Shared machine?</strong>
-                This local app is designed for a single operator — the API on <code>127.0.0.1</code> has no per-user access control. If multiple people share this host and you need RBAC, use the
-                <a href="https://app.securevector.io" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">SecureVector Cloud app</a>,
-                which supports teams, roles, and audit of who changed what.
-            </span>
-        `;
-        container.appendChild(rbacNote);
-
-        // ── Global kill-switch (v24) ──────────────────────────────────
-        // Single toggle that turns ALL forwarding off at the enqueue
-        // boundary. Default ON, but no events flow until a destination
-        // is configured (see "Your destinations" below). Flipping OFF
-        // stops new events from landing in the outbox; already-queued
-        // rows still drain to completion.
+        // ── Unified master card: state + toggle + device id ───────────
+        // Previously two separate cards (device-id pin + kill-switch).
+        // Merged because they answer the same question — "what is this
+        // SIEM forwarder doing on this machine?" Layout: title + toggle
+        // on row 1, status line on row 2, device_id + Copy on row 3.
+        // Shared-env RBAC callout lives in Guide → SIEM Forwarder.
         const globalCard = document.createElement('div');
         globalCard.className = 'siem-global-switch';
-        globalCard.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 20px;margin-bottom:16px;border:1px solid var(--border-default);border-left:4px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);';
+        globalCard.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--border-default);border-left:4px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);';
+        // Title is in the page header already — don't repeat it here.
+        // Row 1 = status line + toggle; row 2 = device id + Copy.
         globalCard.innerHTML = `
-            <div style="flex:1;min-width:0;">
-                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">
-                    SIEM Forwarder
-                </div>
-                <div id="siem-global-status-line" style="font-size:12.5px;color:var(--text-secondary);line-height:1.45;">
-                    Loading…
-                </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;">
+                <div id="siem-global-status-line" style="flex:1;min-width:0;font-size:12.5px;color:var(--text-secondary);line-height:1.45;">Loading…</div>
+                <label class="siem-global-toggle" style="position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex-shrink:0;">
+                    <span id="siem-global-label" style="font-size:13px;font-weight:700;color:var(--text-primary);min-width:32px;text-align:right;">—</span>
+                    <span style="position:relative;display:inline-block;width:44px;height:24px;">
+                        <input id="siem-global-checkbox" type="checkbox" style="opacity:0;width:0;height:0;">
+                        <span id="siem-global-track" style="position:absolute;inset:0;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:999px;transition:background 0.15s;"></span>
+                        <span id="siem-global-knob" style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--text-secondary);transition:transform 0.15s,background 0.15s;"></span>
+                    </span>
+                </label>
             </div>
-            <label class="siem-global-toggle" style="position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex-shrink:0;">
-                <span id="siem-global-label" style="font-size:13px;font-weight:700;color:var(--text-primary);min-width:32px;text-align:right;">—</span>
-                <span style="position:relative;display:inline-block;width:44px;height:24px;">
-                    <input id="siem-global-checkbox" type="checkbox" style="opacity:0;width:0;height:0;">
-                    <span id="siem-global-track" style="position:absolute;inset:0;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:999px;transition:background 0.15s;"></span>
-                    <span id="siem-global-knob" style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--text-secondary);transition:transform 0.15s,background 0.15s;"></span>
-                </span>
-            </label>
+            <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--border-default);font-size:12px;color:var(--text-secondary);flex-wrap:wrap;">
+                <span><strong style="color:var(--text-primary);">This device</strong> — filter your SIEM by</span>
+                <code id="siem-device-id" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent-primary);font-size:12px;">loading…</code>
+                <button type="button" id="siem-device-copy" class="btn btn-secondary btn-compact" title="Copy device_id">Copy</button>
+                <span style="opacity:0.85;">to see only events from this host.</span>
+            </div>
         `;
         container.appendChild(globalCard);
+
+        // Wire the device-id Copy + fetch (was on its own card before).
+        const _copyBtn = globalCard.querySelector('#siem-device-copy');
+        _copyBtn.addEventListener('click', async () => {
+            const idEl = document.getElementById('siem-device-id');
+            const val = idEl ? idEl.textContent : '';
+            if (!val || val === 'loading…') return;
+            try {
+                await navigator.clipboard.writeText(val);
+                const prev = _copyBtn.textContent;
+                _copyBtn.textContent = '✓ Copied';
+                setTimeout(() => { _copyBtn.textContent = prev; }, 1400);
+            } catch (_) { /* clipboard denied */ }
+        });
+        API.getDeviceId().then(d => {
+            const idEl = document.getElementById('siem-device-id');
+            if (idEl && d && d.device_id) idEl.textContent = d.device_id;
+        }).catch(() => {
+            const idEl = document.getElementById('siem-device-id');
+            if (idEl) idEl.textContent = 'unavailable';
+        });
 
         const checkbox = globalCard.querySelector('#siem-global-checkbox');
         const labelEl = globalCard.querySelector('#siem-global-label');
@@ -104,12 +94,24 @@ const SiemExportPage = {
             knob.style.transform = enabled ? 'translateX(20px)' : 'translateX(0)';
             knob.style.background = enabled ? '#0b1117' : 'var(--text-secondary)';
             statusLine.innerHTML = enabled
-                ? 'Forwarding is <strong style="color:var(--accent-primary);">enabled</strong>. New events flow to every configured destination. No destinations? Add one below — events start flowing automatically once you do.'
-                : 'Forwarding is <strong style="color:#ef4444;">paused</strong>. New scans and tool-call audits will NOT be enqueued. Already-queued events still drain. Re-enable any time.';
+                ? 'Forwarding is <strong style="color:var(--accent-primary);">enabled</strong>. New events flow to every configured destination.'
+                : 'Forwarding is <strong style="color:#ef4444;">paused</strong>. New events are NOT enqueued. Queued events still drain.';
+            // Gate the Add button on the master state. Creating a
+            // destination while forwarding is globally paused leads to
+            // silent dead ends ("I added it but nothing flows"), so we
+            // disable the entry point and explain why via the tooltip.
+            const addBtnEl = document.getElementById('siem-add-btn');
+            if (addBtnEl) {
+                addBtnEl.disabled = !enabled;
+                addBtnEl.style.opacity = enabled ? '' : '0.55';
+                addBtnEl.style.cursor = enabled ? 'pointer' : 'not-allowed';
+                addBtnEl.title = enabled
+                    ? ''
+                    : 'SIEM Forwarder is paused. Enable the master toggle above to add or test destinations.';
+            }
         };
 
-        // Fetch current state + wire the toggle
-        paintToggle(true); // optimistic default until server responds
+        paintToggle(true);
         API.getSiemGlobalSettings().then(s => paintToggle(!!(s && s.enabled))).catch(() => paintToggle(true));
 
         let saving = false;
@@ -122,317 +124,208 @@ const SiemExportPage = {
                 const resp = await API.setSiemGlobalSettings(desired);
                 paintToggle(!!(resp && resp.enabled));
             } catch (_) {
-                // revert on failure
                 paintToggle(!desired);
             } finally {
                 saving = false;
             }
         });
 
-        // ── Intro card ───────────────────────────────────────────────
-        // High-level pitch + privacy contract. Rendered as a gradient
-        // card so it reads as the page's "what is this" banner.
-        const intro = Card.create({ gradient: true });
-        const introBody = intro.querySelector('.card-body');
-        introBody.innerHTML = `
-            <div>
-                <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">
-                    Forward security events to your SIEM — free, open-source, metadata-only by default.
-                </div>
-                <div style="font-size:13px;color:var(--text-secondary);line-height:1.55;">
-                    Configure one or more destinations below. Every threat scan and tool-call audit row is
-                    forwarded in OCSF 1.3.0 format. <strong style="color:var(--text-primary);">Prompts,
-                    LLM outputs, and matched patterns never leave this machine</strong> at the default
-                    redaction tier — only verdicts, counts, and the tamper-evident hash-chain witness
-                    travel to your SOC.
-                </div>
+        // ── Primary action: Add Destination ───────────────────────────
+        // The primary CTA lives above the tier reference — operators who
+        // already know the redaction trade-off (the common case on
+        // return visits) see the action first. The tier reference sits
+        // immediately below so first-timers still read it before saving
+        // (expanded-by-default).
+        const addBar = document.createElement('div');
+        addBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding:8px 12px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-card);';
+        // Vendor names get accent styling so they pop visually — helps
+        // operators instantly see supported destinations at a glance.
+        const vendorPill = (label) => `<span style="color:var(--accent-primary);font-weight:600;">${label}</span>`;
+        const vendorsHtml = [
+            'Local NDJSON file', 'Splunk HEC', 'Datadog',
+            'Microsoft Sentinel', 'Google Chronicle', 'IBM QRadar',
+            'OTLP', 'generic webhook',
+        ].map(vendorPill).join(', ');
+        addBar.innerHTML = `
+            <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
+                <strong style="color:var(--text-primary);">Ready to forward?</strong>
+                <span style="opacity:0.85;">Wire a destination — ${vendorsHtml}.</span>
             </div>
         `;
-        container.appendChild(intro);
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.id = 'siem-add-btn';
+        addBtn.className = 'btn btn-primary';
+        addBtn.textContent = '+ Add Destination';
+        addBtn.style.cssText = 'flex-shrink:0;';
+        addBtn.addEventListener('click', () => {
+            if (addBtn.disabled) return;
+            if (window.SettingsPage && typeof SettingsPage._showSiemEditor === 'function') {
+                SettingsPage._showSiemEditor(null);
+            }
+        });
+        addBar.appendChild(addBtn);
+        container.appendChild(addBar);
 
-        // ── What gets forwarded + format ─────────────────────────────
-        const facts = document.createElement('div');
-        facts.className = 'siem-facts-grid';
-        facts.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:18px 0;';
+        // ── Redaction tiers — quick reference (collapsible) ──────────
+        // Sits directly UNDER the Add bar so first-timers still see the
+        // ships/strips trade-off before opening the editor. Expanded by
+        // default; operators who already know can collapse it.
+        const tierRef = this._buildTierReference();
+        container.appendChild(tierRef);
 
-        facts.appendChild(this._factCard({
-            emoji: '✓',
-            title: 'What gets forwarded',
-            body: `
-                <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
-                    <li><strong>Threat scans</strong> — verdict, threat_score, risk_level, detected_types, duration, model_id</li>
-                    <li><strong>Tool-call audits</strong> — tool_id, action (allow/block), seq, prev_hash, row_hash, risk</li>
-                    <li><strong>Attribution</strong> — stable <code>device_id</code> on every event</li>
-                </ul>
-            `,
-        }));
-
-        facts.appendChild(this._factCard({
-            emoji: '⊘',
-            title: 'What never leaves the box',
-            body: `
-                <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
-                    <li>Prompt text, chat history, LLM response bodies</li>
-                    <li>Matched pattern strings, reviewer reasoning, ML reasoning</li>
-                    <li>Tool-call argument values (only a truncated preview, if you enable it)</li>
-                    <li><strong>Cost / billing data</strong> — stays strictly local; not in any outbound event</li>
-                </ul>
-            `,
-        }));
-
-        facts.appendChild(this._factCard({
-            emoji: '⧉',
-            title: 'Event schema',
-            body: `
-                <div style="line-height:1.65;">
-                    <div><strong>OCSF 1.3.0</strong> — the Open Cybersecurity Schema Framework adopted by AWS Security Lake, Splunk, Palo Alto, and CrowdStrike.</div>
-                    <div style="margin-top:8px;">
-                        Scans emit class <code>2001</code> (Security Finding).
-                        Tool-call audits emit class <code>1007</code> (Process Activity), with the
-                        SHA-256 hash chain in <code>unmapped</code> so your SIEM can re-verify integrity off-host.
-                    </div>
-                    <div style="margin-top:8px;"><strong>All timestamps are UTC</strong> (<code>time</code> = Unix epoch milliseconds). Dashboards render in the viewer's local zone; raw events never are.</div>
-                    <div style="margin-top:6px;">Schema revision <code>securevector:4.0</code> in <code>metadata.extension</code> — bump on breaking change.</div>
-                </div>
-            `,
-        }));
-
-        container.appendChild(facts);
-
-        // ── Supported destinations + required config ─────────────────
-        const destTitle = document.createElement('div');
-        destTitle.style.cssText = 'font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin:6px 0 10px;';
-        destTitle.textContent = 'Supported destinations';
-        container.appendChild(destTitle);
-
-        const destTable = document.createElement('div');
-        destTable.style.cssText = 'border:1px solid var(--border-default);border-radius:8px;overflow:hidden;margin-bottom:12px;';
-        destTable.innerHTML = `
-            <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead>
-                    <tr style="background:var(--bg-tertiary);">
-                        <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;font-size:11px;letter-spacing:0.6px;">Destination</th>
-                        <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;font-size:11px;letter-spacing:0.6px;">URL shape</th>
-                        <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;font-size:11px;letter-spacing:0.6px;">Required auth</th>
-                        <th style="text-align:left;padding:10px 12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;font-size:11px;letter-spacing:0.6px;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>Splunk HEC</strong></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://&lt;host&gt;/services/collector/event</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">Authorization: Splunk &lt;HEC-token&gt;</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">NATIVE</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>Datadog Logs</strong></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://http-intake.logs.&lt;site&gt;/api/v2/logs</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">DD-API-KEY: &lt;key&gt;</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">NATIVE</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>OTLP / HTTP</strong><br><span style="color:var(--text-muted);font-size:11px;">Any OpenTelemetry collector</span></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://&lt;collector&gt;/v1/logs</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">optional: Authorization: Bearer &lt;token&gt;</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">NATIVE</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>Generic Webhook</strong><br><span style="color:var(--text-muted);font-size:11px;">Lambda · Cloudflare · Tines · n8n · custom</span></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">any HTTPS endpoint that accepts JSON POST</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">optional: Authorization: Bearer &lt;token&gt;</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">NATIVE</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>IBM QRadar</strong><br><span style="color:var(--text-muted);font-size:11px;">Generic HTTP Events API</span></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://&lt;qradar-host&gt;/api/siem/events</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">SEC: &lt;api-token&gt; · via webhook</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(99,102,241,0.18);color:#818cf8;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">VIA WEBHOOK</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>Microsoft Sentinel</strong><br><span style="color:var(--text-muted);font-size:11px;">Log Analytics / DCR endpoint</span></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://&lt;dce&gt;.ingest.monitor.azure.com/dataCollectionRules/&lt;id&gt;/streams/Custom-SecureVector</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">Authorization: Bearer &lt;AAD-token&gt; · via webhook</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(99,102,241,0.18);color:#818cf8;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">VIA WEBHOOK</span></td>
-                    </tr>
-                    <tr style="border-top:1px solid var(--border-default);">
-                        <td style="padding:10px 12px;"><strong>Google Chronicle SIEM</strong><br><span style="color:var(--text-muted);font-size:11px;">UDM batchCreate</span></td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">https://malachiteingestion-pa.googleapis.com/v2/udmevents:batchCreate</td>
-                        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">Authorization: Bearer &lt;GCP-token&gt; · via webhook</td>
-                        <td style="padding:10px 12px;"><span style="background:rgba(99,102,241,0.18);color:#818cf8;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">VIA WEBHOOK</span></td>
-                    </tr>
-                </tbody>
-            </table>
-        `;
-        container.appendChild(destTable);
-
-        // Helper note clarifying the "via webhook" row semantics so the
-        // user isn't surprised when they go to configure QRadar/Sentinel/
-        // Chronicle and see the Webhook kind dropdown.
-        const viaWebhookNote = document.createElement('div');
-        viaWebhookNote.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:24px;line-height:1.55;';
-        viaWebhookNote.innerHTML = `
-            <strong>Note on &quot;via webhook&quot;:</strong>
-            QRadar, Sentinel, and Chronicle all accept JSON over HTTPS with a bearer-style auth header — exactly the shape the Generic Webhook kind already sends. Configure one by choosing <em>Webhook</em> as the kind, pasting the endpoint URL, and providing the appropriate token. Native one-click adapters for these vendors are on the roadmap.
-        `;
-        container.appendChild(viaWebhookNote);
-
-        // ── Example event payloads ──────────────────────────────────
-        // Concrete OCSF events — one Security Finding (class 2001) from
-        // a prompt-injection scan, one Process Activity (class 1007)
-        // from a blocked tool call. Shown as JSON so an ops engineer can
-        // paste into their SIEM's search to sanity-check field paths.
-        const exTitle = document.createElement('div');
-        exTitle.style.cssText = 'font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin:6px 0 10px;';
-        exTitle.textContent = 'Example event payloads';
-        container.appendChild(exTitle);
-
-        const exGrid = document.createElement('div');
-        exGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-bottom:28px;';
-
-        const scanExample = {
-            metadata: {
-                version: '1.3.0',
-                product: { name: 'SecureVector Local Threat Monitor', vendor_name: 'SecureVector' },
-                log_name: 'securevector-local-scan',
-            },
-            category_uid: 2,
-            class_uid: 2001,
-            class_name: 'Security Finding',
-            activity_id: 1,
-            severity_id: 5,
-            severity: 'BLOCK',
-            time: 1745352300000,
-            finding: {
-                uid: '0e5325f1-37d7-49e4-a1c0-23254038781a',
-                title: 'BLOCK: Prompt Injection',
-                types: ['prompt_injection'],
-            },
-            observables: [
-                { type_id: 0, name: 'verdict', value: 'BLOCK' },
-                { type_id: 0, name: 'risk_level', value: 'critical' },
-            ],
-            raw_data: null,
-            unmapped: {
-                threat_score: 0.9,
-                confidence_score: 0.008,
-                detected_items_count: 2,
-                detected_types: ['prompt_injection'],
-                ml_status: 'skipped',
-                scan_duration_ms: 12.4,
-                model_id: 'gpt-4o',
-                conversation_id: 'sess-demo-1',
-                device_id: 'sv-89ec5d06412c3e674073b860',
-            },
-        };
-
-        const auditExample = {
-            metadata: {
-                version: '1.3.0',
-                product: { name: 'SecureVector Local Threat Monitor', vendor_name: 'SecureVector' },
-                log_name: 'securevector-local-scan',
-            },
-            category_uid: 1,
-            class_uid: 1007,
-            class_name: 'Process Activity',
-            activity_id: 1,
-            severity_id: 4,
-            time: 1745352300500,
-            process: { name: 'send', uid: 'Gmail.send' },
-            raw_data: null,
-            unmapped: {
-                audit_id: 17,
-                action: 'block',
-                risk: 'high',
-                is_essential: false,
-                seq: 17,
-                prev_hash: '4e9a2b1d7c3f5a8e1b4c7d9f2a6e3c8b5d1f7a0e9c3b6d2f4a8e5c1b9d7f3a6e',
-                row_hash: 'a7c3e9f1b5d2a8e4c6b9f1d3a7e5c8b2d4f6a1e9c3b7d5f2a8e6c4b1d9f3a5e7',
-                device_id: 'sv-89ec5d06412c3e674073b860',
-            },
-        };
-
-        exGrid.appendChild(this._eventCard({
-            title: 'Threat scan (OCSF class 2001 — Security Finding)',
-            body: 'Emitted whenever /analyze produces a verdict ≠ ALLOW (or everything if event_filter=all).',
-            payload: scanExample,
-        }));
-        exGrid.appendChild(this._eventCard({
-            title: 'Tool-call audit (OCSF class 1007 — Process Activity)',
-            body: 'Emitted on every tool-call audit row. Hash-chain witness (prev_hash + row_hash) in unmapped lets your SIEM re-verify integrity off-host.',
-            payload: auditExample,
-        }));
-
-        container.appendChild(exGrid);
-
-        // ── Destinations table (CRUD lives on SettingsPage) ──────────
-        // Keeping the data helpers on SettingsPage avoids duplicating a
-        // few hundred lines of editor code; this page just hands them a
-        // container and lets them render into it.
-        const manageTitle = document.createElement('div');
-        manageTitle.style.cssText = 'font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin:6px 0 10px;';
-        manageTitle.textContent = 'Your destinations';
-        container.appendChild(manageTitle);
-
-        const forwardersCard = Card.create({ gradient: true });
-        const forwardersBody = forwardersCard.querySelector('.card-body');
-        container.appendChild(forwardersCard);
+        // ── Destinations (CRUD table lives on SettingsPage) ──────────
+        // Render directly into the page container (no Card wrapper) so
+        // the table uses the full horizontal width — the previous
+        // gradient-card wrapper added ~40px of padding on each side
+        // which read as dead space. The table's own border + radius
+        // handle visual grouping.
+        const forwardersBody = document.createElement('div');
+        container.appendChild(forwardersBody);
 
         if (window.SettingsPage && typeof SettingsPage.renderSiemForwarders === 'function') {
             await SettingsPage.renderSiemForwarders.call(SettingsPage, forwardersBody);
         } else {
             forwardersBody.textContent = 'SIEM forwarders module not loaded.';
         }
+
+
+        // (Guide footer moved into the tier reference card — see
+        // _buildTierReference. Keeps "reference material" next to the
+        // reference itself instead of trailing below the table.)
     },
 
-    _factCard({ emoji, title, body }) {
-        const card = document.createElement('div');
-        card.className = 'siem-fact-card';
-        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-radius:10px;padding:14px 16px;';
-        card.innerHTML = `
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <span style="font-size:18px;line-height:1;color:var(--accent-primary);">${emoji}</span>
-                <span style="font-size:13px;font-weight:700;color:var(--text-primary);text-transform:uppercase;letter-spacing:0.5px;">${title}</span>
-            </div>
-            <div style="font-size:13px;color:var(--text-secondary);">${body}</div>
+    _buildTierReference() {
+        // Native <details> = zero-JS collapsible. Expanded by default:
+        // picking a redaction tier is the highest-blast-radius decision
+        // on this page (wrong choice = raw prompts leaving the box), so
+        // the ships/strips trade-off should be visible without a click.
+        // Operators who don't need the reminder can collapse it; the
+        // browser remembers their choice via the element's open state
+        // for the session. Full depth lives in Guide → SIEM Forwarder.
+        const details = document.createElement('details');
+        details.open = true;
+        details.style.cssText = 'margin-bottom:16px;border:1px solid var(--border-default);border-radius:10px;background:var(--bg-card);overflow:hidden;';
+
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor:pointer;padding:12px 16px;font-size:13px;font-weight:700;color:var(--text-primary);list-style:none;display:flex;align-items:center;gap:10px;user-select:none;';
+        summary.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-primary);flex-shrink:0;transition:transform 0.15s;"><polyline points="9 18 15 12 9 6"/></svg>
+            <span>What each redaction tier forwards</span>
+            <span style="font-size:11.5px;font-weight:500;color:var(--text-muted);">— pick one per destination when you add it</span>
         `;
-        return card;
-    },
-
-    _eventCard({ title, body, payload }) {
-        const card = document.createElement('div');
-        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;';
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border-default);';
-        const titleWrap = document.createElement('div');
-        titleWrap.style.cssText = 'flex:1;min-width:0;';
-        titleWrap.innerHTML = `
-            <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${title}</div>
-            <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;line-height:1.4;">${body}</div>
-        `;
-        header.appendChild(titleWrap);
-
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.className = 'btn btn-secondary btn-compact';
-        copyBtn.textContent = 'Copy JSON';
-        copyBtn.addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-                const prev = copyBtn.textContent;
-                copyBtn.textContent = '✓ Copied';
-                setTimeout(() => { copyBtn.textContent = prev; }, 1400);
-            } catch (_) { /* ignore */ }
+        details.appendChild(summary);
+        // Rotate chevron on open — keeps the interaction readable
+        details.addEventListener('toggle', () => {
+            const chev = summary.querySelector('svg');
+            if (chev) chev.style.transform = details.open ? 'rotate(90deg)' : 'rotate(0)';
         });
-        header.appendChild(copyBtn);
-        card.appendChild(header);
 
-        const pre = document.createElement('pre');
-        pre.style.cssText = 'margin:0;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.5;color:var(--accent-primary);background:var(--bg-tertiary);overflow:auto;max-height:320px;white-space:pre;word-break:normal;';
-        pre.textContent = JSON.stringify(payload, null, 2);
-        card.appendChild(pre);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:4px 16px 16px;border-top:1px solid var(--border-default);';
 
-        return card;
+        const intro = document.createElement('div');
+        intro.style.cssText = 'font-size:12.5px;color:var(--text-secondary);line-height:1.55;margin:10px 0 12px;';
+        intro.innerHTML = 'The forwarder strips fields at <em>enqueue time</em> — a <code>standard</code> destination never has prompt text in its outbox rows even momentarily. Full tier requires explicit confirmation.';
+        body.appendChild(intro);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;';
+
+        const card = ({ name, subtitle, accent, ships, strips }) => {
+            const el = document.createElement('div');
+            el.style.cssText = `background:var(--bg-tertiary);border:1px solid var(--border-default);border-top:3px solid ${accent};border-radius:8px;padding:12px 14px;`;
+            el.innerHTML = `
+                <div style="font-size:11.5px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:${accent};margin-bottom:2px;">${name}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">${subtitle}</div>
+                <div style="font-size:11.5px;color:var(--text-primary);font-weight:700;margin-bottom:4px;">Forwards</div>
+                <ul style="margin:0 0 10px;padding-left:16px;font-size:11.5px;color:var(--text-secondary);line-height:1.6;">${ships.map(s => `<li>${s}</li>`).join('')}</ul>
+                <div style="font-size:11.5px;color:var(--text-primary);font-weight:700;margin-bottom:4px;">Strips</div>
+                <ul style="margin:0;padding-left:16px;font-size:11.5px;color:var(--text-secondary);line-height:1.6;">${strips.map(s => `<li>${s}</li>`).join('')}</ul>
+            `;
+            return el;
+        };
+
+        grid.appendChild(card({
+            name: 'Minimal',
+            subtitle: 'Ops dashboards',
+            accent: '#6ee7b7',
+            ships: [
+                'verdict (BLOCK / DETECTED / ALLOW)',
+                'risk_level, detected_items_count',
+                '<code>device.uid</code>, <code>actor.user</code>, <code>actor.process</code>',
+                'MITRE ATT&CK techniques',
+                '<code>finding.related_events_uid</code>',
+                '<code>suppressed_count</code>',
+            ],
+            strips: [
+                'threat_score, confidence_score',
+                'rule IDs, model_id, conversation_id',
+                'hash-chain witness',
+                'prompt text, LLM output, patterns',
+            ],
+        }));
+
+        grid.appendChild(card({
+            name: 'Standard · Default',
+            subtitle: 'Most production feeds',
+            accent: '#5eadb8',
+            ships: [
+                'Everything from Minimal, plus:',
+                'threat_score, confidence_score',
+                'matched rule IDs, worst_rule_severity',
+                'model_id, conversation_id',
+                'scan duration, ML status',
+                'hash-chain witness on audits',
+            ],
+            strips: [
+                'prompt text',
+                'LLM output',
+                'matched pattern strings',
+                'full tool-call arguments',
+            ],
+        }));
+
+        grid.appendChild(card({
+            name: 'Full · Forensic',
+            subtitle: 'Opt-in with confirmation',
+            accent: '#f59e0b',
+            ships: [
+                'Everything from Standard, plus:',
+                '<code>raw_data</code> = prompt text',
+                '<code>unmapped.llm_output</code>',
+                'matched pattern strings',
+                'full tool-call args + policy reason',
+                '<strong>Each field capped at 8KB</strong> (truncation marker appended)',
+            ],
+            strips: [
+                '(nothing — forensic tier)',
+            ],
+        }));
+
+        body.appendChild(grid);
+
+        // Guide deep-link footer — moved inside the tier reference so
+        // the reference + "there's more in the Guide" live together.
+        // Removes the standalone dashed footer below the table.
+        const tierGuideFooter = document.createElement('div');
+        tierGuideFooter.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px dashed var(--border-default);font-size:11.5px;color:var(--text-muted);line-height:1.55;';
+        tierGuideFooter.innerHTML = `
+            <strong style="color:var(--text-secondary);">Reference material →</strong>
+            Per-tier redaction breakdown, OCSF schema, example payloads, supported destinations, and ready-made Splunk / Sentinel dashboards live in the
+            <a href="#" data-sv-goto-guide="section-siem-forwarder" style="color:var(--accent-primary);text-decoration:underline;">Guide → SIEM Forwarder section</a>.
+        `;
+        tierGuideFooter.querySelector('[data-sv-goto-guide]')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-siem-forwarder';
+                Sidebar.navigate('guide');
+            }
+        });
+        body.appendChild(tierGuideFooter);
+
+        details.appendChild(body);
+        return details;
     },
 };
 
