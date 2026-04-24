@@ -170,12 +170,12 @@ const SiemExportPage = {
         const forwardersBody = document.createElement('div');
         container.appendChild(forwardersBody);
 
-        if (window.SettingsPage && typeof SettingsPage.renderSiemForwarders === 'function') {
-            await SettingsPage.renderSiemForwarders.call(SettingsPage, forwardersBody);
-        } else {
-            forwardersBody.textContent = 'SIEM forwarders module not loaded.';
-        }
-
+        // Templates callout must exist in the DOM BEFORE
+        // renderSiemForwarders runs — the contextual-visibility toggle
+        // inside _refreshSiemForwardersTable looks it up by id. We
+        // build + append the callout now, then render the table, so
+        // the toggle has something to find.
+        //
         // ── Templates callout ────────────────────────────────────────
         // Buttons open a preview-and-copy modal — clicking "Sentinel"
         // or "Splunk" loads the template from the bundled static mount
@@ -220,6 +220,14 @@ const SiemExportPage = {
             }
         });
         container.appendChild(tplCallout);
+
+        // Render the destinations table now that the callout exists —
+        // _refreshSiemForwardersTable's contextual toggle will find it.
+        if (window.SettingsPage && typeof SettingsPage.renderSiemForwarders === 'function') {
+            await SettingsPage.renderSiemForwarders.call(SettingsPage, forwardersBody);
+        } else {
+            forwardersBody.textContent = 'SIEM forwarders module not loaded.';
+        }
 
         // ── Redaction tiers — quick reference (collapsible) ──────────
         // Moved BELOW the destinations table — tier reference is

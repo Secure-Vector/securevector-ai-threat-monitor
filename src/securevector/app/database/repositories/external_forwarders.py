@@ -556,15 +556,11 @@ class ExternalForwardersRepository:
         )
         await conn.commit()
         row_id = int(cursor.lastrowid or 0)
-        # Sanitize user-provided values inline so CodeQL's taint tracker
-        # sees the explicit character-filtering as a sanitizer (not just
-        # a helper call that it can't introspect). Strip all ASCII
-        # controls (0x00-0x1F + 0x7F) and cap at 80 chars. `kind` is
-        # a category literal from the ForwarderKind union but we cast
-        # to str anyway to break the dict-derived taint flow.
-        safe_name = "".join(c for c in str(name) if ord(c) >= 32 and ord(c) != 127)[:80]
-        safe_kind = "".join(c for c in str(kind) if ord(c) >= 32 and ord(c) != 127)[:32]
-        logger.info("external_forwarders: created id=%d kind=%s name=%r", int(row_id), safe_kind, safe_name)
+        # Log only the row id — no user-provided values in the format
+        # string, which removes the log-injection surface entirely.
+        # Full record (kind, name, url) is already persisted to the
+        # external_forwarders row and reachable via the repo.
+        logger.info("external_forwarders: created id=%d", int(row_id))
         return await self.get(row_id)  # type: ignore[return-value]
 
     async def update(
@@ -724,6 +720,24 @@ class ExternalForwardersRepository:
              WHERE id = ?
             """,
             (now, error[:500], forwarder_id),
+        )
+        await conn.commit()
+
+    async def reset_breaker(self, forwarder_id: int) -> None:
+        """Zero the consecutive_fails counter so the next dispatcher tick
+        re-opens the circuit immediately. Called by the failure-detail
+        drawer's "Retry now" button after the operator has fixed the
+        underlying config (wrong URL, expired token, etc.).
+        """
+        conn = await self.db.connect()
+        await conn.execute(
+            """
+            UPDATE external_forwarders
+               SET consecutive_fails = 0,
+                   last_error        = NULL
+             WHERE id = ?
+            """,
+            (forwarder_id,),
         )
         await conn.commit()
 
@@ -941,6 +955,43 @@ class ExternalForwardOutboxRepository:
         await conn.commit()
         return int(cur.rowcount or 0)
 
+    async def recent_failures(
+        self, forwarder_id: int, *, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return the newest outbox rows that carry an error or non-zero
+        attempt count, for the failure-detail drawer.
+
+        Includes undelivered rows (still retrying) AND rows that were
+        dropped by `drop_exceeded`. For the latter we only still see
+        rows if they remain in the table — delivered_at IS NULL AND
+        attempts >= max — so a tail view is sufficient. The drawer
+        uses this to show "why is this destination unhealthy".
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            """
+            SELECT id, kind, attempts, last_error, created_at, delivered_at
+              FROM external_forward_outbox
+             WHERE forwarder_id = ?
+               AND (last_error IS NOT NULL OR attempts > 0)
+             ORDER BY id DESC
+             LIMIT ?
+            """,
+            (forwarder_id, max(1, min(int(limit), 100))),
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "kind": r["kind"],
+                "attempts": int(r["attempts"] or 0),
+                "last_error": (r["last_error"] or "")[:400],
+                "created_at": r["created_at"],
+                "delivered_at": r["delivered_at"],
+            }
+            for r in rows
+        ]
+
     async def pending_count(self, forwarder_id: Optional[int] = None) -> int:
         conn = await self.db.connect()
         if forwarder_id is None:
@@ -986,8 +1037,13 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
     """Does this event pass the forwarder's filters?
 
     Two independent gates:
-      1. Kind toggle — respect event_filter and include_tool_audits for
-         audit events. Backward-compatible with pre-v26 configs.
+      1. Kind toggle — scan events honor event_filter; tool-audit
+         events are gated ONLY by include_tool_audits. The per-kind
+         toggles are orthogonal on purpose: the UI column "Threats +
+         Audits" maps to event_filter='threats_only' +
+         include_tool_audits=True, and historically the filter gate
+         was over-applied to audits, silently dropping them and
+         defeating the point of off-host hash-chain tamper evidence.
       2. Severity threshold — scan events must meet min_severity.
          Added in v26; default 'review' drops WARN-tier noise.
     """
@@ -995,8 +1051,10 @@ def _passes_filter(fwd: dict[str, Any], kind: str, payload: dict[str, Any]) -> b
     include_audits = bool(fwd.get("include_tool_audits", True))
 
     if kind == "tool_audit":
-        if event_filter == "threats_only":
-            return False
+        # event_filter='audits_only' naturally permits audits; the other
+        # two values now also permit them whenever include_tool_audits is
+        # on. Operators who want threats-and-only-threats uncheck the
+        # audits toggle in the editor.
         return include_audits
 
     # scan or output_scan: kind gate first, then severity gate

@@ -1301,7 +1301,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             tr.appendChild(this._siemCell(this._siemKindLabel(row.kind)));
             tr.appendChild(this._siemCell(this._siemFilterLabel(row)));
             tr.appendChild(this._siemTierCell(row.redaction_level));
-            tr.appendChild(this._siemCell(this._siemHealthLabel(row)));
+            tr.appendChild(this._siemHealthCell(row));
             tr.appendChild(this._siemCell(this._siemLastSentLabel(row.last_success_at)));
             tr.appendChild(this._siemCell(this._siemEventsSentLabel(row.events_sent)));
             tr.appendChild(this._siemCell(String(row.pending ?? 0)));
@@ -1444,6 +1444,222 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         if (row.consecutive_fails > 0) return `Failing (${row.consecutive_fails})`;
         if (row.last_success_at) return 'OK';
         return 'Never delivered';
+    },
+
+    // Health cell with click-through when the destination is unhealthy.
+    // Healthy rows render plain text; failing rows render a red link
+    // that opens a right-side drawer with the error + recent attempts.
+    _siemHealthCell(row) {
+        const td = document.createElement('td');
+        const label = this._siemHealthLabel(row);
+        const isFailing = row.enabled && (row.consecutive_fails > 0 || !!row.last_error);
+        if (isFailing) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = `${label} \u2192`;
+            btn.style.cssText = 'background:transparent;border:0;padding:0;color:var(--danger,#ef4444);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;font-size:inherit;';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._openSiemFailureDrawer(row);
+            });
+            td.appendChild(btn);
+        } else {
+            td.textContent = label;
+        }
+        return td;
+    },
+
+    // Right-side drawer showing why a destination is failing + recent
+    // outbox attempts + a "Retry now" action that zeros the breaker.
+    async _openSiemFailureDrawer(row) {
+        // Close any prior instance so rapid clicks don't stack drawers.
+        const prior = document.getElementById('sv-siem-failure-drawer');
+        if (prior) prior.remove();
+
+        let health;
+        try {
+            health = await API.getSiemForwarderHealth(row.id);
+        } catch {
+            if (window.Toast) Toast.error('Failed to load health');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.id = 'sv-siem-failure-drawer';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1100;display:flex;justify-content:flex-end;';
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        const panel = document.createElement('div');
+        panel.style.cssText = 'width:min(480px,95vw);max-width:480px;height:100%;background:var(--bg-card);border-left:1px solid var(--border-light);box-shadow:-6px 0 24px rgba(0,0,0,0.35);display:flex;flex-direction:column;overflow:hidden;animation:sv-drawer-in 0.18s ease-out;';
+
+        // One-time keyframe + scrollbar polish.
+        if (!document.getElementById('sv-siem-drawer-style')) {
+            const s = document.createElement('style');
+            s.id = 'sv-siem-drawer-style';
+            s.textContent = '@keyframes sv-drawer-in{from{transform:translateX(30px);opacity:0;}to{transform:translateX(0);opacity:1;}}';
+            document.head.appendChild(s);
+        }
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:16px 20px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;';
+        const titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:0;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        title.textContent = row.name;
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+        subtitle.textContent = `${this._siemKindLabel(row.kind)} \u00b7 ${row.url}`;
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(subtitle);
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = '\u00d7';
+        closeBtn.style.cssText = 'background:transparent;border:0;font-size:22px;color:var(--text-secondary);cursor:pointer;line-height:1;padding:4px 8px;';
+        closeBtn.addEventListener('click', () => overlay.remove());
+        header.appendChild(titleWrap);
+        header.appendChild(closeBtn);
+        panel.appendChild(header);
+
+        // Body
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;flex:1;';
+
+        // Status banner
+        const banner = document.createElement('div');
+        const danger = '#ef4444';
+        banner.style.cssText = `padding:12px 14px;border-radius:8px;background:${danger}15;border:1px solid ${danger}44;display:flex;flex-direction:column;gap:4px;`;
+        const bannerTitle = document.createElement('div');
+        bannerTitle.style.cssText = `font-size:13px;font-weight:700;color:${danger};`;
+        bannerTitle.textContent = health.circuit_open
+            ? `Circuit open \u00b7 backing off ${this._fmtSecs(health.backoff_seconds || 0)}`
+            : `Recent failure \u00b7 ${health.consecutive_fails} in a row`;
+        const bannerSub = document.createElement('div');
+        bannerSub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.45;';
+        bannerSub.textContent = health.circuit_open
+            ? `After ${health.consecutive_fails} consecutive failures the dispatcher exponentially backs off this destination. Rows drop after ${health.max_attempts} attempts each.`
+            : `The dispatcher will retry on the next tick. After 5 consecutive fails it trips a breaker and backs off up to 1h.`;
+        banner.appendChild(bannerTitle);
+        banner.appendChild(bannerSub);
+        body.appendChild(banner);
+
+        // Last error block
+        const errSection = document.createElement('div');
+        errSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        const errLbl = document.createElement('div');
+        errLbl.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;';
+        errLbl.textContent = 'Last error';
+        const errBox = document.createElement('div');
+        errBox.style.cssText = 'padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-primary);word-break:break-word;white-space:pre-wrap;line-height:1.5;max-height:120px;overflow:auto;';
+        errBox.textContent = health.last_error || '(no error message captured)';
+        errSection.appendChild(errLbl);
+        errSection.appendChild(errBox);
+        body.appendChild(errSection);
+
+        // Stats grid
+        const stats = document.createElement('div');
+        stats.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;';
+        const statCard = (label, value) => {
+            const c = document.createElement('div');
+            c.style.cssText = 'padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;';
+            const l = document.createElement('div');
+            l.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;';
+            l.textContent = label;
+            const v = document.createElement('div');
+            v.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);';
+            v.textContent = value;
+            c.appendChild(l); c.appendChild(v);
+            return c;
+        };
+        stats.appendChild(statCard('Pending', String(health.pending ?? 0)));
+        stats.appendChild(statCard('Delivered (lifetime)', String(health.events_sent ?? 0)));
+        stats.appendChild(statCard('Last success', this._siemLastSentLabel(health.last_success_at)));
+        stats.appendChild(statCard('Last failure', this._siemLastSentLabel(health.last_failure_at)));
+        body.appendChild(stats);
+
+        // Recent attempts list
+        const recent = Array.isArray(health.recent_failures) ? health.recent_failures : [];
+        const recentSection = document.createElement('div');
+        recentSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        const recentLbl = document.createElement('div');
+        recentLbl.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;';
+        recentLbl.textContent = `Recent failed rows (${recent.length})`;
+        recentSection.appendChild(recentLbl);
+        if (!recent.length) {
+            const none = document.createElement('div');
+            none.style.cssText = 'font-size:12.5px;color:var(--text-secondary);';
+            none.textContent = 'No failed outbox rows currently tracked for this destination.';
+            recentSection.appendChild(none);
+        } else {
+            recent.forEach(r => {
+                const card = document.createElement('div');
+                card.style.cssText = 'padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;display:flex;flex-direction:column;gap:3px;';
+                const top = document.createElement('div');
+                top.style.cssText = 'display:flex;justify-content:space-between;gap:12px;font-size:12px;';
+                const kindLbl = document.createElement('span');
+                kindLbl.style.cssText = 'color:var(--text-primary);font-weight:600;';
+                kindLbl.textContent = `${r.kind} \u00b7 ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}`;
+                const when = document.createElement('span');
+                when.style.cssText = 'color:var(--text-secondary);';
+                when.textContent = this._siemLastSentLabel(r.created_at);
+                top.appendChild(kindLbl);
+                top.appendChild(when);
+                card.appendChild(top);
+                if (r.last_error) {
+                    const err = document.createElement('div');
+                    err.style.cssText = 'font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-secondary);word-break:break-word;line-height:1.4;';
+                    err.textContent = r.last_error;
+                    card.appendChild(err);
+                }
+                recentSection.appendChild(card);
+            });
+        }
+        body.appendChild(recentSection);
+
+        panel.appendChild(body);
+
+        // Footer actions
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding:12px 20px;border-top:1px solid var(--border-light);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;';
+        const editFromDrawer = document.createElement('button');
+        editFromDrawer.className = 'btn btn-secondary btn-compact';
+        editFromDrawer.textContent = 'Edit destination';
+        editFromDrawer.addEventListener('click', () => { overlay.remove(); this._showSiemEditor(row); });
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'btn btn-primary btn-compact';
+        retryBtn.textContent = 'Reset & retry now';
+        retryBtn.addEventListener('click', async () => {
+            retryBtn.disabled = true;
+            retryBtn.textContent = 'Resetting\u2026';
+            try {
+                await API.resetSiemForwarderBreaker(row.id);
+                if (window.Toast) Toast.success('Breaker reset — next dispatcher tick will retry');
+                overlay.remove();
+                await this._refreshSiemForwardersTable();
+            } catch {
+                if (window.Toast) Toast.error('Reset failed');
+                retryBtn.disabled = false;
+                retryBtn.textContent = 'Reset & retry now';
+            }
+        });
+        footer.appendChild(editFromDrawer);
+        footer.appendChild(retryBtn);
+        panel.appendChild(footer);
+
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        // Close on Escape for keyboard users.
+        const onEsc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+        document.addEventListener('keydown', onEsc);
+    },
+
+    _fmtSecs(s) {
+        s = Math.max(0, Math.floor(s || 0));
+        if (s < 60) return `${s}s`;
+        if (s < 3600) return `${Math.floor(s / 60)}m`;
+        return `${Math.floor(s / 3600)}h`;
     },
 
     async _testSiemForwarder(id, btn) {

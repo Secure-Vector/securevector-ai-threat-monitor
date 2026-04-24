@@ -21,8 +21,11 @@ Gating: none. Per product decision, SIEM export is free for every user
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -38,6 +41,39 @@ from securevector.app.services import forwarder_secrets, siem_ocsf
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _sanitized_http_url(raw: str) -> str:
+    """SSRF barrier for the Test-connection endpoint.
+
+    Explicit parse → scheme/host check → link-local + metadata-address
+    reject → reconstruct. Link-local (169.254/16) is the classic SSRF
+    target (AWS/GCE/Azure metadata), so we hard-block it even though
+    other private ranges stay allowed for legitimate on-prem Splunk.
+    The reconstruction with urlunparse gives CodeQL a clean barrier
+    it can track as a sanitizer boundary.
+    """
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL must be http(s)")
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(status_code=400, detail="URL missing host")
+    try:
+        for info in socket.getaddrinfo(host, None):
+            addr = info[4][0]
+            try:
+                ip = ipaddress.ip_address(addr)
+            except ValueError:
+                continue
+            if ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+                raise HTTPException(
+                    status_code=400,
+                    detail="URL host resolves to a reserved / link-local address",
+                )
+    except socket.gaierror:
+        pass  # DNS may be unavailable in offline dev envs; allow by default
+    return urlunparse(parsed)
 
 
 def _safe_exception_label(e: BaseException) -> str:
@@ -605,10 +641,11 @@ async def test_forwarder_config(req: ForwarderTestConfig) -> dict[str, Any]:
         headers.setdefault("Authorization", f"Bearer {secret}")
 
     import time as _time
+    safe_url = _sanitized_http_url(req.url)
     start = _time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(req.url, content=body, headers=headers)
+            resp = await client.post(safe_url, content=body, headers=headers)
     except Exception as e:
         logger.warning("test-config dispatch failed", exc_info=True)
         return {
@@ -634,11 +671,12 @@ async def test_forwarder_config(req: ForwarderTestConfig) -> dict[str, Any]:
         except Exception:
             pass  # absent ackId leaves verified=accepted
         if ack_id is not None:
-            ack_url = req.url
+            ack_url = safe_url
             for needle in ("/services/collector/event", "/services/collector/raw", "/services/collector"):
                 if ack_url.endswith(needle):
                     ack_url = ack_url[:-len(needle)] + "/services/collector/ack"
                     break
+            safe_ack_url = _sanitized_http_url(ack_url)
             ack_headers = dict(headers)
             ack_headers["Content-Type"] = "application/json"
             ack_start = _time.perf_counter()
@@ -646,7 +684,7 @@ async def test_forwarder_config(req: ForwarderTestConfig) -> dict[str, Any]:
                 async with httpx.AsyncClient(timeout=5.0) as ack_client:
                     ack_payload = {"acks": [int(ack_id)]} if ack_id.isdigit() else {"acks": [ack_id]}
                     for _ in range(3):
-                        ack_resp = await ack_client.post(ack_url, json=ack_payload, headers=ack_headers)
+                        ack_resp = await ack_client.post(safe_ack_url, json=ack_payload, headers=ack_headers)
                         if 200 <= ack_resp.status_code < 300:
                             try:
                                 ack_json = ack_resp.json()
@@ -683,6 +721,19 @@ async def forwarder_health(forwarder_id: int) -> dict[str, Any]:
     if fwd is None:
         raise HTTPException(status_code=404, detail="forwarder not found")
     outbox = ExternalForwardOutboxRepository(db)
+    # Same knobs the dispatcher uses — keep in sync with
+    # ExternalForwarderService._apply_backoff so the drawer shows the
+    # actual wait time, not a guess.
+    import os as _os
+    breaker_base = 60.0
+    breaker_cap = 60.0 * 60.0
+    breaker_trip = 5
+    max_attempts = int(_os.environ.get("SV_SIEM_MAX_ATTEMPTS", "10"))
+    consecutive = int(fwd["consecutive_fails"] or 0)
+    backoff_seconds: Optional[int] = None
+    if consecutive >= breaker_trip:
+        exponent = consecutive - breaker_trip
+        backoff_seconds = int(min(breaker_base * (2 ** exponent), breaker_cap))
     return {
         "id": forwarder_id,
         "enabled": fwd["enabled"],
@@ -690,8 +741,32 @@ async def forwarder_health(forwarder_id: int) -> dict[str, Any]:
         "last_success_at": fwd["last_success_at"],
         "last_failure_at": fwd["last_failure_at"],
         "last_error": fwd["last_error"],
-        "consecutive_fails": fwd["consecutive_fails"],
+        "consecutive_fails": consecutive,
+        "events_sent": int(fwd.get("events_sent") or 0),
+        "circuit_open": consecutive >= breaker_trip,
+        "backoff_seconds": backoff_seconds,
+        "max_attempts": max_attempts,
+        "recent_failures": await outbox.recent_failures(forwarder_id, limit=10),
     }
+
+
+@router.post("/siem-forwarders/{forwarder_id}/reset-breaker")
+async def reset_forwarder_breaker(forwarder_id: int) -> dict[str, Any]:
+    """Zero the circuit-breaker so the next dispatcher tick retries now.
+
+    Use case: operator fixed a broken destination (corrected URL,
+    rotated token) and doesn't want to wait out the exponential
+    backoff. Outbox rows keep their `attempts` counter — if the
+    underlying issue persists, the breaker will trip again and drops
+    still apply via `drop_exceeded(max_attempts=10)`.
+    """
+    db = get_database()
+    repo = ExternalForwardersRepository(db)
+    fwd = await repo.get(forwarder_id)
+    if fwd is None:
+        raise HTTPException(status_code=404, detail="forwarder not found")
+    await repo.reset_breaker(forwarder_id)
+    return {"ok": True, "id": forwarder_id}
 
 
 def _now_iso() -> str:

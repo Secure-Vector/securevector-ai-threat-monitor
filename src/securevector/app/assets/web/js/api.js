@@ -229,6 +229,12 @@ const API = {
         return this.request(`/api/siem-forwarders/${id}/health`);
     },
 
+    async resetSiemForwarderBreaker(id) {
+        return this.request(`/api/siem-forwarders/${id}/reset-breaker`, {
+            method: 'POST',
+        });
+    },
+
     // Global SIEM forwarding kill-switch (v24 — single boolean toggle)
     async getSiemGlobalSettings() {
         return this.request('/api/siem-forwarders/global-settings');
