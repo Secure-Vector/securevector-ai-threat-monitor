@@ -61,7 +61,7 @@ async def _siem_enqueue_tool_audit(
         import getpass
         actor_user = getpass.getuser()
     except Exception:
-        pass
+        pass  # best-effort OS-user lookup; absence is fine
     # actor_process is "who invoked the tool?" — we don't have the source
     # here, but the tool_id carries enough attribution for audits.
     actor_process: Optional[str] = str(tool_id) if tool_id else None
@@ -77,7 +77,7 @@ async def _siem_enqueue_tool_audit(
         seed = f"{tool_id}|{function_name}|{action}|{hour}".encode("utf-8")
         finding_group_id = hashlib.sha256(seed).hexdigest()[:16]
     except Exception:
-        pass
+        pass  # best-effort finding_group_id derivation; falls through to None
 
     # audit_id isn't known at this call site (we only have seq + row_hash),
     # so pass 0 — consumers keying on row_hash are unaffected, and the OCSF

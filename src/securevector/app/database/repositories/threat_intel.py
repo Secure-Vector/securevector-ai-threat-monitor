@@ -108,7 +108,7 @@ async def _siem_enqueue_scan(
         import getpass
         actor_user = getpass.getuser()
     except Exception:
-        pass
+        pass  # best-effort OS-user lookup; None is acceptable
     if source:
         actor_process = str(source)
 

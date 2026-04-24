@@ -40,6 +40,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _sanitize_exception_for_response(e: BaseException) -> str:
+    """Build an operator-safe error string from an exception.
+
+    Keeps the exception type name (useful: ConnectionError, PermissionError,
+    TimeoutException) plus a short, control-char-stripped summary of the
+    message. Full exception (including stack + any file paths / secret
+    fragments in the message) stays in server logs via `exc_info=True`.
+    CodeQL: py/information-exposure-through-an-exception.
+    """
+    name = type(e).__name__
+    try:
+        msg = str(e)
+    except Exception:
+        msg = ""
+    # Strip ASCII control chars so log-injection and control-char smuggling
+    # via the response body is impossible, then truncate to 120 chars.
+    msg = "".join(c for c in msg if ord(c) >= 32 and ord(c) != 127)[:120]
+    return f"{name}: {msg}" if msg else name
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -301,13 +321,19 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
                 "ack_id": None,
             }
         except Exception as e:
-            err = f"{type(e).__name__}: {e!s}"
-            await repo.mark_failure(forwarder_id, f"test: {err}")
+            # Expose ONLY exception type + a short sanitized message —
+            # full stack / internal paths stay server-side. The operator
+            # needs enough to act (e.g. "PermissionError") without us
+            # leaking implementation details into the API response.
+            # CodeQL: py/information-exposure-through-an-exception.
+            safe_err = _sanitize_exception_for_response(e)
+            await repo.mark_failure(forwarder_id, f"test: {safe_err}")
+            logger.warning("test_forwarder(file) failed", exc_info=True)
             return {
                 "ok": False,
                 "status_code": 0,
                 "latency_ms": int((_time.perf_counter() - start) * 1000),
-                "error": err,
+                "error": safe_err,
                 "response_preview": f"write failed: {expanded}",
             }
 
@@ -348,11 +374,14 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(fwd["url"], content=body, headers=headers)
     except Exception as e:
+        # Same sanitization as the file branch — return type name +
+        # short clean message; full exception to server log only.
+        logger.warning("test_forwarder(%s) failed", fwd["kind"], exc_info=True)
         return {
             "ok": False,
             "status_code": 0,
             "latency_ms": int((_time.perf_counter() - start) * 1000),
-            "error": f"{type(e).__name__}: {e!s}",
+            "error": _sanitize_exception_for_response(e),
         }
     latency_ms = int((_time.perf_counter() - start) * 1000)
     ok = 200 <= resp.status_code < 300

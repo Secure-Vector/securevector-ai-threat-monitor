@@ -36,6 +36,25 @@ from securevector.app.services import forwarder_secrets
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_for_log(value: Any, cap: int = 80) -> str:
+    """Strip CR/LF + other ASCII control characters from user-provided
+    values before they hit the log stream. Prevents log-injection via a
+    malicious destination name / URL. CodeQL: py/log-injection.
+
+    Caps the result at `cap` chars so a 10 KB pasted value doesn't blow
+    up the log line.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    # Drop ASCII controls (0x00-0x1F + 0x7F) — keeps printable ASCII +
+    # most unicode. A tab inside a destination name is already weird;
+    # a newline is hostile.
+    s = "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
+    return s[:cap]
+
+
 OutboxKind = Literal["scan", "output_scan", "tool_audit"]
 # `file` = local NDJSON append, indie-friendly destination with zero
 # infra. URL column is reinterpreted as a filesystem path for this kind.
@@ -537,7 +556,11 @@ class ExternalForwardersRepository:
         )
         await conn.commit()
         row_id = int(cursor.lastrowid or 0)
-        logger.info(f"external_forwarders: created id={row_id} kind={kind} name={name!r}")
+        # Sanitize user-provided name before logging: strip CR/LF + other
+        # control characters so a malicious name can't inject fake log
+        # lines. Keep it short (CodeQL: py/log-injection).
+        safe_name = _sanitize_for_log(name)
+        logger.info("external_forwarders: created id=%d kind=%s name=%r", row_id, kind, safe_name)
         return await self.get(row_id)  # type: ignore[return-value]
 
     async def update(
@@ -635,7 +658,7 @@ class ExternalForwardersRepository:
         # CASCADE drops the matching outbox rows.
         await conn.execute("DELETE FROM external_forwarders WHERE id = ?", (forwarder_id,))
         await conn.commit()
-        logger.info(f"external_forwarders: deleted id={forwarder_id}")
+        logger.info("external_forwarders: deleted id=%d", int(forwarder_id))
         return True
 
     async def get(self, forwarder_id: int) -> Optional[dict[str, Any]]:
