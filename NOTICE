@@ -28,6 +28,38 @@ PyYAML
 
 ================================================================================
 
+OPEN STANDARDS CONFORMED TO (no redistributed content):
+
+SecureVector emits events that conform to the following open schemas /
+identifier namespaces. No schema files, documentation, or derivative works
+are bundled; the project uses these as format specifications only.
+
+Open Cybersecurity Schema Framework (OCSF)
+- Version: 1.3.0
+- License: Apache License 2.0
+- Steward: OCSF Project, hosted by the Linux Foundation
+- Website: https://ocsf.io/
+- Usage: siem_ocsf.py emits events conforming to OCSF 1.3.0 class_uid
+  2001 (Scan Finding) and 1007 (Process Activity / tool-call audit).
+
+MITRE ATT&CK(R)
+- License: Apache License 2.0 for the framework; content licensed under
+  Creative Commons Attribution 4.0 International (CC BY 4.0)
+- Steward: The MITRE Corporation
+- Website: https://attack.mitre.org/
+- Usage: Rule metadata references ATT&CK technique IDs (e.g., T1055,
+  T1059) as identifiers only. No ATT&CK names, descriptions, or other
+  copyrighted content is redistributed. ATT&CK(R) is a registered
+  trademark of The MITRE Corporation; SecureVector is not affiliated
+  with or endorsed by MITRE.
+
+SecureVector is not affiliated with or endorsed by the Linux Foundation,
+the OCSF Project, or The MITRE Corporation. Product and company names
+referenced here may be trademarks of their respective owners; references
+are nominative / fair-use for interoperability purposes only.
+
+================================================================================
+
 CONTRIBUTOR ACKNOWLEDGMENTS:
 
 This project welcomes contributions from the open source community.
