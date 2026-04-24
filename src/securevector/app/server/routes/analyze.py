@@ -41,6 +41,11 @@ class MatchedRule(BaseModel):
     severity: str
     source: str  # 'community' or 'custom'
     matched_patterns: list[str] = []
+    # MITRE ATT&CK technique IDs associated with this rule match. Sourced
+    # from the rule's own metadata.mitre_attack_ids when present; falls
+    # back to a per-category default otherwise. Surfaces in OCSF's
+    # `finding.techniques` for downstream SIEM dashboards.
+    mitre_techniques: list[str] = []
 
 
 class LLMReviewInfo(BaseModel):
@@ -244,6 +249,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     severity=rule.get("severity", "medium"),
                     source=rule.get("source", "community"),
                     matched_patterns=rule.get("matched_patterns", []),
+                    mitre_techniques=list(rule.get("mitre_techniques") or []),
                 )
             )
 

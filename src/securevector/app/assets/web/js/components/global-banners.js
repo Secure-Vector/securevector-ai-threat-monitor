@@ -8,7 +8,7 @@
  */
 
 const GlobalBanners = {
-    WHATS_NEW_VERSION: '3.4.0',
+    WHATS_NEW_VERSION: '4.0.0',
     KEY_OPENCLAW: 'sv-openclaw-banner-dismissed',
     KEY_WHATS_NEW: 'sv-whats-new-acked',
 
@@ -159,15 +159,27 @@ const GlobalBanners = {
         strong.textContent = 'What\u2019s new:';
         strong.style.marginRight = '6px';
         textCol.appendChild(strong);
-        textCol.appendChild(document.createTextNode('Native OpenClaw plugin \u00B7 Tool audit trail \u00B7 Refreshed cost tracking for 76 models \u00B7 Skill Scanner policy.'));
+        // v4.0.0 headline = SIEM Forwarder. Keep OpenClaw visible as the
+        // previous-release callout so users returning after v3.4 still
+        // catch up on both. One banner, two releases — cheaper than a
+        // carousel and it's all still fresh.
+        textCol.appendChild(document.createTextNode('SIEM Forwarder \u2014 OCSF events to Splunk / Datadog / Sentinel / Chronicle / QRadar \u00B7 Previously in v3.4: native OpenClaw plugin, tool audit trail.'));
         card.appendChild(textCol);
 
         const cta = document.createElement('button');
         cta.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent-primary); background: transparent; border: 1px solid rgba(94,173,184,0.4); padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s;';
-        cta.textContent = 'Open Guide \u2192';
+        cta.textContent = 'Open SIEM Forwarder \u2192';
         cta.addEventListener('mouseenter', () => { cta.style.background = 'rgba(94,173,184,0.08)'; });
         cta.addEventListener('mouseleave', () => { cta.style.background = 'transparent'; });
-        cta.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide'); });
+        cta.addEventListener('click', () => {
+            if (window.Sidebar) {
+                // SIEM Forwarder lives under the `integrations` section
+                // (labelled "Connect" in the sidebar). Expand first so
+                // the nav item is visible when we select it.
+                Sidebar.expandSection('integrations');
+                Sidebar.navigate('siem-export');
+            }
+        });
         card.appendChild(cta);
 
         const closeBtn = document.createElement('button');

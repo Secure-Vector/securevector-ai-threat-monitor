@@ -14,6 +14,12 @@ const Sidebar = {
         { id: 'skill-permissions', label: 'Skill Policy', icon: 'shield', tooltip: 'Manage scan policy permissions and trusted publishers' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+        // SIEM Forwarder is an outbound pipe to external SOC systems —
+        // placed above Integrations (inbound pipes from agent
+        // frameworks) because the SOC audit/compliance story is the
+        // higher-value v4.0 positioning. Both are Connect; this is the
+        // one regulated buyers ask about first.
+        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
             { id: 'proxy-langchain', label: 'LangChain' },
@@ -23,9 +29,10 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
+            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
             { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
-            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
         ]},
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
@@ -61,10 +68,24 @@ const Sidebar = {
         logoImg.className = 'sidebar-logo-img';
         logoLink.appendChild(logoImg);
 
+        // Wrap the brand text + tagline in a column so the tagline sits
+        // under the wordmark without pushing the favicon around.
+        const logoTextCol = document.createElement('div');
+        logoTextCol.className = 'sidebar-logo-text';
+
         const logo = document.createElement('span');
         logo.className = 'sidebar-logo';
         logo.textContent = 'SecureVector';
-        logoLink.appendChild(logo);
+        logoTextCol.appendChild(logo);
+
+        // Tagline — product positioning in small caps. Uses theme
+        // variables so it respects light/dark switches automatically.
+        const tagline = document.createElement('span');
+        tagline.className = 'sidebar-tagline';
+        tagline.textContent = 'AI Agent Runtime Control';
+        logoTextCol.appendChild(tagline);
+
+        logoLink.appendChild(logoTextCol);
 
         header.appendChild(logoLink);
         container.appendChild(header);
@@ -76,15 +97,18 @@ const Sidebar = {
         // Core features get an orange badge dot overlaid on their icon
         const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
 
-        // Section labels before nav items
+        // Section labels before nav items. SIEM Forwarder now anchors
+        // the Connect section (it sits above Integrations) so the
+        // "Connect" label still renders above the outbound/inbound pipes.
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
-            'integrations':     'Connect',
+            'siem-export':      'Connect',
         };
 
-        // Items that get a divider before them
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'integrations']);
+        // Items that get a divider before them — keep the visual break
+        // at the Connect boundary too.
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'siem-export']);
 
         this.navItems.forEach(item => {
             // Section label
@@ -145,7 +169,9 @@ const Sidebar = {
 
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
             const persistNewItems = ['rules'];
-            const sessionNewItems = ['skill-scanner', 'skill-permissions'];
+            // Session-only NEW badges: first-view highlight that auto-dismisses
+            // after 30s so the sidebar doesn't stay permanently shouty.
+            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export'];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist
@@ -292,8 +318,31 @@ const Sidebar = {
         proxyBanner.appendChild(bannerText);
         bottomSection.appendChild(proxyBanner);
 
-        // Check proxy status
+        // SIEM Forwarder active indicator — mirrors the proxy banner
+        // styling so both stack cleanly when on together. Visible only
+        // when the master toggle is enabled AND at least one destination
+        // is configured (no point showing "active" if nothing receives).
+        const siemBanner = document.createElement('div');
+        siemBanner.id = 'siem-active-banner';
+        siemBanner.className = 'proxy-banner-pulse';
+        // Green accent (10b981) — different from the cyan proxy banner
+        // so operators can tell them apart at a glance when stacked.
+        siemBanner.style.cssText = 'display: none; margin: 6px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(16,185,129,0.35); align-items: center; gap: 6px; transition: background 0.15s;';
+        siemBanner.addEventListener('mouseenter', () => { siemBanner.style.background = 'rgba(16,185,129,0.06)'; });
+        siemBanner.addEventListener('mouseleave', () => { siemBanner.style.background = 'transparent'; });
+        const siemDot = document.createElement('span');
+        siemDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
+        siemBanner.appendChild(siemDot);
+        const siemText = document.createElement('span');
+        siemText.id = 'siem-banner-text';
+        siemText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        siemBanner.appendChild(siemText);
+        siemBanner.addEventListener('click', () => this.navigate('siem-export'));
+        bottomSection.appendChild(siemBanner);
+
+        // Check both indicators on init; each polls its own interval.
         this.checkProxyStatus();
+        this.checkSiemStatus();
 
         // Try SecureVector button — opens floating chat
         const tryBtn = document.createElement('button');
@@ -583,6 +632,34 @@ const Sidebar = {
         }
         // Refresh every 5 seconds
         setTimeout(() => this.checkProxyStatus(), 5000);
+    },
+
+    async checkSiemStatus() {
+        // Sidebar "SIEM active" indicator. Visible only when:
+        //   (a) master toggle is enabled (siem-forwarders/global-settings)
+        //   (b) at least one destination is configured + enabled
+        // Otherwise the banner hides — we don't mislead operators into
+        // thinking something's flowing when the pipe is paused or empty.
+        try {
+            const [global, list] = await Promise.all([
+                fetch('/api/siem-forwarders/global-settings').then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch('/api/siem-forwarders').then(r => r.ok ? r.json() : null).catch(() => null),
+            ]);
+            const banner = document.getElementById('siem-active-banner');
+            const textEl = document.getElementById('siem-banner-text');
+            if (banner && textEl) {
+                const enabled = !!(global && global.enabled);
+                const items = (list && Array.isArray(list.items)) ? list.items : [];
+                const activeCount = items.filter(f => f.enabled).length;
+                if (enabled && activeCount > 0) {
+                    banner.style.display = 'flex';
+                    textEl.textContent = `SIEM Forwarder active (${activeCount} destination${activeCount === 1 ? '' : 's'})`;
+                } else {
+                    banner.style.display = 'none';
+                }
+            }
+        } catch (_) { /* ignore */ }
+        setTimeout(() => this.checkSiemStatus(), 5000);
     },
 
     createIcon(name) {

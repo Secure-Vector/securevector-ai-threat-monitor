@@ -196,6 +196,35 @@ html, body {
     background-clip: text;
 }
 
+/* Brand text column — stacks the wordmark and tagline vertically next
+   to the favicon. Line-height tight so the two lines hug the header bar. */
+.sidebar-logo-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    gap: 2px;
+}
+
+/* Tagline under the SecureVector wordmark. Theme-aware — uses
+   --text-muted so it tracks whatever palette is active. Kept on a
+   single line: nowrap + tightened tracking so it fits the header
+   width under the wordmark without wrapping. */
+.sidebar-tagline {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Collapsed sidebar: hide tagline alongside the wordmark. */
+.sidebar.collapsed .sidebar-tagline {
+    display: none;
+}
+
 /* Cloud Toggle in Header */
 .cloud-toggle-wrapper {
     margin-right: 8px;
@@ -895,6 +924,20 @@ html, body {
 }
 .proxy-banner-pulse {
     animation: proxy-border-pulse 3s ease-in-out infinite;
+}
+
+/* Attention pulse on the primary SIEM Forwarder add button. Box-shadow
+   ring pulses briefly on first paint to draw the eye, then settles.
+   Respects prefers-reduced-motion. */
+@keyframes sv-siem-add-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(94,173,184,0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(94,173,184,0); }
+    100% { box-shadow: 0 0 0 0 rgba(94,173,184,0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .sv-siem-add-pulse {
+        animation: sv-siem-add-pulse 1.8s ease-out 0s 4;
+    }
 }
 
 /* ── Try SecureVector trigger button ────────────────────────── */
@@ -3826,7 +3869,9 @@ html, body {
     background: var(--bg-hover);
 }
 .data-table th.sortable::after {
-    content: '\u2195';
+    /* CSS unicode escapes use `\<hex>`, not the JS-style `\u<hex>`. */
+    /* `\2195 ` = ↕ (UP DOWN ARROW). Trailing space terminates the escape. */
+    content: '\2195 ';
     position: absolute;
     right: 8px;
     top: 50%;
@@ -3835,12 +3880,12 @@ html, body {
     font-size: 10px;
 }
 .data-table th.sort-asc::after {
-    content: '\u2191';
+    content: '\2191 ';  /* ↑ UPWARDS ARROW */
     opacity: 1;
     color: var(--accent-primary);
 }
 .data-table th.sort-desc::after {
-    content: '\u2193';
+    content: '\2193 ';  /* ↓ DOWNWARDS ARROW */
     opacity: 1;
     color: var(--accent-primary);
 }

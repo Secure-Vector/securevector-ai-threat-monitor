@@ -281,10 +281,17 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 21
+CURRENT_SCHEMA_VERSION = 28
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
-    "v21: device_id on scans + audit rows"
+    "v21: device_id on scans + audit rows; "
+    "v22: external_forwarders — per-destination SIEM config (Splunk/Datadog/webhook/OTLP); "
+    "v23: external_forward_outbox — fan-out queue, at-least-once per destination; "
+    "v24: siem_forwarding_enabled — global kill-switch in app_settings; "
+    "v25: SIEM forwarder redaction_level allows 'full' tier (raw_data + llm_output); "
+    "v26: SIEM forwarder min_severity + rate_limit_per_minute (SOC signal/noise tuning); "
+    "v27: drop kind CHECK on external_forwarders — allow new kinds (e.g. 'file') via app-layer validation; "
+    "v28: lifetime events_sent counter on external_forwarders (per-destination health)"
 )
 
 # Migration SQL for v19

@@ -162,6 +162,13 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         19: migrate_to_v19,
         20: migrate_to_v20,
         21: migrate_to_v21,
+        22: migrate_to_v22,
+        23: migrate_to_v23,
+        24: migrate_to_v24,
+        25: migrate_to_v25,
+        26: migrate_to_v26,
+        27: migrate_to_v27,
+        28: migrate_to_v28,
     }
 
     if version in migrations:
@@ -915,6 +922,378 @@ async def migrate_to_v21(db: DatabaseConnection) -> None:
         "VALUES (21, CURRENT_TIMESTAMP, 'Device ID on scans + audit rows')"
     )
     logger.info("Applied migration v21: device_id columns + indexes")
+
+
+# ---------------------------------------------------------------------------
+# v22 — external_forwarders config table (SIEM export)
+# ---------------------------------------------------------------------------
+async def migrate_to_v22(db: DatabaseConnection) -> None:
+    """v21 -> v22: external SIEM forwarders config table.
+
+    Stores one row per user-configured destination (Splunk HEC, Datadog,
+    generic webhook, OTLP/HTTP). Secrets themselves are NEVER stored
+    here — only a `secret_ref` that resolves to a 0o600 file in the app
+    data dir, so an exfil of this SQLite file gives URLs and names but
+    no tokens.
+    """
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_forwarders (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind                TEXT    NOT NULL CHECK (kind IN ('webhook', 'splunk_hec', 'datadog', 'otlp_http')),
+            name                TEXT    NOT NULL,
+            url                 TEXT    NOT NULL,
+            secret_ref          TEXT,
+            headers_json        TEXT,
+            event_filter        TEXT    NOT NULL DEFAULT 'threats_only' CHECK (event_filter IN ('all', 'threats_only', 'audits_only')),
+            include_tool_audits INTEGER NOT NULL DEFAULT 1,
+            redaction_level     TEXT    NOT NULL DEFAULT 'standard' CHECK (redaction_level IN ('standard', 'minimal')),
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_success_at     TIMESTAMP,
+            last_failure_at     TIMESTAMP,
+            last_error          TEXT,
+            consecutive_fails   INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_external_forwarders_enabled "
+        "ON external_forwarders (enabled, id)"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (22, CURRENT_TIMESTAMP, 'External SIEM forwarders config')"
+    )
+    logger.info("Applied migration v22: external_forwarders")
+
+
+# ---------------------------------------------------------------------------
+# v23 — external_forward_outbox (per-destination queue)
+# ---------------------------------------------------------------------------
+async def migrate_to_v23(db: DatabaseConnection) -> None:
+    """v22 -> v23: per-destination outbox for SIEM forwarding.
+
+    Fan-out model: one enqueue at the call site produces N outbox rows
+    (one per enabled forwarder that passes the event filter). Each row
+    is delivered independently, so a failing Datadog destination never
+    blocks Splunk. ON DELETE CASCADE means removing a forwarder wipes
+    its queued rows automatically.
+    """
+    conn = await db.connect()
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_forward_outbox (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            forwarder_id  INTEGER NOT NULL REFERENCES external_forwarders(id) ON DELETE CASCADE,
+            kind          TEXT NOT NULL CHECK (kind IN ('scan', 'output_scan', 'tool_audit')),
+            payload_json  TEXT NOT NULL,
+            created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            delivered_at  TIMESTAMP,
+            last_error    TEXT
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_external_forward_outbox_pending "
+        "ON external_forward_outbox (forwarder_id, delivered_at, id) "
+        "WHERE delivered_at IS NULL"
+    )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (23, CURRENT_TIMESTAMP, 'External SIEM forward outbox')"
+    )
+    logger.info("Applied migration v23: external_forward_outbox")
+
+
+# ---------------------------------------------------------------------------
+# v24 — Global SIEM forwarding kill-switch
+# ---------------------------------------------------------------------------
+#
+# Per-destination `enabled` on external_forwarders already lets a user turn
+# individual destinations off. This adds a SINGLE global switch so a user
+# can pause ALL outbound forwarding in one click without touching each
+# destination row. Checked at enqueue time in the `_siem_enqueue_*`
+# helpers — when off, the call returns immediately, nothing lands in the
+# outbox, and the background forwarder never wakes for that event.
+#
+# In-flight outbox rows from before the flip still drain — we don't strand
+# rows. Re-enabling resumes new-event capture.
+async def migrate_to_v24(db: DatabaseConnection) -> None:
+    """v23 -> v24: global SIEM forwarding enable flag on app_settings."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "siem_forwarding_enabled" not in existing:
+        await conn.execute(
+            "ALTER TABLE app_settings "
+            "ADD COLUMN siem_forwarding_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (24, CURRENT_TIMESTAMP, 'Global SIEM forwarding kill-switch')"
+    )
+    logger.info("Applied migration v24: siem_forwarding_enabled flag")
+
+
+# ---------------------------------------------------------------------------
+# v25 — Allow `full` redaction level on SIEM forwarders
+# ---------------------------------------------------------------------------
+#
+# The v22 constraint was CHECK redaction_level IN ('standard', 'minimal'). To
+# let SOC teams receive the actual prompt text + LLM output + matched
+# patterns in their own SIEM (class 2001 raw_data + unmapped.llm_output),
+# we add a third tier: `full`.
+#
+# SQLite doesn't support ALTER COLUMN DROP CONSTRAINT, so the migration
+# rebuilds the table: copy → drop → rename. Same idempotency guard as
+# every other column-level migration here.
+async def migrate_to_v25(db: DatabaseConnection) -> None:
+    """v24 -> v25: relax external_forwarders.redaction_level to allow 'full'."""
+    conn = await db.connect()
+
+    # If a fresh schema already permits 'full', short-circuit. We key on
+    # the presence of an existing forwarder with redaction_level='full' —
+    # if none and the CHECK is tight, the rebuild below handles the rest.
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = await cur.fetchall()
+    if not cols:
+        # Table doesn't exist on this DB yet — nothing to do. A later
+        # migrate_to_v22 run on an older install will create it with the
+        # new CHECK.
+        await conn.execute(
+            "INSERT INTO schema_version (version, applied_at, description) "
+            "VALUES (25, CURRENT_TIMESTAMP, 'SIEM forwarder redaction_level full tier (no-op: table absent)')"
+        )
+        logger.info("Applied migration v25: no external_forwarders table yet, skipped")
+        return
+
+    # Rebuild with the new CHECK. Must drop dependent FK before recreating
+    # since external_forward_outbox references external_forwarders(id).
+    await conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await conn.executescript(
+            """
+            -- Always start from a fresh staging table. Without this drop,
+            -- a crash between `INSERT INTO ..._v25 SELECT FROM external_forwarders`
+            -- and `DROP TABLE external_forwarders` would, on retry, double
+            -- every config row: the staging table still holds the first
+            -- round and the SELECT re-inserts them. Drop-first makes the
+            -- migration idempotent under replay.
+            DROP TABLE IF EXISTS external_forwarders_v25;
+
+            CREATE TABLE external_forwarders_v25 (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind                TEXT    NOT NULL CHECK (kind IN ('webhook', 'splunk_hec', 'datadog', 'otlp_http')),
+                name                TEXT    NOT NULL,
+                url                 TEXT    NOT NULL,
+                secret_ref          TEXT,
+                headers_json        TEXT,
+                event_filter        TEXT    NOT NULL DEFAULT 'threats_only' CHECK (event_filter IN ('all', 'threats_only', 'audits_only')),
+                include_tool_audits INTEGER NOT NULL DEFAULT 1,
+                redaction_level     TEXT    NOT NULL DEFAULT 'standard' CHECK (redaction_level IN ('standard', 'minimal', 'full')),
+                enabled             INTEGER NOT NULL DEFAULT 1,
+                created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_success_at     TIMESTAMP,
+                last_failure_at     TIMESTAMP,
+                last_error          TEXT,
+                consecutive_fails   INTEGER NOT NULL DEFAULT 0
+            );
+
+            INSERT INTO external_forwarders_v25
+            SELECT id, kind, name, url, secret_ref, headers_json, event_filter,
+                   include_tool_audits, redaction_level, enabled, created_at,
+                   updated_at, last_success_at, last_failure_at, last_error,
+                   consecutive_fails
+              FROM external_forwarders;
+
+            DROP TABLE external_forwarders;
+            ALTER TABLE external_forwarders_v25 RENAME TO external_forwarders;
+
+            CREATE INDEX IF NOT EXISTS idx_external_forwarders_enabled
+              ON external_forwarders (enabled, id);
+            """
+        )
+    finally:
+        await conn.execute("PRAGMA foreign_keys = ON")
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (25, CURRENT_TIMESTAMP, 'SIEM forwarder redaction_level allows full tier')"
+    )
+    logger.info("Applied migration v25: redaction_level accepts 'full'")
+
+
+# ---------------------------------------------------------------------------
+# v26 — SOC-grade filtering: min_severity threshold + rate limit
+# ---------------------------------------------------------------------------
+#
+# SOC analyst review flagged two alert-fatigue risks: (1) threats_only
+# still forwards WARN-level noise, and (2) a misbehaving agent could
+# fire thousands of scans/sec with no cap.
+#
+# Adds two columns to external_forwarders:
+#   min_severity         : 'block' | 'detected' | 'warn' — default 'review'
+#                          which drops WARN-tier noise. Legacy values
+#                          still accepted; see _passes_filter.
+#   rate_limit_per_minute: 0 = unlimited (default). When exceeded, new
+#                          events are dropped in-window and the next
+#                          allowed event carries suppressed_count in
+#                          unmapped so the SIEM sees the burst summary.
+async def migrate_to_v26(db: DatabaseConnection) -> None:
+    """v25 -> v26: SOC-grade filtering on external_forwarders."""
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    existing = {row[1] for row in await cur.fetchall()}
+
+    if existing:
+        # Simple ALTER — no CHECK constraint, validated in Pydantic
+        # so we skip another table-rebuild cycle.
+        if "min_severity" not in existing:
+            await conn.execute(
+                "ALTER TABLE external_forwarders "
+                "ADD COLUMN min_severity TEXT NOT NULL DEFAULT 'review'"
+            )
+        if "rate_limit_per_minute" not in existing:
+            await conn.execute(
+                "ALTER TABLE external_forwarders "
+                "ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 0"
+            )
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (26, CURRENT_TIMESTAMP, 'SOC filtering: min_severity + rate_limit_per_minute')"
+    )
+    logger.info("Applied migration v26: min_severity + rate_limit_per_minute")
+
+
+async def migrate_to_v27(db: DatabaseConnection) -> None:
+    """v26 -> v27: Drop CHECK(kind IN (...)) on external_forwarders.
+
+    Rationale: every new destination kind ('file', future brands) would
+    otherwise need its own migration just to expand the CHECK list.
+    Pydantic at the API layer + Literal at the repo layer already
+    enforce the valid kinds, so the CHECK is belt-and-suspenders that
+    pays a rebuild cost for no real integrity gain.
+
+    SQLite can't ALTER a CHECK in place — rebuild the table preserving
+    all columns, data, and other constraints. Idempotent via a staging
+    table name cleanup at the top.
+    """
+    conn = await db.connect()
+
+    # Skip if the table doesn't exist (fresh install) — new schema
+    # created in SCHEMA_SQL won't carry the CHECK.
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='external_forwarders'"
+    )
+    if not await cur.fetchone():
+        await conn.execute(
+            "INSERT INTO schema_version (version, applied_at, description) "
+            "VALUES (27, CURRENT_TIMESTAMP, 'Drop kind CHECK on external_forwarders')"
+        )
+        await conn.commit()
+        return
+
+    # Inspect current columns so the rebuild preserves v26 additions.
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = [row[1] for row in await cur.fetchall()]
+    has_min_sev = "min_severity" in cols
+    has_rate = "rate_limit_per_minute" in cols
+
+    # Staging cleanup in case a prior attempt left debris.
+    await conn.execute("DROP TABLE IF EXISTS external_forwarders_v27")
+
+    # Rebuild with no CHECK on `kind`. Every other constraint preserved.
+    extra_cols = ""
+    extra_cols_list = ""
+    extra_select = ""
+    if has_min_sev:
+        extra_cols += "    min_severity          TEXT NOT NULL DEFAULT 'review',\n"
+        extra_cols_list += ", min_severity"
+        extra_select += ", min_severity"
+    if has_rate:
+        extra_cols += "    rate_limit_per_minute INTEGER NOT NULL DEFAULT 0,\n"
+        extra_cols_list += ", rate_limit_per_minute"
+        extra_select += ", rate_limit_per_minute"
+
+    await conn.executescript(f"""
+        CREATE TABLE external_forwarders_v27 (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind                TEXT    NOT NULL,
+            name                TEXT    NOT NULL,
+            url                 TEXT    NOT NULL,
+            secret_ref          TEXT,
+            headers_json        TEXT,
+            event_filter        TEXT    NOT NULL DEFAULT 'threats_only'
+                                CHECK (event_filter IN ('all','threats_only','audits_only')),
+            include_tool_audits INTEGER NOT NULL DEFAULT 1,
+            redaction_level     TEXT    NOT NULL DEFAULT 'standard'
+                                CHECK (redaction_level IN ('minimal','standard','full')),
+            enabled             INTEGER NOT NULL DEFAULT 1,
+        {extra_cols}    created_at          TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_success_at     TEXT,
+            last_failure_at     TEXT,
+            consecutive_fails   INTEGER NOT NULL DEFAULT 0,
+            last_error          TEXT
+        );
+
+        INSERT INTO external_forwarders_v27
+            (id, kind, name, url, secret_ref, headers_json,
+             event_filter, include_tool_audits, redaction_level, enabled{extra_cols_list},
+             created_at, updated_at, last_success_at, last_failure_at,
+             consecutive_fails, last_error)
+        SELECT id, kind, name, url, secret_ref, headers_json,
+               event_filter, include_tool_audits, redaction_level, enabled{extra_select},
+               created_at, updated_at, last_success_at, last_failure_at,
+               consecutive_fails, last_error
+        FROM external_forwarders;
+
+        DROP TABLE external_forwarders;
+        ALTER TABLE external_forwarders_v27 RENAME TO external_forwarders;
+    """)
+
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (27, CURRENT_TIMESTAMP, 'Drop kind CHECK on external_forwarders (allow new kinds via app-layer validation)')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v27: dropped kind CHECK on external_forwarders")
+
+
+async def migrate_to_v28(db: DatabaseConnection) -> None:
+    """v27 -> v28: Lifetime events_sent counter on external_forwarders.
+
+    Surfaces "total events this destination has received" as a column
+    in the UI. Cumulative across app restarts — persists with the row,
+    unlike the outbox pending_count which purges after 7 days.
+
+    Simple ALTER — DEFAULT 0 backfills all existing rows.
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if cols and "events_sent" not in cols:
+        await conn.execute(
+            "ALTER TABLE external_forwarders "
+            "ADD COLUMN events_sent INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT INTO schema_version (version, applied_at, description) "
+        "VALUES (28, CURRENT_TIMESTAMP, 'external_forwarders.events_sent lifetime counter')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v28: events_sent counter on external_forwarders")
 
 
 # Future migration functions would be defined here:

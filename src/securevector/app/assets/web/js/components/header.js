@@ -183,8 +183,23 @@ const Header = {
             btn.style.color = 'var(--text-secondary)';
         });
 
+        // Context-aware help: when the user hits "?" from a page that
+        // maps to a Guide section, deep-link there with auto-expand.
+        // Falls back to Guide top for pages without a direct mapping.
+        const GUIDE_SECTION_BY_PAGE = {
+            'siem-export':      'section-siem-forwarder',
+            'skill-scanner':    'section-skill-scanner',
+            'tool-permissions': 'section-tool-permissions',
+            'costs':            'section-costs',
+        };
         btn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.navigate('guide');
+            if (!window.Sidebar) return;
+            const current = Sidebar.currentPage;
+            const target = GUIDE_SECTION_BY_PAGE[current];
+            if (target) {
+                Sidebar._pendingScroll = target;
+            }
+            Sidebar.navigate('guide');
         });
         return btn;
     },
