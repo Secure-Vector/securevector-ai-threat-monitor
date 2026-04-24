@@ -1227,6 +1227,26 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             }
         }
 
+        // Contextual visibility for the Sentinel + Splunk templates
+        // callout. Show only when at least one destination would
+        // actually use one of the shipped dashboards:
+        //   - kind = splunk_hec               → Splunk XML applies
+        //   - kind = webhook, URL looks like  → Sentinel JSON applies
+        //     a Sentinel DCR (ingest.monitor.azure.com)
+        // If the user only runs file / Datadog / OTLP / Chronicle /
+        // QRadar / generic webhook, the callout stays hidden — the
+        // shipped dashboards don't match those destinations and the
+        // real-estate is better spent on the table + tier reference.
+        const tplCallout = document.getElementById('siem-templates-callout');
+        if (tplCallout) {
+            const showTemplates = items.some(d => {
+                if (d.kind === 'splunk_hec') return true;
+                if (d.kind === 'webhook' && typeof d.url === 'string' && /ingest\.monitor\.azure\.com/i.test(d.url)) return true;
+                return false;
+            });
+            tplCallout.style.display = showTemplates ? 'flex' : 'none';
+        }
+
         wrap.textContent = '';
         if (!items.length) {
             const empty = document.createElement('div');

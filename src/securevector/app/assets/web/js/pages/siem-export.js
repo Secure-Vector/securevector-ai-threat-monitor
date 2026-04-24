@@ -183,17 +183,20 @@ const SiemExportPage = {
         // primary Copy + secondary Download actions. Works offline,
         // no GitHub dependency.
         const tplCallout = document.createElement('div');
-        tplCallout.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:12px 14px;border:1px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);flex-wrap:wrap;';
+        tplCallout.id = 'siem-templates-callout';
+        // Hidden by default; _refreshSiemForwardersTable toggles display
+        // based on whether the user has any Splunk / Sentinel destination
+        // (the two vendors we actually ship dashboards for). If they only
+        // use file / webhook / Datadog, the callout stays hidden — not
+        // applicable, don't add noise.
+        tplCallout.style.cssText = 'display:none;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:12px 14px;border:1px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);flex-wrap:wrap;';
         tplCallout.innerHTML = `
-            <div style="display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0;">
-                <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;background:rgba(94,173,184,0.12);border:1px solid rgba(94,173,184,0.35);border-radius:8px;color:var(--accent-primary);margin-top:2px;">
+            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+                <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;background:rgba(94,173,184,0.12);border:1px solid rgba(94,173,184,0.35);border-radius:8px;color:var(--accent-primary);">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/><rect x="12" y="6" width="3" height="12"/><rect x="17" y="13" width="3" height="5"/></svg>
                 </span>
-                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55;min-width:0;">
-                    <strong style="color:var(--text-primary);">Day-one SOC dashboards</strong> — severity tiles, MITRE ATT&CK top-N, actor breakdown, finding clusters, hash-chain integrity. No custom SPL or KQL to author.
-                    <div style="margin-top:4px;font-size:11.5px;color:var(--text-muted);">
-                        Not running a SIEM? Skip the dashboards — pipe to a Local NDJSON file destination and <code>tail&nbsp;-f&nbsp;|&nbsp;jq</code> your events.
-                    </div>
+                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;min-width:0;">
+                    <strong style="color:var(--text-primary);">Drop-in dashboards for Sentinel + Splunk.</strong> No SPL or KQL to author.
                 </div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;">
