@@ -618,6 +618,8 @@ pytest tests/ -v
 
 Apache License 2.0 — see [LICENSE](LICENSE).
 
+The starter SIEM dashboard templates under [`docs/siem/`](docs/siem/) (Splunk XML, Sentinel workbook, Datadog + Grafana JSON) are MIT-licensed — see [`docs/siem/LICENSE`](docs/siem/LICENSE) and [`docs/siem/NOTICE`](docs/siem/NOTICE) for trademark disclaimers.
+
 **SecureVector** is a trademark of SecureVector. See [NOTICE](NOTICE).
 
 ---
