@@ -485,6 +485,196 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
     }
 
 
+class ForwarderTestConfig(BaseModel):
+    """Pre-save test payload.
+
+    Mirrors ForwarderCreate's fields but accepts a RAW `secret` value
+    (not a secret_ref), since at Add/Edit time the secret hasn't been
+    written to forwarder_secrets yet. The endpoint does not persist
+    anything — runs one synthetic OCSF event against the supplied
+    config and returns the same response shape as /{id}/test.
+    """
+
+    kind: ForwarderKind
+    url: str = Field(..., min_length=1, max_length=2000)
+    secret: Optional[str] = None
+    headers: Optional[dict[str, str]] = None
+    redaction_level: RedactionLevel = "minimal"
+
+
+@router.post("/siem-forwarders/test-config")
+async def test_forwarder_config(req: ForwarderTestConfig) -> dict[str, Any]:
+    """Fire one synthetic OCSF event at a destination config without
+    saving it — used by the Add/Edit modal's "Test connection" button
+    so the operator can validate URL + credentials before committing.
+
+    Intentionally shares delivery logic with /test (same synth event,
+    same HTTP path, same Splunk HEC ACK verify-back). Does NOT call
+    mark_success / mark_failure, since no DB row exists yet.
+    """
+    try:
+        import httpx
+    except ImportError:
+        raise HTTPException(status_code=500, detail="httpx not installed")
+
+    fwd = {
+        "kind": req.kind,
+        "url": req.url,
+        "headers": req.headers or {},
+        "redaction_level": req.redaction_level,
+        # secret_ref not used here; secret is passed separately below.
+        "secret_ref": None,
+    }
+
+    synth_payload = {
+        "scan_id": "test-preflight",
+        "timestamp": _now_iso(),
+        "verdict": "DETECTED",
+        "threat_score": 0.42,
+        "confidence_score": 0.8,
+        "risk_level": "medium",
+        "detected_items_count": 1,
+        "detected_types": ["synthetic_test_event"],
+        "ml_status": "skipped",
+        "scan_duration_ms": 0.0,
+        "model_id": None,
+        "conversation_id": None,
+    }
+    event = siem_ocsf.encode_scan_event(synth_payload, redaction=req.redaction_level)
+
+    # File destination branch — write one line, no HTTP.
+    if req.kind == "file":
+        import json as _json
+        import os as _os
+        import time as _time
+        from pathlib import Path as _Path
+        raw_path = (req.url or "").strip()
+        if not raw_path:
+            try:
+                from securevector.app.utils.platform import user_data_dir
+                raw_path = str(_Path(user_data_dir(None, None)) / "siem-events.jsonl")
+            except Exception:
+                raw_path = str(_Path.home() / ".securevector" / "siem-events.jsonl")
+        expanded = _os.path.expanduser(raw_path)
+        start = _time.perf_counter()
+        try:
+            path = _Path(expanded)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(_json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n")
+            return {
+                "ok": True,
+                "status_code": 200,
+                "latency_ms": int((_time.perf_counter() - start) * 1000),
+                "response_preview": f"wrote 1 line to {expanded}",
+                "verified": "written",
+                "ack_id": None,
+            }
+        except Exception as e:
+            logger.warning("test-config (file) failed", exc_info=True)
+            return {
+                "ok": False,
+                "status_code": 0,
+                "latency_ms": int((_time.perf_counter() - start) * 1000),
+                "error": _safe_exception_label(e),
+                "response_preview": f"write failed: {expanded}",
+            }
+
+    # HTTP destinations — translate + POST.
+    translator = siem_ocsf.TRANSLATORS.get(req.kind)
+    if translator is None:
+        raise HTTPException(status_code=500, detail=f"unknown kind: {req.kind}")
+
+    body, content_type, extra_headers = translator([event], fwd)
+    headers: dict[str, str] = {"Content-Type": content_type}
+    headers.update(fwd.get("headers") or {})
+    headers.update(extra_headers or {})
+
+    secret = req.secret
+    if req.kind == "splunk_hec" and not secret:
+        raise HTTPException(status_code=400, detail="Splunk HEC token is required")
+    if req.kind == "datadog" and not secret:
+        raise HTTPException(status_code=400, detail="Datadog API key is required")
+    if req.kind == "splunk_hec":
+        headers["Authorization"] = f"Splunk {secret}"
+        import uuid as _uuid
+        headers.setdefault("X-Splunk-Request-Channel", str(_uuid.uuid4()))
+    elif req.kind == "datadog":
+        headers["DD-API-KEY"] = secret or ""
+    elif secret:
+        headers.setdefault("Authorization", f"Bearer {secret}")
+
+    import time as _time
+    start = _time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(req.url, content=body, headers=headers)
+    except Exception as e:
+        logger.warning("test-config dispatch failed", exc_info=True)
+        return {
+            "ok": False,
+            "status_code": 0,
+            "latency_ms": int((_time.perf_counter() - start) * 1000),
+            "error": _safe_exception_label(e),
+        }
+
+    latency_ms = int((_time.perf_counter() - start) * 1000)
+    ok = 200 <= resp.status_code < 300
+
+    # HEC ACK verify-back (same logic as /test; no mark_success side effect).
+    verified = "accepted"
+    ack_id: Optional[str] = None
+    indexing_poll_ms: Optional[int] = None
+    if ok and req.kind == "splunk_hec":
+        try:
+            body_json = resp.json()
+            if isinstance(body_json, dict) and body_json.get("ackId") is not None:
+                ack_id = str(body_json.get("ackId"))
+                verified = "accepted_with_ack"
+        except Exception:
+            pass  # absent ackId leaves verified=accepted
+        if ack_id is not None:
+            ack_url = req.url
+            for needle in ("/services/collector/event", "/services/collector/raw", "/services/collector"):
+                if ack_url.endswith(needle):
+                    ack_url = ack_url[:-len(needle)] + "/services/collector/ack"
+                    break
+            ack_headers = dict(headers)
+            ack_headers["Content-Type"] = "application/json"
+            ack_start = _time.perf_counter()
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as ack_client:
+                    ack_payload = {"acks": [int(ack_id)]} if ack_id.isdigit() else {"acks": [ack_id]}
+                    for _ in range(3):
+                        ack_resp = await ack_client.post(ack_url, json=ack_payload, headers=ack_headers)
+                        if 200 <= ack_resp.status_code < 300:
+                            try:
+                                ack_json = ack_resp.json()
+                                acks_map = (ack_json or {}).get("acks") or {}
+                                if any(bool(v) for v in acks_map.values()):
+                                    verified = "indexed"
+                                    break
+                            except Exception:
+                                pass  # malformed ACK body; retry next cycle
+                        import asyncio as _asyncio
+                        await _asyncio.sleep(1.0)
+                    if verified != "indexed":
+                        verified = "pending"
+                indexing_poll_ms = int((_time.perf_counter() - ack_start) * 1000)
+            except Exception:
+                indexing_poll_ms = int((_time.perf_counter() - ack_start) * 1000)
+
+    return {
+        "ok": ok,
+        "status_code": resp.status_code,
+        "latency_ms": latency_ms,
+        "response_preview": (resp.text or "")[:200],
+        "verified": verified,
+        "ack_id": ack_id,
+        "indexing_poll_ms": indexing_poll_ms,
+    }
+
+
 @router.get("/siem-forwarders/{forwarder_id}/health")
 async def forwarder_health(forwarder_id: int) -> dict[str, Any]:
     db = get_database()

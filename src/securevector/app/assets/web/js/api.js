@@ -214,6 +214,17 @@ const API = {
         return this.request(`/api/siem-forwarders/${id}/test`, { method: 'POST' });
     },
 
+    // Pre-save Test Connection — fires a synthetic OCSF event against
+    // the supplied config without persisting. Used by the Add/Edit
+    // modal's "Test connection" button so operators can validate URL
+    // + credentials before committing to a DB row.
+    async testSiemForwarderConfig(config) {
+        return this.request('/api/siem-forwarders/test-config', {
+            method: 'POST',
+            body: JSON.stringify(config),
+        });
+    },
+
     async getSiemForwarderHealth(id) {
         return this.request(`/api/siem-forwarders/${id}/health`);
     },

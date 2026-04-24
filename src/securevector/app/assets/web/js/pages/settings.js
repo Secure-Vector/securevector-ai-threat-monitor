@@ -1769,6 +1769,61 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             actions: [
                 { label: 'Cancel' },
                 {
+                    // Test connection — fires one synthetic OCSF event
+                    // at the in-progress config without saving. Lets
+                    // the operator validate URL + credentials before
+                    // committing a DB row. Works for all destination
+                    // kinds; for Splunk HEC it surfaces the ACK verify-
+                    // back status just like the post-save Test button.
+                    label: 'Test connection',
+                    closeOnClick: false,
+                    onClick: async () => {
+                        const rawKind = kindSelect.value;
+                        const kind = rawKind.startsWith('webhook:') ? 'webhook' : rawKind;
+                        const urlVal = urlInput.value.trim();
+                        if (!urlVal) {
+                            if (window.Toast) Toast.error('URL is required to test');
+                            return;
+                        }
+                        // For edit flow: if the user left the secret
+                        // field blank, the existing secret is still on
+                        // the row — we can't resolve it from here, so
+                        // ask them to paste the token for the test.
+                        const secretRaw = secretInput.value;
+                        const testPayload = {
+                            kind,
+                            url: urlVal,
+                            redaction_level: redactionSelect.value,
+                        };
+                        if (secretRaw && secretRaw !== '-') {
+                            testPayload.secret = secretRaw;
+                        } else if (isEdit && existing?.has_secret && !secretRaw) {
+                            if (window.Toast) Toast.info('Paste the secret into the Secret field to test — stored tokens aren\'t resolved by test-config.');
+                            return;
+                        }
+                        try {
+                            const res = await API.testSiemForwarderConfig(testPayload);
+                            if (window.Toast) {
+                                if (res.ok) {
+                                    const v = res.verified || 'accepted';
+                                    const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
+                                    let msg;
+                                    if (v === 'indexed') msg = `Indexed ✓ (${latency}) — Splunk confirmed`;
+                                    else if (v === 'pending') msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s`;
+                                    else if (v === 'written') msg = `Written to disk (${res.latency_ms}ms)`;
+                                    else if (v === 'accepted_with_ack') msg = `Accepted (${latency}) — ACK poll unreachable`;
+                                    else msg = `Accepted (${latency}) — indexing not verified`;
+                                    Toast.success(msg);
+                                } else {
+                                    Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
+                                }
+                            }
+                        } catch (e) {
+                            if (window.Toast) Toast.error('Test request failed');
+                        }
+                    },
+                },
+                {
                     label: isEdit ? 'Save' : 'Create',
                     primary: true,
                     closeOnClick: false,
