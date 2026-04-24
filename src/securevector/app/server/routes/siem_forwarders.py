@@ -303,7 +303,9 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
             with path.open("a", encoding="utf-8") as f:
                 f.write(_json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n")
             latency_ms = int((_time.perf_counter() - start) * 1000)
-            await repo.mark_success(forwarder_id)
+            # Bump events_sent counter — Test writes one real synthetic
+            # event, so it's a legitimate delivery for counting purposes.
+            await repo.mark_success(forwarder_id, delivered=1)
             return {
                 "ok": True,
                 "status_code": 200,  # synthetic — no HTTP semantics here
@@ -382,8 +384,10 @@ async def test_forwarder(forwarder_id: int) -> dict[str, Any]:
     latency_ms = int((_time.perf_counter() - start) * 1000)
     ok = 200 <= resp.status_code < 300
     # Record the test outcome on the config row — keeps the health view honest.
+    # Test POSTs one synthetic OCSF event, so it's a real delivery — bump
+    # events_sent so the lifetime counter reflects it.
     if ok:
-        await repo.mark_success(forwarder_id)
+        await repo.mark_success(forwarder_id, delivered=1)
     else:
         await repo.mark_failure(forwarder_id, f"test: HTTP {resp.status_code}")
 

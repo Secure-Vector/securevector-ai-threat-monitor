@@ -31,7 +31,7 @@
 <br>
 
 > **New in v4.0.0:**
-> - **Export to SIEM (free, no signup)** — forward threat detections and tool-call audits to your Splunk HEC, Datadog, OpenTelemetry collector, or any generic HTTPS webhook. OCSF 1.3.0 schema. Metadata-only: prompts, outputs, and matched patterns never leave your machine. Built on the v3.6.0 audit hash-chain — every forwarded tool-call carries `seq` / `prev_hash` / `row_hash` so your SIEM can re-verify the chain off-host, plus `device_id` so fleet operators can attribute every event to a specific machine.
+> - **SIEM Forwarder** — forward threat detections and tool-call audits to your Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OpenTelemetry collector, or any generic HTTPS webhook. Also writes to a local NDJSON file for zero-infra setups. OCSF 1.3.0 schema with MITRE ATT&CK tagging, actor + device attribution, finding clustering, per-destination severity floor and burst guard. Metadata-only by default; raw data is opt-in per destination. Built on the v3.6.0 audit hash-chain — every forwarded tool-call carries `seq` / `prev_hash` / `row_hash` so your SIEM can re-verify the chain off-host.
 >
 > **v3.6.0 carries forward:**
 > - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
@@ -328,13 +328,13 @@ Every scan and audit row is stamped with a stable `device_id` so a customer runn
 | Can the customer reset it? | Yes — delete `.device_id` in the app data dir. Next write will regenerate from the OS identifier (so same ID reappears) OR a fresh random UUID if the OS ID is unavailable. |
 | Does it collide across containers cloned from the same image? | Potentially yes (they share `/etc/machine-id`). Not relevant for desktop use; mention it if you're deploying in Kubernetes. |
 
-**In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM export).
+**In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM Forwarder).
 
 <br>
 
-## Export to SIEM
+## SIEM Forwarder
 
-Stream every threat detection and tool-call audit into your own SIEM — Splunk, Datadog, Elastic, Chronicle, Sumo, an OpenTelemetry collector, or any HTTPS endpoint that accepts JSON. **Free, no signup, no telemetry in the middle.** Your data, your pipes.
+Stream every threat detection and tool-call audit into your own SIEM — Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, an OpenTelemetry collector, a local NDJSON file, or any HTTPS endpoint that accepts JSON. Your data, your pipes.
 
 **Why this is safe to ship with zero monetization:**
 
@@ -355,7 +355,7 @@ The allow-list is enforced at enqueue time by `_assert_metadata_only()`. Even if
 | `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
 | `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
 
-**Configure in Settings → Export to SIEM.** Add Destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+**Configure in Connect → SIEM Forwarder.** Add SIEM destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
 
 **Reliability:**
 - Per-destination outbox with at-least-once delivery.
