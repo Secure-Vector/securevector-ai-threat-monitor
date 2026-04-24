@@ -5,6 +5,35 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-04-24
+
+### Added
+- **SIEM Forwarder (free, no signup)** — forward every threat scan and tool-call audit to your SOC in OCSF 1.3.0 format. Supports Splunk HEC, Datadog, OpenTelemetry/OTLP, Microsoft Sentinel, Google Chronicle, IBM QRadar (via webhook), generic HTTPS webhook, and a **Local NDJSON file** destination (zero-infra indie path).
+- **Per-destination redaction tiers** — `minimal` (default, safe) / `standard` / `full`. Full requires explicit confirmation; raw prompt / LLM output / matched patterns capped at 8 KB per field with an explicit truncation marker.
+- **Per-destination SOC knobs** — `min_severity` floor (default `review`, drops WARN-tier noise), `rate_limit_per_minute` (0 = unlimited) with a sliding-window burst guard that emits a `suppressed_count` summary on the next allowed event.
+- **MITRE ATT&CK tagging** — every matched rule carries `mitre_techniques` (from `metadata.mitre_attack_ids` in the YAML, with a per-category fallback map for unlabelled rules). Surfaced as OCSF `finding.techniques` in every forwarded event.
+- **Actor + device attribution** — `actor.user.name` (OS login), `actor.process.name` (scan source), `device.uid` (stable `sv-<24 hex>`). All three flow into every forwarded event at every redaction tier, enabling per-user / per-host / per-fleet pivots in the SIEM.
+- **Finding clustering** — deterministic `finding_group_id` = SHA-256(matched rule IDs + conversation + hour bucket) → OCSF `finding.related_events_uid`, so repeat attacks collapse to one triage finding.
+- **Splunk HEC indexing verify-back** — Test button polls `/services/collector/ack` (sends `X-Splunk-Request-Channel` so acks work). Returns `verified ∈ {indexed, pending, accepted_with_ack, accepted, written}` — no more "HTTP 200 = working" false confidence.
+- **Lifetime events-sent counter** per destination (migration v28) + "Last sent" relative-time column — operator-visible destination health.
+- **Schema revision marker** — `metadata.extension = {name: "securevector", version: "securevector:4.0"}` on every event so downstream parsers can branch on shape changes independently of OCSF version.
+- **Guide — SIEM Forwarder section** with collapsible sub-sections, enterprise deployment FAQ (fleet topology SVG), OCSF schema reference, example payloads, supported destinations table, credential-storage disclosure, and ready-made Splunk + Sentinel dashboards (`docs/siem/`).
+- **Sidebar indicators** — "SIEM active (N destinations)" status chip (green) parallel to the Proxy-active chip; "AI Agent Runtime Control" tagline under the SecureVector wordmark.
+- **Context-aware `?` help** — deep-links from each page (SIEM Forwarder, Skill Scanner, Tool Permissions, Costs) into the matching Guide section.
+
+### Changed
+- OCSF encoder migrated to proper field placement: `device.uid` (was in `unmapped`), top-level `confidence` (0-100 int) + `confidence_score` (0.0-1.0 float), `finding.techniques`, `actor` block with user/process, `finding.related_events` and `finding.related_events_uid`.
+- Verdict vocabulary collapsed on the wire: `BLOCK / DETECTED / ALLOW` (WARN + REVIEW fold into DETECTED). Legacy verdicts still accepted by the encoder.
+- Per-rule `worst_rule_severity` can override verdict-based `severity_id` when a rule carries explicit severity.
+- Default redaction tier for new destinations is now `minimal` (safer posture for indie devs clicking through defaults).
+- SIEM Forwarder sidebar entry moved above Integrations and anchors the Connect section.
+
+### Infrastructure
+- Migration v26: `min_severity` + `rate_limit_per_minute` on `external_forwarders`.
+- Migration v27: drop `kind` CHECK constraint so new destination kinds (like `file`) don't require table rebuilds.
+- Migration v28: `events_sent` lifetime counter column.
+- Splunk + Sentinel dashboard templates shipped in `docs/siem/`.
+
 ## [3.6.0] - 2026-04-23
 
 > Note: v3.5.0 was an aborted release (binary asset pipeline issue during publish) and was withdrawn. v3.6.0 ships the exact same feature set.

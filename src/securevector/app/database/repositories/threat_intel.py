@@ -20,6 +20,179 @@ from securevector.app.database.connection import DatabaseConnection
 logger = logging.getLogger(__name__)
 
 
+async def _siem_enqueue_scan(
+    *,
+    scan_id: str,
+    timestamp: datetime,
+    is_threat: bool,
+    threat_type: Optional[str],
+    risk_score: int,
+    confidence: float,
+    matched_rules: list[dict[str, Any]],
+    processing_time_ms: int,
+    llm_reviewed: bool,
+    llm_model_used: Optional[str],
+    session_id: Optional[str],
+    db: DatabaseConnection,
+    device_id: Optional[str] = None,
+    source: Optional[str] = None,
+    # Raw-data fields for `full` redaction destinations. Stripped at the
+    # repo layer for standard/minimal destinations before they hit the
+    # outbox, so it's safe to pass these unconditionally.
+    prompt_text: Optional[str] = None,
+    llm_output: Optional[str] = None,
+) -> None:
+    """Enqueue a metadata-only scan event for every enabled forwarder.
+
+    Kept as a local helper to avoid a tight import cycle at module load
+    time — importing external_forwarders here would drag in the
+    asyncio-task machinery every time a scan is persisted. Lazy import
+    keeps the hot path clean.
+    """
+    from securevector.app.database.repositories.external_forwarders import (
+        ExternalForwardOutboxRepository,
+        ExternalForwardersRepository,
+        build_scan_payload,
+        is_siem_forwarding_enabled,
+    )
+
+    # Global kill-switch (migration v24). Cached 5s so hot-path impact is
+    # sub-microsecond. When off, we never touch the outbox at all.
+    if not await is_siem_forwarding_enabled(db):
+        return
+
+    fwds = await ExternalForwardersRepository(db).list_active()
+    if not fwds:
+        return
+
+    # Verdict mapping matches the scan engine. v26 collapses the old
+    # WARN/REVIEW split into a single DETECTED tier at the wire level —
+    # SOC dashboards don't need to know the internal shade of gray.
+    if risk_score >= 80:
+        verdict = "BLOCK"
+        risk_level = "critical"
+    elif risk_score >= 50:
+        verdict = "DETECTED"
+        risk_level = "high"
+    elif is_threat:
+        verdict = "DETECTED"
+        risk_level = "medium"
+    else:
+        verdict = "ALLOW"
+        risk_level = "low"
+
+    detected_types: list[str] = []
+    if threat_type:
+        detected_types.append(str(threat_type))
+    # matched_rules sometimes carries a `category` per match — pull uniques.
+    for mr in matched_rules or []:
+        cat = mr.get("category") if isinstance(mr, dict) else None
+        if cat and cat not in detected_types:
+            detected_types.append(str(cat))
+
+    # matched_patterns — pulled from each matched_rule's `matched_pattern`
+    # if present. Only surfaced to `full` destinations.
+    matched_patterns: list[str] = []
+    for mr in matched_rules or []:
+        if isinstance(mr, dict):
+            pat = mr.get("matched_pattern")
+            if isinstance(pat, str) and pat:
+                matched_patterns.append(pat)
+
+    # ── v26 SOC-context. Computed once, sent to every forwarder that
+    # passes the filter. Failures here fall through to None — we never
+    # block the scan on observability metadata.
+    actor_user: Optional[str] = None
+    actor_process: Optional[str] = None
+    try:
+        import getpass
+        actor_user = getpass.getuser()
+    except Exception:
+        pass  # best-effort OS-user lookup; None is acceptable
+    if source:
+        actor_process = str(source)
+
+    # MITRE + per-rule severity aggregation. Rule dicts may carry these
+    # either at the top level (new rules) or nested in `metadata`
+    # (legacy). Handle both; unknowns drop silently.
+    _SEV_RANK_LOCAL = {"info": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}
+    mitre_techniques: list[str] = []
+    matched_rule_ids: list[str] = []
+    worst_rule_severity: Optional[str] = None
+    worst_rank = 0
+    for mr in matched_rules or []:
+        if not isinstance(mr, dict):
+            continue
+        rid = mr.get("rule_id") or mr.get("id")
+        if rid and str(rid) not in matched_rule_ids:
+            matched_rule_ids.append(str(rid))
+        # Pull MITRE from either top-level mitre_techniques (the
+        # normalized field set by analysis_service._compile_rules), or
+        # the raw rule metadata shape `mitre_attack_ids` used by
+        # community YAML rules. Dedup preserves first-seen order.
+        tech = (
+            mr.get("mitre_techniques")
+            or (mr.get("metadata", {}) or {}).get("mitre_attack_ids")
+            or (mr.get("metadata", {}) or {}).get("mitre")
+            or []
+        )
+        for t in tech if isinstance(tech, list) else []:
+            t_str = str(t).strip()
+            if t_str and t_str not in mitre_techniques:
+                mitre_techniques.append(t_str)
+        sev = str(mr.get("severity") or "").lower()
+        rank = _SEV_RANK_LOCAL.get(sev, 0)
+        if rank > worst_rank:
+            worst_rank = rank
+            worst_rule_severity = sev
+
+    # Stable finding_group_id clusters recurring attacks in the SIEM.
+    # Key = (sorted rule ids, conversation/session, hour bucket) — two
+    # events from the same conv hitting the same rule inside one hour
+    # deduplicate to one finding for triage. Cheap SHA-256, truncated
+    # to 16 hex chars.
+    finding_group_id: Optional[str] = None
+    if matched_rule_ids:
+        try:
+            hour_bucket = (timestamp or datetime.utcnow()).strftime("%Y-%m-%dT%H")
+        except Exception:
+            hour_bucket = datetime.utcnow().strftime("%Y-%m-%dT%H")
+        seed = "|".join(sorted(matched_rule_ids))
+        seed += f"|{session_id or ''}|{hour_bucket}"
+        finding_group_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+    payload = build_scan_payload(
+        scan_id=scan_id,
+        timestamp=timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
+        verdict=verdict,
+        threat_score=round(risk_score / 100.0, 4),
+        confidence_score=float(confidence or 0.0),
+        risk_level=risk_level,
+        detected_items_count=len(matched_rules or []),
+        detected_types=detected_types,
+        ml_status="reviewed" if llm_reviewed else "skipped",
+        scan_duration_ms=float(processing_time_ms or 0),
+        model_id=llm_model_used,
+        conversation_id=session_id,
+        device_id=device_id,
+        prompt_text=prompt_text,
+        llm_output=llm_output,
+        matched_patterns=matched_patterns or None,
+        # v26 SOC-context
+        actor_user=actor_user,
+        actor_process=actor_process,
+        finding_group_id=finding_group_id,
+        mitre_techniques=mitre_techniques or None,
+        worst_rule_severity=worst_rule_severity,
+        matched_rule_ids=matched_rule_ids or None,
+    )
+
+    outbox = ExternalForwardOutboxRepository(db)
+    written = await outbox.enqueue_fanout("scan", payload, forwarders=fwds)
+    if written:
+        logger.debug(f"siem: enqueued scan {scan_id} → {written} forwarder(s)")
+
+
 @dataclass
 class ThreatIntelRecord:
     """Threat intel record data class."""
@@ -237,6 +410,41 @@ class ThreatIntelRepository:
         )
 
         logger.debug(f"Created threat intel record: {record_id}")
+
+        # SIEM fan-out — enqueue a metadata-only copy for every enabled
+        # forwarder whose filter accepts this event. Per-destination
+        # filters (e.g. "threats_only") are applied inside enqueue_fanout.
+        # Failures here must never surface to the scan path, so we catch
+        # everything and log.
+        try:
+            await _siem_enqueue_scan(
+                scan_id=record_id,
+                timestamp=created_at,
+                is_threat=is_threat,
+                threat_type=threat_type,
+                risk_score=risk_score,
+                confidence=confidence,
+                matched_rules=matched_rules,
+                processing_time_ms=processing_time_ms,
+                llm_reviewed=llm_reviewed,
+                llm_model_used=llm_model_used,
+                session_id=session_id,
+                db=self.db,
+                device_id=device_id,
+                source=source,
+                # Raw text — only delivered to destinations at redaction_level=full.
+                # Standard/minimal destinations get this stripped before the outbox.
+                prompt_text=text,
+                # The scan engine's LLM review (when enabled) produces an
+                # explanation/reasoning string — that's the closest thing
+                # to "LLM output" on the scan path. Pass it through so
+                # full-tier destinations get the reviewer's take alongside
+                # the raw prompt. None-default keeps the JSON clean on
+                # scans where no LLM review ran.
+                llm_output=(llm_explanation if llm_reviewed else None),
+            )
+        except Exception as _sie:
+            logger.debug(f"siem enqueue (scan) skipped: {_sie}")
 
         return ThreatIntelRecord(
             id=record_id,

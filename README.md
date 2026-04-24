@@ -30,7 +30,10 @@
 
 <br>
 
-> **New in v3.6.0:**
+> **New in v4.0.0:**
+> - **SIEM Forwarder** — ship every threat scan and tool-call audit to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, any HTTPS webhook, or a local NDJSON file. OCSF 1.3.0 with MITRE ATT&CK tags, actor + device attribution, and a tool-audit hash chain your SIEM can re-verify. Metadata-only by default; raw data is opt-in per destination. Starter dashboards included for [Sentinel](docs/siem/sentinel/securevector-workbook.json), [Splunk](docs/siem/splunk/securevector-dashboard.xml), [Datadog](docs/siem/datadog/securevector-dashboard.json), and [Grafana/Loki](docs/siem/grafana/securevector-dashboard.json).
+>
+> **v3.6.0 carries forward:**
 > - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
 > - **Per-device identifier** — every scan and audit row is stamped with a stable `device_id`. Operators running SecureVector across multiple laptops/agents can now attribute every blocked tool call, threat, and audit row to a specific machine. Derived from the OS machine UUID, SHA-256 hashed — the raw OS identifier never leaves the box.
 >
@@ -45,12 +48,13 @@
 
 <img src="docs/securevector-architecture.svg" alt="SecureVector Architecture" width="100%">
 
-**SecureVector** protects your AI agents at two layers:
+**SecureVector** protects your AI agents at three layers:
 
-- **Runtime** — scans every prompt, response, and tool call for injection attacks, data leaks, and unauthorized access
 - **Pre-install** — the Skill Scanner analyzes agent skill packages for shell access, network calls, and hidden risks before you install them
+- **Runtime** — scans every prompt, response, and tool call for injection attacks, data leaks, and unauthorized access
+- **Observe** — the **SIEM Forwarder** ships every threat + tool-call audit to your SOC in OCSF 1.3.0 format (Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OTLP, generic webhook, or a local NDJSON file) so AI events correlate with your existing security signals. Metadata-only by default; raw data is opt-in per destination.
 
-For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — nothing leaves your machine.
+For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — events only leave the machine when you configure a SIEM destination you control.
 
 <br>
 
@@ -84,7 +88,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-v3.6.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-3.6.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/securevector_3.6.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/securevector-3.6.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-3.6.0-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-v4.0.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector_4.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector-4.0.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -324,7 +328,55 @@ Every scan and audit row is stamped with a stable `device_id` so a customer runn
 | Can the customer reset it? | Yes — delete `.device_id` in the app data dir. Next write will regenerate from the OS identifier (so same ID reappears) OR a fresh random UUID if the OS ID is unavailable. |
 | Does it collide across containers cloned from the same image? | Potentially yes (they share `/etc/machine-id`). Not relevant for desktop use; mention it if you're deploying in Kubernetes. |
 
-**In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM export).
+**In one sentence:** `device_id` is a machine-identifier-per-install, derived locally, hashed before storage, never transmitted except with explicit user opt-in (Cloud Connect or SIEM Forwarder).
+
+<br>
+
+## SIEM Forwarder
+
+Stream every threat detection and tool-call audit into your own SIEM — Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, an OpenTelemetry collector, a local NDJSON file, or any HTTPS endpoint that accepts JSON. Your data, your pipes.
+
+**Why this is safe to ship with zero monetization:**
+
+| Feature | What leaves your machine |
+|---|---|
+| Scan verdict | `scan_id`, `verdict`, `threat_score`, `risk_level`, `detected_types[]`, counts, durations |
+| Tool-call audit | `seq`, `action`, `risk`, `prev_hash`, `row_hash` (the chain witness — lets your SIEM verify integrity) |
+| **Never transmitted** | Prompt text, LLM output, matched patterns, reviewer reasoning, model reasoning |
+
+The allow-list is enforced at enqueue time by `_assert_metadata_only()`. Even if the forwarder code were tampered with, it can't add the forbidden fields back.
+
+**Supported destinations (one code path, OCSF 1.3.0 payload):**
+
+| Kind | Target | Auth header |
+|---|---|---|
+| `splunk_hec` | `https://<host>/services/collector/event` | `Authorization: Splunk <HEC-token>` |
+| `datadog` | `https://http-intake.logs.<site>/api/v2/logs` | `DD-API-KEY: <key>` |
+| `otlp_http` | `https://<collector>/v1/logs` | optional `Authorization: Bearer <token>` |
+| `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
+
+**Configure in Connect → SIEM Forwarder.** Add SIEM destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+
+**📊 Starter dashboards included:**
+
+| Platform | Template |
+|---|---|
+| Microsoft Sentinel | [`docs/siem/sentinel/securevector-workbook.json`](docs/siem/sentinel/securevector-workbook.json) |
+| Splunk | [`docs/siem/splunk/securevector-dashboard.xml`](docs/siem/splunk/securevector-dashboard.xml) |
+| Datadog | [`docs/siem/datadog/securevector-dashboard.json`](docs/siem/datadog/securevector-dashboard.json) |
+| Grafana (Loki) | [`docs/siem/grafana/securevector-dashboard.json`](docs/siem/grafana/securevector-dashboard.json) |
+
+Each carries severity counters, events-over-time by severity, actor and MITRE-ish breakdowns, and a recent-high-severity log feed. **MIT-licensed, AS-IS.** Full install steps + field reference in [`docs/siem/README.md`](docs/siem/README.md); trademark + upstream licenses in [`docs/siem/NOTICE`](docs/siem/NOTICE).
+
+> Starter templates — import-test in your own stack and adjust queries / facets / sourcetypes before relying on them for production detections.
+
+**Reliability:**
+- Per-destination outbox with at-least-once delivery.
+- A failing Datadog destination never blocks a healthy Splunk one.
+- Per-destination circuit breaker backs off broken endpoints (1 min → 1 hour cap).
+- Rows that fail 10 times are dropped (the health view shows the consecutive-failure count).
+
+**SIEM-side integrity verification.** Every forwarded tool-call audit row carries its `prev_hash` and `row_hash`. Run a nightly search in your SIEM that rebuilds the chain — if a historic row has been tampered with on the local host, the forwarded evidence still tells the true story. That's the *actual* tamper evidence; the local chain alone is only the low bar.
 
 <br>
 
@@ -402,17 +454,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v3.6.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-v3.6.0-Windows-Setup.exe) |
-| macOS | [SecureVector-3.6.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-3.6.0-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-3.6.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SecureVector-3.6.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_3.6.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/securevector_3.6.0_amd64.deb) |
-| Linux (RPM) | [securevector-3.6.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/securevector-3.6.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-v4.0.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.0.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector_4.0.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector-4.0.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v3.6.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 
@@ -565,6 +617,8 @@ pytest tests/ -v
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+The starter SIEM dashboard templates under [`docs/siem/`](docs/siem/) (Splunk XML, Sentinel workbook, Datadog + Grafana JSON) are MIT-licensed — see [`docs/siem/LICENSE`](docs/siem/LICENSE) and [`docs/siem/NOTICE`](docs/siem/NOTICE) for trademark disclaimers.
 
 **SecureVector** is a trademark of SecureVector. See [NOTICE](NOTICE).
 

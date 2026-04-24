@@ -31,8 +31,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/js/api.js?v=9"></script>
-    <script src="/js/components/sidebar.js?v=8"></script>
+    <script src="/js/api.js?v=10"></script>
+    <script src="/js/components/sidebar.js?v=10"></script>
     <script src="/js/components/header.js?v=8"></script>
     <script src="/js/components/card.js?v=8"></script>
     <script src="/js/components/modal.js?v=9"></script>
@@ -42,12 +42,14 @@
     <script src="/js/pages/dashboard.js?v=8"></script>
     <script src="/js/pages/threats.js?v=10"></script>
     <script src="/js/pages/rules.js?v=8"></script>
-    <script src="/js/pages/settings.js?v=8"></script>
+    <!-- SiemExportPage depends on SettingsPage's renderSiemForwarders helpers, so load order matters -->
+    <script src="/js/pages/settings.js?v=11"></script>
+    <script src="/js/pages/siem-export.js?v=5"></script>
     <script src="/js/pages/integrations.js?v=8"></script>
     <script src="/js/pages/getting-started.js?v=8"></script>
     <script src="/js/pages/tool-permissions.js?v=12"></script>
     <script src="/js/pages/costs.js?v=8"></script>
     <script src="/js/pages/skill-scanner.js?v=8"></script>
-    <script src="/js/app.js?v=8"></script>
+    <script src="/js/app.js?v=9"></script>
 </body>
 </html>

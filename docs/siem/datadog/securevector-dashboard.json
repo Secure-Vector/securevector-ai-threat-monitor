@@ -1,0 +1,237 @@
+{
+  "title": "SecureVector — AI Threat Monitor",
+  "description": "SecureVector AI Threat Monitor — OCSF 1.3.0 events via Datadog Logs.\n\nData flow: SIEM Forwarder (kind=datadog) → Datadog Logs intake → this dashboard. Facets used: @severity, @class_uid, @unmapped.action, @actor.user.name, @finding.techniques. Configure these in Datadog Logs → Configuration → Facets if not auto-detected.\n\nStarter template — import-test and adjust faceting before relying for production detections.",
+  "widgets": [
+    {
+      "definition": {
+        "title": "Total events",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "query_value",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [],
+                "search": {"query": "source:securevector"},
+                "storage": "hot"
+              }
+            ]
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {"x": 0, "y": 0, "width": 3, "height": 2}
+    },
+    {
+      "definition": {
+        "title": "BLOCK",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "query_value",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [],
+                "search": {"query": "source:securevector @severity:BLOCK"},
+                "storage": "hot"
+              }
+            ],
+            "conditional_formats": [
+              {"comparator": ">", "value": 0, "palette": "white_on_red"}
+            ]
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {"x": 3, "y": 0, "width": 3, "height": 2}
+    },
+    {
+      "definition": {
+        "title": "DETECTED",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "query_value",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [],
+                "search": {"query": "source:securevector @severity:DETECTED"},
+                "storage": "hot"
+              }
+            ],
+            "conditional_formats": [
+              {"comparator": ">", "value": 0, "palette": "white_on_yellow"}
+            ]
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {"x": 6, "y": 0, "width": 3, "height": 2}
+    },
+    {
+      "definition": {
+        "title": "Tool-call blocks",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "query_value",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [],
+                "search": {"query": "source:securevector @class_uid:1007 @unmapped.action:block"},
+                "storage": "hot"
+              }
+            ]
+          }
+        ],
+        "autoscale": true,
+        "precision": 0
+      },
+      "layout": {"x": 9, "y": 0, "width": 3, "height": 2}
+    },
+    {
+      "definition": {
+        "title": "Events over time by severity",
+        "title_size": "16",
+        "title_align": "left",
+        "show_legend": true,
+        "legend_layout": "auto",
+        "legend_columns": ["avg", "min", "max", "value", "sum"],
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [{"facet": "@severity", "limit": 10, "sort": {"order": "desc", "aggregation": "count"}}],
+                "search": {"query": "source:securevector"},
+                "storage": "hot"
+              }
+            ],
+            "formulas": [{"formula": "query1"}],
+            "display_type": "bars",
+            "style": {"palette": "dog_classic", "line_type": "solid", "line_width": "normal"}
+          }
+        ]
+      },
+      "layout": {"x": 0, "y": 2, "width": 12, "height": 4}
+    },
+    {
+      "definition": {
+        "title": "Top MITRE ATT&CK techniques",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "toplist",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [{"facet": "@finding.techniques", "limit": 10, "sort": {"order": "desc", "aggregation": "count"}}],
+                "search": {"query": "source:securevector @class_uid:2001"},
+                "storage": "hot"
+              }
+            ],
+            "formulas": [{"formula": "query1"}]
+          }
+        ]
+      },
+      "layout": {"x": 0, "y": 6, "width": 6, "height": 4}
+    },
+    {
+      "definition": {
+        "title": "Top actors",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "toplist",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "logs",
+                "name": "query1",
+                "indexes": ["*"],
+                "compute": {"aggregation": "count"},
+                "group_by": [{"facet": "@actor.user.name", "limit": 10, "sort": {"order": "desc", "aggregation": "count"}}],
+                "search": {"query": "source:securevector"},
+                "storage": "hot"
+              }
+            ],
+            "formulas": [{"formula": "query1"}]
+          }
+        ]
+      },
+      "layout": {"x": 6, "y": 6, "width": 6, "height": 4}
+    },
+    {
+      "definition": {
+        "title": "Recent high-severity events",
+        "title_size": "16",
+        "title_align": "left",
+        "type": "log_stream",
+        "indexes": ["*"],
+        "query": "source:securevector @severity:(BLOCK OR DETECTED)",
+        "sort": {"column": "timestamp", "order": "desc"},
+        "columns": ["host", "service", "@severity", "@finding.title", "@actor.user.name"],
+        "show_date_column": true,
+        "show_message_column": true,
+        "message_display": "inline"
+      },
+      "layout": {"x": 0, "y": 10, "width": 12, "height": 5}
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "device",
+      "prefix": "@device.uid",
+      "available_values": [],
+      "default": "*"
+    },
+    {
+      "name": "actor",
+      "prefix": "@actor.user.name",
+      "available_values": [],
+      "default": "*"
+    }
+  ],
+  "layout_type": "ordered",
+  "is_read_only": false,
+  "notify_list": [],
+  "reflow_type": "fixed"
+}

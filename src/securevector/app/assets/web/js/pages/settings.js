@@ -95,6 +95,13 @@ const SettingsPage = {
         toolSection.appendChild(toolCard);
         container.appendChild(toolSection);
 
+        // SIEM Forwarder now lives on its own top-level page under
+        // Configure → SIEM Forwarder (see siem-export.js). The CRUD
+        // helpers (renderSiemForwarders / _refreshSiemForwardersTable /
+        // _showSiemEditor / etc.) stay on this module — the new page
+        // imports them at render time — so this section is removed
+        // from Settings to avoid duplication.
+
         // Theme Section
         const themeSection = this.createSection('Appearance', 'Customize the look and feel');
         const themeCard = Card.create({ gradient: true });
@@ -1110,6 +1117,997 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         section.appendChild(header);
         return section;
+    },
+
+    // ==================== SIEM Forwarders ====================
+
+    async renderSiemForwarders(container) {
+        container.textContent = '';
+
+        // Device attribution banner now lives at the top of the SIEM
+        // Forwarder page (merged with the trust-posture banner). This
+        // sub-section is just the status line + table now.
+
+        // Health/status line only. The primary "+ Add Destination"
+        // button lives up top on the SIEM Forwarder page next to the
+        // master enable toggle — it's not duplicated here. A compact
+        // Refresh button sits right to handle stale-state recovery.
+        const intro = document.createElement('div');
+        intro.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;';
+        const meta = document.createElement('div');
+        meta.id = 'siem-meta';
+        meta.style.cssText = 'font-size:13px;color:var(--text-secondary);flex:1;min-width:0;';
+        meta.textContent = 'Loading destinations…';
+        intro.appendChild(meta);
+
+        // Device chip lives on the master card (siem-export.js) — it's
+        // a master-level property of the host, not a per-destination
+        // one. Keeping it out of this row avoids the "this destination
+        // has device X" semantic confusion.
+
+        // Add Destination inline with the count meta row — zero extra
+        // vertical space (the row already exists), but the primary CTA
+        // is still close to the table where the operator is looking.
+        // This complements the Add button in the master card up top;
+        // either one opens the same editor.
+        // Full-size primary button to match the Rules page pattern
+        // (where "+ Create Rule" sits inline with the filter bar).
+        // No btn-compact — matches standard table toolbar sizing.
+        // Pulse class is applied ONLY when the table has no destinations
+        // — see _refreshSiemForwardersTable. First-time operators see
+        // the attention pulse; returning users with destinations see a
+        // calm button.
+        const inlineAdd = document.createElement('button');
+        inlineAdd.type = 'button';
+        inlineAdd.className = 'btn btn-primary';
+        inlineAdd.id = 'siem-inline-add-btn';
+        inlineAdd.textContent = '+ Add SIEM destination';
+        inlineAdd.style.cssText = 'flex-shrink:0;';
+        inlineAdd.addEventListener('click', () => {
+            if (inlineAdd.disabled) return;
+            this._showSiemEditor(null);
+        });
+        // Mirror the master-toggle gating — inline button disables when
+        // SIEM forwarding is globally paused. Best-effort: fetch state,
+        // fall open if API misbehaves.
+        API.getSiemGlobalSettings().then(s => {
+            const enabled = !!(s && s.enabled);
+            inlineAdd.disabled = !enabled;
+            inlineAdd.style.opacity = enabled ? '' : '0.55';
+            inlineAdd.style.cursor = enabled ? 'pointer' : 'not-allowed';
+            inlineAdd.title = enabled ? '' : 'SIEM Forwarder is paused. Enable the master toggle above.';
+        }).catch(() => { /* leave default enabled on API error */ });
+        intro.appendChild(inlineAdd);
+        container.appendChild(intro);
+
+        // Table wrapper — app-standard `.table-container` + `.data-table`,
+        // matching Threats / Tool Activity / Costs visually. The `id` is
+        // retained so _refreshSiemForwardersTable can repaint after
+        // create/edit/delete/test.
+        const tableWrap = document.createElement('div');
+        tableWrap.id = 'siem-forwarders-table';
+        tableWrap.className = 'table-container';
+        container.appendChild(tableWrap);
+
+        await this._refreshSiemForwardersTable();
+    },
+
+    async _refreshSiemForwardersTable() {
+        const wrap = document.getElementById('siem-forwarders-table');
+        const meta = document.getElementById('siem-meta');
+        if (!wrap) return;
+
+        let resp;
+        try {
+            resp = await API.listSiemForwarders();
+        } catch {
+            wrap.textContent = 'Failed to load SIEM destinations.';
+            if (meta) meta.textContent = '';
+            return;
+        }
+        const items = resp.items || [];
+        if (meta) {
+            // When empty, the empty-state card below carries the full
+            // explanation. Keep this line short so we don't duplicate.
+            meta.textContent = items.length
+                ? `${items.length} destination${items.length === 1 ? '' : 's'} configured. Metadata-only by default; raw data is opt-in per destination.`
+                : '';
+        }
+
+        // Pulse the Add button only while the user has NO destinations.
+        // Once they've wired one, the pulse becomes noise on return
+        // visits — kill it. This runs on every refresh, so the class
+        // goes on/off as the list state changes.
+        const addBtnForPulse = document.getElementById('siem-inline-add-btn');
+        if (addBtnForPulse) {
+            if (items.length === 0) {
+                addBtnForPulse.classList.add('sv-siem-add-pulse');
+            } else {
+                addBtnForPulse.classList.remove('sv-siem-add-pulse');
+            }
+        }
+
+        // Contextual visibility for the templates callout. Show only
+        // when at least one destination would actually use a shipped
+        // dashboard:
+        //   - kind = splunk_hec                → Splunk XML applies
+        //   - kind = webhook + Sentinel URL    → Sentinel JSON applies
+        //     (ingest.monitor.azure.com)
+        //   - kind = datadog                   → Datadog dashboard JSON
+        //   - kind = file                      → Grafana-via-Loki path
+        //     (file → Promtail/Alloy → Loki → Grafana)
+        // If the user only runs OTLP / Chronicle / QRadar / bare
+        // webhook, the callout stays hidden — no shipped template
+        // matches, don't add noise.
+        const tplCallout = document.getElementById('siem-templates-callout');
+        if (tplCallout) {
+            const showTemplates = items.some(d => {
+                if (d.kind === 'splunk_hec') return true;
+                if (d.kind === 'datadog') return true;
+                if (d.kind === 'file') return true;
+                if (d.kind === 'webhook' && typeof d.url === 'string' && /ingest\.monitor\.azure\.com/i.test(d.url)) return true;
+                return false;
+            });
+            tplCallout.style.display = showTemplates ? 'flex' : 'none';
+        }
+
+        wrap.textContent = '';
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:14px 16px;text-align:center;color:var(--text-secondary);background:var(--bg-card);border:1px solid var(--border-light);border-radius:var(--radius-lg);';
+            // Vendor names get accent color so supported destinations
+            // pop at a glance. Keep the prose uncolored.
+            const _vp = (l) => `<span style="color:var(--accent-primary);font-weight:600;">${l}</span>`;
+            empty.innerHTML = `<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">No SIEM destinations yet</div><div style="font-size:12.5px;line-height:1.55;">Use the <strong>+ Add Destination</strong> button above to wire your first ${_vp('Local NDJSON file')}, ${_vp('Splunk HEC')}, ${_vp('Datadog')}, ${_vp('Microsoft Sentinel')}, ${_vp('Google Chronicle')}, ${_vp('IBM QRadar')}, ${_vp('OTLP')}, or ${_vp('generic webhook')} endpoint.</div>`;
+            wrap.appendChild(empty);
+            return;
+        }
+
+        // App-standard .data-table — same class the Threats and Costs
+        // pages use, so density, hover, and header casing match.
+        const table = document.createElement('table');
+        table.className = 'data-table';
+        const thead = document.createElement('thead');
+        const trHead = document.createElement('tr');
+        ['On', 'Name', 'Kind', 'Filter', 'Tier', 'Health', 'Last sent', 'Sent', 'Pending', ''].forEach(label => {
+            const th = document.createElement('th');
+            th.textContent = label;
+            trHead.appendChild(th);
+        });
+        thead.appendChild(trHead);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        items.forEach(row => {
+            const tr = document.createElement('tr');
+            // Enabled toggle
+            const tdToggle = document.createElement('td');
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.checked = !!row.enabled;
+            toggle.addEventListener('change', async () => {
+                try {
+                    await API.updateSiemForwarder(row.id, { enabled: toggle.checked });
+                    if (window.Toast) Toast.success(toggle.checked ? 'Enabled' : 'Disabled');
+                } catch (e) {
+                    toggle.checked = !toggle.checked;
+                    if (window.Toast) Toast.error('Toggle failed');
+                }
+            });
+            tdToggle.appendChild(toggle);
+            tr.appendChild(tdToggle);
+
+            tr.appendChild(this._siemCell(row.name, { fontWeight: '600' }));
+            tr.appendChild(this._siemCell(this._siemKindLabel(row.kind)));
+            tr.appendChild(this._siemCell(this._siemFilterLabel(row)));
+            tr.appendChild(this._siemTierCell(row.redaction_level));
+            tr.appendChild(this._siemHealthCell(row));
+            tr.appendChild(this._siemCell(this._siemLastSentLabel(row.last_success_at)));
+            tr.appendChild(this._siemCell(this._siemEventsSentLabel(row.events_sent)));
+            tr.appendChild(this._siemCell(String(row.pending ?? 0)));
+
+            // Actions
+            const tdActions = document.createElement('td');
+            tdActions.style.cssText = 'white-space:nowrap;text-align:right;';
+
+            const testBtn = document.createElement('button');
+            testBtn.className = 'btn btn-secondary btn-compact';
+            testBtn.style.cssText = 'margin-right:6px;';
+            testBtn.textContent = 'Test';
+            testBtn.addEventListener('click', () => this._testSiemForwarder(row.id, testBtn));
+            tdActions.appendChild(testBtn);
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn btn-secondary btn-compact';
+            editBtn.style.cssText = 'margin-right:6px;';
+            editBtn.textContent = 'Edit';
+            editBtn.addEventListener('click', () => this._showSiemEditor(row));
+            tdActions.appendChild(editBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-secondary btn-compact';
+            delBtn.style.cssText = 'color:var(--danger,#c0392b);';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                if (!confirm(`Delete destination "${row.name}"? Its queued events will be dropped.`)) return;
+                try {
+                    await API.deleteSiemForwarder(row.id);
+                    if (window.Toast) Toast.success('Destination deleted');
+                    await this._refreshSiemForwardersTable();
+                } catch (e) {
+                    if (window.Toast) Toast.error('Delete failed');
+                }
+            });
+            tdActions.appendChild(delBtn);
+            tr.appendChild(tdActions);
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+
+        // Click-to-sort on column headers, same as Threats / Costs.
+        // Exposed globally by app.js; safe no-op if not loaded yet.
+        if (typeof window.makeTableSortable === 'function') {
+            window.makeTableSortable(table);
+        }
+    },
+
+    _siemCell(text, style = {}) {
+        const td = document.createElement('td');
+        td.textContent = text == null ? '' : String(text);
+        if (Object.keys(style).length) {
+            const extras = Object.entries(style).map(([k, v]) => `${k.replace(/([A-Z])/g, '-$1').toLowerCase()}:${v}`).join(';');
+            td.style.cssText = extras;
+        }
+        return td;
+    },
+
+    _siemKindLabel(kind) {
+        return {
+            webhook: 'Webhook',
+            splunk_hec: 'Splunk HEC',
+            datadog: 'Datadog',
+            otlp_http: 'OTLP/HTTP',
+        }[kind] || kind;
+    },
+
+    _siemFilterLabel(row) {
+        // Show the full filter stack — kind + severity floor + rate limit —
+        // so operators see exactly what's being dropped vs. what reaches
+        // the SIEM. Previously this only surfaced the kind, which hid the
+        // effect of v26's min_severity + burst guard.
+        const filter = row.event_filter;
+        const includeAudits = row.include_tool_audits;
+        const base = {
+            all: 'All events',
+            threats_only: 'Threats',
+            audits_only: 'Audits only',
+        }[filter] || filter;
+
+        let label = base;
+        if (filter === 'threats_only' && includeAudits) label = `${base} + Audits`;
+        else if (filter === 'all' && !includeAudits) label = `${base} (no Audits)`;
+
+        // Severity floor — append only when it differs from the implicit
+        // default (review) so the common case stays compact.
+        const sev = row.min_severity || 'review';
+        if (filter !== 'audits_only' && sev !== 'review') {
+            label += ` · ≥${sev}`;
+        }
+
+        // Rate limit — same rule: only show when set (0 = unlimited).
+        const rate = Number(row.rate_limit_per_minute || 0);
+        if (rate > 0) label += ` · ≤${rate}/min`;
+
+        return label;
+    },
+
+    _siemTierCell(level) {
+        // Plain text — same typography as other columns. No icons, no
+        // color coding. Tier is a config attribute, not a warning.
+        const td = document.createElement('td');
+        const lvl = String(level || 'minimal').toLowerCase();
+        td.textContent = lvl.charAt(0).toUpperCase() + lvl.slice(1);
+        return td;
+    },
+
+    _siemEventsSentLabel(count) {
+        // Lifetime counter — compact formatting so the column stays narrow.
+        const n = Number(count || 0);
+        if (!Number.isFinite(n) || n <= 0) return '0';
+        if (n < 1000) return String(n);
+        if (n < 1_000_000) return (n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, '') + 'k';
+        return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    },
+
+    _siemLastSentLabel(iso) {
+        // Compact relative time. "Never" is a meaningful red flag for a
+        // destination that's been configured a while — surface it clearly.
+        if (!iso) return 'Never';
+        const then = Date.parse(iso);
+        if (!Number.isFinite(then)) return '—';
+        const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+        if (secs < 60) return 'Just now';
+        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+        if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+        const days = Math.floor(secs / 86400);
+        if (days < 14) return `${days}d ago`;
+        // Older: show date
+        try {
+            return new Date(then).toISOString().slice(0, 10);
+        } catch { return '—'; }
+    },
+
+    _siemHealthLabel(row) {
+        if (!row.enabled) return 'Disabled';
+        if (row.consecutive_fails > 0) return `Failing (${row.consecutive_fails})`;
+        if (row.last_success_at) return 'OK';
+        return 'Never delivered';
+    },
+
+    // Health cell with click-through when the destination is unhealthy.
+    // Healthy rows render plain text; failing rows render a red link
+    // that opens a right-side drawer with the error + recent attempts.
+    _siemHealthCell(row) {
+        const td = document.createElement('td');
+        const label = this._siemHealthLabel(row);
+        const isFailing = row.enabled && (row.consecutive_fails > 0 || !!row.last_error);
+        if (isFailing) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = `${label} \u2192`;
+            btn.style.cssText = 'background:transparent;border:0;padding:0;color:var(--danger,#ef4444);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;font-size:inherit;';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._openSiemFailureDrawer(row);
+            });
+            td.appendChild(btn);
+        } else {
+            td.textContent = label;
+        }
+        return td;
+    },
+
+    // Right-side drawer showing why a destination is failing + recent
+    // outbox attempts + a "Retry now" action that zeros the breaker.
+    async _openSiemFailureDrawer(row) {
+        // Close any prior instance so rapid clicks don't stack drawers.
+        const prior = document.getElementById('sv-siem-failure-drawer');
+        if (prior) prior.remove();
+
+        let health;
+        try {
+            health = await API.getSiemForwarderHealth(row.id);
+        } catch {
+            if (window.Toast) Toast.error('Failed to load health');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.id = 'sv-siem-failure-drawer';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1100;display:flex;justify-content:flex-end;';
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        const panel = document.createElement('div');
+        panel.style.cssText = 'width:min(480px,95vw);max-width:480px;height:100%;background:var(--bg-card);border-left:1px solid var(--border-light);box-shadow:-6px 0 24px rgba(0,0,0,0.35);display:flex;flex-direction:column;overflow:hidden;animation:sv-drawer-in 0.18s ease-out;';
+
+        // One-time keyframe + scrollbar polish.
+        if (!document.getElementById('sv-siem-drawer-style')) {
+            const s = document.createElement('style');
+            s.id = 'sv-siem-drawer-style';
+            s.textContent = '@keyframes sv-drawer-in{from{transform:translateX(30px);opacity:0;}to{transform:translateX(0);opacity:1;}}';
+            document.head.appendChild(s);
+        }
+
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:16px 20px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;';
+        const titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;min-width:0;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        title.textContent = row.name;
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+        subtitle.textContent = `${this._siemKindLabel(row.kind)} \u00b7 ${row.url}`;
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(subtitle);
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = '\u00d7';
+        closeBtn.style.cssText = 'background:transparent;border:0;font-size:22px;color:var(--text-secondary);cursor:pointer;line-height:1;padding:4px 8px;';
+        closeBtn.addEventListener('click', () => overlay.remove());
+        header.appendChild(titleWrap);
+        header.appendChild(closeBtn);
+        panel.appendChild(header);
+
+        // Body
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;flex:1;';
+
+        // Status banner
+        const banner = document.createElement('div');
+        const danger = '#ef4444';
+        banner.style.cssText = `padding:12px 14px;border-radius:8px;background:${danger}15;border:1px solid ${danger}44;display:flex;flex-direction:column;gap:4px;`;
+        const bannerTitle = document.createElement('div');
+        bannerTitle.style.cssText = `font-size:13px;font-weight:700;color:${danger};`;
+        bannerTitle.textContent = health.circuit_open
+            ? `Circuit open \u00b7 backing off ${this._fmtSecs(health.backoff_seconds || 0)}`
+            : `Recent failure \u00b7 ${health.consecutive_fails} in a row`;
+        const bannerSub = document.createElement('div');
+        bannerSub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.45;';
+        bannerSub.textContent = health.circuit_open
+            ? `After ${health.consecutive_fails} consecutive failures the dispatcher exponentially backs off this destination. Rows drop after ${health.max_attempts} attempts each.`
+            : `The dispatcher will retry on the next tick. After 5 consecutive fails it trips a breaker and backs off up to 1h.`;
+        banner.appendChild(bannerTitle);
+        banner.appendChild(bannerSub);
+        body.appendChild(banner);
+
+        // Last error block
+        const errSection = document.createElement('div');
+        errSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        const errLbl = document.createElement('div');
+        errLbl.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;';
+        errLbl.textContent = 'Last error';
+        const errBox = document.createElement('div');
+        errBox.style.cssText = 'padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-primary);word-break:break-word;white-space:pre-wrap;line-height:1.5;max-height:120px;overflow:auto;';
+        errBox.textContent = health.last_error || '(no error message captured)';
+        errSection.appendChild(errLbl);
+        errSection.appendChild(errBox);
+        body.appendChild(errSection);
+
+        // Stats grid
+        const stats = document.createElement('div');
+        stats.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;';
+        const statCard = (label, value) => {
+            const c = document.createElement('div');
+            c.style.cssText = 'padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;';
+            const l = document.createElement('div');
+            l.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;';
+            l.textContent = label;
+            const v = document.createElement('div');
+            v.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);';
+            v.textContent = value;
+            c.appendChild(l); c.appendChild(v);
+            return c;
+        };
+        stats.appendChild(statCard('Pending', String(health.pending ?? 0)));
+        stats.appendChild(statCard('Delivered (lifetime)', String(health.events_sent ?? 0)));
+        stats.appendChild(statCard('Last success', this._siemLastSentLabel(health.last_success_at)));
+        stats.appendChild(statCard('Last failure', this._siemLastSentLabel(health.last_failure_at)));
+        body.appendChild(stats);
+
+        // Recent attempts list
+        const recent = Array.isArray(health.recent_failures) ? health.recent_failures : [];
+        const recentSection = document.createElement('div');
+        recentSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        const recentLbl = document.createElement('div');
+        recentLbl.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;';
+        recentLbl.textContent = `Recent failed rows (${recent.length})`;
+        recentSection.appendChild(recentLbl);
+        if (!recent.length) {
+            const none = document.createElement('div');
+            none.style.cssText = 'font-size:12.5px;color:var(--text-secondary);';
+            none.textContent = 'No failed outbox rows currently tracked for this destination.';
+            recentSection.appendChild(none);
+        } else {
+            recent.forEach(r => {
+                const card = document.createElement('div');
+                card.style.cssText = 'padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border-light);border-radius:6px;display:flex;flex-direction:column;gap:3px;';
+                const top = document.createElement('div');
+                top.style.cssText = 'display:flex;justify-content:space-between;gap:12px;font-size:12px;';
+                const kindLbl = document.createElement('span');
+                kindLbl.style.cssText = 'color:var(--text-primary);font-weight:600;';
+                kindLbl.textContent = `${r.kind} \u00b7 ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}`;
+                const when = document.createElement('span');
+                when.style.cssText = 'color:var(--text-secondary);';
+                when.textContent = this._siemLastSentLabel(r.created_at);
+                top.appendChild(kindLbl);
+                top.appendChild(when);
+                card.appendChild(top);
+                if (r.last_error) {
+                    const err = document.createElement('div');
+                    err.style.cssText = 'font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-secondary);word-break:break-word;line-height:1.4;';
+                    err.textContent = r.last_error;
+                    card.appendChild(err);
+                }
+                recentSection.appendChild(card);
+            });
+        }
+        body.appendChild(recentSection);
+
+        panel.appendChild(body);
+
+        // Footer actions
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding:12px 20px;border-top:1px solid var(--border-light);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;';
+        const editFromDrawer = document.createElement('button');
+        editFromDrawer.className = 'btn btn-secondary btn-compact';
+        editFromDrawer.textContent = 'Edit destination';
+        editFromDrawer.addEventListener('click', () => { overlay.remove(); this._showSiemEditor(row); });
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'btn btn-primary btn-compact';
+        retryBtn.textContent = 'Reset & retry now';
+        retryBtn.addEventListener('click', async () => {
+            retryBtn.disabled = true;
+            retryBtn.textContent = 'Resetting\u2026';
+            try {
+                await API.resetSiemForwarderBreaker(row.id);
+                if (window.Toast) Toast.success('Breaker reset — next dispatcher tick will retry');
+                overlay.remove();
+                await this._refreshSiemForwardersTable();
+            } catch {
+                if (window.Toast) Toast.error('Reset failed');
+                retryBtn.disabled = false;
+                retryBtn.textContent = 'Reset & retry now';
+            }
+        });
+        footer.appendChild(editFromDrawer);
+        footer.appendChild(retryBtn);
+        panel.appendChild(footer);
+
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        // Close on Escape for keyboard users.
+        const onEsc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+        document.addEventListener('keydown', onEsc);
+    },
+
+    _fmtSecs(s) {
+        s = Math.max(0, Math.floor(s || 0));
+        if (s < 60) return `${s}s`;
+        if (s < 3600) return `${Math.floor(s / 60)}m`;
+        return `${Math.floor(s / 3600)}h`;
+    },
+
+    async _testSiemForwarder(id, btn) {
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Testing…';
+        try {
+            const res = await API.testSiemForwarder(id);
+            if (res.ok) {
+                // Honest verification UX. The backend returns a
+                // `verified` field so the toast reflects what we
+                // actually know:
+                //   indexed            — Splunk ACK confirmed (green, strong)
+                //   pending            — ACK not yet acknowledged in 3s
+                //   accepted_with_ack  — HEC returned ackId but poll didn't reach
+                //   accepted           — HTTP 2xx only (indexing unknown)
+                //   written            — File destination, line on disk
+                if (window.Toast) {
+                    const v = res.verified || 'accepted';
+                    const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
+                    let msg;
+                    if (v === 'indexed') {
+                        msg = `Indexed ✓ (${latency}) — Splunk confirmed the event`;
+                    } else if (v === 'pending') {
+                        msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s, check your HEC channel`;
+                    } else if (v === 'written') {
+                        msg = `Written to disk (${res.latency_ms}ms) — ${res.response_preview || 'file destination OK'}`;
+                    } else if (v === 'accepted_with_ack') {
+                        const ack = res.ack_id ? ` · ackId ${String(res.ack_id).slice(0, 12)}` : '';
+                        msg = `Accepted (${latency}) — ACK poll unreachable${ack}`;
+                    } else {
+                        msg = `Accepted (${latency}) — indexing not verified`;
+                    }
+                    Toast.success(msg);
+                }
+            } else if (window.Toast) {
+                Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
+            }
+        } catch (e) {
+            if (window.Toast) Toast.error('Test request failed');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+            await this._refreshSiemForwardersTable();
+        }
+    },
+
+    _showSiemEditor(existing) {
+        const isEdit = !!existing;
+        const body = document.createElement('div');
+        body.style.cssText = 'display:flex;flex-direction:column;gap:12px;';
+
+        const addField = (label, input) => {
+            const wrap = document.createElement('label');
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:13px;';
+            const lbl = document.createElement('span');
+            lbl.textContent = label;
+            lbl.style.color = 'var(--text-secondary)';
+            wrap.appendChild(lbl);
+            wrap.appendChild(input);
+            body.appendChild(wrap);
+            return input;
+        };
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'filter-select';
+        nameInput.placeholder = 'Corp Splunk';
+        nameInput.value = existing?.name || '';
+        addField('Destination name', nameInput);
+
+        // Destination type dropdown. Two optgroups:
+        //   Native — own translator (custom JSON envelope per vendor)
+        //   Via Webhook — vendor accepts the Generic Webhook shape;
+        //     labels carry the brand name so operators find them by
+        //     product, but the wire kind is always `webhook`.
+        // Backend supports 4 real kinds today; brand-name webhook entries
+        // are UI convenience. On edit we can only restore the GENERIC
+        // Webhook entry in that group (DB doesn't record the preset).
+        const kindSelect = document.createElement('select');
+        kindSelect.className = 'filter-select';
+
+        const nativeGroup = document.createElement('optgroup');
+        nativeGroup.label = 'Native (dedicated translator)';
+        [
+            ['file',       'Local NDJSON file (zero infra — append to disk)'],
+            ['splunk_hec', 'Splunk HTTP Event Collector'],
+            ['datadog',    'Datadog Logs'],
+            ['otlp_http',  'OpenTelemetry Collector (OTLP/HTTP)'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if (existing?.kind === v) opt.selected = true;
+            nativeGroup.appendChild(opt);
+        });
+        kindSelect.appendChild(nativeGroup);
+
+        const webhookGroup = document.createElement('optgroup');
+        webhookGroup.label = 'Via Webhook (JSON + bearer-style auth)';
+        [
+            ['webhook',          'Generic Webhook (JSON POST)',         null],
+            ['webhook:qradar',   'IBM QRadar',                          'https://<qradar-host>/api/siem/events'],
+            ['webhook:sentinel', 'Microsoft Sentinel (Log Analytics)',  'https://<dce>.ingest.monitor.azure.com/...'],
+            ['webhook:chronicle','Google Chronicle SIEM',               'https://malachiteingestion-pa.googleapis.com/v2/udmevents:batchCreate'],
+        ].forEach(([v, label, urlHint]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if (urlHint) opt.dataset.urlHint = urlHint;
+            // Generic webhook is the canonical restore point for any
+            // existing row with kind=webhook — branded variants don't
+            // round-trip through the DB.
+            if (existing?.kind === 'webhook' && v === 'webhook') opt.selected = true;
+            webhookGroup.appendChild(opt);
+        });
+        kindSelect.appendChild(webhookGroup);
+        addField('Destination type', kindSelect);
+
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'filter-select';
+        urlInput.placeholder = 'https://…';
+        urlInput.value = existing?.url || '';
+        // Keep a reference to the <span> label so we can relabel when
+        // the user picks File kind (URL → Path).
+        const urlLabel = document.createElement('span');
+        urlLabel.textContent = 'URL';
+        urlLabel.style.color = 'var(--text-secondary)';
+        const urlWrap = document.createElement('label');
+        urlWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:13px;';
+        urlWrap.appendChild(urlLabel);
+        urlWrap.appendChild(urlInput);
+        body.appendChild(urlWrap);
+
+        // Adapt the URL field to whatever destination kind is selected:
+        //   file     → label "File path", placeholder shows the default
+        //   webhook  → brand-specific URL hint (QRadar/Sentinel/etc.)
+        //   others   → generic https:// placeholder
+        const refreshUrlField = () => {
+            const v = kindSelect.value;
+            if (v === 'file') {
+                urlLabel.textContent = 'File path (leave blank for default)';
+                urlInput.placeholder = '~/.securevector/siem-events.jsonl — or any absolute path';
+            } else {
+                urlLabel.textContent = 'URL';
+                urlInput.placeholder = 'https://…';
+            }
+        };
+        refreshUrlField();
+        kindSelect.addEventListener('change', refreshUrlField);
+
+        // When the user picks a branded webhook preset, silently seed
+        // the URL field with the vendor's endpoint shape (if empty) so
+        // they only have to fill in the host. The synthetic `webhook:*`
+        // value is stripped back to `webhook` at save time — see payload
+        // construction below. Listener is attached AFTER urlInput is
+        // declared to avoid any TDZ surprise on hot-reloads.
+        kindSelect.addEventListener('change', () => {
+            const opt = kindSelect.selectedOptions[0];
+            const hint = opt && opt.dataset && opt.dataset.urlHint;
+            if (hint && (!urlInput.value || urlInput.value.trim() === '')) {
+                urlInput.value = hint;
+            }
+        });
+
+        const secretInput = document.createElement('input');
+        secretInput.type = 'password';
+        secretInput.className = 'filter-select';
+        secretInput.placeholder = isEdit
+            ? (existing.has_secret ? 'Leave blank to keep existing; type "-" to remove' : 'API key / HEC token (optional for webhooks)')
+            : 'API key / HEC token (optional for webhooks)';
+        addField('Secret', secretInput);
+
+        // Inline storage disclosure — security-minded operators always
+        // ask where a saved token ends up. Answer it right under the
+        // field so they don't have to go hunt in docs.
+        const secretHint = document.createElement('div');
+        secretHint.style.cssText = 'margin-top:-6px;padding:6px 10px;font-size:11.5px;color:var(--text-muted);line-height:1.5;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:6px;';
+        secretHint.innerHTML = `
+            <strong style="color:var(--text-secondary);">Where is this stored?</strong>
+            In a separate file with <code>0600</code> permissions (owner-only) inside your app data directory — <strong>never in SQLite</strong>. The database row carries only an opaque reference. Deleted when you delete this destination.
+            <a href="#" data-sv-goto-guide="section-siem-forwarder" style="color:var(--accent-primary);text-decoration:underline;">Details →</a>
+        `;
+        secretHint.querySelector('[data-sv-goto-guide]')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-siem-forwarder';
+                Sidebar.navigate('guide');
+            }
+        });
+        body.appendChild(secretHint);
+
+        // Event filter. Paired with the "include tool audits" checkbox
+        // below — the labels below reflect what the default combo (this
+        // dropdown + checkbox-on) ships, so operators aren't surprised.
+        // Default combo = threats_only + audits = "Threats + tool-call
+        // audits". That's the recommended SOC feed shape.
+        const filterSelect = document.createElement('select');
+        filterSelect.className = 'filter-select';
+        [
+            ['threats_only', 'Threats + tool-call audits — default, recommended'],
+            ['all',          'Everything (includes ALLOW scans)'],
+            ['audits_only',  'Tool-call audits only'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.event_filter || 'threats_only') === v) opt.selected = true;
+            filterSelect.appendChild(opt);
+        });
+        addField('Event filter', filterSelect);
+
+        const auditsLabel = document.createElement('label');
+        auditsLabel.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;';
+        const auditsChk = document.createElement('input');
+        auditsChk.type = 'checkbox';
+        auditsChk.checked = existing ? !!existing.include_tool_audits : true;
+        const auditsText = document.createElement('span');
+        auditsText.textContent = 'Include tool-call audit events (with hash-chain witness for SIEM-side verification)';
+        auditsLabel.appendChild(auditsChk);
+        auditsLabel.appendChild(auditsText);
+        body.appendChild(auditsLabel);
+
+        // Redaction level — three tiers. Default is Standard (the most
+        // commonly forwarded set). Full adds prompt text + LLM output +
+        // matched patterns and requires explicit opt-in acknowledgment.
+        const redactionSelect = document.createElement('select');
+        redactionSelect.className = 'filter-select';
+        [
+            ['minimal', 'Minimal — verdict, risk_level, counts, device.uid, actor, MITRE (default · safest)'],
+            ['standard', 'Standard — + threat_score, rule metadata, hash-chain witness'],
+            ['full', 'Full — + raw prompt text, LLM output, matched patterns'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.redaction_level || 'minimal') === v) opt.selected = true;
+            redactionSelect.appendChild(opt);
+        });
+        addField('Redaction level', redactionSelect);
+
+        // ── v26 — Severity threshold (alert-fatigue defense) ────────────
+        // Drops low-confidence WARN noise by default. SOC analysts asked
+        // for this explicitly: at scale, WARN events drown the feed and
+        // aren't individually actionable.
+        const sevSelect = document.createElement('select');
+        sevSelect.className = 'filter-select';
+        [
+            ['block',  'Block only — events this scanner actively stopped'],
+            ['review', 'Review+ — detections worth triaging (recommended default)'],
+            ['warn',   'Warn+ — everything the scanner flagged, including low confidence'],
+        ].forEach(([v, label]) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = label;
+            if ((existing?.min_severity || 'review') === v) opt.selected = true;
+            sevSelect.appendChild(opt);
+        });
+        addField('Minimum severity', sevSelect);
+
+        // ── v26 — Per-destination rate limit (burst guard) ──────────────
+        // 0 = unlimited. When set, events above the cap are dropped and
+        // the count is surfaced on the next allowed event so the SIEM
+        // sees "N suppressed" instead of silently losing the burst.
+        const rateInput = document.createElement('input');
+        rateInput.type = 'number';
+        rateInput.className = 'filter-select';
+        rateInput.min = '0';
+        rateInput.max = '10000';
+        rateInput.step = '10';
+        rateInput.placeholder = '0 (unlimited)';
+        rateInput.value = String(existing?.rate_limit_per_minute ?? 0);
+        addField('Rate limit (events/min, 0 = unlimited)', rateInput);
+
+        // Live hint — changes with selection. Full tier shows a loud
+        // warning so nobody enables it accidentally.
+        const hint = document.createElement('div');
+        hint.style.cssText = 'padding:10px 12px;border-radius:6px;font-size:12px;line-height:1.5;';
+        body.appendChild(hint);
+
+        const paintHint = () => {
+            const lvl = redactionSelect.value;
+            if (lvl === 'full') {
+                hint.style.background = 'rgba(239,68,68,0.12)';
+                hint.style.color = '#fca5a5';
+                hint.style.border = '1px solid rgba(239,68,68,0.4)';
+                hint.innerHTML = '<strong>⚠ Full tier — raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Each raw field is capped at <strong>8&nbsp;KB</strong> with an explicit truncation marker — enough to triage, bounded against runaway SIEM ingest. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
+            } else if (lvl === 'minimal') {
+                hint.style.background = 'var(--bg-tertiary)';
+                hint.style.color = 'var(--text-secondary)';
+                hint.style.border = '1px solid var(--border-default)';
+                hint.innerHTML = `
+                    <strong style="color:var(--text-primary);">Minimal</strong> — lowest-volume ops dashboards.
+                    <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
+                        <li>Forwards: scan_id, timestamp, verdict, risk_level, detected count, <code>device.uid</code></li>
+                        <li>Strips: threat scores, rule IDs, conversation/model IDs</li>
+                        <li>Hash-chain witness (on tool-call audits) is dropped at this tier</li>
+                    </ul>
+                `;
+            } else {
+                hint.style.background = 'var(--bg-tertiary)';
+                hint.style.color = 'var(--text-secondary)';
+                hint.style.border = '1px solid var(--border-default)';
+                hint.innerHTML = `
+                    <strong style="color:var(--text-primary);">Standard</strong> — default, most production feeds.
+                    <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
+                        <li>threat_score, confidence_score, rule metadata</li>
+                        <li>conversation_id, model_id, scan duration, ML status</li>
+                        <li>Tool-call audits carry SHA-256 hash-chain witness (<code>prev_hash</code>/<code>row_hash</code>) so your SIEM can re-verify integrity off-host</li>
+                        <li><strong>Prompt text, LLM output, and matched patterns never leave this machine</strong> at this tier</li>
+                    </ul>
+                `;
+            }
+        };
+        redactionSelect.addEventListener('change', paintHint);
+        paintHint();
+
+        Modal.show({
+            title: isEdit ? 'Edit SIEM Destination' : 'Add SIEM Destination',
+            content: body,
+            size: 'medium',
+            actions: [
+                { label: 'Cancel' },
+                {
+                    // Test connection — fires one synthetic OCSF event
+                    // at the in-progress config without saving. Lets
+                    // the operator validate URL + credentials before
+                    // committing a DB row. Works for all destination
+                    // kinds; for Splunk HEC it surfaces the ACK verify-
+                    // back status just like the post-save Test button.
+                    label: 'Test connection',
+                    closeOnClick: false,
+                    onClick: async () => {
+                        const rawKind = kindSelect.value;
+                        const kind = rawKind.startsWith('webhook:') ? 'webhook' : rawKind;
+                        const urlVal = urlInput.value.trim();
+                        if (!urlVal) {
+                            if (window.Toast) Toast.error('URL is required to test');
+                            return;
+                        }
+                        // For edit flow: if the user left the secret
+                        // field blank, the existing secret is still on
+                        // the row — we can't resolve it from here, so
+                        // ask them to paste the token for the test.
+                        const secretRaw = secretInput.value;
+                        const testPayload = {
+                            kind,
+                            url: urlVal,
+                            redaction_level: redactionSelect.value,
+                        };
+                        if (secretRaw && secretRaw !== '-') {
+                            testPayload.secret = secretRaw;
+                        } else if (isEdit && existing?.has_secret && !secretRaw) {
+                            if (window.Toast) Toast.info('Paste the secret into the Secret field to test — stored tokens aren\'t resolved by test-config.');
+                            return;
+                        }
+                        try {
+                            const res = await API.testSiemForwarderConfig(testPayload);
+                            if (window.Toast) {
+                                if (res.ok) {
+                                    const v = res.verified || 'accepted';
+                                    const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
+                                    let msg;
+                                    if (v === 'indexed') msg = `Indexed ✓ (${latency}) — Splunk confirmed`;
+                                    else if (v === 'pending') msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s`;
+                                    else if (v === 'written') msg = `Written to disk (${res.latency_ms}ms)`;
+                                    else if (v === 'accepted_with_ack') msg = `Accepted (${latency}) — ACK poll unreachable`;
+                                    else msg = `Accepted (${latency}) — indexing not verified`;
+                                    Toast.success(msg);
+                                } else {
+                                    Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
+                                }
+                            }
+                        } catch (e) {
+                            if (window.Toast) Toast.error('Test request failed');
+                        }
+                    },
+                },
+                {
+                    label: isEdit ? 'Save' : 'Create',
+                    primary: true,
+                    closeOnClick: false,
+                    onClick: async () => {
+                        const rateParsed = parseInt(rateInput.value, 10);
+                        // Branded webhook presets (webhook:qradar etc.)
+                        // collapse to the generic `webhook` kind at save
+                        // time — backend has no concept of the preset,
+                        // it's purely a UI convenience for URL hints.
+                        const rawKind = kindSelect.value;
+                        const kind = rawKind.startsWith('webhook:') ? 'webhook' : rawKind;
+                        const payload = {
+                            kind,
+                            name: nameInput.value.trim(),
+                            url: urlInput.value.trim(),
+                            event_filter: filterSelect.value,
+                            include_tool_audits: auditsChk.checked,
+                            redaction_level: redactionSelect.value,
+                            min_severity: sevSelect.value,
+                            rate_limit_per_minute: Number.isFinite(rateParsed) && rateParsed >= 0 ? rateParsed : 0,
+                        };
+                        if (!payload.name || !payload.url) {
+                            if (window.Toast) Toast.error('Name and URL are required');
+                            return;
+                        }
+                        // Full-tier gate: require explicit confirmation before
+                        // a destination starts receiving prompt text + LLM output.
+                        // Matches the "two rounds of consent" standard for
+                        // high-blast-radius opt-ins.
+                        const priorLevel = existing?.redaction_level || 'standard';
+                        const newLevel = redactionSelect.value;
+                        const escalatingToFull = newLevel === 'full' && priorLevel !== 'full';
+                        if (escalatingToFull) {
+                            const ok = window.confirm(
+                                'Enabling FULL redaction tier\n\n' +
+                                'This destination will receive the full PROMPT TEXT, LLM OUTPUT, and MATCHED PATTERNS in every forwarded event.\n\n' +
+                                'Each raw field is capped at 8 KB with a truncation marker — enough for triage, bounded against runaway ingest.\n\n' +
+                                'Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.).\n\n' +
+                                'Continue?'
+                            );
+                            if (!ok) return;
+                        }
+                        // Secret handling: "-" means clear, empty means leave as-is on edit
+                        const secretRaw = secretInput.value;
+                        if (isEdit) {
+                            if (secretRaw === '-') payload.secret = '';
+                            else if (secretRaw) payload.secret = secretRaw;
+                            // else: don't include `secret` → repo leaves it alone
+                        } else if (secretRaw) {
+                            payload.secret = secretRaw;
+                        }
+                        try {
+                            if (isEdit) {
+                                await API.updateSiemForwarder(existing.id, payload);
+                                if (window.Toast) Toast.success('Destination updated');
+                            } else {
+                                await API.createSiemForwarder(payload);
+                                if (window.Toast) Toast.success('Destination created');
+                            }
+                            Modal.close();
+                            await this._refreshSiemForwardersTable();
+                        } catch (e) {
+                            if (window.Toast) Toast.error(`Save failed: ${e.message || e}`);
+                        }
+                    },
+                },
+            ],
+        });
     },
 };
 

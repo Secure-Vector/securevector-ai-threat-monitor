@@ -1,0 +1,177 @@
+<dashboard version="1.1" theme="dark">
+  <label>SecureVector — AI Threat Monitor (OCSF)</label>
+  <description>
+    Operational overview of SecureVector Local Threat Monitor events forwarded via HEC.
+    Source: sourcetype=securevector:ocsf. Schema: OCSF 1.3.0 (class 2001 scans, 1007 tool-call audits).
+    Import: Splunk Web &gt; Dashboards &gt; Create &gt; Source, paste XML.
+  </description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="field1">
+      <label>Time Range</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="min_sev" searchWhenChanged="true">
+      <label>Minimum Severity</label>
+      <choice value="severity_id&gt;=1">All</choice>
+      <choice value="severity_id&gt;=2">Low+</choice>
+      <choice value="severity_id&gt;=3">Medium+ (recommended)</choice>
+      <choice value="severity_id&gt;=4">High+</choice>
+      <choice value="severity_id&gt;=5">Critical only</choice>
+      <default>severity_id&gt;=3</default>
+    </input>
+    <input type="text" token="device_uid" searchWhenChanged="true">
+      <label>Device (leave * for all)</label>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <title>BLOCKS (last 24h)</title>
+      <single>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=2001 severity="BLOCK" device.uid="$device_uid$" | stats count</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[1]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>DETECTED (last 24h)</title>
+      <single>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=2001 severity IN ("DETECTED","REVIEW") device.uid="$device_uid$" | stats count</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </single>
+    </panel>
+    <panel>
+      <title>Tool-call BLOCKS (last 24h)</title>
+      <single>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=1007 unmapped.action="block" device.uid="$device_uid$" | stats count</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </single>
+    </panel>
+    <panel>
+      <title>Unique devices reporting</title>
+      <single>
+        <search>
+          <query>sourcetype=securevector:ocsf device.uid="$device_uid$" | stats dc(device.uid) as devices</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Event volume over time (by severity)</title>
+      <chart>
+        <search>
+          <query>sourcetype=securevector:ocsf $min_sev$ device.uid="$device_uid$" | timechart span=15m count by severity</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>MITRE ATT&amp;CK techniques (top 10)</title>
+      <chart>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=2001 finding.techniques{}.uid=* device.uid="$device_uid$" | stats count by finding.techniques{}.uid | sort -count | head 10 | rename finding.techniques{}.uid as technique</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top matched rules</title>
+      <table>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=2001 unmapped.matched_rule_ids{}=* $min_sev$ device.uid="$device_uid$" | stats count, dc(finding.uid) as unique_findings by unmapped.matched_rule_ids{} | sort -count | head 20 | rename unmapped.matched_rule_ids{} as rule_id</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </table>
+    </panel>
+    <panel>
+      <title>Top actors (user @ process)</title>
+      <table>
+        <search>
+          <query>sourcetype=securevector:ocsf actor.user.name=* $min_sev$ device.uid="$device_uid$" | eval who=actor.user.name."  @  ".coalesce(actor.process.name, "-") | stats count, dc(finding.uid) as findings by who | sort -count | head 20</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Finding clusters (repeat attacks — by finding_group_id)</title>
+      <table>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=2001 finding.related_events_uid{}=* $min_sev$ device.uid="$device_uid$" | stats count, values(severity) as severities, values(finding.title) as titles, min(_time) as first_seen, max(_time) as last_seen by finding.related_events_uid{} | eval first_seen=strftime(first_seen,"%Y-%m-%d %H:%M"), last_seen=strftime(last_seen,"%Y-%m-%d %H:%M") | sort -count | head 25 | rename finding.related_events_uid{} as group_id</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Rate-limit / burst suppression</title>
+      <chart>
+        <search>
+          <query>sourcetype=securevector:ocsf suppressed_count=* device.uid="$device_uid$" | timechart span=15m sum(suppressed_count) as suppressed, count as allowed</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Tool-call audit — hash-chain integrity</title>
+      <table>
+        <search>
+          <query>sourcetype=securevector:ocsf class_uid=1007 device.uid="$device_uid$" | stats min(unmapped.seq) as first_seq, max(unmapped.seq) as last_seq, count as rows by device.uid | eval expected=last_seq-first_seq+1 | eval gap=expected-rows | table device.uid, first_seq, last_seq, rows, gap</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Latest high-severity events</title>
+      <table>
+        <search>
+          <query>sourcetype=securevector:ocsf severity_id&gt;=4 device.uid="$device_uid$" | table _time, class_name, severity, finding.title, actor.user.name, actor.process.name, device.uid, finding.techniques{}.uid, unmapped.matched_rule_ids{} | sort -_time | head 100</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+</dashboard>

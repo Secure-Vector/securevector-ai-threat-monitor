@@ -182,6 +182,71 @@ const API = {
         }
     },
 
+    // ==================== SIEM Forwarders ====================
+
+    async listSiemForwarders() {
+        return this.request('/api/siem-forwarders').catch(() => ({ items: [], total: 0 }));
+    },
+
+    async getSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}`);
+    },
+
+    async createSiemForwarder(payload) {
+        return this.request('/api/siem-forwarders', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    async updateSiemForwarder(id, payload) {
+        return this.request(`/api/siem-forwarders/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    async deleteSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}`, { method: 'DELETE' });
+    },
+
+    async testSiemForwarder(id) {
+        return this.request(`/api/siem-forwarders/${id}/test`, { method: 'POST' });
+    },
+
+    // Pre-save Test Connection — fires a synthetic OCSF event against
+    // the supplied config without persisting. Used by the Add/Edit
+    // modal's "Test connection" button so operators can validate URL
+    // + credentials before committing to a DB row.
+    async testSiemForwarderConfig(config) {
+        return this.request('/api/siem-forwarders/test-config', {
+            method: 'POST',
+            body: JSON.stringify(config),
+        });
+    },
+
+    async getSiemForwarderHealth(id) {
+        return this.request(`/api/siem-forwarders/${id}/health`);
+    },
+
+    async resetSiemForwarderBreaker(id) {
+        return this.request(`/api/siem-forwarders/${id}/reset-breaker`, {
+            method: 'POST',
+        });
+    },
+
+    // Global SIEM forwarding kill-switch (v24 — single boolean toggle)
+    async getSiemGlobalSettings() {
+        return this.request('/api/siem-forwarders/global-settings');
+    },
+    async setSiemGlobalSettings(enabled) {
+        return this.request('/api/siem-forwarders/global-settings', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: !!enabled }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+    },
+
     // ==================== Cloud Rule Sync (preview → review → apply) ====================
 
     async syncPreviewStart() {
