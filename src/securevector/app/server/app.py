@@ -251,6 +251,14 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         if images_path.exists():
             app.mount("/images", StaticFiles(directory=str(images_path)), name="images")
 
+        # Mount SIEM dashboard templates (Sentinel workbook, Splunk XML).
+        # Ship with the package; served in-process so the Copy / Download
+        # modal on the SIEM Forwarder page works offline and doesn't
+        # depend on a public GitHub URL.
+        siem_templates_path = WEB_ASSETS_PATH / "siem-templates"
+        if siem_templates_path.exists():
+            app.mount("/siem-templates", StaticFiles(directory=str(siem_templates_path)), name="siem-templates")
+
         _NO_CACHE_HEADERS = {
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "Pragma": "no-cache",

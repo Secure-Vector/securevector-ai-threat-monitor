@@ -1742,28 +1742,42 @@ const GettingStartedPage = {
         const dashGrid = document.createElement('div');
         dashGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:16px;';
 
-        const dashCard = (vendor, file, steps) => {
+        // Cards open the same preview-and-copy Modal exposed by
+        // SiemExportPage.openTemplateModal(). Single source of truth
+        // for install steps + template content, works offline, no
+        // GitHub URL pinning.
+        const dashCard = (vendor, templateKey, summary) => {
             const card = document.createElement('div');
-            card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-radius:10px;padding:14px 16px;';
+            card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;';
             card.innerHTML = `
-                <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">${vendor}</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-family:monospace;">${file}</div>
-                <ol style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text-secondary);line-height:1.7;">${steps.map(s => `<li>${s}</li>`).join('')}</ol>
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);">${vendor}</div>
+                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;">${summary}</div>
             `;
+            const openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.className = 'btn btn-primary btn-compact';
+            openBtn.textContent = 'Preview + copy / download';
+            openBtn.style.cssText = 'align-self:flex-start;';
+            openBtn.addEventListener('click', () => {
+                if (window.SiemExportPage && typeof SiemExportPage.openTemplateModal === 'function') {
+                    SiemExportPage.openTemplateModal(templateKey);
+                }
+            });
+            card.appendChild(openBtn);
             return card;
         };
 
-        dashGrid.appendChild(dashCard('Splunk', 'docs/siem/splunk/securevector-dashboard.xml', [
-            'Splunk Web → Dashboards → Create a new dashboard → Source.',
-            'Paste the XML, Save.',
-            'Assumes sourcetype <code>securevector:ocsf</code> on the HEC ingest.',
-        ]));
+        dashGrid.appendChild(dashCard(
+            'Microsoft Sentinel',
+            'sentinel',
+            'KQL workbook for <code>Custom-SecureVector_CL</code> — severity tiles, MITRE top-N, actor breakdown, finding clusters, burst suppression.',
+        ));
 
-        dashGrid.appendChild(dashCard('Microsoft Sentinel', 'docs/siem/sentinel/securevector-workbook.json', [
-            'Sentinel → Workbooks → + Add workbook → Advanced Editor.',
-            'Paste JSON → Apply → Save.',
-            'Set the <code>TableName</code> parameter to match your DCR custom table.',
-        ]));
+        dashGrid.appendChild(dashCard(
+            'Splunk',
+            'splunk',
+            '10-panel dashboard for <code>sourcetype=securevector:ocsf</code> — same tile set as the Sentinel workbook, plus hash-chain integrity check.',
+        ));
 
         dashBody.appendChild(dashGrid);
 

@@ -176,6 +176,43 @@ const SiemExportPage = {
             forwardersBody.textContent = 'SIEM forwarders module not loaded.';
         }
 
+        // ── Templates callout ────────────────────────────────────────
+        // Buttons open a preview-and-copy modal — clicking "Sentinel"
+        // or "Splunk" loads the template from the bundled static mount
+        // (/siem-templates/...) and shows it in a scrollable <pre> with
+        // primary Copy + secondary Download actions. Works offline,
+        // no GitHub dependency.
+        const tplCallout = document.createElement('div');
+        tplCallout.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:12px 14px;border:1px solid var(--accent-primary);border-radius:10px;background:var(--bg-card);flex-wrap:wrap;';
+        tplCallout.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+                <span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;background:rgba(94,173,184,0.12);border:1px solid rgba(94,173,184,0.35);border-radius:8px;color:var(--accent-primary);">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/><rect x="12" y="6" width="3" height="12"/><rect x="17" y="13" width="3" height="5"/></svg>
+                </span>
+                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;">
+                    <strong style="color:var(--text-primary);">Ready-made dashboards</strong> — preview, copy, or download. Paste into your SIEM and start triaging in minutes.
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;">
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="sentinel">Sentinel workbook</button>
+                <button type="button" class="btn btn-secondary btn-compact" data-tpl="splunk">Splunk dashboard</button>
+                <a href="#" data-sv-goto-guide="section-siem-forwarder" class="btn btn-secondary btn-compact" style="text-decoration:none;">Install steps →</a>
+            </div>
+        `;
+        tplCallout.querySelectorAll('button[data-tpl]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                SiemExportPage.openTemplateModal(btn.getAttribute('data-tpl'));
+            });
+        });
+        tplCallout.querySelector('[data-sv-goto-guide]')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.Sidebar) {
+                Sidebar._pendingScroll = 'section-siem-forwarder';
+                Sidebar.navigate('guide');
+            }
+        });
+        container.appendChild(tplCallout);
+
         // ── Redaction tiers — quick reference (collapsible) ──────────
         // Moved BELOW the destinations table — tier reference is
         // read-once material (pick a tier when you add), not part of
@@ -187,6 +224,119 @@ const SiemExportPage = {
         const tierRef = this._buildTierReference();
         tierRef.style.marginTop = '20px';
         container.appendChild(tierRef);
+    },
+
+    // ── Shared template-preview modal ────────────────────────────────
+    // Fetches the bundled template from /siem-templates/, shows it in a
+    // scrollable <pre>, offers primary Copy-to-Clipboard + secondary
+    // Download + View-on-GitHub. Works offline — no external URLs.
+    // Called from both the SIEM Forwarder page callout and the Guide's
+    // Dashboards subsection.
+    _TEMPLATES: {
+        sentinel: {
+            title: 'Microsoft Sentinel workbook',
+            path: '/siem-templates/sentinel-workbook.json',
+            filename: 'securevector-workbook.json',
+            githubBlob: 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/siem/sentinel/securevector-workbook.json',
+            steps: [
+                'Open Microsoft Sentinel → <strong>Workbooks</strong> → <strong>+ Add workbook</strong>.',
+                'Click <strong>Advanced Editor</strong>.',
+                'Paste the JSON below, click <strong>Apply</strong> → <strong>Save</strong>.',
+                'Set the <code>TableName</code> parameter to match your DCR custom table (default: <code>Custom-SecureVector_CL</code>).',
+            ],
+        },
+        splunk: {
+            title: 'Splunk dashboard',
+            path: '/siem-templates/splunk-dashboard.xml',
+            filename: 'securevector-dashboard.xml',
+            githubBlob: 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/siem/splunk/securevector-dashboard.xml',
+            steps: [
+                'Open Splunk Web → <strong>Dashboards</strong> → <strong>Create a new dashboard</strong>.',
+                'Click <strong>Source</strong> (top-right of the editor).',
+                'Paste the XML below, Save.',
+                'Assumes sourcetype <code>securevector:ocsf</code> on the HEC ingest — adjust if your HEC ingest uses a different sourcetype.',
+            ],
+        },
+    },
+
+    async openTemplateModal(vendor) {
+        const tpl = this._TEMPLATES[vendor];
+        if (!tpl || !window.Modal) return;
+
+        // Build modal body — steps + content <pre> + download link
+        const body = document.createElement('div');
+        body.style.cssText = 'display:flex;flex-direction:column;gap:12px;';
+
+        const stepsEl = document.createElement('ol');
+        stepsEl.style.cssText = 'margin:0;padding-left:18px;font-size:13px;color:var(--text-secondary);line-height:1.7;';
+        stepsEl.innerHTML = tpl.steps.map(s => `<li>${s}</li>`).join('');
+        body.appendChild(stepsEl);
+
+        // Content container — loading state first, then fetched content
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'margin:0;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.5;color:var(--text-primary);background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:8px;overflow:auto;max-height:340px;white-space:pre;word-break:normal;';
+        pre.textContent = 'Loading template…';
+        body.appendChild(pre);
+
+        // Secondary actions row (GitHub view + file info)
+        const meta = document.createElement('div');
+        meta.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11.5px;color:var(--text-muted);flex-wrap:wrap;';
+        meta.innerHTML = `
+            <span>File: <code>${tpl.filename}</code></span>
+            <a href="${tpl.githubBlob}" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">View on GitHub →</a>
+        `;
+        body.appendChild(meta);
+
+        // Fetch content; populate pre. Handle errors gracefully so a
+        // mis-mounted /siem-templates/ shows a useful message.
+        let templateText = '';
+        try {
+            const resp = await fetch(tpl.path, { cache: 'no-store' });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            templateText = await resp.text();
+            pre.textContent = templateText;
+        } catch (err) {
+            pre.textContent = `Could not load ${tpl.path}\n${err.message || err}\n\nCheck that /siem-templates/ is mounted.`;
+            pre.style.color = '#ef4444';
+        }
+
+        Modal.show({
+            title: tpl.title,
+            content: body,
+            size: 'large',
+            actions: [
+                { label: 'Close' },
+                {
+                    label: 'Download',
+                    // secondary action — triggers browser file download
+                    closeOnClick: false,
+                    onClick: () => {
+                        if (!templateText) return;
+                        const blob = new Blob([templateText], { type: 'text/plain;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = tpl.filename;
+                        document.body.appendChild(a); a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    },
+                },
+                {
+                    label: 'Copy',
+                    primary: true,
+                    closeOnClick: false,
+                    onClick: async () => {
+                        if (!templateText) return;
+                        try {
+                            await navigator.clipboard.writeText(templateText);
+                            if (window.Toast) Toast.success(`${tpl.title} copied to clipboard`);
+                        } catch (_) {
+                            if (window.Toast) Toast.error('Clipboard write failed — try Download instead');
+                        }
+                    },
+                },
+            ],
+        });
     },
 
     _buildTierReference() {

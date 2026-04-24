@@ -32,6 +32,7 @@
 
 > **New in v4.0.0:**
 > - **SIEM Forwarder** — ship every threat scan and tool-call audit to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, any HTTPS webhook, or a local NDJSON file. OCSF 1.3.0 with MITRE ATT&CK tags, actor + device attribution, and the tool-audit hash chain verifiable in your SIEM. Metadata-only by default; raw data is opt-in per destination.
+> - **Ready-made SIEM dashboards** — import-and-triage templates for [Microsoft Sentinel](docs/siem/sentinel/securevector-workbook.json) and [Splunk](docs/siem/splunk/securevector-dashboard.xml). Severity tiles, MITRE ATT&CK top-N, actor breakdown, finding clusters, burst-suppression chart, hash-chain integrity — all wired to the OCSF fields we emit. No custom queries to author.
 >
 > **v3.6.0 carries forward:**
 > - **Tool-call audit hash chain** — every row in the audit log is linked by SHA-256 (`seq`, `prev_hash`, `row_hash`). Tampering breaks the chain; verify locally via `GET /api/tool-permissions/call-audit/integrity`. Verification is a local-only operation.
@@ -356,6 +357,15 @@ The allow-list is enforced at enqueue time by `_assert_metadata_only()`. Even if
 | `webhook` | anything that accepts JSON POST | optional `Authorization: Bearer <token>` |
 
 **Configure in Connect → SIEM Forwarder.** Add SIEM destination → pick type → paste URL + token → Test → Save. Tokens are stored `0o600` in the app data dir, never in SQLite.
+
+**📊 Ready-made dashboards (included in this repo):**
+
+| Platform | Template | What's in it |
+|---|---|---|
+| Microsoft Sentinel | [`docs/siem/sentinel/securevector-workbook.json`](docs/siem/sentinel/securevector-workbook.json) | KQL workbook covering the full tile set via `Custom-SecureVector_CL` table |
+| Splunk | [`docs/siem/splunk/securevector-dashboard.xml`](docs/siem/splunk/securevector-dashboard.xml) | 10 panels: severity tiles, MITRE ATT&CK top-N, actor breakdown, finding clusters, burst-suppression chart, hash-chain integrity table |
+
+**Install:** open Splunk Web → Dashboards → Create → Source → paste the XML. Sentinel: Workbooks → New → Advanced Editor → paste JSON → set `TableName` to your DCR custom table. Full install steps + field reference in [`docs/siem/README.md`](docs/siem/README.md).
 
 **Reliability:**
 - Per-destination outbox with at-least-once delivery.
