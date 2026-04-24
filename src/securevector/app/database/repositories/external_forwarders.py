@@ -556,11 +556,15 @@ class ExternalForwardersRepository:
         )
         await conn.commit()
         row_id = int(cursor.lastrowid or 0)
-        # Sanitize user-provided name before logging: strip CR/LF + other
-        # control characters so a malicious name can't inject fake log
-        # lines. Keep it short (CodeQL: py/log-injection).
-        safe_name = _sanitize_for_log(name)
-        logger.info("external_forwarders: created id=%d kind=%s name=%r", row_id, kind, safe_name)
+        # Sanitize user-provided values inline so CodeQL's taint tracker
+        # sees the explicit character-filtering as a sanitizer (not just
+        # a helper call that it can't introspect). Strip all ASCII
+        # controls (0x00-0x1F + 0x7F) and cap at 80 chars. `kind` is
+        # a category literal from the ForwarderKind union but we cast
+        # to str anyway to break the dict-derived taint flow.
+        safe_name = "".join(c for c in str(name) if ord(c) >= 32 and ord(c) != 127)[:80]
+        safe_kind = "".join(c for c in str(kind) if ord(c) >= 32 and ord(c) != 127)[:32]
+        logger.info("external_forwarders: created id=%d kind=%s name=%r", int(row_id), safe_kind, safe_name)
         return await self.get(row_id)  # type: ignore[return-value]
 
     async def update(
@@ -742,7 +746,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
             if isinstance(parsed, dict):
                 headers = parsed
         except Exception:
-            pass
+            pass  # malformed JSON in headers_json column; fall through to empty headers
 
     return {
         "id": int(row["id"]),
