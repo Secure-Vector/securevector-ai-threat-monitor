@@ -8,7 +8,7 @@
  */
 
 const GlobalBanners = {
-    WHATS_NEW_VERSION: '4.0.0',
+    WHATS_NEW_VERSION: '4.1.0',
     KEY_OPENCLAW: 'sv-openclaw-banner-dismissed',
     KEY_WHATS_NEW: 'sv-whats-new-acked',
 
@@ -159,11 +159,11 @@ const GlobalBanners = {
         strong.textContent = 'What\u2019s new:';
         strong.style.marginRight = '6px';
         textCol.appendChild(strong);
-        // v4.0.0 headline = SIEM Forwarder. Keep OpenClaw visible as the
-        // previous-release callout so users returning after v3.4 still
-        // catch up on both. One banner, two releases — cheaper than a
-        // carousel and it's all still fresh.
-        textCol.appendChild(document.createTextNode('SIEM Forwarder \u2014 OCSF events to Splunk / Datadog / Sentinel / Chronicle / QRadar \u00B7 Previously in v3.4: native OpenClaw plugin, tool audit trail.'));
+        // v4.1.0 headline = Agent Replay (per-agent timeline of scans + tool
+        // calls + LLM cost). Keep SIEM Forwarder visible as the previous-
+        // release callout so users returning after v4.0 still catch up on
+        // both. One banner, two releases — cheaper than a carousel.
+        textCol.appendChild(document.createTextNode('Agent Replay \u2014 per-agent timeline of scans, tool calls, and LLM cost. Plus indirect-prompt-injection (IDPI) detection and signed wheel attestations. \u00B7 Previously in v4.0: SIEM Forwarder.'));
         card.appendChild(textCol);
 
         const cta = document.createElement('button');
