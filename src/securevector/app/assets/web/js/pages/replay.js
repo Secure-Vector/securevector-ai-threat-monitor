@@ -21,7 +21,7 @@ const ReplayPage = {
 
     async render(container) {
         container.textContent = '';
-        if (window.Header) Header.setPageInfo('Agent Replay', 'Per-agent timeline of scans, tool calls, and LLM cost');
+        if (window.Header) Header.setPageInfo('Agent Activity', 'Per-agent timeline of scans, tool calls, and LLM cost');
 
         // Filter bar
         const bar = document.createElement('div');
@@ -528,31 +528,176 @@ const ReplayPage = {
             svg.appendChild(lbl);
         }
 
-        // Three lines.
+        // <defs> — one gradient per kind, line color → transparent at the
+        // baseline. Same hue as the line, low alpha at the top fading out.
+        const defs = document.createElementNS(SVG_NS, 'defs');
+        ['scan', 'tool_audit', 'cost'].forEach(k => {
+            const meta = KIND_META[k];
+            const grad = document.createElementNS(SVG_NS, 'linearGradient');
+            grad.setAttribute('id', `replay-grad-${k}`);
+            grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+            grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+            const s1 = document.createElementNS(SVG_NS, 'stop');
+            s1.setAttribute('offset', '0%');
+            s1.setAttribute('stop-color', meta.color);
+            s1.setAttribute('stop-opacity', '0.32');
+            const s2 = document.createElementNS(SVG_NS, 'stop');
+            s2.setAttribute('offset', '100%');
+            s2.setAttribute('stop-color', meta.color);
+            s2.setAttribute('stop-opacity', '0');
+            grad.appendChild(s1); grad.appendChild(s2);
+            defs.appendChild(grad);
+        });
+        svg.appendChild(defs);
+
+        // Three lines + gradient area fills underneath. Lines animate in
+        // left-to-right on first render via stroke-dashoffset trick.
+        const lineEls = {};   // for hover lookup
         visibleKinds.forEach(k => {
             const meta = KIND_META[k];
-            const points = series[k].map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+            const linePoints = series[k].map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+            const areaPoints = `${xAt(0).toFixed(1)},${yAt(0).toFixed(1)} ${linePoints} ${xAt(N - 1).toFixed(1)},${yAt(0).toFixed(1)}`;
+
+            // Area fill (drawn first, sits behind the line).
+            const area = document.createElementNS(SVG_NS, 'polygon');
+            area.setAttribute('points', areaPoints);
+            area.setAttribute('fill', `url(#replay-grad-${k})`);
+            area.setAttribute('opacity', '0');
+            svg.appendChild(area);
+            requestAnimationFrame(() => {
+                area.style.transition = 'opacity 0.6s ease 0.3s';
+                area.setAttribute('opacity', '1');
+            });
+
+            // Line on top.
             const path = document.createElementNS(SVG_NS, 'polyline');
             path.setAttribute('fill', 'none');
             path.setAttribute('stroke', meta.color);
-            path.setAttribute('stroke-width', '1.5');
-            path.setAttribute('stroke-opacity', '0.7');
+            path.setAttribute('stroke-width', '1.6');
+            path.setAttribute('stroke-opacity', '0.85');
             path.setAttribute('stroke-linejoin', 'round');
             path.setAttribute('stroke-linecap', 'round');
-            path.setAttribute('points', points);
+            path.setAttribute('points', linePoints);
+            // Animated draw-in: stash the geometric path length, set
+            // dasharray + offset to that length so the line is invisible,
+            // then transition offset to 0 for a left-to-right draw.
+            try {
+                const len = Math.ceil(path.getTotalLength?.() || (plotW + 50));
+                path.style.strokeDasharray = String(len);
+                path.style.strokeDashoffset = String(len);
+                requestAnimationFrame(() => {
+                    path.style.transition = 'stroke-dashoffset 0.85s ease-out';
+                    path.style.strokeDashoffset = '0';
+                });
+            } catch (_) { /* getTotalLength unavailable on polyline in some engines — silently skip */ }
             svg.appendChild(path);
-            // Small dots at each bucket so single-bucket series are visible.
+            lineEls[k] = path;
+
+            // Bucket dots (always visible — fade in with the area).
             series[k].forEach((v, i) => {
                 if (v === 0) return;
                 const dot = document.createElementNS(SVG_NS, 'circle');
                 dot.setAttribute('cx', xAt(i));
                 dot.setAttribute('cy', yAt(v));
-                dot.setAttribute('r', '2');
+                dot.setAttribute('r', '2.5');
                 dot.setAttribute('fill', meta.color);
-                dot.setAttribute('opacity', '0.8');
+                dot.setAttribute('opacity', '0');
                 svg.appendChild(dot);
+                requestAnimationFrame(() => {
+                    dot.style.transition = 'opacity 0.4s ease ' + (0.4 + i * 0.04) + 's';
+                    dot.setAttribute('opacity', '0.9');
+                });
             });
         });
+
+        // Hover crosshair + floating tooltip — Sentry-grade interactivity.
+        // An invisible overlay rect captures mousemove. We compute the
+        // nearest bucket and surface the per-kind counts in a tooltip
+        // pinned near the cursor.
+        const crosshair = document.createElementNS(SVG_NS, 'line');
+        crosshair.setAttribute('y1', PAD_T);
+        crosshair.setAttribute('y2', PAD_T + plotH);
+        crosshair.setAttribute('stroke', 'var(--text-secondary, #888)');
+        crosshair.setAttribute('stroke-width', '1');
+        crosshair.setAttribute('stroke-dasharray', '2,3');
+        crosshair.setAttribute('opacity', '0');
+        crosshair.style.pointerEvents = 'none';
+        svg.appendChild(crosshair);
+
+        const hoverDots = {};
+        visibleKinds.forEach(k => {
+            const meta = KIND_META[k];
+            const c = document.createElementNS(SVG_NS, 'circle');
+            c.setAttribute('r', '4');
+            c.setAttribute('fill', meta.color);
+            c.setAttribute('stroke', 'var(--bg-card, #fff)');
+            c.setAttribute('stroke-width', '1.5');
+            c.setAttribute('opacity', '0');
+            c.style.pointerEvents = 'none';
+            svg.appendChild(c);
+            hoverDots[k] = c;
+        });
+
+        // Tooltip overlay sits in the same wrap div, positioned via inline style.
+        const tooltip = document.createElement('div');
+        tooltip.style.cssText = 'position:absolute;pointer-events:none;background:var(--bg-card,#fff);border:1px solid var(--border-default,#444);border-radius:6px;padding:7px 10px;font-size:11.5px;line-height:1.45;box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transition:opacity 0.12s;white-space:nowrap;z-index:5;';
+        wrap.style.position = 'relative';
+        wrap.appendChild(tooltip);
+
+        // Invisible overlay to capture pointer events.
+        const overlay = document.createElementNS(SVG_NS, 'rect');
+        overlay.setAttribute('x', PAD_L);
+        overlay.setAttribute('y', PAD_T);
+        overlay.setAttribute('width', plotW);
+        overlay.setAttribute('height', plotH);
+        overlay.setAttribute('fill', 'transparent');
+        overlay.style.cursor = 'crosshair';
+        svg.appendChild(overlay);
+
+        const showHover = (clientX) => {
+            const rect = svg.getBoundingClientRect();
+            const xRatio = (clientX - rect.left) / rect.width;
+            const xVB = xRatio * W;
+            // Find the nearest bucket index.
+            let bestIdx = 0, bestDist = Infinity;
+            for (let i = 0; i < N; i++) {
+                const dist = Math.abs(xAt(i) - xVB);
+                if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+            }
+            const cx = xAt(bestIdx);
+            crosshair.setAttribute('x1', cx);
+            crosshair.setAttribute('x2', cx);
+            crosshair.setAttribute('opacity', '0.6');
+            visibleKinds.forEach(k => {
+                hoverDots[k].setAttribute('cx', cx);
+                hoverDots[k].setAttribute('cy', yAt(series[k][bestIdx]));
+                hoverDots[k].setAttribute('opacity', '1');
+            });
+            // Tooltip body.
+            const midMs = startMs + bucketSize * (bestIdx + 0.5);
+            const dateLbl = new Date(midMs).toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const lines = [`<div style="font-weight:600;margin-bottom:4px;">${dateLbl}</div>`];
+            ['scan', 'tool_audit', 'cost'].forEach(k => {
+                if (!visibleKinds.includes(k)) return;
+                const meta = KIND_META[k];
+                lines.push(`<div style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${meta.color};"></span><span>${meta.label}: <strong>${series[k][bestIdx]}</strong></span></div>`);
+            });
+            tooltip.innerHTML = lines.join('');
+            // Position tooltip near the cursor but constrain inside the wrap.
+            const wrapRect = wrap.getBoundingClientRect();
+            const tipX = (cx / W) * rect.width + (rect.left - wrapRect.left) + 12;
+            const tipY = (rect.top - wrapRect.top) + 4;
+            tooltip.style.left = `${tipX}px`;
+            tooltip.style.top = `${tipY}px`;
+            tooltip.style.opacity = '1';
+        };
+        const hideHover = () => {
+            crosshair.setAttribute('opacity', '0');
+            visibleKinds.forEach(k => hoverDots[k].setAttribute('opacity', '0'));
+            tooltip.style.opacity = '0';
+        };
+        overlay.addEventListener('mousemove', (e) => showHover(e.clientX));
+        overlay.addEventListener('mouseleave', hideHover);
 
         wrap.appendChild(svg);
         return wrap;
