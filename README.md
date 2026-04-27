@@ -2,9 +2,9 @@
 
 <h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
-<h3>AI Firewall for Agents — Block prompt injection, tool abuse, and data leaks before and after the LLM.</h3>
+<h3>Stop your AI agent burning $400 overnight.</h3>
 
-<p>Protect your AI agents, track costs, and set budget limits — no coding required. Download the app or install with pip.</p>
+<p>Hard budget caps + auto-stop, per agent. Plus injection blocks, tool-call audits, and skill scanning — all in one local install. Free, open-source, runs on your machine. No signup. <code>pip install</code> and you're protected in 60 seconds.</p>
 
 <br>
 
@@ -14,7 +14,7 @@
 [![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
-[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
+[Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
 
 </div>
 
@@ -30,7 +30,13 @@
 
 <br>
 
-> **New in v4.0.0:**
+> **New in v4.1.0:**
+> - **Agent Replay** — per-agent timeline merging threat scans, tool-call audits, and LLM cost into one local-first feed. Filter by agent + range, click any row to expand, export CSV. Local-first observability — your agent traces never leave the box. (Sentry-for-AI-agents, without the SaaS.)
+> - **Indirect Prompt Injection (IDPI) module** — new `direction="incoming"` scan mode catches injection attempts hidden in fetched RAG / HTML / email content (zero-width unicode, hidden HTML comments, role overrides, tool-call hijack, exfil URLs, base64 decode-and-execute, credential exfil, javascript: markdown URIs, and more). Ships with a 12-rule starter pack — see [`indirect_prompt_injection`](https://github.com/Secure-Vector/securevector-ai-threat-monitor/tree/master/src/securevector/rules/community/sv_community_indirect_prompt_injection.yml) under Rules.
+> - **Build-provenance attestations on every wheel** — SLSA Build Level 2+ provenance signed via Sigstore Fulcio + anchored in the public Rekor transparency log. Verify any installed wheel back to its source commit + GitHub Actions runner with `gh attestation verify`. See [SECURITY.md](SECURITY.md#build-provenance--verifying-your-install).
+> - **Per-agent slicing** — Threat Monitor now has an "Agent / Source" filter dropdown auto-populated from your data. Threats page joins Cost Tracking in being filterable by agent.
+>
+> **v4.1.0 carries forward:**
 > - **SIEM Forwarder** — ship every threat scan and tool-call audit to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, any HTTPS webhook, or a local NDJSON file. OCSF 1.3.0 with MITRE ATT&CK tags, actor + device attribution, and a tool-audit hash chain your SIEM can re-verify. Metadata-only by default; raw data is opt-in per destination. Starter dashboards included for [Sentinel](docs/siem/sentinel/securevector-workbook.json), [Splunk](docs/siem/splunk/securevector-dashboard.xml), [Datadog](docs/siem/datadog/securevector-dashboard.json), and [Grafana/Loki](docs/siem/grafana/securevector-dashboard.json).
 >
 > **v3.6.0 carries forward:**
@@ -88,7 +94,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-v4.0.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector_4.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector-4.0.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-v4.1.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-4.1.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/securevector_4.1.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/securevector-4.1.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-4.1.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -324,7 +330,7 @@ Every scan and audit row is stamped with a stable `device_id` so a customer runn
 | Can `device_id` be reversed to the OS UUID? | SHA-256 is one-way. An attacker who already has the raw OS UUID can *compute* the `device_id` — but they already have the machine at that point, so there's no incremental leak. |
 | Does it track users? | No. It tracks *machines*. Multiple users on one laptop share one `device_id`. It's not tied to email, username, or any identity field. |
 | Is it sent to SecureVector Cloud? | Only if Cloud Connect is on AND you trigger an action that reaches the cloud (rule sync, cloud-routed `/analyze`). `device_id` goes in metadata alongside scan results. You can opt out by keeping Cloud Connect off — local-only operation never transmits it. |
-| Is it in SIEM forwards? | Yes, when the v4.0.0 SIEM forwarder is enabled — travels inside each OCSF event's `unmapped` block so your Splunk/Datadog can group by device. |
+| Is it in SIEM forwards? | Yes, when the v4.1.0 SIEM forwarder is enabled — travels inside each OCSF event's `unmapped` block so your Splunk/Datadog can group by device. |
 | Can the customer reset it? | Yes — delete `.device_id` in the app data dir. Next write will regenerate from the OS identifier (so same ID reappears) OR a fresh random UUID if the OS ID is unavailable. |
 | Does it collide across containers cloned from the same image? | Potentially yes (they share `/etc/machine-id`). Not relevant for desktop use; mention it if you're deploying in Kubernetes. |
 
@@ -454,17 +460,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-v4.0.0-Windows-Setup.exe) |
-| macOS | [SecureVector-4.0.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SecureVector-4.0.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector_4.0.0_amd64.deb) |
-| Linux (RPM) | [securevector-4.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/securevector-4.0.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.1.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-v4.1.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.1.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-4.1.0-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.1.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SecureVector-4.1.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.1.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/securevector_4.1.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.1.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/securevector-4.1.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.0.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 

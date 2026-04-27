@@ -10,8 +10,9 @@ jobs:
     environment: release
 
     permissions:
-      contents: write  # Required for creating GitHub releases
-      id-token: write  # Required for PyPI trusted publishing (if used)
+      contents: write       # Required for creating GitHub releases
+      id-token: write       # Required for PyPI trusted publishing AND Sigstore signing
+      attestations: write   # Required for actions/attest-build-provenance (SLSA Build Level 2)
 
     steps:
     - uses: actions/checkout@v4
@@ -247,6 +248,18 @@ jobs:
     - name: Check package
       run: twine check dist/*
 
+    # Bundle 0.1 — Attestation-Signed Binaries.
+    # Generates SLSA Build Level 2+ provenance for every wheel + sdist, signs
+    # with the workflow's short-lived OIDC identity via Sigstore Fulcio, and
+    # publishes the attestation to the public Sigstore Rekor transparency log.
+    # Zero third-party licensing — the Sigstore stack is free and open.
+    # Customers verify with: gh attestation verify <wheel> --owner Secure-Vector
+    # or:                    cosign verify-blob --bundle <bundle> <wheel>
+    - name: Generate build provenance attestation
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-path: 'dist/*'
+
     - name: Post-build validation (SDK + MCP)
       run: |
         echo "🧪 Testing built package installation..."
@@ -400,11 +413,16 @@ jobs:
         echo ""
 
     - name: Publish to PyPI
+      # `attestations: true` (PEP 740) uploads the Sigstore attestations
+      # produced above alongside the wheel. PyPI surfaces the attestation
+      # on the package page so anyone can verify the build provenance.
+      # Requires id-token: write permission (already declared above).
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
         skip-existing: true
+        attestations: true
     
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v1
