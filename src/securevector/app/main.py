@@ -119,6 +119,7 @@ def start_server(host: str, port: int, ready_event: threading.Event) -> None:
 
 def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
+    import os
     import webview
 
     assets_path = get_assets_path()
@@ -153,8 +154,22 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         # Navigate to the main app
         window.load_url(f"http://{host}:{port}")
 
-    # Start webview (blocking)
+    def on_closing():
+        # macOS hang on Cmd+Q / window-close: pywebview's Cocoa run loop
+        # waits for the daemon uvicorn thread to drain, but uvicorn's
+        # event loop holds long-lived connections (SSE/keepalive) and
+        # never returns. Short-circuit with os._exit so the process dies
+        # immediately when the window closes — there is no per-process
+        # state to flush (DB writes are committed inline; logs are best-
+        # effort).
+        os._exit(0)
+
+    window.events.closing += on_closing
+
+    # Start webview (blocking). When it returns, the window is gone
+    # and we must hard-exit; daemon-thread cleanup is unreliable on macOS.
     webview.start(on_loaded, debug=debug)
+    os._exit(0)
 
 
 def run_web(host: str, port: int) -> None:
