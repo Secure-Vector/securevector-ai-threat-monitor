@@ -29,6 +29,14 @@ import json
 import time
 from typing import Any, Callable, Optional
 
+# Pull the SecureVector package version so the OCSF event metadata
+# (service.version) stays in sync with __init__.py. Avoids the bug
+# class where SIEM events stamp a stale version string after a bump.
+try:
+    from securevector import __version__ as _SV_PACKAGE_VERSION
+except ImportError:
+    _SV_PACKAGE_VERSION = "unknown"
+
 OCSF_VERSION = "1.3.0"
 PRODUCT_NAME = "SecureVector Local Threat Monitor"
 VENDOR_NAME = "SecureVector"
@@ -510,7 +518,7 @@ def _t_otlp_http(events: list[dict[str, Any]], _fwd: dict[str, Any]) -> tuple[by
             "resource": {
                 "attributes": [
                     {"key": "service.name", "value": {"stringValue": "securevector-local"}},
-                    {"key": "service.version", "value": {"stringValue": "4.0.0"}},
+                    {"key": "service.version", "value": {"stringValue": _SV_PACKAGE_VERSION}},
                 ],
             },
             "scopeLogs": [{

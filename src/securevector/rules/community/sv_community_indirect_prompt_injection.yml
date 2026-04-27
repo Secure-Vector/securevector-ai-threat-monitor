@@ -1,0 +1,273 @@
+rules:
+- category: indirect_prompt_injection
+  description: "Hidden instruction-override phrasing inside an HTML comment — classic IDPI vector when an agent fetches a webpage that contains a poisoned <!-- --> block."
+  id: sv_community_idpi_001_html_comment_override
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1656
+    tags:
+    - idpi
+    - indirect
+    - hidden_html
+    version: 1.0.0
+  name: 'IDPI-001: Instruction Override Hidden in HTML Comment'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - <!--[^>]*?(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions?|rules?|prompts?)
+  detection_logic: .*<!--[^>]*?(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions?|rules?|prompts?).*
+  threshold: 0.9
+
+- category: indirect_prompt_injection
+  description: "Three or more consecutive zero-width unicode characters — a known steganographic carrier for hidden instructions in documents the agent ingests."
+  id: sv_community_idpi_002_zero_width_carrier
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1027
+    tags:
+    - idpi
+    - steganography
+    - unicode_evasion
+    version: 1.0.0
+  name: 'IDPI-002: Zero-Width Unicode Steganography Carrier'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - "[​‌‍‎‏﻿]{3,}"
+  detection_logic: ".*[​‌‍‎‏﻿]{3,}.*"
+  threshold: 0.8
+
+- category: indirect_prompt_injection
+  description: "Role-override phrasing embedded in fetched content. Tries to convince the LLM that its persona has changed mid-conversation."
+  id: sv_community_idpi_003_role_override
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1656
+    tags:
+    - idpi
+    - role_hijack
+    version: 1.0.0
+  name: 'IDPI-003: Role Override Embedded in Document'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:you\s+are\s+now|from\s+now\s+on|your\s+new\s+(?:role|persona|task))\s+(?:a|an|the)?\s*(?:assistant|AI|model|agent|chatbot)
+  detection_logic: .*(?:you\s+are\s+now|from\s+now\s+on|your\s+new\s+(?:role|persona|task))\s+(?:a|an|the)?\s*(?:assistant|AI|model|agent|chatbot).*
+  threshold: 0.85
+
+- category: indirect_prompt_injection
+  description: "Fetched content directs the agent to additionally invoke a specific tool / function — classic post-answer hijack used to chain exfiltration."
+  id: sv_community_idpi_004_tool_call_hijack
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1059
+    - T1656
+    tags:
+    - idpi
+    - tool_hijack
+    version: 1.0.0
+  name: 'IDPI-004: Tool-Call Hijack Instruction'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:after\s+(?:answering|responding|completing)|be\s+sure\s+to|don'?t\s+forget\s+to|also\s+(?:please\s+)?)\s*(?:also\s+)?(?:call|invoke|use|run|execute)\s+(?:the\s+)?[a-zA-Z_][a-zA-Z0-9_\.]*\s*\(
+  detection_logic: .*(?:after\s+(?:answering|responding|completing)|be\s+sure\s+to|don'?t\s+forget\s+to|also\s+(?:please\s+)?)\s*(?:also\s+)?(?:call|invoke|use|run|execute)\s+(?:the\s+)?[a-zA-Z_][a-zA-Z0-9_\.]*\s*\(.*
+  threshold: 0.9
+
+- category: indirect_prompt_injection
+  description: "Fetched content tells the agent to POST or send data to an external URL — exfiltration channel via tool call."
+  id: sv_community_idpi_005_exfiltration_post
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1567
+    tags:
+    - idpi
+    - exfiltration
+    version: 1.0.0
+  name: 'IDPI-005: HTTP Exfiltration Instruction'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:POST|send|upload|exfiltrate|leak|forward)\s+(?:the\s+)?(?:results?|response|answer|content|data|conversation)\s+(?:to|at|via)\s+https?://
+  detection_logic: .*(?:POST|send|upload|exfiltrate|leak|forward)\s+(?:the\s+)?(?:results?|response|answer|content|data|conversation)\s+(?:to|at|via)\s+https?://.*
+  threshold: 0.9
+
+- category: indirect_prompt_injection
+  description: "Fetched content asks the agent to reveal its system prompt or initial instructions — a recon move common before injection chains."
+  id: sv_community_idpi_006_system_prompt_recon
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1592
+    tags:
+    - idpi
+    - prompt_extraction
+    - recon
+    version: 1.0.0
+  name: 'IDPI-006: System Prompt Extraction Attempt'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:reveal|show|print|output|repeat|disclose)\s+(?:your\s+|the\s+)?(?:system|initial|original|hidden)\s+(?:prompt|instructions?|message|directive)
+  detection_logic: .*(?:reveal|show|print|output|repeat|disclose)\s+(?:your\s+|the\s+)?(?:system|initial|original|hidden)\s+(?:prompt|instructions?|message|directive).*
+  threshold: 0.9
+
+- category: indirect_prompt_injection
+  description: "Markdown image whose URL is the javascript: scheme — fired when an agent that renders markdown executes embedded code."
+  id: sv_community_idpi_007_markdown_javascript_uri
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1059
+    tags:
+    - idpi
+    - markdown
+    version: 1.0.0
+  name: 'IDPI-007: Markdown Image with javascript: URI'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - "!\\[[^\\]]*\\]\\(javascript:"
+  detection_logic: ".*!\\[[^\\]]*\\]\\(javascript:.*"
+  threshold: 0.95
+
+- category: indirect_prompt_injection
+  description: "Inline CSS hides a block of text from the user but not from the LLM — a common IDPI trick for poisoning an HTML page."
+  id: sv_community_idpi_008_hidden_css_instruction
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1656
+    tags:
+    - idpi
+    - hidden_css
+    version: 1.0.0
+  name: 'IDPI-008: Hidden-CSS Block With Instruction Language'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - style\s*=\s*["'][^"']*?(?:display\s*:\s*none|visibility\s*:\s*hidden|color\s*:\s*(?:white|#fff|rgb\(255,\s*255,\s*255\)))[^"']*["'][^>]*>[\s\S]{0,200}?(?:ignore|disregard|you\s+are\s+now|new\s+instructions)
+  detection_logic: .*style\s*=\s*["'][^"']*?(?:display\s*:\s*none|visibility\s*:\s*hidden|color\s*:\s*(?:white|#fff|rgb\(255,\s*255,\s*255\)))[^"']*["'][^>]*>[\s\S]{0,200}?(?:ignore|disregard|you\s+are\s+now|new\s+instructions).*
+  threshold: 0.85
+
+- category: indirect_prompt_injection
+  description: "Fetched content directs the agent to base64-decode a payload and execute it. Combines an encoding trick with an instruction."
+  id: sv_community_idpi_009_base64_execute_directive
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1027
+    - T1059
+    tags:
+    - idpi
+    - encoding_evasion
+    version: 1.0.0
+  name: 'IDPI-009: Base64 Decode-and-Execute Directive'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:decode|base64\s*-?\s*decode)\s+(?:and\s+)?(?:execute|follow|run|do|perform|interpret)\s+(?:the\s+)?(?:following|this|these|next|payload)
+  detection_logic: .*(?:decode|base64\s*-?\s*decode)\s+(?:and\s+)?(?:execute|follow|run|do|perform|interpret)\s+(?:the\s+)?(?:following|this|these|next|payload).*
+  threshold: 0.85
+
+- category: indirect_prompt_injection
+  description: "Fetched content asks the agent to include credentials, cookies, tokens, or API keys in a follow-up call — explicit credential exfiltration."
+  id: sv_community_idpi_010_credential_exfil
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1550
+    - T1567
+    tags:
+    - idpi
+    - credential_theft
+    - exfiltration
+    version: 1.0.0
+  name: 'IDPI-010: Credential / Token Exfiltration Directive'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - (?:include|send|attach|forward|paste)\s+(?:the\s+|your\s+|all\s+)?(?:auth(?:orization)?|cookies?|tokens?|api[_\-\s]?keys?|bearer|credentials?)\s+(?:in|with|to|via|using)
+  detection_logic: .*(?:include|send|attach|forward|paste)\s+(?:the\s+|your\s+|all\s+)?(?:auth(?:orization)?|cookies?|tokens?|api[_\-\s]?keys?|bearer|credentials?)\s+(?:in|with|to|via|using).*
+  threshold: 0.9
+
+- category: indirect_prompt_injection
+  description: 'Pseudo-system "new instructions:" header — common in poisoned RAG documents that try to overwrite the agent''s real system prompt.'
+  id: sv_community_idpi_011_new_instructions_header
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1656
+    tags:
+    - idpi
+    - instruction_override
+    version: 1.0.0
+  name: 'IDPI-011: Pseudo-System "new instructions" Header'
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - \bnew\s+instructions?\s*:?\s*(?:you\s+(?:must|will|should)|please|now\s+(?:please\s+)?)
+  - \bsystem\s+override\s*:?\s*
+  detection_logic: .*(?:\bnew\s+instructions?\s*:?\s*(?:you\s+(?:must|will|should)|please|now\s+(?:please\s+)?)|\bsystem\s+override\s*:?\s*).*
+  threshold: 0.85
+
+- category: indirect_prompt_injection
+  description: "data: URI carrying script-like content inside an SVG / HTML payload — drive-by execution surface for agents that render fetched media."
+  id: sv_community_idpi_012_data_uri_script
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-04-25T00:00:00Z'
+    source: securevector_community
+    mitre_attack_ids:
+    - T1059
+    tags:
+    - idpi
+    - data_uri
+    - drive_by
+    version: 1.0.0
+  name: 'IDPI-012: Inline data: URI Carrying Executable Content'
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  - data:(?:text/html|image/svg\+xml|application/javascript)[^,]*?,[^"<>]*?(?:<script|javascript:|on(?:load|error|click)\s*=|<iframe)
+  detection_logic: .*data:(?:text/html|image/svg\+xml|application/javascript)[^,]*?,[^"<>]*?(?:<script|javascript:|on(?:load|error|click)\s*=|<iframe).*
+  threshold: 0.9

@@ -10,6 +10,7 @@ const App = {
         guide: GettingStartedPage,
         dashboard: DashboardPage,
         threats: ThreatsPage,
+        replay: ReplayPage,
         rules: RulesPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
@@ -18,12 +19,17 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         settings: SettingsPage,
-        'tool-permissions': { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
-        costs: { render: (c) => { CostsPage.mode = 'monitor'; CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = false; return CostsPage.render(c); } },
-        'tool-activity': { render: (c) => { ToolPermissionsPage.activeTab = 'activity'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
-        'cost-settings': { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
-        'siem-export': SiemExportPage,
-        'skill-scanner': { render: (c) => { SkillScannerPage.activeTab = 'scanner'; return SkillScannerPage.render(c); } },
+        // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
+        // Tool Activity / Cost Tracking are sub-items under Agent Replay;
+        // Tool Permissions / Cost Settings are top-level configure entries.
+        // Each nav entry maps to ONE tab — tab bar hidden so the nav stays
+        // the single source of truth for which view is shown.
+        'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
+        'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
+        'siem-export':       SiemExportPage,
+        'skill-scanner':     { render: (c) => { SkillScannerPage.activeTab = 'scanner';     return SkillScannerPage.render(c); } },
         'skill-permissions': { render: (c) => { SkillScannerPage.activeTab = 'permissions'; return SkillScannerPage.render(c); } },
     },
 

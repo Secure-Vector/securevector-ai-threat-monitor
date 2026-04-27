@@ -5,6 +5,21 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-04-26
+
+### Added
+- **Agent Replay timeline** — new local-first observability page (`/replay`) that merges threat scans, tool-call audits, and LLM cost records into a single time-sorted feed per agent. Filter by agent / range (1h / 6h / 24h / 7d / all, defaults to 7d) / kind (threats / tool calls / LLM cost). Each row shows severity-coloured dot, date+time, kind tag, agent, one-line summary; click to expand the raw event JSON. Export the filtered view to CSV. **Overview line chart** at the top — three subtle lines (Threats / Tool calls / LLM cost) plotted as event counts per time bucket over the active range, with per-kind totals in the legend. Sidebar entry sits under the **Agent Activity** umbrella alongside Tool Activity and Cost Tracking sub-items.
+- **`/api/replay/timeline` endpoint** — backend that joins `threat_intel`, `tool_call_audit`, and `llm_cost_records` by time + agent, supports `agent`, `since`, `until`, `limit`, `include_kinds` query params. Output is bounded for inspection-grade use; SIEM Forwarder remains the durable export path.
+- **Indirect Prompt Injection (IDPI) module** — new `direction="incoming"` mode on `/analyze` for scanning fetched RAG content, scraped HTML, emails, and tool outputs before they reach the LLM. Reconciles with the legacy `llm_response: bool` flag for back-compat. Resolved direction is stamped on every threat-intel record so the Threats UI + OCSF SIEM events can pivot on it. Defaults preserve byte-identical behaviour for v4.0.x clients.
+- **`indirect_prompt_injection` rule pack (12 starter rules)** — covers hidden HTML comments, zero-width unicode steganography, role override, tool-call hijack, HTTP exfiltration, system-prompt extraction, javascript: markdown URIs, hidden CSS instruction blocks, base64 decode-and-execute directives, credential / token exfil, pseudo-system "new instructions" headers, and inline data: URIs carrying executable content. All MITRE-tagged. Surfaces under Rules as a new category.
+- **SLSA Build Level 2+ provenance attestations on every wheel + sdist** — release workflow now signs every published artifact via Sigstore Fulcio (workflow's short-lived OIDC identity) and publishes the attestation to the public Sigstore Rekor transparency log. PyPI surfaces the attestation per PEP 740. Customers verify with `gh attestation verify <wheel> --owner Secure-Vector` or `cosign verify-blob`. Zero third-party licensing — Sigstore + Rekor + Fulcio are public free services.
+- **`SECURITY.md`** — vulnerability disclosure path + a Build provenance section explaining why provenance matters (SolarWinds / Codecov / 3CX / XZ utils), how to verify, what the attestation proves vs doesn't, and what to do on attestation mismatch.
+- **Per-agent source filter on Threat Monitor** — Threats page gains an "Agent / Source" dropdown auto-populated from distinct sources in the loaded data. Cost Tracking already had per-agent breakdown; this closes the gap on the threats side.
+- **Sidebar restructure: Agent Replay umbrella** — new collapsible Agent Replay group containing Timeline (the merged feed), Tool Activity (deep-link to tool-call audit log), and Cost Tracking (deep-link to per-agent spend dashboard). Default-expanded; clicking the parent navigates to Timeline + reveals the sub-list.
+
+### Marketing
+- README hero rewritten to lead with the runaway-cost guardrail story ("Stop your AI agent burning $400 overnight") with injection / tool-audit / skill-scan benefits as second-order. The cost-tracking + auto-stop capability shipped in v3.4.0+; this is a positioning change, not a feature change.
+
 ## [4.0.0] - 2026-04-24
 
 ### Added
