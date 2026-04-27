@@ -6,7 +6,7 @@ POST /api/v1/analyze - Analyze text for threats
 
 import logging
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -30,6 +30,24 @@ class AnalysisRequest(BaseModel):
     request_id: Optional[str] = Field(None, max_length=64, description="Client request ID")
     metadata: Optional[dict] = Field(None, description="Additional metadata")
     llm_response: bool = Field(False, description="Set true when analyzing LLM output (checks for leaks, PII)")
+    # Bundle 0.2 — Indirect Prompt Injection (IDPI) scan mode.
+    # Three values, semantically distinct:
+    #   "outgoing"  (default) — text is heading user→LLM. Existing rule set
+    #                 applies (prompt injection / jailbreak / etc.).
+    #   "incoming"  — text was *fetched* by the agent (RAG chunk, scraped HTML,
+    #                 email body, tool output) and is about to be fed to the
+    #                 LLM as context. IDPI rule pack fires; threshold for
+    #                 BLOCK is tighter because the user has zero agency over
+    #                 hidden instructions in fetched content.
+    #   "llm_response" — equivalent to the existing llm_response=True flag;
+    #                 retained for back-compat. Prefer using `direction`
+    #                 for new integrations.
+    # Defaults to "outgoing" so any v4.0.x client continues to get the
+    # original behaviour without code change.
+    direction: Literal["outgoing", "incoming", "llm_response"] = Field(
+        "outgoing",
+        description="Scan mode: outgoing (user→LLM, default), incoming (fetched context→LLM, IDPI), or llm_response (LLM→user, equivalent to llm_response=True).",
+    )
 
 
 class MatchedRule(BaseModel):
@@ -94,7 +112,26 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
     start_time = time.perf_counter()
     analysis_source = "local"
     user_agent = http_request.headers.get("user-agent")
-    is_llm_response = request.llm_response  # True when analyzing LLM output
+
+    # Reconcile the legacy `llm_response: bool` flag with the new
+    # `direction: str` field. `direction` is the source of truth going
+    # forward; `llm_response=True` is back-compat shorthand for
+    # `direction="llm_response"`.
+    direction = request.direction
+    if request.llm_response and direction == "outgoing":
+        direction = "llm_response"
+    is_llm_response = direction == "llm_response"
+    is_idpi_scan = direction == "incoming"
+
+    # Stamp resolved direction onto the metadata dict so it lands in the
+    # threat_intel row + flows into OCSF SIEM events. Pivot key for the
+    # Threat Monitor UI to filter outgoing vs incoming-context vs llm_response.
+    # Don't mutate request.metadata — FastAPI keeps that reference for the
+    # response cycle.
+    augmented_metadata = dict(request.metadata or {})
+    augmented_metadata["direction"] = direction
+    if is_idpi_scan:
+        augmented_metadata.setdefault("scan_type", "incoming_context")
 
     try:
         # Check settings
@@ -148,7 +185,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     # with Llama Guard ML scoring.
                     cloud_result = await proxy.analyze_output(
                         output_text=request.text,
-                        metadata=request.metadata,
+                        metadata=augmented_metadata,
                         model_id=(request.metadata or {}).get("model_id"),
                         conversation_id=(request.metadata or {}).get("conversation_id")
                             or request.session_id,
@@ -158,7 +195,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     # Reached only when Cloud Connect is on (see guard above).
                     cloud_result = await proxy.analyze(
                         text=request.text,
-                        metadata=request.metadata,
+                        metadata=augmented_metadata,
                     )
 
                 # Cloud returned result - use it directly
@@ -187,7 +224,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                         request_id=request.request_id,
                         source=request.source,
                         session_id=request.session_id,
-                        metadata=request.metadata,
+                        metadata=augmented_metadata,
                         user_agent=user_agent,
                         action_taken=action_taken,
                     )
@@ -387,7 +424,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 request_id=request.request_id,
                 source=request.source,
                 session_id=request.session_id,
-                metadata=request.metadata,
+                metadata=augmented_metadata,
                 # LLM Review data
                 llm_reviewed=llm_review_info.reviewed if llm_review_info else False,
                 llm_agrees=llm_review_info.agrees if llm_review_info else True,

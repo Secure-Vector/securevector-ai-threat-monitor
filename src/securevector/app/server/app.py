@@ -231,6 +231,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
     app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])
+    # Bundle 0.4 — Agent Replay Timeline. Merged threat / tool-audit / cost feed.
+    from securevector.app.server.routes import replay
+    app.include_router(replay.router, prefix="/api", tags=["Replay"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

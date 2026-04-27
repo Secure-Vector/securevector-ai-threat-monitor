@@ -16,6 +16,11 @@ const ThreatsPage = {
         page_size: 20,
         threat_type: '',
         min_risk: 0,
+        // Bundle 0.3 — multi-agent dashboard slice. Filter the threats table
+        // by source identifier (the `source` arg the SDK passes on /analyze
+        // calls — typically the agent / process / project name). Backend
+        // route already accepts ?source= so this is purely a UI surfacing.
+        source: '',
     },
 
     async render(container) {
@@ -84,6 +89,47 @@ const ThreatsPage = {
 
         typeGroup.appendChild(typeSelect);
         bar.appendChild(typeGroup);
+
+        // Source / Agent filter — populated from distinct sources in the
+        // currently-loaded page of threats. For larger fleets this stops
+        // being exhaustive (only sees the current page); the dropdown
+        // gains an "(All sources)" entry plus whatever appeared in the
+        // last load. Refines without a server round-trip.
+        const srcGroup = document.createElement('div');
+        srcGroup.className = 'filter-group';
+
+        const srcLabel = document.createElement('label');
+        srcLabel.textContent = 'Agent / Source';
+        srcGroup.appendChild(srcLabel);
+
+        const srcSelect = document.createElement('select');
+        srcSelect.className = 'filter-select';
+        srcSelect.id = 'threat-source-filter';
+
+        const srcDefault = document.createElement('option');
+        srcDefault.value = '';
+        srcDefault.textContent = 'All Sources';
+        srcSelect.appendChild(srcDefault);
+
+        const uniqueSources = this.getUniqueSources();
+        uniqueSources.forEach(src => {
+            const option = document.createElement('option');
+            option.value = src;
+            option.textContent = src;
+            if (src === this.filters.source) {
+                option.selected = true;
+            }
+            srcSelect.appendChild(option);
+        });
+
+        srcSelect.addEventListener('change', (e) => {
+            this.filters.source = e.target.value;
+            this.filters.page = 1;
+            this.loadData();
+        });
+
+        srcGroup.appendChild(srcSelect);
+        bar.appendChild(srcGroup);
 
         // Min risk filter
         const riskGroup = document.createElement('div');
@@ -383,6 +429,20 @@ const ThreatsPage = {
         });
 
         return Array.from(types).sort();
+    },
+
+    getUniqueSources() {
+        // Bundle 0.3 — collect distinct source identifiers from the loaded
+        // page of threats so the filter dropdown is self-populating. Falls
+        // through to an empty list on first render before any data lands.
+        const items = this.data?.items || [];
+        const sources = new Set();
+        items.forEach(item => {
+            if (item.source_identifier && String(item.source_identifier).trim()) {
+                sources.add(String(item.source_identifier));
+            }
+        });
+        return Array.from(sources).sort();
     },
 
     formatCategoryLabel(category) {

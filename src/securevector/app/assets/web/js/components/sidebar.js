@@ -7,12 +7,23 @@ const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
-        { id: 'skill-scanner', label: 'Skill Scanner', icon: 'scan', tooltip: 'Static security analysis for skill directories' },
-        { id: 'tool-activity', label: 'Tool Activity', icon: 'history' },
-        { id: 'costs', label: 'Cost Tracking', icon: 'costs' },
-        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock' },
-        { id: 'skill-permissions', label: 'Skill Policy', icon: 'shield', tooltip: 'Manage scan policy permissions and trusted publishers' },
-        { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders' },
+        // Agent Replay umbrella — collapsible parent grouping the three
+        // observability views that share the same per-agent lens. Top-level
+        // 'replay' route still works as a deep-link (the Timeline sub-item
+        // lands on it), and Tool Activity / Cost Tracking get prominent
+        // visibility under the agent-observability story instead of being
+        // buried under Configure.
+        { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
+            { id: 'replay',         label: 'Timeline' },
+            { id: 'tool-activity',  label: 'Tool Activity' },
+            { id: 'costs',          label: 'Cost Tracking' },
+        ]},
+        // Skills + Tools entries cover their primary "configure" surfaces
+        // (the Permissions / Policy tabs); the Activity / Tracking tabs are
+        // surfaced under Agent Replay above.
+        { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
+        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
+        { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
         // placed above Integrations (inbound pipes from agent
@@ -203,7 +214,12 @@ const Sidebar = {
             // Chevron for collapsible items
             let chevron = null;
             if (item.collapsible && hasSubItems) {
-                const isExpanded = localStorage.getItem(`nav-${item.id}-expanded`) === 'true';
+                // Resolution order: explicit user preference (localStorage) →
+                // item's defaultExpanded flag → collapsed by default. Lets
+                // specific groups (Agent Replay) ship expanded out of the box
+                // while still respecting whatever the user clicks afterwards.
+                const stored = localStorage.getItem(`nav-${item.id}-expanded`);
+                const isExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
                 chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 chevron.setAttribute('viewBox', '0 0 24 24');
                 chevron.setAttribute('fill', 'none');
@@ -217,16 +233,23 @@ const Sidebar = {
                 navItem.appendChild(chevron);
             }
 
-            // Click handler — collapsible rows toggle on any click; others navigate
-            // Items with navigable: true both navigate AND toggle sub-items
+            // Click handler — collapsible rows toggle on any click; others navigate.
+            // If the parent is `navigable`, an EXPAND click also navigates to
+            // the first sub-item, so e.g. clicking "Agent Replay" lands the
+            // user on the Timeline and shows the sub-list. A second click
+            // (collapse) just hides the sub-list without changing the page.
             navItem.addEventListener('click', (e) => {
                 if (item.collapsible && hasSubItems) {
                     const subNav = nav.querySelector(`[data-sub-for="${item.id}"]`);
                     if (subNav) {
                         const isVisible = subNav.style.display !== 'none';
-                        subNav.style.display = isVisible ? 'none' : 'block';
-                        localStorage.setItem(`nav-${item.id}-expanded`, String(!isVisible));
-                        if (chevron) chevron.style.transform = isVisible ? 'rotate(-90deg)' : 'rotate(0deg)';
+                        const willExpand = !isVisible;
+                        subNav.style.display = willExpand ? 'block' : 'none';
+                        localStorage.setItem(`nav-${item.id}-expanded`, String(willExpand));
+                        if (chevron) chevron.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
+                        if (willExpand && item.navigable && item.subItems[0]) {
+                            this.navigate(item.subItems[0].id);
+                        }
                     }
                     return;
                 }
@@ -243,7 +266,9 @@ const Sidebar = {
 
                 if (item.collapsible) {
                     subNav.dataset.subFor = item.id;
-                    const isExpanded = localStorage.getItem(`nav-${item.id}-expanded`) === 'true';
+                    // Same resolution as the chevron above.
+                    const stored = localStorage.getItem(`nav-${item.id}-expanded`);
+                    const isExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
                     subNav.style.display = isExpanded ? 'block' : 'none';
                 }
 

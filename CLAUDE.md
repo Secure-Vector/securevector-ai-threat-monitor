@@ -40,6 +40,16 @@ Python 3.10+, JavaScript ES6+: Follow standard conventions
 
 - Never commit. The user handles all commits themselves.
 
+## Session continuity (every 10 interactions)
+
+Every ~10 user-message interactions, write a fresh session summary so the conversation can be `/compact`-ed without losing state. Rules:
+
+- **Path:** `.claude/sessions/session-YYYY-MM-DD-HHMM.md` (this directory is gitignored — line 29 of `.gitignore`).
+- **Never commit session summaries.** They are local-only scratch state. Do not stage, do not add to git, do not include in PRs.
+- **What to capture:** active task + sub-task, files in flight (path + what changed), pending TODOs, last command run, any uncommitted-but-applied edits, and the immediate next step. Skip transient tool output, full diffs, and conversation pleasantries.
+- **Counting interactions:** count user messages, not tool calls. After every 10th user message, write the summary before responding to the 11th.
+- **On resume after compaction:** read the most recent file in `.claude/sessions/` first to recover state.
+
 ## Skills to Use
 
 ### UI / Frontend

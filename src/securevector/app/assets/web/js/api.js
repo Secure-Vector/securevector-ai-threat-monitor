@@ -108,6 +108,21 @@ const API = {
 
     // ==================== Threat Intel ====================
 
+    // Bundle 0.4 — Agent Replay Timeline. Merged feed of scans + tool-audits + cost
+    // records, sorted by time DESC. See routes/replay.py for the server side.
+    async getReplayTimeline(params = {}) {
+        const q = new URLSearchParams();
+        if (params.agent) q.set('agent', params.agent);
+        if (params.since) q.set('since', params.since);
+        if (params.until) q.set('until', params.until);
+        if (params.limit) q.set('limit', params.limit);
+        if (params.kinds && params.kinds.length) q.set('include_kinds', params.kinds.join(','));
+        const qs = q.toString();
+        return this.request(`/api/replay/timeline${qs ? '?' + qs : ''}`).catch(() => ({
+            items: [], total: 0, agents: [], filters: {},
+        }));
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);
@@ -115,6 +130,9 @@ const API = {
         if (params.threat_type) queryParams.set('threat_type', params.threat_type);
         if (params.min_risk) queryParams.set('min_risk', params.min_risk);
         if (params.max_risk) queryParams.set('max_risk', params.max_risk);
+        // Bundle 0.3 — agent slice. The threat-intel route already accepts
+        // ?source=... server-side; just plumb it through the SDK call.
+        if (params.source) queryParams.set('source', params.source);
 
         const query = queryParams.toString();
         return this.request(`/api/threat-intel${query ? '?' + query : ''}`).catch(() => ({
