@@ -5,6 +5,12 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.1] - 2026-04-27
+
+### Fixed
+- **Desktop app hang on Cmd+Q / window close (macOS)** — `run_desktop()` launched uvicorn as a daemon thread with no shutdown handshake. pywebview's Cocoa run loop waits for the daemon thread to drain on shutdown; uvicorn's event loop holds long-lived connections (SSE / keepalive) that never return, so the process hung and only force-quit recovered. Fix: register a `window.events.closing` handler that calls `os._exit(0)` immediately on user-triggered close, plus a backstop `os._exit(0)` after `webview.start()` returns. There is no per-process state to flush — DB writes are committed inline; logs are best-effort.
+- **`--web` mode SIGINT shutdown latency** (`run_web()` and `start_server()`) — passed `timeout_graceful_shutdown=1` to `uvicorn.run()` so in-flight request drain caps at 1 second instead of waiting indefinitely. Halves Ctrl+C exit time (10.8s → 5.4s in measurement). Safe for SecureVector's request profile: scans complete in ms, SIEM forwarders run on background workers, SQLite WAL is atomic per-statement.
+
 ## [4.1.0] - 2026-04-26
 
 ### Added
