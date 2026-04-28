@@ -1654,7 +1654,7 @@ graph.add_edge("output_security", END)`,
     PAGE_INFO: {
         dashboard:         { title: 'Dashboard',           subtitle: 'Scanned requests, active threats, cost trends, and recent activity' },
         threats:           { title: 'Threat Monitor',      subtitle: 'All LLM requests analyzed for threats' },
-        replay:            { title: 'Agent Replay',        subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
+        replay:            { title: 'Agent Activity',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
