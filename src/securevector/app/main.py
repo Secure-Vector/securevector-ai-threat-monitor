@@ -114,6 +114,11 @@ def start_server(host: str, port: int, ready_event: threading.Event) -> None:
         port=port,
         log_level="warning",
         access_log=False,
+        # Cap graceful drain at 1s. Default is ~5s+, which made Cmd+Q
+        # / SIGINT shutdown feel hung. SecureVector has no long-lived
+        # in-flight requests worth waiting on — the SIEM forwarder ships
+        # via background workers, scans complete in ms.
+        timeout_graceful_shutdown=1,
     )
 
 
@@ -201,7 +206,8 @@ def run_web(host: str, port: int) -> None:
     threading.Thread(target=_open_browser, daemon=True).start()
 
     app = create_app(host=host, port=port)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # Cap graceful drain so Ctrl+C feels responsive — see start_server() above.
+    uvicorn.run(app, host=host, port=port, log_level="info", timeout_graceful_shutdown=1)
 
 
 def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbose: bool = False, mode: str = "analyze", multi: bool = False, openclaw: bool = False, proxy_host: str = "127.0.0.1") -> None:
