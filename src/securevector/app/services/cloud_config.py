@@ -100,3 +100,32 @@ CLOUD_API_URL = _os.getenv(
 
 # Allow more time for bundle fetches — the bundle is large (thousands of rules).
 CLOUD_RULES_SYNC_TIMEOUT = 30.0
+
+
+# ---------------------------------------------------------------------------
+# active-mcp-and-policy-sync — service URL helpers
+# ---------------------------------------------------------------------------
+# identity-service hosts /api/v1/devices/enroll, /auth/token, etc.
+# llm-security-engine hosts /policy/* (policy bundles + sync long-poll).
+# Both are overridable via env so internal staging / local dev can point
+# elsewhere without rebuilding the binary.
+
+AUTH_SERVICE_URL = _os.getenv(
+    "SECUREVECTOR_AUTH_URL",
+    "https://auth.securevector.io",
+)
+
+LSE_URL = _os.getenv(
+    "SECUREVECTOR_LSE_URL",
+    "https://engine.securevector.io",
+)
+
+
+def get_auth_service_url() -> str:
+    """identity-service base URL (production default; env override supported)."""
+    return AUTH_SERVICE_URL
+
+
+def get_lse_url() -> str:
+    """llm-security-engine base URL (production default; env override supported)."""
+    return LSE_URL
