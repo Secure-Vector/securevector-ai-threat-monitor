@@ -502,6 +502,14 @@ For more information, visit: https://securevector.io
 
 def main():
     """Main CLI entry point"""
+    # Org enrollment subcommand — `securevector enroll <token>`. Forwards to
+    # the same handler as `securevector-app enroll <token>` so both binaries
+    # accept the install instructions admins paste into Slack / docs.
+    if len(sys.argv) > 1 and sys.argv[1] == "enroll":
+        from securevector.app.main import _handle_enroll
+        _handle_enroll()
+        return 0
+
     handler = CLIHandler()
     parser = handler.create_parser()
     args = parser.parse_args()

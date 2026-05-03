@@ -184,3 +184,26 @@ def reset_cached_device_id() -> None:
     call re-reads from disk / OS."""
     global _CACHED_ID
     _CACHED_ID = None
+
+
+def force_reset_device_id() -> str:
+    """
+    Erase the disk-cached device_id and generate a fresh one.
+
+    Used by `POST /api/system/device-id/reset` for cloned-VM recovery.
+    The cloud's `(device_id, org_id)` UNIQUE constraint blocks re-enrollment
+    when two machines share the same device_id (cloned VM); resetting unblocks
+    the new machine.
+
+    Returns the new device_id. The caller is responsible for re-enrolling
+    against the org afterwards.
+    """
+    global _CACHED_ID
+    try:
+        path = _data_file()
+        if path.exists():
+            path.unlink()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("device_id reset: could not unlink cache: %s", exc)
+    _CACHED_ID = None
+    return get_device_id()
