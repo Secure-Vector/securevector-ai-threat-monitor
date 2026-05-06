@@ -243,39 +243,78 @@ const ToolPermissionsPage = {
         badgeRow.style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;';
         badgeRow.appendChild(this._createRiskBadge(tool.risk || 'write'));
         badgeRow.appendChild(this._createSourceBadge(tool.source || 'conventional'));
+        // active-mcp-and-policy-sync — surface managed-by-cloud + last-resort badges.
+        // tool.is_synced and tool.is_last_resort come from /api/tool-permissions/essential.
+        if (tool.is_last_resort) {
+            badgeRow.appendChild(this._createLastResortBadge());
+        } else if (tool.is_synced) {
+            badgeRow.appendChild(this._createSyncedBadge(tool));
+        }
         panel.appendChild(badgeRow);
 
-        // Allow / Block button (full width)
+        // Shadowed indicator — local override exists but cloud/last-resort wins
+        if ((tool.is_synced || tool.is_last_resort) && tool.has_override) {
+            const shadowed = document.createElement('div');
+            shadowed.style.cssText = 'margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.35); color: #d97706; font-size: 11px; line-height: 1.4;';
+            shadowed.textContent = 'Your local override is shadowed — ' + (
+                tool.is_last_resort
+                    ? 'a hard-coded last-resort rule blocks this tool and cannot be overridden.'
+                    : 'a cloud policy from ' + (tool.synced_source_org || 'your organization') + ' takes precedence.'
+            );
+            panel.appendChild(shadowed);
+        }
+
+        // Allow / Block button (full width). Disabled when managed by cloud or last-resort.
+        const isManaged = !!(tool.is_synced || tool.is_last_resort);
         let isBlocked = tool.effective_action === 'block';
         const actionBtn = document.createElement('button');
-        actionBtn.style.cssText = 'width: 100%; padding: 7px; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; transition: all 0.15s;';
+        actionBtn.style.cssText = 'width: 100%; padding: 7px; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: ' + (isManaged ? 'not-allowed' : 'pointer') + '; transition: all 0.15s; opacity: ' + (isManaged ? '0.65' : '1') + ';';
         const applyBtnStyle = (blocked) => {
-            actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)';
-            actionBtn.style.color = blocked ? '#ef4444' : '#10b981';
-            actionBtn.textContent = (blocked ? '✕  Block — click to allow' : '✓  Allow — click to block');
+            if (isManaged) {
+                actionBtn.style.background = blocked ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.18)';
+                actionBtn.style.color = 'var(--text-muted)';
+                actionBtn.textContent = (
+                    tool.is_last_resort
+                        ? '🔒 Last-resort rule — locked'
+                        : '🔒 Managed by ' + (tool.synced_source_org || 'cloud') + ' — locked'
+                );
+            } else {
+                actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)';
+                actionBtn.style.color = blocked ? '#ef4444' : '#10b981';
+                actionBtn.textContent = (blocked ? '✕  Block — click to allow' : '✓  Allow — click to block');
+            }
         };
         applyBtnStyle(isBlocked);
-        actionBtn.addEventListener('click', async () => {
-            const newAction = isBlocked ? 'allow' : 'block';
-            try {
-                await API.setToolOverride(tool.tool_id, newAction);
-                tool.effective_action = newAction;
-                tool.has_override = true;
-                isBlocked = newAction === 'block';
-                applyBtnStyle(isBlocked);
-                // Sync the mini card button in the list
-                const miniCard = document.querySelector('[data-tool-id="' + tool.tool_id + '"]');
-                if (miniCard) {
-                    const miniBtn = miniCard.querySelector('button');
-                    if (miniBtn) {
-                        this._applyActionBtnStyle(miniBtn, isBlocked);
-                        this._setBtnContent(miniBtn, isBlocked);
+        if (isManaged) {
+            actionBtn.disabled = true;
+            actionBtn.title = (
+                tool.is_last_resort
+                    ? (tool.last_resort_reason || 'Hard-coded last-resort rule.')
+                    : (tool.synced_reason || 'Managed by your organization’s cloud policy.')
+            );
+        } else {
+            actionBtn.addEventListener('click', async () => {
+                const newAction = isBlocked ? 'allow' : 'block';
+                try {
+                    await API.setToolOverride(tool.tool_id, newAction);
+                    tool.effective_action = newAction;
+                    tool.has_override = true;
+                    isBlocked = newAction === 'block';
+                    applyBtnStyle(isBlocked);
+                    // Sync the mini card button in the list
+                    const miniCard = document.querySelector('[data-tool-id="' + tool.tool_id + '"]');
+                    if (miniCard) {
+                        const miniBtn = miniCard.querySelector('button');
+                        if (miniBtn) {
+                            this._applyActionBtnStyle(miniBtn, isBlocked);
+                            this._setBtnContent(miniBtn, isBlocked);
+                        }
                     }
+                } catch (e) {
+                    if (window.Toast) Toast.show(e.message || 'Failed to update permission', 'error');
                 }
-            } catch (e) {
-                if (window.Toast) Toast.show(e.message || 'Failed to update permission', 'error');
-            }
-        });
+            });
+        }
         panel.appendChild(actionBtn);
 
         document.body.appendChild(panel);
@@ -309,6 +348,31 @@ const ToolPermissionsPage = {
         const badge = document.createElement('span');
         badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500; flex-shrink: 0; border: 1px solid ' + sm.border + '; background: ' + sm.bg + '; color: ' + sm.text + '; cursor: default;';
         badge.textContent = sm.icon + ' ' + sm.label;
+        return badge;
+    },
+
+    // active-mcp-and-policy-sync — cloud-pushed rule indicator.
+    _createSyncedBadge(tool) {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600; flex-shrink: 0; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669; cursor: default; display: inline-flex; align-items: center; gap: 4px;';
+        badge.textContent = '🔒 SYNCED' + (tool.synced_source_org ? ' · ' + tool.synced_source_org : '');
+        let title = 'Managed by ' + (tool.synced_source_org || 'your organization') + ' via cloud policy.';
+        if (tool.synced_policy_version != null) {
+            title += ' Policy version v' + tool.synced_policy_version + '.';
+        }
+        if (tool.synced_reason) {
+            title += ' Reason: ' + tool.synced_reason;
+        }
+        badge.title = title;
+        return badge;
+    },
+
+    // active-mcp-and-policy-sync — hard-coded compiled-in deny rule indicator.
+    _createLastResortBadge() {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 700; flex-shrink: 0; border: 1px solid rgba(220,38,38,0.45); background: rgba(220,38,38,0.10); color: #dc2626; cursor: default;';
+        badge.textContent = '🔒 LAST-RESORT';
+        badge.title = 'Hard-coded safety rule — cannot be overridden, even by cloud policy.';
         return badge;
     },
 
@@ -1729,25 +1793,46 @@ const ToolPermissionsPage = {
         const actionContainer = document.createElement('div');
         actionContainer.style.cssText = 'flex-shrink: 0; display: flex; align-items: center; gap: 3px;';
 
+        const isManagedRow = !!(tool.is_synced || tool.is_last_resort);
         let isBlocked = tool.effective_action === 'block';
         const actionBtn = document.createElement('button');
-        this._applyActionBtnStyle(actionBtn, isBlocked);
-        this._setBtnContent(actionBtn, isBlocked);
 
-        actionBtn.addEventListener('click', async () => {
-            const newAction = isBlocked ? 'allow' : 'block';
-            try {
-                await API.setToolOverride(tool.tool_id, newAction);
-                tool.effective_action = newAction;
-                tool.has_override = true;
-                isBlocked = newAction === 'block';
-                this._applyActionBtnStyle(actionBtn, isBlocked);
-                this._setBtnContent(actionBtn, isBlocked);
-                resetBtn.style.display = 'inline-block';
-            } catch (e) {
-                if (window.Toast) Toast.show(e.message || 'Failed to update permission', 'error');
-            }
-        });
+        if (isManagedRow) {
+            // Locked pill — same shape as the toggle button so the row doesn't
+            // resize, but visually slate-toned and click-inert.
+            actionBtn.style.cssText = 'flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669; cursor: not-allowed; line-height: 1; display: inline-flex; align-items: center; gap: 4px;';
+            actionBtn.disabled = true;
+            actionBtn.textContent = (
+                tool.is_last_resort ? '🔒 last-resort' : '🔒 synced'
+            );
+            actionBtn.title = (
+                tool.is_last_resort
+                    ? (tool.last_resort_reason || 'Hard-coded last-resort rule.')
+                    : (
+                        'Managed by ' + (tool.synced_source_org || 'cloud policy')
+                        + (tool.synced_policy_version != null ? ' (v' + tool.synced_policy_version + ')' : '')
+                        + (tool.synced_reason ? ' — ' + tool.synced_reason : '')
+                    )
+            );
+        } else {
+            this._applyActionBtnStyle(actionBtn, isBlocked);
+            this._setBtnContent(actionBtn, isBlocked);
+
+            actionBtn.addEventListener('click', async () => {
+                const newAction = isBlocked ? 'allow' : 'block';
+                try {
+                    await API.setToolOverride(tool.tool_id, newAction);
+                    tool.effective_action = newAction;
+                    tool.has_override = true;
+                    isBlocked = newAction === 'block';
+                    this._applyActionBtnStyle(actionBtn, isBlocked);
+                    this._setBtnContent(actionBtn, isBlocked);
+                    resetBtn.style.display = 'inline-block';
+                } catch (e) {
+                    if (window.Toast) Toast.show(e.message || 'Failed to update permission', 'error');
+                }
+            });
+        }
         actionContainer.appendChild(actionBtn);
 
         const resetBtn = document.createElement('button');

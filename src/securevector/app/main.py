@@ -1095,8 +1095,82 @@ def _handle_scan_skill() -> None:
     sys.exit(0)
 
 
+def _handle_enroll() -> None:
+    """Handle the `securevector-app enroll <token>` subcommand.
+
+    Redeems an `svet_*` enrollment token against the SecureVector cloud, persists
+    org-binding credentials + Supabase JWT + policy bundle signing key to disk,
+    then exits cleanly. The next launch of `securevector-app` (no args) will
+    detect the enrolled credentials and start the cloud-sync loop.
+
+    Exit codes:
+      0 — enrollment succeeded
+      1 — token rejected (401), device-id collision (409), or other expected failure
+      2 — argument error / unexpected exception
+    """
+    import asyncio
+
+    sub = argparse.ArgumentParser(
+        prog="securevector-app enroll",
+        description="Enroll this device against a SecureVector organization.",
+    )
+    sub.add_argument(
+        "token",
+        nargs="?",
+        help="The svet_<...> enrollment token (or set SECUREVECTOR_ENROLL_TOKEN)",
+    )
+    args = sub.parse_args(sys.argv[2:])
+
+    token = args.token or os.environ.get("SECUREVECTOR_ENROLL_TOKEN")
+    if not token:
+        print(
+            "Error: enrollment token required. Pass as argument or set "
+            "SECUREVECTOR_ENROLL_TOKEN.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if not token.startswith("svet_"):
+        print(
+            "Error: enrollment tokens must start with `svet_`. "
+            "Personal API keys (`svpk_*` or legacy) use Cloud Connect in the UI, not enroll.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    from securevector.app.services.enrollment import EnrollmentError, enroll
+
+    try:
+        result = asyncio.run(enroll(token))
+    except EnrollmentError as exc:
+        print(f"Enrollment failed: {exc} (code: {exc.code})", file=sys.stderr)
+        if exc.code == "device_id_collision":
+            print(
+                "  → Cloned VM detected. Run `POST /api/system/device-id/reset` "
+                "via the local app or curl, then retry enrollment with a fresh token.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Enrollment failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    print(f"Enrolled as {result.user_email} ({result.org_name})")
+    if result.admin_email:
+        print(f"  Managed by: {result.admin_email}")
+    if result.group_memberships:
+        print(f"  Groups: {', '.join(result.group_memberships)}")
+    print("\nRun `securevector-app` to launch the local app — it will start the cloud-sync loop automatically.")
+    sys.exit(0)
+
+
 def main() -> None:
     """Main entry point."""
+    # Dispatch enroll subcommand before the main parser runs
+    if len(sys.argv) > 1 and sys.argv[1] == "enroll":
+        _handle_enroll()
+        return
+
     # Dispatch scan-skill subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "scan-skill":
         _handle_scan_skill()

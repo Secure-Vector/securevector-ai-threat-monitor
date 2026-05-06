@@ -101,8 +101,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start external_forwarder: {_e}")
 
+    # Start the cloud-sync long-poll loop ONLY if this device is enrolled
+    # against an org. No-op for personal-mode / never-enrolled installs —
+    # zero cloud calls in that case (per acceptance criteria #8).
+    try:
+        from securevector.app.services.cloud_sync import maybe_start_cloud_sync
+        await maybe_start_cloud_sync(db)
+    except Exception as _e:
+        logger.warning(f"Could not start cloud_sync: {_e}")
+
     yield
     logger.info("API server shutting down...")
+
+    try:
+        from securevector.app.services.cloud_sync import stop_cloud_sync
+        await stop_cloud_sync()
+    except Exception as _e:
+        logger.warning(f"Could not stop cloud_sync cleanly: {_e}")
 
     try:
         from securevector.app.services.external_forwarder import stop_external_forwarder
@@ -213,6 +228,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         skill_scans,
         skill_permissions,
         siem_forwarders,
+        device_admin,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -231,6 +247,8 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
     app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])
+    # active-mcp-and-policy-sync — device admin (POST /api/system/device-id/reset)
+    app.include_router(device_admin.router, prefix="/api", tags=["Device Admin"])
     # Bundle 0.4 — Agent Replay Timeline. Merged threat / tool-audit / cost feed.
     from securevector.app.server.routes import replay
     app.include_router(replay.router, prefix="/api", tags=["Replay"])

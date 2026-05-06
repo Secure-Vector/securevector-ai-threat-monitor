@@ -1,8 +1,8 @@
 """
 Authentication validator for SecureVector MCP Server
 
-This module validates API keys against the identity-service and caches
-the results for performance.
+This module validates API keys against the SecureVector auth service and
+caches the results for performance.
 """
 
 import httpx
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuthValidator:
-    """Validates API keys via identity-service"""
+    """Validates API keys via the SecureVector auth service."""
 
     def __init__(self, identity_service_url: Optional[str] = None):
         """
@@ -39,7 +39,7 @@ class AuthValidator:
 
     async def validate_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
         """
-        Validate an API key via identity-service
+        Validate an API key via the SecureVector auth service.
 
         Args:
             api_key: The API key to validate

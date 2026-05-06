@@ -20,6 +20,7 @@ from securevector.app.database.models import (
     MIGRATION_V14_SQL,
     MIGRATION_V18_SQL,
     MIGRATION_V19_SQL,
+    MIGRATION_V29_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         26: migrate_to_v26,
         27: migrate_to_v27,
         28: migrate_to_v28,
+        29: migrate_to_v29,
     }
 
     if version in migrations:
@@ -1294,6 +1296,24 @@ async def migrate_to_v28(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v28: events_sent counter on external_forwarders")
+
+
+async def migrate_to_v29(db: DatabaseConnection) -> None:
+    """v28 -> v29: synced_tool_rules — cloud-pushed policy bundle layer.
+
+    active-mcp-and-policy-sync bundle. Cloud bundles delivered via
+    /policy/sync long-poll get deserialised into this table. Tool
+    Permissions reads from here at request time and computes
+    `effective_action = synced_rule (cloud) > local user rule > default`.
+
+    All synced_tool_rules rows are wiped and rewritten on every successful
+    bundle apply — not incrementally migrated. The unique (policy_id,
+    tool_id) constraint catches duplicate rules within a bundle.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V29_SQL)
+    await conn.commit()
+    logger.info("Applied migration v29: synced_tool_rules table")
 
 
 # Future migration functions would be defined here:

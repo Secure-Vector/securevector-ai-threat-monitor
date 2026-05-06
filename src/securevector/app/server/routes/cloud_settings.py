@@ -20,7 +20,9 @@ from securevector.app.services.credentials import (
     save_credentials,
     delete_credentials,
     credentials_configured,
+    detect_token_type,
 )
+from securevector.app.services.enrollment import EnrollmentError, enroll
 from securevector.app.services.cloud_proxy import get_cloud_proxy, CloudProxyError
 
 logger = logging.getLogger(__name__)
@@ -275,28 +277,62 @@ async def get_cloud_settings() -> CloudSettingsResponse:
 @router.post("/settings/cloud/credentials", response_model=CredentialsResponse)
 async def configure_credentials(request: CredentialsRequest) -> CredentialsResponse:
     """
-    Configure API Key from app.securevector.io.
+    Configure cloud credentials. Routes by token-prefix:
 
-    Saves to OS keychain (or encrypted file fallback) and enables cloud mode.
+    - `svet_*` → org enrollment (POST /api/v1/devices/enroll, persists JWT
+      + signing key + org binding; starts cloud sync subsystem).
+    - `svpk_*` or legacy unprefixed → personal API key (existing flow,
+      saves to credential store + enables cloud mode).
     """
+    token_type = detect_token_type(request.api_key)
+
+    # ---- svet_* — org enrollment path ----
+    if token_type == "svet":
+        try:
+            result = await enroll(request.api_key)
+        except EnrollmentError as exc:
+            status = 401 if exc.code in {
+                "token_invalid", "token_already_used", "token_expired"
+            } else 409 if exc.code == "device_id_collision" else 500
+            raise HTTPException(status_code=status, detail={"error": exc.code, "message": str(exc)})
+        # Enrollment also enables cloud mode (no-op if already on)
+        try:
+            db = get_database()
+            settings_repo = SettingsRepository(db)
+            await settings_repo.update(
+                cloud_connected_at=datetime.utcnow().isoformat(),
+                cloud_mode_enabled=True,
+                cloud_user_email=result.user_email,
+            )
+        except Exception as exc:  # noqa: BLE001 — credentials persisted; settings is best-effort
+            logger.warning("Enrollment succeeded but settings update failed: %s", exc)
+        # Kick the cloud-sync loop without restarting the app
+        try:
+            from securevector.app.services.cloud_sync import maybe_start_cloud_sync
+            await maybe_start_cloud_sync(db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not start cloud sync after enrollment: %s", exc)
+        return CredentialsResponse(
+            valid=True,
+            user_email=result.user_email,
+            message=f"Enrolled as {result.user_email} ({result.org_name}).",
+        )
+
+    # ---- svpk_* / legacy — personal API key path ----
     try:
-        # Save API key to credential store
         if not save_credentials(request.api_key):
             raise HTTPException(
                 status_code=500,
                 detail="Failed to save API key to credential store",
             )
 
-        # Enable cloud mode in database
         db = get_database()
         settings_repo = SettingsRepository(db)
         await settings_repo.update(
             cloud_connected_at=datetime.utcnow().isoformat(),
             cloud_mode_enabled=True,
         )
-
         logger.info("API key saved, cloud mode enabled")
-
         return CredentialsResponse(
             valid=True,
             message="API key saved. Cloud mode enabled.",

@@ -70,7 +70,15 @@ class EssentialToolResponse(BaseModel):
 
 @router.get("/tool-permissions/essential")
 async def list_essential_tools():
-    """List all essential tools with their effective permissions."""
+    """List all essential tools with their effective permissions.
+
+    active-mcp-and-policy-sync: synced rules from cloud bundles layer over
+    local user overrides. Precedence (highest first):
+      1. last_resort rule (compiled-in, always deny)
+      2. synced rule (cloud-pushed via /policy/sync)
+      3. local user override
+      4. registry default_permission
+    """
     try:
         registry = _get_registry()
         db = get_database()
@@ -78,15 +86,36 @@ async def list_essential_tools():
         overrides_list = await repo.get_all_overrides()
         overrides_map = {o["tool_id"]: o for o in overrides_list}
 
+        # Layer cloud-pushed synced rules (active-mcp-and-policy-sync)
+        from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
+        from securevector.app.rules.last_resort import matches_last_resort
+        synced_repo = SyncedRulesRepository(db)
+        synced_rows = await synced_repo.list_all()
+        synced_map = {r.tool_id: r for r in synced_rows}
+
         tools = []
         for tool_id, tool in registry.items():
             override = overrides_map.get(tool_id)
             override_action = override["action"] if override else None
             default_perm = tool.get("default_permission", "block")
-            effective = override_action if override_action else default_perm
 
-            # Recommended rate limits from YAML registry
-            yaml_rl = tool.get("rate_limit", {}) or {}
+            synced_rule = synced_map.get(tool_id)
+            last_resort = matches_last_resort(tool_id)
+
+            # effective_action precedence: last_resort > synced > local > default
+            if last_resort is not None:
+                effective = last_resort.effect  # always 'deny'
+                source = "last_resort"
+            elif synced_rule is not None:
+                # Map cloud effect names to local override names where they differ
+                effective = synced_rule.effect
+                source = "synced"
+            elif override_action is not None:
+                effective = override_action
+                source = "local"
+            else:
+                effective = default_perm
+                source = "default"
 
             tools.append({
                 "tool_id": tool_id,
@@ -98,7 +127,15 @@ async def list_essential_tools():
                 "default_permission": default_perm,
                 "description": tool.get("description", ""),
                 "effective_action": effective,
+                "effective_source": source,
                 "has_override": override_action is not None,
+                "is_synced": synced_rule is not None,
+                "synced_effect": synced_rule.effect if synced_rule else None,
+                "synced_source_org": synced_rule.org_name if synced_rule else None,
+                "synced_policy_version": synced_rule.policy_version if synced_rule else None,
+                "synced_reason": synced_rule.reason if synced_rule else None,
+                "is_last_resort": last_resort is not None,
+                "last_resort_reason": last_resort.reason if last_resort else None,
                 "source": tool.get("source", "official"),
                 "mcp_server": tool.get("mcp_server", ""),
                 "popular": tool.get("popular", False),
