@@ -483,7 +483,11 @@ class SkillScannerService:
                     domain = ""
                 if not domain:
                     continue
-                sev = "low" if domain in allowed else "high"
+                # Domain explicitly declared in permissions manifest — trusted,
+                # don't surface as a finding at all.
+                if domain in allowed:
+                    continue
+                sev = "high"
             else:
                 # Library-usage match (aiohttp, socket, etc.) — no URL to extract
                 domain = ""
