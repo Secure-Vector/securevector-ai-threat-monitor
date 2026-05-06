@@ -1,5 +1,5 @@
 """
-Device enrollment — redeems an `svet_*` token against identity-service.
+Device enrollment — redeems an `svet_*` token against the SecureVector cloud.
 
 active-mcp-and-policy-sync bundle, Phase 2 / Release A device side.
 

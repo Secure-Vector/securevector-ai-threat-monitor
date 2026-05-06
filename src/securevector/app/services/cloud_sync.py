@@ -1,6 +1,6 @@
 """
 Cloud Sync subsystem — async long-poll loop pulling signed policy bundles
-from llm-security-engine `/policy/sync` and applying them locally.
+from the SecureVector security engine `/policy/sync` and applying them locally.
 
 active-mcp-and-policy-sync bundle, Phase 2 / Release B device side.
 
@@ -267,7 +267,7 @@ async def _post_applied(
 
 
 async def _refresh_supabase_jwt(creds: EnrolledCredentials) -> bool:
-    """POST identity-service /auth/token with the refresh_token. Returns success."""
+    """POST /auth/token with the refresh_token. Returns success."""
     if not creds.supabase_refresh_token:
         return False
     url = f"{get_auth_service_url().rstrip('/')}/auth/token"

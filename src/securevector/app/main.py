@@ -1098,7 +1098,7 @@ def _handle_scan_skill() -> None:
 def _handle_enroll() -> None:
     """Handle the `securevector-app enroll <token>` subcommand.
 
-    Redeems an `svet_*` enrollment token against identity-service, persists
+    Redeems an `svet_*` enrollment token against the SecureVector cloud, persists
     org-binding credentials + Supabase JWT + policy bundle signing key to disk,
     then exits cleanly. The next launch of `securevector-app` (no args) will
     detect the enrolled credentials and start the cloud-sync loop.
