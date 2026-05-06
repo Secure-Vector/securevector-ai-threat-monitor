@@ -21,8 +21,11 @@ between attempts. Only `stop_cloud_sync()` or app shutdown ends it.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import logging
 import random
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -30,6 +33,7 @@ import httpx
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
 from securevector.app.services.bundle_verifier import (
+    BUNDLE_FRESHNESS_WINDOW,
     BundleVerificationError,
     verify_bundle,
 )
@@ -51,9 +55,90 @@ LONG_POLL_TIMEOUT_SECONDS = 25.0
 TRANSIENT_BACKOFF_BASE = 5.0
 TRANSIENT_BACKOFF_MAX = 300.0
 
+# Drift thresholds for the MCP Policies page health snapshot. Match the
+# tiered alerting design captured in the local-visibility plan.
+DEGRADED_MISMATCH_STREAK = 3            # ≥3 consecutive verify failures → degraded
+DEGRADED_QUIET_HOURS = 12               # >12h without a successful poll → degraded
+ERROR_FRESHNESS_HOURS = 24              # >24h since last apply → error (enforcer falls back)
+
 
 # Module-level task handle so lifespan stop can cancel it.
 _sync_task: Optional[asyncio.Task] = None
+
+
+# In-memory health snapshot. Mutated by _sync_once on every iteration; read by
+# the /api/v1/policy-sync/policies endpoint to power the verification banner.
+# Lost on app restart — that's fine, the next poll re-establishes a fresh
+# baseline within ≤60s. Persisting this would require a per-poll DB write,
+# which is the wrong tradeoff for a v1 surface (see plan: Phase 2 follow-up).
+_HEALTH: dict = {
+    "last_poll_at": None,           # ISO8601 — every poll attempt sets this
+    "last_poll_status": None,       # 200_applied | 304_not_modified | 401_refresh | timeout | signature_mismatch | http_error
+    "last_match_at": None,          # ISO8601 — last successful apply or 304-after-good-apply
+    "consecutive_mismatch_count": 0,
+    "signing_key_fingerprint": None,  # sha256:<32-hex> — proves *which* org key signed
+}
+
+
+def _record_poll(status: str, *, match: bool = False, signing_key: Optional[str] = None) -> None:
+    """Record one poll outcome in the in-memory health snapshot."""
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    _HEALTH["last_poll_at"] = now_iso
+    _HEALTH["last_poll_status"] = status
+    if match:
+        _HEALTH["last_match_at"] = now_iso
+        _HEALTH["consecutive_mismatch_count"] = 0
+    if status == "signature_mismatch":
+        _HEALTH["consecutive_mismatch_count"] += 1
+    if signing_key and not _HEALTH["signing_key_fingerprint"]:
+        digest = hashlib.sha256(signing_key.encode("utf-8")).digest()
+        _HEALTH["signing_key_fingerprint"] = "sha256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def get_health_snapshot(last_applied_at: Optional[str] = None) -> dict:
+    """
+    Return the in-memory health snapshot plus computed verification_status.
+
+    `last_applied_at` is the most recent `applied_at` from synced_tool_rules;
+    callers (the /policies endpoint) pass it so we don't need a DB cursor here.
+    None means no bundle has ever been applied on this device — verification
+    status is "match" by default until the first poll lands.
+    """
+    snap = dict(_HEALTH)  # shallow copy; never mutate the singleton from outside
+
+    # Compute freshness_remaining_seconds against the bundle window.
+    freshness_remaining = None
+    if last_applied_at:
+        try:
+            applied_dt = datetime.fromisoformat(last_applied_at.replace("Z", "+00:00"))
+            elapsed = datetime.now(timezone.utc) - applied_dt
+            remaining = BUNDLE_FRESHNESS_WINDOW - elapsed
+            freshness_remaining = max(0, int(remaining.total_seconds()))
+        except (ValueError, TypeError):
+            freshness_remaining = None
+    snap["freshness_remaining_seconds"] = freshness_remaining
+
+    # Tiered verification status — see plan Phase 1 table.
+    status = "match"
+
+    # Error tier first: bundle past the 24h freshness window means the enforcer
+    # is now falling back to local-only rules — surface this loudly.
+    if freshness_remaining is not None and freshness_remaining <= 0:
+        status = "error"
+    # Degraded tier: persistent mismatch streak OR quiet line.
+    elif _HEALTH["consecutive_mismatch_count"] >= DEGRADED_MISMATCH_STREAK:
+        status = "degraded"
+    elif _HEALTH["last_match_at"]:
+        try:
+            match_dt = datetime.fromisoformat(_HEALTH["last_match_at"].replace("Z", "+00:00"))
+            quiet = datetime.now(timezone.utc) - match_dt
+            if quiet > timedelta(hours=DEGRADED_QUIET_HOURS):
+                status = "degraded"
+        except (ValueError, TypeError):
+            pass
+
+    snap["verification_status"] = status
+    return snap
 
 
 async def maybe_start_cloud_sync(db: DatabaseConnection) -> None:
@@ -135,7 +220,10 @@ async def _sync_once(
 
     response = await _fetch_bundle(creds, bundle_id_hint)
     if response is None:
-        return False  # 304 no change
+        # 304 — no new bundle. Counts as a successful liveness ping; if the
+        # last apply was good, we're still in MATCH state.
+        _record_poll("304_not_modified", match=bool(_HEALTH["last_match_at"]))
+        return False
 
     try:
         verified = verify_bundle(
@@ -150,6 +238,11 @@ async def _sync_once(
             exc.code,
             exc,
         )
+        # Map the verifier's rejection codes onto the health snapshot's
+        # poll-status vocabulary; the page renders these in the audit panel.
+        _record_poll(
+            "signature_mismatch" if exc.code == "signature_invalid" else exc.code,
+        )
         await _post_applied(
             creds,
             bundle_id=str(response.get("bundle_id") or ""),
@@ -163,17 +256,27 @@ async def _sync_once(
     await repo.replace_bundle(
         bundle_id=verified.bundle_id,
         policy_id=verified.policy_id,
+        policy_name=verified.policy_name,
         policy_version=verified.version,
         org_id=verified.org_id,
         org_name=creds.org_name,
         rules=verified.rules,
     )
     logger.info(
-        "Cloud Sync: applied bundle %s policy=%s v=%d (%d rules)",
+        "Cloud Sync: applied bundle %s policy=%s (%s) v=%d (%d rules)",
         verified.bundle_id,
         verified.policy_id,
+        verified.policy_name or "(unnamed)",
         verified.version,
         len(verified.rules),
+    )
+
+    # Record the MATCH + capture the signing-key fingerprint for the audit
+    # panel. Fingerprint stays sticky across polls (only set once).
+    _record_poll(
+        "200_applied",
+        match=True,
+        signing_key=creds.policy_bundle_signing_key,
     )
 
     await _post_applied(

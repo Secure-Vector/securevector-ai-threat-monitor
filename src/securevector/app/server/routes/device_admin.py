@@ -19,18 +19,25 @@ GET /api/v1/policy-sync/status
     Mental model: "Policy Sync" is a strictly additive layer that turns
     on ONLY when the device was enrolled via a mint token. There is no
     partial mode and no manual toggle — install path determines state.
+
+GET /api/v1/policy-sync/policies
+    List view used by the dedicated MCP Policies sidebar page. One entry
+    per distinct synced policy_id with its rule count and the rules
+    themselves; read-only — authoring lives in the cloud admin UI.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
+from securevector.app.database.repositories.tool_permissions import ToolPermissionsRepository
+from securevector.app.services.cloud_sync import get_health_snapshot
 from securevector.app.services.credentials import (
     clear_enrolled_credentials,
     get_enrolled_credentials,
@@ -160,4 +167,127 @@ async def policy_sync_status() -> PolicySyncStatusResponse:
                 "waiting for the first signed bundle to apply (≤60s)."
             )
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Policy listing — data source for the dedicated MCP Policies sidebar page
+# ---------------------------------------------------------------------------
+
+
+class SyncedRuleView(BaseModel):
+    """One synced rule rendered on the MCP Policies page."""
+
+    tool_id: str
+    effect: str
+    priority: int
+    reason: Optional[str] = None
+    shadows_local_count: int = 0
+
+
+class SyncedPolicyView(BaseModel):
+    """One synced policy block on the MCP Policies page (provenance + rules)."""
+
+    policy_id: str
+    policy_name: Optional[str] = None
+    bundle_id: str
+    policy_version: int
+    org_id: str
+    org_name: Optional[str] = None
+    admin_email: Optional[str] = None
+    applied_at: str
+    rule_count: int
+    rules: List[SyncedRuleView]
+
+
+class HealthSnapshotView(BaseModel):
+    """Liveness + drift signals consumed by the MCP Policies page banner."""
+
+    last_poll_at: Optional[str] = None
+    last_poll_status: Optional[str] = None
+    last_match_at: Optional[str] = None
+    consecutive_mismatch_count: int = 0
+    freshness_remaining_seconds: Optional[int] = None
+    signing_key_fingerprint: Optional[str] = None
+
+
+class PolicySyncPoliciesResponse(BaseModel):
+    """Aggregated response for `GET /api/v1/policy-sync/policies`."""
+
+    any_active: bool
+    verification_status: str  # match | degraded | error
+    health: HealthSnapshotView
+    policies: List[SyncedPolicyView]
+
+
+@router.get("/v1/policy-sync/policies", response_model=PolicySyncPoliciesResponse)
+async def policy_sync_policies() -> PolicySyncPoliciesResponse:
+    """
+    Return all synced policies with provenance + drift/health signals.
+
+    Read by the MCP Policies sidebar page. Always safe to call — returns an
+    empty list with `match` status when the device isn't enrolled or no
+    bundle has been applied yet (the page renders an empty-state in that
+    case rather than 404'ing).
+    """
+    db = get_database()
+    repo = SyncedRulesRepository(db)
+    overrides_repo = ToolPermissionsRepository(db)
+
+    # Health snapshot needs the latest applied_at to compute freshness window.
+    policies_meta = await repo.list_policies()
+    latest_applied = policies_meta[0]["applied_at"] if policies_meta else None
+    health_raw = get_health_snapshot(last_applied_at=latest_applied)
+
+    # Local override set used to count "shadows N local rules" per synced rule.
+    # A local override on the same tool_id is shadowed by a synced rule because
+    # synced > local in the precedence order (services/policy_engine.py).
+    local_overrides = await overrides_repo.get_all_overrides()
+    local_tool_ids = {o["tool_id"] for o in local_overrides}
+
+    # admin_email lives on the credentials blob, not on every synced row —
+    # surfaced here so the page can route "who do I escalate to?" without
+    # an extra round trip.
+    creds = get_enrolled_credentials()
+    admin_email = creds.admin_email if creds else None
+
+    policies: List[SyncedPolicyView] = []
+    for meta in policies_meta:
+        rules = await repo.list_rules_for_policy(meta["policy_id"])
+        policies.append(
+            SyncedPolicyView(
+                policy_id=meta["policy_id"],
+                policy_name=meta.get("policy_name"),
+                bundle_id=meta["bundle_id"],
+                policy_version=meta["policy_version"],
+                org_id=meta["org_id"],
+                org_name=meta.get("org_name"),
+                admin_email=admin_email,
+                applied_at=meta["applied_at"],
+                rule_count=meta["rule_count"],
+                rules=[
+                    SyncedRuleView(
+                        tool_id=r.tool_id,
+                        effect=r.effect,
+                        priority=r.priority,
+                        reason=r.reason,
+                        shadows_local_count=1 if r.tool_id in local_tool_ids else 0,
+                    )
+                    for r in rules
+                ],
+            )
+        )
+
+    return PolicySyncPoliciesResponse(
+        any_active=bool(policies),
+        verification_status=health_raw["verification_status"],
+        health=HealthSnapshotView(
+            last_poll_at=health_raw.get("last_poll_at"),
+            last_poll_status=health_raw.get("last_poll_status"),
+            last_match_at=health_raw.get("last_match_at"),
+            consecutive_mismatch_count=health_raw.get("consecutive_mismatch_count", 0),
+            freshness_remaining_seconds=health_raw.get("freshness_remaining_seconds"),
+            signing_key_fingerprint=health_raw.get("signing_key_fingerprint"),
+        ),
+        policies=policies,
     )
