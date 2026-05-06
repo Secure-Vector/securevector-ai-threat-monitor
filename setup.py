@@ -69,6 +69,11 @@ setup(
             "keyring>=23.0.0",  # Secure credential storage (OS keychain)
             "httpx>=0.24.0",  # Async HTTP client for cloud API
             "websockets>=12.0",  # WebSocket proxy for OpenClaw integration
+            # Pydantic + FastAPI evaluate route annotations at registration time
+            # using ast-based union resolution; on 3.9 they need this backport to
+            # handle PEP 604 `X | None` strings produced by `from __future__ import
+            # annotations`. No-op on 3.10+.
+            'eval_type_backport>=0.2.0; python_version<"3.10"',
         ],
         "dev": [
             "pytest>=6.0",
@@ -101,6 +106,7 @@ setup(
             "platformdirs>=3.0.0",
             "psutil>=5.8",
             "memory-profiler>=0.60",
+            'eval_type_backport>=0.2.0; python_version<"3.10"',
         ],
     },
     include_package_data=True,
