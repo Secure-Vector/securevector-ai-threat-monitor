@@ -5,6 +5,8 @@ Downloads skills from GitHub repos, archive URLs, or npm registry
 to a temporary directory for scanning before installation.
 """
 
+from __future__ import annotations
+
 import asyncio
 import ipaddress
 import logging

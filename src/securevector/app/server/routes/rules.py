@@ -11,6 +11,8 @@ DELETE /api/v1/rules/{id}/override - Delete rule override
 POST /api/v1/rules/{id}/toggle - Toggle rule enabled status
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional
 

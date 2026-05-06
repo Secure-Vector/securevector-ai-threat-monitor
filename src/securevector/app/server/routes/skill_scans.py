@@ -7,6 +7,8 @@ POST /api/skill-scans/scan              - Trigger a new skill scan
 DELETE /api/skill-scans/history/{scan_id} - Delete a scan record
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
