@@ -5917,3 +5917,302 @@ thead tr:hover #records-select-all,
 .sv-integrity-actions .sv-integrity-reverify {
     color: var(--text-secondary);
 }
+
+/* ============================================================
+ * MCP Policies page (active-mcp-and-policy-sync local-visibility)
+ * ============================================================ */
+
+.mcp-policy-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.mcp-policy-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mcp-policy-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.mcp-policy-title-col { min-width: 0; }
+
+.mcp-policy-name {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.mcp-policy-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.mcp-policy-badges {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.mcp-policy-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+}
+
+.mcp-policy-badge-version {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.mcp-policy-bundle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.mcp-policy-bundle-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mcp-policy-bundle code {
+    background: transparent;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.mcp-policy-bundle-copy {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.mcp-policy-bundle-copy:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.mcp-policy-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.mcp-policy-rule-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+}
+
+.mcp-rule-effect {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    align-self: flex-start;
+    color: #fff;
+}
+
+.mcp-rule-deny .mcp-rule-effect   { background: var(--danger); }
+.mcp-rule-allow .mcp-rule-effect  { background: var(--success); }
+.mcp-rule-prompt .mcp-rule-effect { background: var(--warning); color: #18181b; }
+
+.mcp-rule-tool code {
+    color: var(--text-primary);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+    word-break: break-all;
+    background: transparent;
+}
+
+.mcp-rule-meta {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.mcp-rule-reason {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.mcp-policy-footer {
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-default);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Verification banner — tiered match | degraded | error.
+ * Sets the trust frame. Border + accent color do the heavy lifting; we
+ * intentionally avoid loud full-bleed backgrounds so the banner reads
+ * as a status pane, not an alarm. */
+
+.mcp-verification-banner {
+    margin: 16px 0 8px 0;
+    padding: 14px 18px;
+    border: 1px solid var(--border-default);
+    border-left: 4px solid var(--text-muted);
+    border-radius: 6px;
+    background: var(--bg-card);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mcp-verif-match    { border-left-color: var(--success); }
+.mcp-verif-degraded { border-left-color: var(--warning); }
+.mcp-verif-error    { border-left-color: var(--danger); }
+
+.mcp-verif-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.mcp-verif-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.mcp-verif-match    .mcp-verif-icon { color: var(--success); }
+.mcp-verif-degraded .mcp-verif-icon { color: var(--warning); }
+.mcp-verif-error    .mcp-verif-icon { color: var(--danger); }
+
+.mcp-verif-headline {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.mcp-verif-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.mcp-verif-toggle {
+    background: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.mcp-verif-toggle:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.mcp-verif-audit {
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-default);
+}
+
+.mcp-verif-dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+    margin: 0;
+    font-size: 12px;
+}
+
+.mcp-verif-dl dt {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+    align-self: center;
+}
+
+.mcp-verif-dl dd {
+    margin: 0;
+    color: var(--text-secondary);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    word-break: break-all;
+}
+
+.mcp-policy-empty {
+    margin-top: 24px;
+    padding: 32px;
+    text-align: center;
+    border: 1px dashed var(--border-default);
+    border-radius: 8px;
+    color: var(--text-secondary);
+}
+
+.mcp-policy-empty h3 {
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+}
+
+/* Tool Permissions banner — when ≥1 synced policy is active.
+ * Sticky-style pointer back to MCP Policies. Accent so it reads as
+ * informational, not alarming. */
+
+.mcp-tp-sync-banner {
+    margin: 0 0 16px 0;
+    padding: 10px 14px;
+    border: 1px solid var(--accent-primary);
+    border-left: 4px solid var(--accent-primary);
+    border-radius: 6px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.mcp-tp-sync-banner b {
+    color: var(--text-primary);
+}
+
+.mcp-tp-sync-banner a {
+    margin-left: auto;
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mcp-tp-sync-banner a:hover {
+    text-decoration: underline;
+}
