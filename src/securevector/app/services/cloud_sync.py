@@ -24,6 +24,7 @@ import asyncio
 import base64
 import hashlib
 import logging
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -290,6 +291,30 @@ async def _sync_once(
     return True
 
 
+def _build_sync_auth_headers(creds: EnrolledCredentials) -> dict:
+    """
+    Auth header builder for /policy/sync.
+
+    The engine accepts either an `X-Api-Key` (long-lived `sk-*` from the
+    cloud Access Management page) or `Authorization: Bearer <supabase_jwt>`
+    (short-lived, expires in ~1h). API key is preferred when available
+    because it eliminates the JWT-expiry fragility — a failed JWT-refresh
+    or a >401 response from the auth gateway no longer breaks the sync loop.
+
+    Resolution order:
+      1. SECUREVECTOR_API_KEY env var (operator override; matches the SDK's
+         existing env-var convention).
+      2. The api_key field on the credentials blob (if the user has stored
+         one alongside their enrollment).
+      3. Bearer JWT — the historical default; still gets the auto-refresh
+         path on 401 if it expires.
+    """
+    api_key = os.getenv("SECUREVECTOR_API_KEY") or getattr(creds, "api_key", None)
+    if api_key:
+        return {"X-Api-Key": api_key}
+    return {"Authorization": f"Bearer {creds.supabase_jwt or ''}"}
+
+
 async def _fetch_bundle(
     creds: EnrolledCredentials, bundle_id_hint: Optional[str]
 ) -> Optional[dict]:
@@ -302,7 +327,7 @@ async def _fetch_bundle(
     base = get_lse_url().rstrip("/")
     url = f"{base}/policy/sync"
     headers = {
-        "Authorization": f"Bearer {creds.supabase_jwt or ''}",
+        **_build_sync_auth_headers(creds),
         "X-SecureVector-Device-Id": get_device_id(),
     }
     if bundle_id_hint:
@@ -313,12 +338,14 @@ async def _fetch_bundle(
 
     if response.status_code == 304:
         return None
-    if response.status_code == 401:
-        # JWT expired or revoked — try refresh once.
+    # 401 OR 403 from the JWT path — engine has been observed to return both
+    # for an expired token. Only attempt JWT refresh if we were actually using
+    # the JWT path; if the API key was bad, no refresh will help.
+    if response.status_code in (401, 403) and "Authorization" in headers:
         refreshed = await _refresh_supabase_jwt(creds)
         if not refreshed:
             raise RuntimeError(
-                "Cloud Sync: 401 from /policy/sync and JWT refresh failed"
+                f"Cloud Sync: {response.status_code} from /policy/sync and JWT refresh failed"
             )
         # Refresh updated credentials on disk; let the next iteration retry
         # with the new JWT (avoids redoing the long-poll inside this call).
@@ -353,7 +380,7 @@ async def _post_applied(
         "error": error,
     }
     headers = {
-        "Authorization": f"Bearer {creds.supabase_jwt or ''}",
+        **_build_sync_auth_headers(creds),
         "X-SecureVector-Device-Id": get_device_id(),
     }
     try:

@@ -395,14 +395,6 @@ const ToolPermissionsPage = {
             if (window.Header) Header.setPageInfo('Tool Permissions', 'Control which tools your agent is allowed to call');
         }
 
-        // Sync banner — when ≥1 cloud-pushed policy is active. Sticky pointer
-        // back to the dedicated MCP Policies page. Don't block initial paint
-        // on this; if the fetch fails the banner just doesn't appear.
-        const syncBanner = document.createElement('div');
-        syncBanner.id = 'tp-sync-banner-slot';
-        container.appendChild(syncBanner);
-        this._maybeRenderSyncBanner(syncBanner);
-
         if (!this.hideTabBar) {
             // Tab bar
             const tabs = document.createElement('div');
@@ -422,54 +414,13 @@ const ToolPermissionsPage = {
         await this._renderActiveTab();
     },
 
-    /**
-     * Best-effort render of the synced-policy banner. Pulls the same
-     * /api/v1/policy-sync/policies endpoint the MCP Policies page reads from,
-     * so by construction the banner can't drift from what the page says.
-     * Silent on failure — this banner is informational, not load-bearing.
-     */
-    async _maybeRenderSyncBanner(slot) {
-        try {
-            const data = await API.request('/api/v1/policy-sync/policies');
-            if (!data || !data.any_active || !data.policies?.length) return;
-
-            // Surface the most recently applied policy in the headline; if there
-            // are several we still link to the dedicated page for the full list.
-            const top = data.policies[0];
-            const policyLabel = top.policy_name || top.policy_id;
-            const ruleCount = data.policies.reduce((n, p) => n + (p.rule_count || 0), 0);
-
-            const banner = document.createElement('div');
-            banner.className = 'mcp-tp-sync-banner';
-
-            const lock = document.createElement('span');
-            lock.textContent = '🔒';
-            banner.appendChild(lock);
-
-            const text = document.createElement('span');
-            const lead = document.createElement('b');
-            lead.textContent = ruleCount + (ruleCount === 1 ? ' rule' : ' rules') + ' on this page are managed by your org.';
-            text.appendChild(lead);
-            text.appendChild(document.createTextNode(' '));
-            const detail = document.createElement('span');
-            detail.textContent = policyLabel + ' v' + top.policy_version
-                + (top.org_name ? ' · ' + top.org_name : '');
-            text.appendChild(detail);
-            banner.appendChild(text);
-
-            const link = document.createElement('a');
-            link.textContent = 'View MCP Policies →';
-            link.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (window.Sidebar) Sidebar.navigate('mcp-policies');
-            });
-            banner.appendChild(link);
-
-            slot.appendChild(banner);
-        } catch (_) {
-            // Silent — page still functions without the banner.
-        }
-    },
+    // Note: an earlier draft added a page-level "N rules on this page are
+    // managed by your org" banner here. It was removed because it lied — the
+    // count was the total of synced-policy rules, but those rules only
+    // surface visually if their tool_id matches a registry tool. The per-row
+    // _createSyncedBadge() (line ~355) already renders 🔒 SYNCED in context
+    // on the rows that ARE matched, which is the honest signal. Discovery
+    // of the dedicated MCP Policies page is handled by the left-nav entry.
 
     _renderTabBar() {
         const bar = document.getElementById('tp-tabs');
