@@ -135,12 +135,224 @@ const McpPoliciesPage = {
         if (!data.any_active) {
             main.appendChild(this._buildEmptyState());
         } else {
-            for (const policy of data.policies) {
-                main.appendChild(this._buildPolicyCard(policy));
-            }
+            // Paginated table — matches the canonical pattern from threats.js
+            // (DataTable + pagination footer). Click a row to open the detail
+            // drawer with the full rule list + bundle id + footer.
+            main.appendChild(this._buildPolicyTableHeader(data.policies));
+            main.appendChild(this._buildPolicyTable(data.policies));
         }
 
         rail.appendChild(this._buildRail(data));
+    },
+
+    /**
+     * Header strip above the table — summary count + (eventually) search box.
+     * Search input fires only when ≥6 policies are present, otherwise hidden
+     * for visual restraint.
+     */
+    _buildPolicyTableHeader(policies) {
+        const header = document.createElement('div');
+        header.className = 'mcp-table-header';
+
+        const summary = document.createElement('div');
+        summary.className = 'mcp-table-summary';
+        const ruleTotal = policies.reduce((n, p) => n + (p.rule_count || 0), 0);
+        const policyLbl = policies.length === 1 ? '1 policy' : policies.length + ' policies';
+        const ruleLbl = ruleTotal === 1 ? '1 rule' : ruleTotal + ' rules';
+        summary.textContent = `${policyLbl} · ${ruleLbl} total`;
+        header.appendChild(summary);
+
+        if (policies.length >= 6) {
+            const search = document.createElement('input');
+            search.type = 'search';
+            search.className = 'mcp-table-search';
+            search.placeholder = 'Filter by name, org, or tool…';
+            search.addEventListener('input', (e) => {
+                const q = e.target.value.toLowerCase().trim();
+                this._filterTable(q, policies);
+            });
+            header.appendChild(search);
+        }
+
+        return header;
+    },
+
+    /**
+     * Build the DataTable using the canonical project pattern.
+     * Columns kept tight — name + org + version + rules + applied.
+     * Clicking any row opens the SideDrawer with full detail.
+     */
+    _buildPolicyTable(policies) {
+        const wrap = document.createElement('div');
+        wrap.className = 'mcp-table-card';
+
+        // DataTable expects an `id` field on each row for selection support.
+        const rows = policies.map((p) => ({ ...p, id: p.policy_id }));
+        const self = this;
+
+        const table = new DataTable({
+            tableId: 'mcp-policies-table',
+            data: rows,
+            idField: 'policy_id',
+            sortKey: 'applied_at',
+            sortDir: 'desc',
+            pagination: { pageSize: 15 },
+            emptyText: 'No org policies on this device.',
+            columns: [
+                {
+                    key: 'policy_name',
+                    label: 'Policy',
+                    sortable: true,
+                    render: (_, p) => {
+                        const cell = document.createElement('div');
+                        cell.className = 'mcp-cell-policy';
+
+                        const tile = document.createElement('span');
+                        tile.className = 'mcp-cell-tile';
+                        tile.innerHTML =
+                            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                            '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>' +
+                            '<polyline points="8 12 11 15 16 9"></polyline></svg>';
+                        cell.appendChild(tile);
+
+                        const txt = document.createElement('div');
+                        txt.className = 'mcp-cell-policy-text';
+                        const name = document.createElement('div');
+                        name.className = 'mcp-cell-policy-name';
+                        name.textContent = p.policy_name || p.policy_id;
+                        const sub = document.createElement('code');
+                        sub.className = 'mcp-cell-policy-sub';
+                        sub.textContent = p.policy_id;
+                        txt.appendChild(name);
+                        // Only show the policy_id below if a friendly name exists
+                        if (p.policy_name) txt.appendChild(sub);
+                        cell.appendChild(txt);
+                        return cell;
+                    },
+                },
+                {
+                    key: 'org_name',
+                    label: 'Organization',
+                    sortable: true,
+                    render: (_, p) => {
+                        const span = document.createElement('span');
+                        span.className = 'mcp-cell-org';
+                        span.textContent = p.org_name || '—';
+                        return span;
+                    },
+                },
+                {
+                    key: 'policy_version',
+                    label: 'Version',
+                    sortable: true,
+                    render: (_, p) => {
+                        const v = document.createElement('span');
+                        v.className = 'mcp-cell-version';
+                        v.textContent = 'v' + p.policy_version;
+                        return v;
+                    },
+                },
+                {
+                    key: 'rule_count',
+                    label: 'Rules',
+                    sortable: true,
+                    render: (_, p) => {
+                        const v = document.createElement('span');
+                        v.className = 'mcp-cell-count';
+                        v.textContent = String(p.rule_count);
+                        return v;
+                    },
+                },
+                {
+                    key: 'applied_at',
+                    label: 'Applied',
+                    sortable: true,
+                    render: (_, p) => {
+                        const span = document.createElement('span');
+                        span.className = 'mcp-cell-time';
+                        span.textContent = self._relTime(p.applied_at);
+                        span.title = p.applied_at || '';
+                        return span;
+                    },
+                },
+                {
+                    key: '_status',
+                    label: 'Status',
+                    render: (_, _p) => {
+                        // Per-policy verification status isn't tracked yet — the
+                        // overall snapshot in the status grid is the source of truth
+                        // for now. Mirror the overall status onto every row so the
+                        // table doesn't lie when the bundle has expired/drifted.
+                        const overall = (self._data && self._data.verification_status) || 'match';
+                        const label = overall === 'match' ? '✓ MATCH'
+                                    : overall === 'degraded' ? '⚠ DEGRADED'
+                                    : '✖ EXPIRED';
+                        const wrap = document.createElement('span');
+                        wrap.className = 'mcp-cell-status mcp-cell-status-' + overall;
+                        wrap.textContent = label;
+                        return wrap;
+                    },
+                },
+            ],
+            customSort: (data, key, dir) => {
+                const d = dir === 'asc' ? 1 : -1;
+                return data.sort((a, b) => {
+                    let va, vb;
+                    if (key === 'applied_at') {
+                        return ((new Date(a.applied_at).getTime() || 0)
+                              - (new Date(b.applied_at).getTime() || 0)) * d;
+                    }
+                    if (key === 'policy_version' || key === 'rule_count') {
+                        return ((a[key] || 0) - (b[key] || 0)) * d;
+                    }
+                    if (key === 'policy_name') {
+                        va = (a.policy_name || a.policy_id || '').toLowerCase();
+                        vb = (b.policy_name || b.policy_id || '').toLowerCase();
+                    } else {
+                        va = (a[key] || '').toString().toLowerCase();
+                        vb = (b[key] || '').toString().toLowerCase();
+                    }
+                    return va < vb ? -1 * d : va > vb ? 1 * d : 0;
+                });
+            },
+            onRowClick: (p) => self._openPolicyDrawer(p),
+        });
+
+        // Hold a reference for the search filter to call into.
+        this._table = table;
+        this._allPolicies = policies;
+
+        wrap.appendChild(table.el);
+        return wrap;
+    },
+
+    _filterTable(q, allPolicies) {
+        if (!this._table) return;
+        if (!q) { this._table.setData(allPolicies.map((p) => ({ ...p, id: p.policy_id }))); return; }
+        const matches = allPolicies.filter((p) => {
+            const haystack = [
+                p.policy_name, p.policy_id, p.org_name,
+                ...(p.rules || []).map((r) => r.tool_id),
+            ].filter(Boolean).join(' ').toLowerCase();
+            return haystack.includes(q);
+        });
+        this._table.setData(matches.map((p) => ({ ...p, id: p.policy_id })));
+    },
+
+    /**
+     * Side drawer with the full policy detail — rules list, bundle id,
+     * provenance footer. Reuses the existing card builder so visual
+     * detail rendering stays in one place.
+     */
+    _openPolicyDrawer(policy) {
+        const content = this._buildPolicyCard(policy);
+        // Drop the outer hover-glow border treatment when rendered in a drawer
+        // (the drawer already has its own chrome).
+        content.classList.add('mcp-policy-in-drawer');
+        SideDrawer.show({
+            title: policy.policy_name || policy.policy_id,
+            content,
+        });
     },
 
     // -------- Verification status grid --------

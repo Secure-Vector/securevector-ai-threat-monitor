@@ -6629,6 +6629,133 @@ thead tr:hover #records-select-all,
 
 /* --- Responsive ----------------------------------------------------- */
 
+/* --- Table-style policy list (uses canonical DataTable component) --- */
+
+.mcp-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.mcp-table-summary {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+}
+
+.mcp-table-search {
+    flex-shrink: 0;
+    width: 240px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 12px;
+}
+.mcp-table-search:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    background: rgba(8,145,178,0.04);
+}
+
+.mcp-table-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Cell renderers */
+
+.mcp-cell-policy {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.mcp-cell-tile {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(8,145,178,0.18), rgba(8,145,178,0.06));
+    border: 1px solid rgba(8,145,178,0.30);
+    color: var(--accent-primary);
+}
+.mcp-cell-tile svg { width: 14px; height: 14px; }
+
+.mcp-cell-policy-text { min-width: 0; }
+.mcp-cell-policy-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+.mcp-cell-policy-sub {
+    display: block;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: transparent;
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+
+.mcp-cell-org { color: var(--text-secondary); font-size: 12px; }
+
+.mcp-cell-version {
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-primary);
+    background: rgba(8,145,178,0.10);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(8,145,178,0.30);
+}
+
+.mcp-cell-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.mcp-cell-time { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.mcp-cell-status {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+.mcp-cell-status-match    { color: var(--success); background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.30); }
+.mcp-cell-status-degraded { color: var(--warning); background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.30); }
+.mcp-cell-status-error    { color: var(--danger); background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.30); }
+
+/* Drawer-rendered policy card — drop the outer-border treatment since the
+ * drawer provides its own. */
+.mcp-policy-in-drawer {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+.mcp-policy-in-drawer:hover { border-color: transparent; }
+
 @media (max-width: 1100px) {
     .mcp-status-grid { grid-template-columns: repeat(2, 1fr); }
     .mcp-layout {
