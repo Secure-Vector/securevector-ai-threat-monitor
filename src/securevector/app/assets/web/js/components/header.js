@@ -197,6 +197,7 @@ const Header = {
             'siem-export':      'section-siem-forwarder',
             'skill-scanner':    'section-skill-scanner',
             'tool-permissions': 'section-tool-permissions',
+            'mcp-policies':     'section-mcp-policies',
             'costs':            'section-costs',
         };
         btn.addEventListener('click', () => {

@@ -6030,6 +6030,83 @@ thead tr:hover #records-select-all,
     max-width: 720px;
 }
 
+/* Hero right-side actions — currently just the Sync Now button */
+.mcp-hero-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 16px;
+}
+
+.mcp-sync-now-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: rgba(8,145,178,0.12);
+    border: 1px solid rgba(8,145,178,0.40);
+    border-radius: 6px;
+    color: var(--accent-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.mcp-sync-now-btn:hover:not(:disabled) {
+    background: rgba(8,145,178,0.20);
+    border-color: var(--accent-primary);
+}
+.mcp-sync-now-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.mcp-sync-now-btn .mcp-sync-icon {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+.mcp-sync-now-btn.is-syncing .mcp-sync-icon {
+    animation: mcp-spin 0.8s linear infinite;
+}
+@keyframes mcp-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Sync result toast — appears under the hero after a manual refresh */
+.mcp-sync-toast {
+    margin: -14px 0 18px 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    border: 1px solid var(--border-default);
+    background: var(--bg-card);
+}
+.mcp-sync-toast-ok    { border-color: rgba(16,185,129,0.40); background: rgba(16,185,129,0.06); color: var(--text-primary); }
+.mcp-sync-toast-error { border-color: rgba(239,68,68,0.45);  background: rgba(239,68,68,0.06);  color: var(--text-primary); }
+.mcp-sync-toast-icon {
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+.mcp-sync-toast-ok    .mcp-sync-toast-icon { color: var(--success); }
+.mcp-sync-toast-error .mcp-sync-toast-icon { color: var(--danger); }
+.mcp-sync-toast-close {
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.mcp-sync-toast-close:hover { color: var(--text-primary); }
+
 /* --- Status grid (4-up tiles) --------------------------------------- */
 
 .mcp-status-grid {

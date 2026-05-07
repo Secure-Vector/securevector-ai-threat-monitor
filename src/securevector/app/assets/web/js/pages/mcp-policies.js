@@ -30,12 +30,14 @@ const McpPoliciesPage = {
 
     async render(container) {
         container.textContent = '';
+        this._container = container;
         this._detailsExpanded = this._detailsExpanded || _MCP_AUDIT_ENTRY;
 
-        // Hero — heavyweight: shield-check icon tile + name + "Cloud-only" pill.
-        // The pill is the founder-requested explicit cue that this surface is
-        // a cloud-tier feature; without an enrolled device it's empty-state.
-        container.appendChild(this._buildHero());
+        // Hero — heavyweight: shield-check icon tile + name + "Cloud-only" pill +
+        // Sync Now button. The button gating reads from data.can_refresh once
+        // the fetch resolves; until then we render it disabled.
+        const hero = this._buildHero();
+        container.appendChild(hero);
 
         // Loading state — replaced after fetch resolves
         const loading = document.createElement('div');
@@ -53,10 +55,77 @@ const McpPoliciesPage = {
             const data = await API.request('/api/v1/policy-sync/policies');
             this._data = data;
             container.removeChild(loading);
+            this._refreshHeroSyncButton(hero, data);
             this._renderBody(container, data);
         } catch (err) {
             container.removeChild(loading);
             container.appendChild(this._buildErrorState(err));
+        }
+    },
+
+    /**
+     * Manual sync — POST /api/v1/policy-sync/refresh, then refetch the page
+     * data. The button stays disabled while in flight; on completion we render
+     * a small toast-style banner inline below the hero with the outcome.
+     */
+    async _onSyncNow() {
+        if (!this._data || !this._data.can_refresh) return;
+        if (this._syncing) return;
+        this._syncing = true;
+        this._refreshHeroSyncButton(this._container.querySelector('.mcp-hero'), this._data);
+
+        let resp;
+        try {
+            resp = await API.request('/api/v1/policy-sync/refresh', { method: 'POST' });
+        } catch (err) {
+            resp = { status: 'error', applied: false, message: err.message || String(err) };
+        }
+        this._syncing = false;
+        this._lastSyncResult = resp;
+
+        // Refetch + re-render — the new data lands the just-applied bundle
+        await this.render(this._container);
+    },
+
+    _refreshHeroSyncButton(hero, data) {
+        if (!hero) return;
+        const btn = hero.querySelector('.mcp-sync-now-btn');
+        if (!btn) return;
+
+        const canRefresh = !!(data && data.can_refresh);
+        const reason = (data && data.refresh_blocker_reason) || '';
+
+        btn.disabled = !canRefresh || this._syncing;
+        btn.classList.toggle('is-syncing', !!this._syncing);
+        btn.title = !canRefresh
+            ? reason || 'Sync unavailable'
+            : 'Force one /policy/sync iteration now';
+        btn.textContent = this._syncing ? 'Syncing…' : 'Sync now';
+
+        // Toast row under the hero — only shows after a manual sync completes.
+        let toast = hero.parentElement && hero.parentElement.querySelector('.mcp-sync-toast');
+        if (toast) toast.remove();
+        if (this._lastSyncResult) {
+            const r = this._lastSyncResult;
+            const t = document.createElement('div');
+            t.className = 'mcp-sync-toast mcp-sync-toast-' + (r.status === 'ok' || r.status === 'not_modified' ? 'ok' : 'error');
+            const icon = document.createElement('span');
+            icon.className = 'mcp-sync-toast-icon';
+            icon.textContent = r.status === 'ok' ? '✓' : r.status === 'not_modified' ? '·' : '✖';
+            const txt = document.createElement('span');
+            txt.textContent = r.message + (r.error_detail ? ' (' + r.error_detail + ')' : '');
+            const close = document.createElement('button');
+            close.className = 'mcp-sync-toast-close';
+            close.textContent = '×';
+            close.title = 'Dismiss';
+            close.addEventListener('click', () => {
+                this._lastSyncResult = null;
+                this._refreshHeroSyncButton(hero, this._data);
+            });
+            t.appendChild(icon);
+            t.appendChild(txt);
+            t.appendChild(close);
+            hero.parentElement.insertBefore(t, hero.nextSibling);
         }
     },
 
@@ -100,6 +169,33 @@ const McpPoliciesPage = {
         text.appendChild(sub);
 
         hero.appendChild(text);
+
+        // Sync Now action — disabled until the GET /policies response surfaces
+        // can_refresh=true. Same button shows refresh / syncing / not-allowed
+        // states via the can_refresh + refresh_blocker_reason signals.
+        const actions = document.createElement('div');
+        actions.className = 'mcp-hero-actions';
+        const syncBtn = document.createElement('button');
+        syncBtn.type = 'button';
+        syncBtn.className = 'mcp-sync-now-btn';
+        syncBtn.disabled = true;
+        syncBtn.textContent = 'Sync now';
+        syncBtn.title = 'Loading…';
+        syncBtn.addEventListener('click', () => this._onSyncNow());
+        // Refresh-circle icon (same shape as the rest of the app)
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
+        icon.classList.add('mcp-sync-icon');
+        icon.innerHTML = '<polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>';
+        syncBtn.prepend(icon);
+        actions.appendChild(syncBtn);
+        hero.appendChild(actions);
+
         return hero;
     },
 

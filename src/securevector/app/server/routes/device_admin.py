@@ -29,6 +29,7 @@ GET /api/v1/policy-sync/policies
 from __future__ import annotations
 
 import logging
+import os as _os
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -37,7 +38,7 @@ from pydantic import BaseModel
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
 from securevector.app.database.repositories.tool_permissions import ToolPermissionsRepository
-from securevector.app.services.cloud_sync import get_health_snapshot
+from securevector.app.services.cloud_sync import _sync_once, get_health_snapshot
 from securevector.app.services.credentials import (
     clear_enrolled_credentials,
     get_enrolled_credentials,
@@ -218,6 +219,21 @@ class PolicySyncPoliciesResponse(BaseModel):
     verification_status: str  # match | degraded | error
     health: HealthSnapshotView
     policies: List[SyncedPolicyView]
+    # Gates the "Sync now" button on the page. False when nothing useful would
+    # come of a force-refresh — primarily because the device isn't enrolled,
+    # so /policy/sync would just 401/403. Frontend uses this to disable the
+    # button + render the blocker_reason in the tooltip.
+    can_refresh: bool
+    refresh_blocker_reason: Optional[str] = None
+
+
+class PolicySyncRefreshResponse(BaseModel):
+    """Outcome of a manual `POST /api/v1/policy-sync/refresh` invocation."""
+
+    applied: bool          # True if a new bundle was applied this call
+    status: str            # ok | not_modified | not_enrolled | error
+    message: str
+    error_detail: Optional[str] = None
 
 
 @router.get("/v1/policy-sync/policies", response_model=PolicySyncPoliciesResponse)
@@ -278,6 +294,25 @@ async def policy_sync_policies() -> PolicySyncPoliciesResponse:
             )
         )
 
+    # Refresh-button gating — the cheap rules:
+    #   1. Must be enrolled (otherwise we have no auth target).
+    #   2. Must have either a stored API key, an env-var API key, or a
+    #      live JWT in credentials. The frontend doesn't need to know which —
+    #      cloud_sync._build_sync_auth_headers picks at request time.
+    can_refresh = False
+    refresh_blocker_reason: Optional[str] = None
+    if not is_enrolled():
+        refresh_blocker_reason = "Not enrolled — run `securevector-app enroll <token>` first."
+    elif not creds:
+        refresh_blocker_reason = "Credentials unavailable."
+    else:
+        has_api_key = bool(_os.getenv("SECUREVECTOR_API_KEY")) or bool(getattr(creds, "api_key", None))
+        has_jwt = bool(getattr(creds, "supabase_jwt", None))
+        if not (has_api_key or has_jwt):
+            refresh_blocker_reason = "No API key or JWT in credentials — re-enroll or set SECUREVECTOR_API_KEY."
+        else:
+            can_refresh = True
+
     return PolicySyncPoliciesResponse(
         any_active=bool(policies),
         verification_status=health_raw["verification_status"],
@@ -290,4 +325,55 @@ async def policy_sync_policies() -> PolicySyncPoliciesResponse:
             signing_key_fingerprint=health_raw.get("signing_key_fingerprint"),
         ),
         policies=policies,
+        can_refresh=can_refresh,
+        refresh_blocker_reason=refresh_blocker_reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Manual sync — bypass the long-poll cadence + force one-shot apply
+# ---------------------------------------------------------------------------
+
+
+@router.post("/v1/policy-sync/refresh", response_model=PolicySyncRefreshResponse)
+async def policy_sync_refresh() -> PolicySyncRefreshResponse:
+    """
+    Force one sync iteration immediately. Used by the "Sync now" button on
+    the MCP Policies page. Idempotent — running it twice in a row is fine
+    (second call returns 304 / not_modified if no new bundle).
+
+    Reuses cloud_sync._sync_once for behaviour parity with the background
+    loop — same auth path (X-Api-Key preferred, JWT fallback), same
+    signature verification, same DB write transactionality.
+    """
+    if not is_enrolled():
+        return PolicySyncRefreshResponse(
+            applied=False,
+            status="not_enrolled",
+            message="Device is not enrolled. Run `securevector-app enroll <token>` first.",
+        )
+
+    db = get_database()
+    repo = SyncedRulesRepository(db)
+    try:
+        applied = await _sync_once(db, repo)
+    except Exception as exc:  # noqa: BLE001 — expose the message to the user
+        logger.warning("Manual policy sync failed: %s", exc)
+        return PolicySyncRefreshResponse(
+            applied=False,
+            status="error",
+            message="Sync failed. Check that the cloud is reachable and the API key / JWT is valid.",
+            error_detail=str(exc),
+        )
+
+    if applied:
+        return PolicySyncRefreshResponse(
+            applied=True,
+            status="ok",
+            message="New bundle applied.",
+        )
+    return PolicySyncRefreshResponse(
+        applied=False,
+        status="not_modified",
+        message="Already on the latest bundle (304 not_modified).",
     )
