@@ -836,8 +836,9 @@ const GettingStartedPage = {
         frag.appendChild(enrollTitle);
 
         frag.appendChild(this.createMiniStep('1', 'Admin mints a token', 'In the SecureVector cloud admin (app.securevector.io), an org admin opens Enroll Devices and clicks Invite User. The cloud generates a single-use svet_* token.'));
-        frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + JWT, and persists them to the credentials file.'));
-        frag.appendChild(this.createMiniStep('3', 'Cloud Sync starts', 'On the next launch, the local app long-polls /policy/sync. Bundles are verified (signature + freshness + version-replay), then applied to the synced_tool_rules table. The MCP Policies page reads from there.'));
+        frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + auth credentials, and persists them to the credentials file.'));
+        frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth — it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
+        frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app long-polls /policy/sync. Bundles are verified (signature + freshness + version-replay), then applied to the synced_tool_rules table. The MCP Policies page reads from there.'));
 
         // Reading the MCP Policies page
         const readTitle = document.createElement('div');

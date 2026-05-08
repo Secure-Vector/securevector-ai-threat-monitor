@@ -525,6 +525,46 @@ proxy:
 
 The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
 
+### MCP Policies — Cloud Sync (optional)
+
+If your org distributes signed MCP tool-policy bundles from SecureVector Cloud, enroll the device once and let the local app long-poll for updates.
+
+**1. Admin mints a token** in the cloud admin UI (`app.securevector.io` → Onboarding → Invite users) and shares the install command.
+
+**2. User enrolls locally:**
+
+```bash
+securevector-app enroll svet_<token>
+```
+
+The local app POSTs `/api/v1/devices/enroll`, persists `org_id` + signing key + auth credentials to `~/Library/Application Support/.credentials` (macOS — equivalent path on Linux/Windows), and starts the cloud sync loop on next launch.
+
+**3. Set `SECUREVECTOR_API_KEY` for stable sync auth (recommended).**
+
+The local app accepts two auth methods on `/policy/sync`. The API key path is **canonical** — it eliminates the short-lived-JWT refresh fragility that can leave a device unable to sync if the refresh token goes stale.
+
+```bash
+export SECUREVECTOR_API_KEY=sk-<long-lived-key>
+```
+
+| Auth method | Header sent | Source | Lifetime | Sync stability |
+|---|---|---|---|---|
+| **API key** ✅ recommended | `X-Api-Key: sk-...` | `SECUREVECTOR_API_KEY` env, then `creds.api_key` | Long-lived | Robust — no refresh path needed |
+| Supabase JWT (fallback) | `Authorization: Bearer ...` | `creds.supabase_jwt` from enrollment | ~1h, auto-refresh on 401/403 | Breaks if the refresh token expires; requires re-enrollment to recover |
+
+When both are present, the API key wins. `device_id` rides as `X-SecureVector-Device-Id` on every request regardless of auth method; `org_id` is resolved server-side from the auth principal.
+
+You can mint API keys in the cloud admin UI under Access Management. Set the env var in your shell profile or systemd service unit so it survives restarts.
+
+**4. (Optional) Override the cloud endpoints** for staging / on-prem:
+
+```bash
+export SECUREVECTOR_AUTH_URL=https://auth.securevector.io
+export SECUREVECTOR_LSE_URL=https://engine.securevector.io
+```
+
+Synced rules are read-only on the device — authoring lives in the cloud admin. The MCP Policies page (sidebar → Configure → MCP Policies) shows verification status, applied policies + rules, and a Sync Now button for manual refresh.
+
 ### Pointing Your Agent at the Proxy
 
 For **LangChain, CrewAI, Ollama**, and other non-OpenClaw frameworks, point your application to SecureVector's proxy instead of the provider's API. OpenClaw/ClawdBot users only need this when block mode is enabled.
