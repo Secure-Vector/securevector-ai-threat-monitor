@@ -840,6 +840,77 @@ const GettingStartedPage = {
         frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth — it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
         frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app long-polls /policy/sync. Bundles are verified (signature + freshness + version-replay), then applied to the synced_tool_rules table. The MCP Policies page reads from there.'));
 
+        // Sync auth (recommended setup)
+        const authTitle = document.createElement('div');
+        authTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        authTitle.textContent = 'Sync auth (recommended setup)';
+        frag.appendChild(authTitle);
+
+        const authDesc = document.createElement('p');
+        authDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 10px 0; font-size: 12px; line-height: 1.55;';
+        authDesc.textContent = 'The local app accepts two auth methods on /policy/sync. The API key path is canonical — it eliminates the short-lived-JWT refresh fragility that can otherwise leave a device unable to sync if the refresh token goes stale.';
+        frag.appendChild(authDesc);
+
+        const apiKeyCode = document.createElement('pre');
+        apiKeyCode.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); background: var(--bg-tertiary); padding: 10px 12px; border-radius: 4px; margin: 0 0 12px 0; overflow-x: auto;';
+        apiKeyCode.textContent = 'export SECUREVECTOR_API_KEY=sk-<long-lived-key>';
+        frag.appendChild(apiKeyCode);
+
+        // Auth comparison table
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'overflow-x: auto; margin-bottom: 14px;';
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Auth method', 'Header sent', 'Source', 'Lifetime', 'Sync stability'].forEach(h => {
+            const th = document.createElement('th');
+            th.style.cssText = 'text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-primary); font-weight: 700;';
+            th.textContent = h;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const rows = [
+            ['API key (recommended)', 'X-Api-Key: sk-...', 'SECUREVECTOR_API_KEY env, then creds.api_key', 'Long-lived', 'Robust — no refresh path needed'],
+            ['Supabase JWT (fallback)', 'Authorization: Bearer ...', 'creds.supabase_jwt from enrollment', '~1h, auto-refresh on 401/403', 'Breaks if refresh token expires; requires re-enrollment to recover'],
+        ];
+        rows.forEach((cells, idx) => {
+            const tr = document.createElement('tr');
+            cells.forEach((c, i) => {
+                const td = document.createElement('td');
+                td.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); vertical-align: top;' + (i === 0 ? ' font-weight: 600;' : '') + (i === 1 ? ' font-family: monospace;' : '');
+                if (idx === 0 && i === 0) {
+                    td.style.color = 'var(--accent-primary)';
+                }
+                td.textContent = c;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        frag.appendChild(tableWrap);
+
+        const authNote = document.createElement('p');
+        authNote.style.cssText = 'color: var(--text-secondary); margin: 0 0 10px 0; font-size: 12px; line-height: 1.55;';
+        authNote.textContent = 'When both are present, the API key wins. device_id rides as X-SecureVector-Device-Id on every request regardless of auth method; org_id is resolved server-side from the auth principal. Mint API keys in the cloud admin under Access Management.';
+        frag.appendChild(authNote);
+
+        // Optional URL overrides
+        const urlTitle = document.createElement('div');
+        urlTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 14px 0 8px 0;';
+        urlTitle.textContent = 'Optional — override cloud endpoints (staging / on-prem)';
+        frag.appendChild(urlTitle);
+
+        const urlCode = document.createElement('pre');
+        urlCode.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); background: var(--bg-tertiary); padding: 10px 12px; border-radius: 4px; margin: 0 0 14px 0; overflow-x: auto; line-height: 1.6;';
+        urlCode.textContent = 'export SECUREVECTOR_AUTH_URL=https://auth.securevector.io\nexport SECUREVECTOR_LSE_URL=https://engine.securevector.io';
+        frag.appendChild(urlCode);
+
         // Reading the MCP Policies page
         const readTitle = document.createElement('div');
         readTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
