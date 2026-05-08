@@ -900,16 +900,10 @@ const GettingStartedPage = {
         authNote.textContent = 'When both are present, the API key wins. device_id rides as X-SecureVector-Device-Id on every request regardless of auth method; org_id is resolved server-side from the auth principal. Mint API keys in the cloud admin under Access Management.';
         frag.appendChild(authNote);
 
-        // Optional URL overrides
-        const urlTitle = document.createElement('div');
-        urlTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 14px 0 8px 0;';
-        urlTitle.textContent = 'Optional — override cloud endpoints (staging / on-prem)';
-        frag.appendChild(urlTitle);
-
-        const urlCode = document.createElement('pre');
-        urlCode.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); background: var(--bg-tertiary); padding: 10px 12px; border-radius: 4px; margin: 0 0 14px 0; overflow-x: auto; line-height: 1.6;';
-        urlCode.textContent = 'export SECUREVECTOR_AUTH_URL=https://auth.securevector.io\nexport SECUREVECTOR_LSE_URL=https://engine.securevector.io';
-        frag.appendChild(urlCode);
+        const defaultsNote = document.createElement('p');
+        defaultsNote.style.cssText = 'color: var(--text-secondary); margin: 14px 0 4px 0; font-size: 12px; line-height: 1.55;';
+        defaultsNote.textContent = 'No further setup needed for the standard SecureVector cloud — the local app defaults to the production endpoints. Override env vars (SECUREVECTOR_AUTH_URL, SECUREVECTOR_LSE_URL) exist only for self-hosted / on-prem deployments.';
+        frag.appendChild(defaultsNote);
 
         // Reading the MCP Policies page
         const readTitle = document.createElement('div');

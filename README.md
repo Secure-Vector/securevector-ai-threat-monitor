@@ -556,12 +556,7 @@ When both are present, the API key wins. `device_id` rides as `X-SecureVector-De
 
 You can mint API keys in the cloud admin UI under Access Management. Set the env var in your shell profile or systemd service unit so it survives restarts.
 
-**4. (Optional) Override the cloud endpoints** for staging / on-prem:
-
-```bash
-export SECUREVECTOR_AUTH_URL=https://auth.securevector.io
-export SECUREVECTOR_LSE_URL=https://engine.securevector.io
-```
+**4. Cloud Sync starts automatically** — no further configuration needed. The local app already defaults to the production cloud endpoints (`auth.securevector.io` and `engine.securevector.io`). Override env vars exist for self-hosted / on-prem deployments only.
 
 Synced rules are read-only on the device — authoring lives in the cloud admin. The MCP Policies page (sidebar → Configure → MCP Policies) shows verification status, applied policies + rules, and a Sync Now button for manual refresh.
 
