@@ -856,7 +856,19 @@ const Sidebar = {
 
         if (alreadyOnPage) {
             const el = document.getElementById(sectionId);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (el) {
+                // Expand the collapsed card body before scrolling so the
+                // section content is visible at the scroll target — without
+                // this, clicking a sub-item while already on /guide just
+                // scrolls to a closed header and the user sees "nothing".
+                const body = el.querySelector('.gs-card-body');
+                const indicator = el.querySelector('.gs-toggle-indicator');
+                if (body && body.style.display === 'none') {
+                    body.style.display = 'block';
+                    if (indicator) indicator.textContent = '−';
+                }
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         } else {
             this._pendingScroll = sectionId;
             if (window.App) App.loadPage(page);
