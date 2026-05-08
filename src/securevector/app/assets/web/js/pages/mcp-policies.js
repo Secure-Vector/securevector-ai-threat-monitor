@@ -212,33 +212,114 @@ const McpPoliciesPage = {
     },
 
     _renderBody(container, data) {
-        // Verification status row — 4-up stat tiles. Always renders; gives
-        // the page weight even when no policies are active yet.
-        container.appendChild(this._buildStatusGrid(data));
+        // Compact status strip — single horizontal row, replaces the old 4-up
+        // grid. Click "Details" to expand the full audit panel inline.
+        // Founder feedback: "dashboard for policy at the top taking too much
+        // card space, keep it small".
+        container.appendChild(this._buildStatusStrip(data));
 
-        // Two-column layout: policies main + context rail. On narrow screens
-        // the rail wraps under (CSS @media handles it).
-        const layout = document.createElement('div');
-        layout.className = 'mcp-layout';
-        const main = document.createElement('div');
-        main.className = 'mcp-main';
-        const rail = document.createElement('aside');
-        rail.className = 'mcp-rail';
-        layout.appendChild(main);
-        layout.appendChild(rail);
-        container.appendChild(layout);
-
+        // Full-width main column — right rail removed. Context content
+        // ("What this is", "Cloud-only feature", "Enforcement precedence",
+        // "Related") lives on the Guide page now (section-mcp-policies),
+        // reachable via the Guide deep-link OR ? help-key.
         if (!data.any_active) {
-            main.appendChild(this._buildEmptyState());
-        } else {
-            // Paginated table — matches the canonical pattern from threats.js
-            // (DataTable + pagination footer). Click a row to open the detail
-            // drawer with the full rule list + bundle id + footer.
-            main.appendChild(this._buildPolicyTableHeader(data.policies));
-            main.appendChild(this._buildPolicyTable(data.policies));
+            container.appendChild(this._buildEmptyState());
+            return;
         }
 
-        rail.appendChild(this._buildRail(data));
+        // Paginated table — full-width, primary content of the page.
+        container.appendChild(this._buildPolicyTableHeader(data.policies));
+        container.appendChild(this._buildPolicyTable(data.policies));
+    },
+
+    /**
+     * Compact status strip — replaces the 4-up tile grid with one horizontal
+     * row that mirrors the same data at a fraction of the vertical real estate.
+     * Click the "Details" toggle to expand the full audit panel inline below.
+     */
+    _buildStatusStrip(data) {
+        const status = data.verification_status || 'match';
+        const wrap = document.createElement('div');
+        wrap.className = 'mcp-status-strip mcp-status-strip-' + status;
+
+        const row = document.createElement('div');
+        row.className = 'mcp-status-strip-row';
+
+        // Left: status pill — colored dot + label
+        const pill = document.createElement('div');
+        pill.className = 'mcp-status-pill';
+        const dot = document.createElement('span');
+        dot.className = 'mcp-status-pill-dot';
+        pill.appendChild(dot);
+        const lbl = document.createElement('span');
+        lbl.className = 'mcp-status-pill-lbl';
+        lbl.textContent = status === 'match' ? 'Up to date'
+                        : status === 'degraded' ? 'Sync drift'
+                        : 'Bundle expired';
+        pill.appendChild(lbl);
+        row.appendChild(pill);
+
+        // Middle: inline metric chips
+        const chips = document.createElement('div');
+        chips.className = 'mcp-status-chips';
+        const remain = data.health.freshness_remaining_seconds;
+        const lastPoll = data.health.last_poll_at;
+        const mm = data.health.consecutive_mismatch_count || 0;
+        const policyCount = (data.policies || []).length;
+        const ruleTotal = (data.policies || []).reduce((n, p) => n + (p.rule_count || 0), 0);
+
+        if (policyCount > 0) {
+            chips.appendChild(this._chip('Enforcing', `${ruleTotal} rule${ruleTotal === 1 ? '' : 's'}`));
+        }
+        if (lastPoll) {
+            chips.appendChild(this._chip('Last poll', this._relTime(lastPoll)));
+        }
+        if (remain != null && remain > 0) {
+            chips.appendChild(this._chip('Refresh in', this._fmtDuration(remain)));
+        } else if (status === 'error') {
+            chips.appendChild(this._chip('Refresh in', '—'));
+        }
+        if (mm > 0) {
+            const c = this._chip('Mismatches', String(mm));
+            c.classList.add('mcp-chip-warn');
+            chips.appendChild(c);
+        }
+        row.appendChild(chips);
+
+        // Right: details toggle
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'mcp-status-details-toggle';
+        toggle.textContent = this._detailsExpanded ? 'Hide details' : 'Details';
+        toggle.addEventListener('click', () => {
+            this._detailsExpanded = !this._detailsExpanded;
+            const newStrip = this._buildStatusStrip(this._data);
+            wrap.replaceWith(newStrip);
+        });
+        row.appendChild(toggle);
+
+        wrap.appendChild(row);
+
+        // Audit panel expansion — inline below the strip when expanded
+        if (this._detailsExpanded) {
+            wrap.appendChild(this._buildAuditPanel(data));
+        }
+
+        return wrap;
+    },
+
+    _chip(label, value) {
+        const c = document.createElement('span');
+        c.className = 'mcp-chip';
+        const k = document.createElement('span');
+        k.className = 'mcp-chip-k';
+        k.textContent = label;
+        const v = document.createElement('span');
+        v.className = 'mcp-chip-v';
+        v.textContent = value;
+        c.appendChild(k);
+        c.appendChild(v);
+        return c;
     },
 
     /**

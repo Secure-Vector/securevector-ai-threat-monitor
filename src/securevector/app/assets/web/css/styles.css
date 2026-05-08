@@ -6706,6 +6706,124 @@ thead tr:hover #records-select-all,
 
 /* --- Responsive ----------------------------------------------------- */
 
+/* --- Compact status strip (replaces 4-up grid) ----------------------
+ * Single horizontal row: status pill + metric chips + details toggle.
+ * Same data as the old mcp-status-grid, but ~4× less vertical space. */
+
+.mcp-status-strip {
+    margin-bottom: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-left-width: 3px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.mcp-status-strip-match    { border-left-color: var(--success); }
+.mcp-status-strip-degraded { border-left-color: var(--warning); }
+.mcp-status-strip-error    { border-left-color: var(--danger); }
+
+.mcp-status-strip-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+}
+
+.mcp-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.mcp-status-pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    box-shadow: 0 0 6px transparent;
+}
+.mcp-status-strip-match    .mcp-status-pill-dot { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.55); }
+.mcp-status-strip-degraded .mcp-status-pill-dot { background: var(--warning); box-shadow: 0 0 6px rgba(245,158,11,0.55); }
+.mcp-status-strip-error    .mcp-status-pill-dot { background: var(--danger);  box-shadow: 0 0 6px rgba(239,68,68,0.55); }
+
+.mcp-status-pill-lbl {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+}
+
+.mcp-status-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.mcp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px 3px 6px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-default);
+    border-radius: 5px;
+    font-size: 11px;
+    line-height: 1.2;
+}
+.mcp-chip-k {
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 3px;
+}
+.mcp-chip-v {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.mcp-chip-warn {
+    border-color: rgba(245,158,11,0.40);
+    background: rgba(245,158,11,0.06);
+}
+.mcp-chip-warn .mcp-chip-k { color: var(--warning); background: rgba(245,158,11,0.10); }
+.mcp-chip-warn .mcp-chip-v { color: var(--warning); }
+
+.mcp-status-details-toggle {
+    flex-shrink: 0;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.mcp-status-details-toggle:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Audit panel — when the strip's "Details" toggle is expanded.
+ * Slots inline below the strip (still inside the same border) */
+.mcp-status-strip > .mcp-audit-panel {
+    border-radius: 0;
+    border-width: 0;
+    border-top-width: 1px;
+    border-left-width: 0;
+    margin: 0;
+}
+
 /* --- Table-style policy list (uses canonical DataTable component) --- */
 
 .mcp-table-header {
