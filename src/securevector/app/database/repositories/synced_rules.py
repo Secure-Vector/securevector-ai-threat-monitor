@@ -104,6 +104,16 @@ class SyncedRulesRepository:
                         rule,
                     )
                     continue
+                # Per-rule policy attribution — when the engine emits an
+                # aggregated org-level bundle (Option A), each rule carries
+                # its source policy_id / name / version. Fall back to the
+                # bundle-level values for legacy single-policy bundles
+                # where the engine hadn't started stamping per-rule yet.
+                row_policy_id = rule.get("source_policy_id") or policy_id
+                row_policy_name = rule.get("source_policy_name") or policy_name
+                row_policy_version = rule.get("source_policy_version")
+                if row_policy_version is None:
+                    row_policy_version = policy_version
                 await conn.execute(
                     "INSERT INTO synced_tool_rules "
                     "(bundle_id, policy_id, policy_name, policy_version, "
@@ -111,9 +121,9 @@ class SyncedRulesRepository:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         bundle_id,
-                        policy_id,
-                        policy_name,
-                        int(policy_version),
+                        row_policy_id,
+                        row_policy_name,
+                        int(row_policy_version),
                         org_id,
                         org_name,
                         tool_id,
