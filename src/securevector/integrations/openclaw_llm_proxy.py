@@ -223,6 +223,8 @@ class LLMProxy:
         self._essential_registry: Optional[dict] = None
         self._tool_overrides: Optional[dict] = None
         self._tool_overrides_checked_at: float = 0
+        self._synced_overrides: Optional[dict] = None
+        self._synced_overrides_checked_at: float = 0
         self._custom_tools_registry: Optional[dict] = None
         self._custom_tools_checked_at: float = 0
 
@@ -850,6 +852,36 @@ class LLMProxy:
 
         return self._tool_overrides or {}
 
+    async def _load_synced_overrides(self) -> dict:
+        """Fetch cloud-pushed synced rules from SecureVector API (cached for 5s).
+
+        Returns a dict mapping tool_id -> {effect, policy_name, policy_version, ...}
+        suitable for the engine's `synced_overrides` parameter. Empty dict on
+        any error or when the device has no synced bundle applied — preserves
+        existing proxy behavior for non-enrolled installs.
+        """
+        import time
+        now = time.time()
+        if self._synced_overrides is not None and (now - self._synced_overrides_checked_at) < 5:
+            return self._synced_overrides
+
+        try:
+            client = await self.get_http_client()
+            response = await client.get(
+                f"{self.securevector_url}/api/tool-permissions/synced-overrides",
+                timeout=3.0,
+            )
+            if response.status_code == 200:
+                rows = response.json().get("synced", [])
+                self._synced_overrides = {r["tool_id"]: r for r in rows if r.get("tool_id")}
+                self._synced_overrides_checked_at = now
+                return self._synced_overrides
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"[llm-proxy] Could not fetch synced overrides: {e}")
+
+        return self._synced_overrides or {}
+
     def _load_essential_registry(self) -> dict:
         """Lazy-load the essential tool registry."""
         if self._essential_registry is None:
@@ -903,6 +935,7 @@ class LLMProxy:
 
         registry = self._load_essential_registry()
         overrides = await self._load_tool_overrides()
+        synced_overrides = await self._load_synced_overrides()
         custom_registry = await self._load_custom_tools_registry()
 
         decisions = []
@@ -911,7 +944,13 @@ class LLMProxy:
         blocked_indices_anthropic = set()  # content block indices for Anthropic
 
         for tc in tool_calls:
-            decision = evaluate_tool_call(tc.function_name, registry, overrides, custom_registry)
+            decision = evaluate_tool_call(
+                tc.function_name,
+                registry,
+                overrides,
+                custom_registry,
+                synced_overrides=synced_overrides,
+            )
 
             # Rate limit check for allowed tools (essential + custom)
             if decision.action == "allow":

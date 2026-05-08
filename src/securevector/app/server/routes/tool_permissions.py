@@ -165,6 +165,43 @@ async def get_overrides():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/tool-permissions/synced-overrides")
+async def get_synced_overrides():
+    """Cloud-pushed synced rules in proxy-friendly shape.
+
+    Returned dict per tool_id carries the synced effect + policy provenance so
+    proxy enforcement decisions can be both correct (effect wins over local
+    user override + registry default) and auditable (reason names the policy).
+    """
+    try:
+        from securevector.app.database.repositories.synced_rules import (
+            SyncedRulesRepository,
+        )
+
+        db = get_database()
+        synced_repo = SyncedRulesRepository(db)
+        rows = await synced_repo.list_all()
+
+        synced = [
+            {
+                "tool_id": r.tool_id,
+                "effect": r.effect,
+                "priority": r.priority,
+                "policy_id": r.policy_id,
+                "policy_name": r.policy_name,
+                "policy_version": r.policy_version,
+                "org_name": r.org_name,
+                "reason": r.reason,
+            }
+            for r in rows
+        ]
+        return {"synced": synced, "total": len(synced)}
+
+    except Exception as e:
+        logger.error(f"Failed to get synced overrides: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.put("/tool-permissions/overrides/{tool_id}")
 async def upsert_override(tool_id: str, request: OverrideRequest):
     """Set or update an override for an essential tool."""

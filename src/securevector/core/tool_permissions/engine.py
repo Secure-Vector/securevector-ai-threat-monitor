@@ -104,11 +104,20 @@ def get_essential_overrides(overrides_list: list[dict]) -> dict:
     }
 
 
+_SYNCED_EFFECT_TO_ACTION = {
+    "allow": "allow",
+    "deny": "block",
+    "prompt": "block",  # engine has no prompt action; default to safer block
+    "log_only": "log_only",
+}
+
+
 def evaluate_tool_call(
     function_name: str,
     essential_registry: dict,
     overrides: Optional[dict] = None,
     custom_registry: Optional[dict] = None,
+    synced_overrides: Optional[dict] = None,
 ) -> PermissionDecision:
     """Evaluate a single tool call against the essential and custom registries.
 
@@ -119,12 +128,19 @@ def evaluate_tool_call(
         essential_registry: Dict of essential tool definitions.
         overrides: Dict mapping tool_id -> action (from user configuration).
         custom_registry: Dict mapping tool_id -> custom tool definition dict.
+        synced_overrides: Optional dict mapping tool_id -> {"effect", "policy_name",
+            "policy_version", "reason"}. When provided and a synced rule matches
+            the resolved tool_id, the synced effect takes priority over user
+            overrides and the registry default. Default None preserves existing
+            behavior for callers that don't pass this argument.
 
     Returns:
         PermissionDecision with the enforcement action.
     """
     if overrides is None:
         overrides = {}
+    if synced_overrides is None:
+        synced_overrides = {}
 
     # Normalize for case-insensitive matching (LLM tools may use PascalCase e.g. "Read")
     function_name_lower = function_name.lower()
@@ -139,6 +155,23 @@ def evaluate_tool_call(
     if matched_tool_id is not None:
         tool = essential_registry[matched_tool_id]
         tool_id = matched_tool_id
+
+        # Cloud-pushed synced rule takes priority over user override + default.
+        synced = synced_overrides.get(tool_id)
+        if synced:
+            effect = (synced.get("effect") or "").lower()
+            action = _SYNCED_EFFECT_TO_ACTION.get(effect, "block")
+            policy_name = synced.get("policy_name") or synced.get("policy_id") or "synced"
+            policy_version = synced.get("policy_version")
+            ver_suffix = f" v{policy_version}" if policy_version is not None else ""
+            return PermissionDecision(
+                tool_name=tool_id,
+                function_name=function_name,
+                action=action,
+                risk=tool.get("risk"),
+                reason=f"Synced policy '{policy_name}'{ver_suffix}: {effect}",
+                is_essential=True,
+            )
 
         # Check for user override first
         if tool_id in overrides:
@@ -168,6 +201,23 @@ def evaluate_tool_call(
     for tool_id, tool in essential_registry.items():
         parts = tool_id.split(".")
         if len(parts) == 2 and (parts[1] == function_name or parts[1] == function_name_lower):
+            # Cloud-pushed synced rule takes priority over user override + default.
+            synced = synced_overrides.get(tool_id)
+            if synced:
+                effect = (synced.get("effect") or "").lower()
+                action = _SYNCED_EFFECT_TO_ACTION.get(effect, "block")
+                policy_name = synced.get("policy_name") or synced.get("policy_id") or "synced"
+                policy_version = synced.get("policy_version")
+                ver_suffix = f" v{policy_version}" if policy_version is not None else ""
+                return PermissionDecision(
+                    tool_name=tool_id,
+                    function_name=function_name,
+                    action=action,
+                    risk=tool.get("risk"),
+                    reason=f"Synced policy '{policy_name}'{ver_suffix}: {effect} (matched {tool_id})",
+                    is_essential=True,
+                )
+
             # Exact match on the function part
             if tool_id in overrides:
                 action = overrides[tool_id]
