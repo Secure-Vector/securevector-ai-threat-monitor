@@ -550,7 +550,7 @@ export SECUREVECTOR_API_KEY=sk-<long-lived-key>
 | Auth method | Header sent | Source | Lifetime | Sync stability |
 |---|---|---|---|---|
 | **API key** ✅ recommended | `X-Api-Key: sk-...` | `SECUREVECTOR_API_KEY` env, then `creds.api_key` | Long-lived | Robust — no refresh path needed |
-| Supabase JWT (fallback) | `Authorization: Bearer ...` | `creds.supabase_jwt` from enrollment | ~1h, auto-refresh on 401/403 | Breaks if the refresh token expires; requires re-enrollment to recover |
+| JWT (fallback) | `Authorization: Bearer ...` | Stored from enrollment | ~1h, auto-refresh on 401/403 | Breaks if the refresh token expires; requires re-enrollment to recover |
 
 When both are present, the API key wins. `device_id` rides as `X-SecureVector-Device-Id` on every request regardless of auth method; `org_id` is resolved server-side from the auth principal.
 

@@ -876,7 +876,7 @@ const GettingStartedPage = {
         const tbody = document.createElement('tbody');
         const rows = [
             ['API key (recommended)', 'X-Api-Key: sk-...', 'SECUREVECTOR_API_KEY env, then creds.api_key', 'Long-lived', 'Robust — no refresh path needed'],
-            ['Supabase JWT (fallback)', 'Authorization: Bearer ...', 'creds.supabase_jwt from enrollment', '~1h, auto-refresh on 401/403', 'Breaks if refresh token expires; requires re-enrollment to recover'],
+            ['JWT (fallback)', 'Authorization: Bearer ...', 'Stored from enrollment', '~1h, auto-refresh on 401/403', 'Breaks if refresh token expires; requires re-enrollment to recover'],
         ];
         rows.forEach((cells, idx) => {
             const tr = document.createElement('tr');
