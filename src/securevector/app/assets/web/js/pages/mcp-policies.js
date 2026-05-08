@@ -212,6 +212,14 @@ const McpPoliciesPage = {
     },
 
     _renderBody(container, data) {
+        // Policy Sync ON tile — provenance band, visible only when at least
+        // one bundle is applied. Replaces the global header pill that was
+        // removed 2026-05-08 (see header.js comment). Surfaces the same
+        // org / admin / version info the header tooltip used to carry.
+        if (data.any_active) {
+            container.appendChild(this._buildPolicySyncOnTile(data));
+        }
+
         // Compact status strip — single horizontal row, replaces the old 4-up
         // grid. Click "Details" to expand the full audit panel inline.
         // Founder feedback: "dashboard for policy at the top taking too much
@@ -230,6 +238,65 @@ const McpPoliciesPage = {
         // Paginated table — full-width, primary content of the page.
         container.appendChild(this._buildPolicyTableHeader(data.policies));
         container.appendChild(this._buildPolicyTable(data.policies));
+    },
+
+    /**
+     * Policy Sync ON tile — slim provenance band shown above the status strip
+     * when a bundle is applied. Carries the org / admin / version info that
+     * the global header pill used to show. Page is the right place for this
+     * detail; header stays uncluttered.
+     */
+    _buildPolicySyncOnTile(data) {
+        const tile = document.createElement('div');
+        tile.className = 'mcp-policy-sync-on';
+
+        const pill = document.createElement('div');
+        pill.className = 'mcp-policy-sync-on-pill';
+        // Inline lock SVG — same shape as the old header badge
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2');
+        icon.classList.add('mcp-policy-sync-on-icon');
+        const lockPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        lockPath.setAttribute('d', 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4');
+        icon.appendChild(lockPath);
+        pill.appendChild(icon);
+        const lbl = document.createElement('span');
+        lbl.textContent = 'Policy Sync ON';
+        pill.appendChild(lbl);
+        tile.appendChild(pill);
+
+        const meta = document.createElement('div');
+        meta.className = 'mcp-policy-sync-on-meta';
+
+        // Aggregate provenance from the policies array. All policies in a single
+        // sync share an org_id + admin_email; pick the first non-null value.
+        const policies = data.policies || [];
+        const orgName = policies.map(p => p.org_name).find(Boolean);
+        const adminEmail = policies.map(p => p.admin_email).find(Boolean);
+        const policyCount = policies.length;
+        const ruleTotal = policies.reduce((n, p) => n + (p.rule_count || 0), 0);
+        // Highest version across applied policies — most representative figure
+        const versionMax = policies.reduce((m, p) => Math.max(m, p.policy_version || 0), 0);
+
+        const parts = [];
+        if (orgName) parts.push(`Managed by <strong>${this._escape(orgName)}</strong>`);
+        if (adminEmail) parts.push(`Admin: <code>${this._escape(adminEmail)}</code>`);
+        if (versionMax > 0) {
+            parts.push(`${policyCount} polic${policyCount === 1 ? 'y' : 'ies'} · ${ruleTotal} rule${ruleTotal === 1 ? '' : 's'} · v${versionMax}`);
+        }
+        meta.innerHTML = parts.join(' · ');
+        tile.appendChild(meta);
+
+        return tile;
+    },
+
+    _escape(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
     },
 
     /**
