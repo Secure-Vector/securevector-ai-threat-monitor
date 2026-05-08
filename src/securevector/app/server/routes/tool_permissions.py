@@ -91,7 +91,19 @@ async def list_essential_tools():
         from securevector.app.rules.last_resort import matches_last_resort
         synced_repo = SyncedRulesRepository(db)
         synced_rows = await synced_repo.list_all()
-        synced_map = {r.tool_id: r for r in synced_rows}
+        # Index synced rules under both the full tool_id and the bare suffix
+        # after a `:` (cloud naming convention is `<server>:<tool>` but the
+        # local registry uses bare tool names; without aliasing the lock icon
+        # never appears on synced tools). Keep higher-priority rule on collision.
+        synced_map: dict = {}
+        for r in synced_rows:
+            keys = [r.tool_id]
+            if ':' in r.tool_id:
+                keys.append(r.tool_id.split(':', 1)[1])
+            for k in keys:
+                existing = synced_map.get(k)
+                if not existing or (r.priority or 0) > (existing.priority or 0):
+                    synced_map[k] = r
 
         tools = []
         for tool_id, tool in registry.items():
@@ -182,9 +194,14 @@ async def get_synced_overrides():
         synced_repo = SyncedRulesRepository(db)
         rows = await synced_repo.list_all()
 
-        synced = [
-            {
-                "tool_id": r.tool_id,
+        # Emit each synced rule under its full tool_id AND, when the cloud
+        # composed `<server>:<tool>`, under the bare suffix as an alias. The
+        # proxy's _load_synced_overrides keys by tool_id directly, so without
+        # aliasing here a synced rule on `github-mcp-server:delete_file`
+        # would never match the LLM call's bare `delete_file` function name.
+        synced: list = []
+        for r in rows:
+            base = {
                 "effect": r.effect,
                 "priority": r.priority,
                 "policy_id": r.policy_id,
@@ -193,8 +210,9 @@ async def get_synced_overrides():
                 "org_name": r.org_name,
                 "reason": r.reason,
             }
-            for r in rows
-        ]
+            synced.append({"tool_id": r.tool_id, **base})
+            if ':' in r.tool_id:
+                synced.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
         return {"synced": synced, "total": len(synced)}
 
     except Exception as e:
