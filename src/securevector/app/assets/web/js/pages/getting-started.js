@@ -36,6 +36,11 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'MCP Policies', 'Cloud-pushed tool rules synced from your SecureVector organization',
+            'section-mcp-policies', () => this.buildMcpPoliciesContent(), true
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'Cost Tracking', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
         ));
@@ -777,6 +782,82 @@ const GettingStartedPage = {
         });
 
         frag.appendChild(stepsWrapper);
+        return frag;
+    },
+
+    /**
+     * Guide content for MCP Policies. The page itself is the trust artifact;
+     * the guide answers the prerequisite questions: what is this, who needs
+     * it, how do I get there, and what's the precedence relative to local
+     * Tool Permissions.
+     */
+    buildMcpPoliciesContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const desc = document.createElement('p');
+        desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.55;';
+        desc.textContent = 'MCP Policies are tool-level allow / deny / prompt rules pushed from your SecureVector cloud organization to enrolled devices. They sit above your local Tool Permissions and override them when they conflict. The bundle is HS256-signed; the local app verifies the signature on every poll before applying.';
+        frag.appendChild(desc);
+
+        // Cloud-only callout \u2014 the most important framing for this section.
+        const cloudOnly = document.createElement('div');
+        cloudOnly.style.cssText = 'padding: 12px 14px; background: rgba(8,145,178,0.08); border: 1px solid rgba(8,145,178,0.30); border-left: 3px solid var(--accent-primary); border-radius: 6px; margin-bottom: 16px;';
+        const cloudOnlyTitle = document.createElement('div');
+        cloudOnlyTitle.style.cssText = 'font-weight: 700; font-size: 12px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;';
+        cloudOnlyTitle.textContent = '\u2601\u00a0 Cloud-only feature';
+        cloudOnly.appendChild(cloudOnlyTitle);
+        const cloudOnlyBody = document.createElement('p');
+        cloudOnlyBody.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+        cloudOnlyBody.textContent = 'Personal-mode installs (no enrollment) bypass this entirely. Policy Sync only activates after a successful svet_* token redeem \u2014 the cloud admin issues the token, the user runs `securevector-app enroll <token>` once, and from there the local app long-polls /policy/sync for signed bundles. Without enrollment, the page renders an empty-state and no cloud rules are enforced.';
+        cloudOnly.appendChild(cloudOnlyBody);
+        frag.appendChild(cloudOnly);
+
+        // Precedence chain \u2014 same model the page right-rail surfaces.
+        const precTitle = document.createElement('div');
+        precTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
+        precTitle.textContent = 'Enforcement precedence';
+        frag.appendChild(precTitle);
+
+        const precDesc = document.createElement('p');
+        precDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 8px 0; font-size: 12px; line-height: 1.5;';
+        precDesc.textContent = 'When a tool call comes in, the proxy walks this list top to bottom and uses the first matching rule. Synced rules win over local \u2014 that\u2019s why locked rows on Tool Permissions can\u2019t be edited.';
+        frag.appendChild(precDesc);
+
+        frag.appendChild(this.createMiniStep('1', 'Last-resort rules', 'Compiled-in safety blocks. Cannot be overridden, even by cloud policy.'));
+        frag.appendChild(this.createMiniStep('2', 'Cloud-synced rules', 'What MCP Policies shows. Pushed from the cloud admin, signed, and applied automatically.'));
+        frag.appendChild(this.createMiniStep('3', 'Local Tool Permissions', 'Your overrides. Effective only when no synced rule matches the tool_id.'));
+        frag.appendChild(this.createMiniStep('4', 'Tool default', 'The default permission for the tool in the registry, if no rule matches above.'));
+
+        // How to enroll
+        const enrollTitle = document.createElement('div');
+        enrollTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        enrollTitle.textContent = 'How to enroll';
+        frag.appendChild(enrollTitle);
+
+        frag.appendChild(this.createMiniStep('1', 'Admin mints a token', 'In the SecureVector cloud admin (app.securevector.io), an org admin opens Enroll Devices and clicks Invite User. The cloud generates a single-use svet_* token.'));
+        frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + JWT, and persists them to the credentials file.'));
+        frag.appendChild(this.createMiniStep('3', 'Cloud Sync starts', 'On the next launch, the local app long-polls /policy/sync. Bundles are verified (signature + freshness + version-replay), then applied to the synced_tool_rules table. The MCP Policies page reads from there.'));
+
+        // Reading the MCP Policies page
+        const readTitle = document.createElement('div');
+        readTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        readTitle.textContent = 'Reading the MCP Policies page';
+        frag.appendChild(readTitle);
+        frag.appendChild(this.createBulletList([
+            'Verification status grid \u2014 Policy Sync MATCH / DEGRADED / EXPIRED. Click "Verify signing chain" for the audit panel (last poll, signing key fingerprint, mismatch counter, freshness countdown).',
+            'Policy table \u2014 one row per active policy. Click a row to open a side drawer with the full rule list, bundle id, and provenance footer.',
+            'Sync Now button (top-right of the hero) \u2014 forces an immediate /policy/sync iteration. Disabled when not enrolled or no API key/JWT available; the tooltip surfaces the exact reason.',
+            'Status column \u2014 mirrors the overall verification status until per-policy state is engine-tracked.',
+        ]));
+
+        const mcpBtn = document.createElement('button');
+        mcpBtn.className = 'btn btn-primary';
+        mcpBtn.style.cssText = 'font-size: 12px; margin: 16px 0 0 0; padding: 6px 14px;';
+        mcpBtn.textContent = 'Open MCP Policies';
+        mcpBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('mcp-policies'); });
+        frag.appendChild(mcpBtn);
+
         return frag;
     },
 

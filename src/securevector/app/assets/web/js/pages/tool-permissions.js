@@ -414,6 +414,14 @@ const ToolPermissionsPage = {
         await this._renderActiveTab();
     },
 
+    // Note: an earlier draft added a page-level "N rules on this page are
+    // managed by your org" banner here. It was removed because it lied — the
+    // count was the total of synced-policy rules, but those rules only
+    // surface visually if their tool_id matches a registry tool. The per-row
+    // _createSyncedBadge() (line ~355) already renders 🔒 SYNCED in context
+    // on the rows that ARE matched, which is the honest signal. Discovery
+    // of the dedicated MCP Policies page is handled by the left-nav entry.
+
     _renderTabBar() {
         const bar = document.getElementById('tp-tabs');
         if (!bar) return;

@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 29
+CURRENT_SCHEMA_VERSION = 30
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -325,6 +325,18 @@ CREATE INDEX IF NOT EXISTS idx_synced_tool_rules_bundle
 
 INSERT INTO schema_version (version, applied_at, description)
 VALUES (29, CURRENT_TIMESTAMP, 'synced_tool_rules — cloud policy bundle layer');
+"""
+
+# Migration SQL for v30 — surface human-readable policy_name on synced bundles.
+# Without this, the local MCP Policies page can only show pol_<hex> instead of
+# the friendly name authored in the cloud admin ("E2E Test — Filesystem MCP guardrail").
+# Default NULL keeps existing v29 rows valid; cloud_sync writes the new column on
+# every bundle apply so old rows are replaced naturally on the next /policy/sync.
+MIGRATION_V30_SQL = """
+ALTER TABLE synced_tool_rules ADD COLUMN policy_name TEXT;
+
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (30, CURRENT_TIMESTAMP, 'synced_tool_rules — add policy_name for local MCP Policies page');
 """
 
 # Migration SQL for v19

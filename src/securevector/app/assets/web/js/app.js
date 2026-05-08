@@ -25,6 +25,7 @@ const App = {
         // Each nav entry maps to ONE tab — tab bar hidden so the nav stays
         // the single source of truth for which view is shown.
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'mcp-policies':      McpPoliciesPage,
         'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },

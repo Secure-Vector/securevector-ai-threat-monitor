@@ -49,6 +49,7 @@ class VerifiedBundle:
     bundle_id: str
     org_id: str
     policy_id: str
+    policy_name: Optional[str]  # Free-text label authored in the cloud admin
     version: int
     mode: str
     signed_at: datetime
@@ -185,10 +186,16 @@ def verify_bundle(
         except ValueError:
             expires_at = None
 
+    # policy_name is optional in the canonical signed payload; it's part of
+    # the JSON the server signs, so a tampered name fails signature verify.
+    policy_name_raw = payload.get("policy_name")
+    policy_name = str(policy_name_raw) if policy_name_raw else None
+
     return VerifiedBundle(
         bundle_id=str(payload.get("bundle_id") or ""),
         org_id=str(payload.get("org_id") or ""),
         policy_id=str(payload.get("policy_id") or ""),
+        policy_name=policy_name,
         version=version,
         mode=str(payload.get("mode") or "audit"),
         signed_at=signed_at,

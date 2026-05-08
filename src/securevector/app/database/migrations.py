@@ -21,6 +21,7 @@ from securevector.app.database.models import (
     MIGRATION_V18_SQL,
     MIGRATION_V19_SQL,
     MIGRATION_V29_SQL,
+    MIGRATION_V30_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         27: migrate_to_v27,
         28: migrate_to_v28,
         29: migrate_to_v29,
+        30: migrate_to_v30,
     }
 
     if version in migrations:
@@ -1314,6 +1316,20 @@ async def migrate_to_v29(db: DatabaseConnection) -> None:
     await conn.executescript(MIGRATION_V29_SQL)
     await conn.commit()
     logger.info("Applied migration v29: synced_tool_rules table")
+
+
+async def migrate_to_v30(db: DatabaseConnection) -> None:
+    """v29 -> v30: surface human-readable policy_name on synced bundles.
+
+    Without this column the local MCP Policies sidebar page can only show the
+    opaque pol_<hex> id. cloud_sync writes policy_name on every bundle apply
+    so existing v29 rows fill in naturally on the next /policy/sync — the
+    NULL default keeps the migration backward-compatible.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V30_SQL)
+    await conn.commit()
+    logger.info("Applied migration v30: synced_tool_rules.policy_name column")
 
 
 # Future migration functions would be defined here:
