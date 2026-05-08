@@ -905,6 +905,38 @@ const McpPoliciesPage = {
             reason.textContent = rule.reason;
             body.appendChild(reason);
         }
+
+        // Cross-link to Tool Permissions row. The synced rule's tool_id may
+        // be `<server>:<tool>` (cloud naming) but the local registry keys
+        // are bare tool names — Tool Permissions accepts either via
+        // ToolPermissionsPage_focusTool. If no row exists locally, surface
+        // a "pending registration" affordance instead of a broken link.
+        const linkRow = document.createElement('div');
+        linkRow.className = 'mcp-rule-link-row';
+        const link = document.createElement('button');
+        link.className = 'mcp-rule-link';
+        link.type = 'button';
+        link.textContent = 'View on Tool Permissions →';
+        link.title = 'Jump to ' + rule.tool_id + ' on the Tool Permissions page';
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Same-page focus path — no full reload, preserves drawer state.
+            // Falls back to navigation with ?tool= when the page isn't
+            // already mounted (the global helper isn't defined yet).
+            if (typeof window.ToolPermissionsPage_focusTool === 'function'
+                && window.location.pathname === '/tool-permissions') {
+                window.ToolPermissionsPage_focusTool(rule.tool_id);
+            } else if (window.Sidebar) {
+                // Use the sidebar router so navigation behaves like a click
+                // in the left rail (sets active state, preserves shell).
+                window.location.href = '/tool-permissions?tool=' + encodeURIComponent(rule.tool_id);
+            } else {
+                window.location.href = '/tool-permissions?tool=' + encodeURIComponent(rule.tool_id);
+            }
+        });
+        linkRow.appendChild(link);
+        body.appendChild(linkRow);
+
         row.appendChild(body);
 
         return row;

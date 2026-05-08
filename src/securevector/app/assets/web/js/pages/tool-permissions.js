@@ -635,6 +635,15 @@ const ToolPermissionsPage = {
             // Render tools
             this.renderTools(toolsContainer);
 
+            // Deep-link from MCP Policies → specific tool row. When the
+            // sidebar / drawer / any caller navigates here with ?tool=<id>,
+            // scroll the matching row into view and flash a cyan border so
+            // the user sees exactly where the synced rule applies.
+            this._handleDeepLinkToTool();
+            // Also expose a global function so MCP Policies (in-app drawer)
+            // can call it without a full reload — preserves sidebar state.
+            window.ToolPermissionsPage_focusTool = (id) => this._focusTool(id);
+
         } catch (e) {
             toolsContainer.textContent = '';
             const error = document.createElement('div');
@@ -673,6 +682,49 @@ const ToolPermissionsPage = {
     },
 
     // ==================== Essential Tools ====================
+
+    /**
+     * Deep-link entrypoint — runs after renderTools when ?tool=<id> is in
+     * the URL. The id can be the bare registry key (`delete_file`) OR the
+     * cloud-composed full id (`github-mcp-server:delete_file`); we accept
+     * both because the MCP Policies drawer carries the latter.
+     */
+    _handleDeepLinkToTool() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const id = params.get('tool');
+            if (!id) return;
+            // Defer one frame so layout is settled.
+            setTimeout(() => this._focusTool(id), 50);
+        } catch (e) { /* noop — deep-link is best-effort */ }
+    },
+
+    /** Scroll-to-row + 2s cyan flash. Accepts bare or prefixed tool_id. */
+    _focusTool(id) {
+        if (!id) return false;
+        const bare = id.includes(':') ? id.split(':').pop() : id;
+        const candidates = [id, bare];
+        let row = null;
+        for (const k of candidates) {
+            row = document.querySelector('[data-tool-id="' + CSS.escape(k) + '"]');
+            if (row) break;
+        }
+        if (!row) {
+            if (window.Toast) Toast.show('Tool ' + bare + ' not present in local registry — synced rule will activate when this MCP server registers.', 'info', 5000);
+            return false;
+        }
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const original = row.style.borderColor;
+        const originalBg = row.style.background;
+        row.style.transition = 'border-color 0.3s ease, background 0.3s ease';
+        row.style.borderColor = 'var(--accent-primary, #5eadb8)';
+        row.style.background = 'rgba(94,173,184,0.18)';
+        setTimeout(() => {
+            row.style.borderColor = original;
+            row.style.background = originalBg;
+        }, 1800);
+        return true;
+    },
 
     renderTools(container) {
         container.textContent = '';
@@ -1754,15 +1806,23 @@ const ToolPermissionsPage = {
     },
 
     createToolCard(tool, accent) {
-        // Card layout:
-        //   [icon] [name  [risk]  [★ popular?]]  [action btn]
-        //          [tool_id monospace           ]
-        //          [mcp_server label            ]
+        // Card layout (two-line):
+        //   [icon]  [name  ★]               [action btn]
+        //           [server-name (small)]
+        // Row title attribute carries tool_id + mcp_server so hover gives
+        // a tooltip with the unambiguous identifier — disambiguates tools
+        // sharing display names (e.g. multiple "Post Message" across
+        // Slack / Discord / Teams / Gmail).
         const isPopular = tool.popular === true;
         const sm = this.SOURCE_META[tool.source] || this.SOURCE_META.conventional;
 
         const row = document.createElement('div');
         row.dataset.toolId = tool.tool_id;
+        // Hover tooltip — shows tool_id + server even when the synced/sync
+        // pill isn't hovered. Helps users find a specific tool by id.
+        const titleParts = [tool.tool_id];
+        if (tool.mcp_server) titleParts.push('server: ' + tool.mcp_server);
+        row.title = titleParts.join(' · ');
         const leftBorder = isPopular ? '#f59e0b' : accent.color;
         row.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); border-left: 3px solid ' + leftBorder + '; transition: background 0.12s ease, border-color 0.12s ease; cursor: pointer;';
         row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-secondary)'; row.style.borderColor = accent.color; });
@@ -1778,21 +1838,35 @@ const ToolPermissionsPage = {
         icon.textContent = this._getProviderIcon(tool);
         row.appendChild(icon);
 
-        // Name + popular star — single line, truncated
+        // Stacked: name (top) + server name (bottom, small grey)
         const info = document.createElement('div');
-        info.style.cssText = 'flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; overflow: hidden;';
+        info.style.cssText = 'flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow: hidden;';
 
+        const nameLine = document.createElement('div');
+        nameLine.style.cssText = 'display: flex; align-items: center; gap: 3px; min-width: 0;';
         const nameEl = document.createElement('span');
         nameEl.style.cssText = 'font-weight: 600; font-size: 11px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
         nameEl.textContent = tool.name || tool.tool_id;
-        info.appendChild(nameEl);
+        nameLine.appendChild(nameEl);
 
         if (isPopular) {
             const star = document.createElement('span');
             star.style.cssText = 'font-size: 9px; color: #f59e0b; flex-shrink: 0;';
             star.title = 'Commonly used by agents';
             star.textContent = '★';
-            info.appendChild(star);
+            nameLine.appendChild(star);
+        }
+        info.appendChild(nameLine);
+
+        // Server name — small grey subtitle. Disambiguates same-named
+        // tools across MCP servers (Slack vs Discord vs Teams etc.) and
+        // makes the cloud-vs-local distinction concrete: the server here
+        // is the one the cloud policy targets.
+        if (tool.mcp_server) {
+            const serverEl = document.createElement('div');
+            serverEl.style.cssText = 'font-size: 9px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1;';
+            serverEl.textContent = tool.mcp_server;
+            info.appendChild(serverEl);
         }
 
         row.appendChild(info);

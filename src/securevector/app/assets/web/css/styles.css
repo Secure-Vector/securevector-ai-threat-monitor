@@ -6706,6 +6706,30 @@ thead tr:hover #records-select-all,
 
 /* --- Responsive ----------------------------------------------------- */
 
+/* --- MCP Policies drawer rule → Tool Permissions cross-link -------------- */
+
+.mcp-rule-link-row {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+}
+.mcp-rule-link {
+    background: transparent;
+    border: 1px solid rgba(94,173,184,0.4);
+    color: var(--accent-primary, #5eadb8);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    line-height: 1.2;
+}
+.mcp-rule-link:hover {
+    background: rgba(94,173,184,0.12);
+    border-color: var(--accent-primary, #5eadb8);
+}
+
 /* --- Policy Sync ON tile (provenance band, replaces global header pill) -- */
 
 .mcp-policy-sync-on {
