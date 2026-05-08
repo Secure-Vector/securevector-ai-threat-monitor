@@ -601,16 +601,22 @@ const ToolPermissionsPage = {
 
     async loadData(toggleInput, toolsContainer, cloudPill) {
         try {
-            const [settings, toolsData, customToolsData, cloudSettings] = await Promise.all([
+            const [settings, toolsData, customToolsData, cloudSettings, syncedRaw] = await Promise.all([
                 API.getSettings(),
                 API.getEssentialTools(),
                 API.getCustomTools(),
                 API.getCloudSettings().catch(() => null),
+                // Synced overrides — used to compute the cloud-only synced
+                // tools section (rules for tools not in the local registry).
+                fetch('/api/tool-permissions/synced-overrides')
+                    .then(r => r.ok ? r.json() : { synced: [] })
+                    .catch(() => ({ synced: [] })),
             ]);
 
             this.settings = settings;
             this.tools = toolsData.tools || [];
             this.customTools = customToolsData.tools || [];
+            this._syncedRaw = syncedRaw.synced || [];
 
             // Set toggle state
             toggleInput.checked = settings.tool_permissions_enabled || false;
@@ -631,6 +637,12 @@ const ToolPermissionsPage = {
 
             // Cloud mode pill (compact)
             this.renderCloudPill(cloudPill, cloudSettings, this.tools.length);
+
+            // Cloud-only synced section — rules for tools NOT in the
+            // local registry. Surfaces enforcement-active rules that the
+            // category grid would otherwise hide. Empty by default (no
+            // section rendered when the user has no cloud-only rules).
+            this.renderCloudOnlySyncedSection(toolsContainer);
 
             // Render tools
             this.renderTools(toolsContainer);
@@ -691,15 +703,24 @@ const ToolPermissionsPage = {
      */
     _handleDeepLinkToTool() {
         try {
-            const params = new URLSearchParams(window.location.search);
-            const id = params.get('tool');
+            // SessionStorage handoff (preferred — SPA-router-safe), with
+            // ?tool= query param as a manual / external entry point.
+            let id = null;
+            try {
+                id = sessionStorage.getItem('tool_perms_focus_tool');
+                if (id) sessionStorage.removeItem('tool_perms_focus_tool');
+            } catch (_) {}
+            if (!id) {
+                const params = new URLSearchParams(window.location.search);
+                id = params.get('tool');
+            }
             if (!id) return;
             // Defer one frame so layout is settled.
-            setTimeout(() => this._focusTool(id), 50);
+            setTimeout(() => this._focusTool(id), 80);
         } catch (e) { /* noop — deep-link is best-effort */ }
     },
 
-    /** Scroll-to-row + 2s cyan flash. Accepts bare or prefixed tool_id. */
+    /** Scroll-to-row + 2.5s saturated-cyan flash with halo. Accepts bare or prefixed tool_id. */
     _focusTool(id) {
         if (!id) return false;
         const bare = id.includes(':') ? id.split(':').pop() : id;
@@ -710,20 +731,157 @@ const ToolPermissionsPage = {
             if (row) break;
         }
         if (!row) {
-            if (window.Toast) Toast.show('Tool ' + bare + ' not present in local registry — synced rule will activate when this MCP server registers.', 'info', 5000);
+            // Auto-expand the cloud-only synced section in case the row
+            // is hidden inside it, then retry once.
+            const expandBtn = document.querySelector('[data-cloud-only-expand]');
+            if (expandBtn && expandBtn.getAttribute('aria-expanded') === 'false') {
+                expandBtn.click();
+                setTimeout(() => this._focusTool(id), 200);
+                return false;
+            }
+            if (window.Toast) Toast.show('Tool ' + bare + ' not present anywhere on this device.', 'info', 5000);
             return false;
         }
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const original = row.style.borderColor;
-        const originalBg = row.style.background;
-        row.style.transition = 'border-color 0.3s ease, background 0.3s ease';
-        row.style.borderColor = 'var(--accent-primary, #5eadb8)';
-        row.style.background = 'rgba(94,173,184,0.18)';
+        // Save the current values exactly so we can restore them after the flash.
+        const orig = {
+            borderColor: row.style.borderColor,
+            background: row.style.background,
+            boxShadow: row.style.boxShadow,
+        };
+        row.style.transition = 'border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease';
+        row.style.borderColor = '#06b6d4';
+        row.style.background = 'rgba(6,182,212,0.22)';
+        row.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.45)';
         setTimeout(() => {
-            row.style.borderColor = original;
-            row.style.background = originalBg;
-        }, 1800);
+            row.style.borderColor = orig.borderColor;
+            row.style.background = orig.background;
+            row.style.boxShadow = orig.boxShadow;
+        }, 2500);
         return true;
+    },
+
+    /**
+     * Render the "Synced from Cloud (custom MCP)" section at the top of
+     * the page when the device has synced rules whose tool_id has no
+     * matching local registry entry. Collapsed by default.
+     */
+    renderCloudOnlySyncedSection(container) {
+        const synced = this._syncedRaw || [];
+        if (!synced.length) return;
+
+        // Build a set of registry tool_ids we know about — both the bare
+        // key and any colon-prefixed alias forms — so we can identify
+        // synced rules whose tool maps to a registry row vs. those that
+        // don't.
+        const registryIds = new Set();
+        for (const t of this.tools) {
+            if (t && t.tool_id) registryIds.add(t.tool_id);
+        }
+
+        // Cloud-only = synced rule whose tool_id (and bare suffix) is not
+        // in registry. Dedupe by tool_id since /synced-overrides emits
+        // both <server>:<tool> AND bare suffix as alias rows.
+        const seen = new Set();
+        const cloudOnly = [];
+        for (const r of synced) {
+            const tid = r.tool_id;
+            if (!tid) continue;
+            const bare = tid.includes(':') ? tid.split(':').pop() : tid;
+            if (registryIds.has(tid) || registryIds.has(bare)) continue;
+            // Prefer the prefixed form (full origin id) as the canonical key.
+            const key = tid.includes(':') ? tid : bare;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            cloudOnly.push({ ...r, tool_id: key });
+        }
+        if (!cloudOnly.length) return;
+
+        const card = document.createElement('div');
+        card.className = 'tool-perms-cloud-only-card';
+        card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(6,182,212,0.35); border-left: 3px solid #06b6d4; border-radius: var(--radius-md); margin-bottom: 14px; overflow: hidden;';
+
+        // Collapsed header
+        const header = document.createElement('button');
+        header.type = 'button';
+        header.setAttribute('data-cloud-only-expand', 'true');
+        header.setAttribute('aria-expanded', 'false');
+        header.style.cssText = 'all: unset; cursor: pointer; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; box-sizing: border-box;';
+        const lock = document.createElement('span');
+        lock.textContent = '🔒';
+        lock.style.cssText = 'font-size: 14px;';
+        header.appendChild(lock);
+        const lbl = document.createElement('span');
+        lbl.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary);';
+        const noun = cloudOnly.length === 1 ? 'tool' : 'tools';
+        lbl.textContent = `${cloudOnly.length} cloud-synced ${noun} (not in local registry)`;
+        header.appendChild(lbl);
+        const sub = document.createElement('span');
+        sub.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: 4px;';
+        sub.textContent = '— rules enforced at runtime, awaiting registry entry';
+        header.appendChild(sub);
+        const chev = document.createElement('span');
+        chev.style.cssText = 'margin-left: auto; font-size: 11px; color: var(--accent-primary, #5eadb8); font-weight: 600;';
+        chev.textContent = 'Expand ▾';
+        header.appendChild(chev);
+        card.appendChild(header);
+
+        // Body — initially hidden
+        const body = document.createElement('div');
+        body.style.cssText = 'display: none; padding: 0 12px 12px 12px; max-height: 280px; overflow-y: auto;';
+        for (const r of cloudOnly) {
+            body.appendChild(this._buildCloudOnlyRow(r));
+        }
+        card.appendChild(body);
+
+        header.addEventListener('click', () => {
+            const expanded = header.getAttribute('aria-expanded') === 'true';
+            header.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            body.style.display = expanded ? 'none' : 'block';
+            chev.textContent = expanded ? 'Expand ▾' : 'Collapse ▴';
+        });
+
+        // Insert before category grid
+        container.insertBefore(card, container.firstChild);
+    },
+
+    _buildCloudOnlyRow(rule) {
+        const row = document.createElement('div');
+        row.dataset.toolId = rule.tool_id;
+        row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--border-default); border-left: 3px solid #06b6d4; border-radius: var(--radius-md); background: var(--bg-secondary); margin-top: 8px; transition: background 0.12s, border-color 0.12s, box-shadow 0.25s;';
+        row.title = rule.tool_id + (rule.org_name ? ' · ' + rule.org_name : '');
+
+        const info = document.createElement('div');
+        info.style.cssText = 'flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;';
+        const name = document.createElement('div');
+        name.style.cssText = 'font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+        name.textContent = rule.tool_id;
+        info.appendChild(name);
+        const meta = document.createElement('div');
+        meta.style.cssText = 'font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+        const policy = rule.policy_name ? rule.policy_name + (rule.policy_version != null ? ' v' + rule.policy_version : '') : 'cloud policy';
+        meta.textContent = policy + (rule.reason ? ' — ' + rule.reason : '');
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        const pill = document.createElement('span');
+        const effect = (rule.effect || '').toLowerCase();
+        const isDeny = effect === 'deny' || effect === 'block';
+        pill.style.cssText = 'flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1; ' +
+            (isDeny
+                ? 'border: 1px solid rgba(239,68,68,0.45); background: rgba(239,68,68,0.12); color: #ef4444;'
+                : 'border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669;');
+        pill.textContent = '🔒 ' + effect;
+        row.appendChild(pill);
+
+        // Reverse provenance — click row → /mcp-policies?policy=<source_policy_id>
+        if (rule.policy_id) {
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => {
+                window.location.href = '/mcp-policies?policy=' + encodeURIComponent(rule.policy_id);
+            });
+        }
+        return row;
     },
 
     renderTools(container) {
@@ -1880,10 +2038,13 @@ const ToolPermissionsPage = {
         const actionBtn = document.createElement('button');
 
         if (isManagedRow) {
-            // Locked pill — same shape as the toggle button so the row doesn't
-            // resize, but visually slate-toned and click-inert.
-            actionBtn.style.cssText = 'flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669; cursor: not-allowed; line-height: 1; display: inline-flex; align-items: center; gap: 4px;';
-            actionBtn.disabled = true;
+            // Locked pill — synced pills become click-through links back
+            // to the source policy on /mcp-policies (reverse provenance).
+            // Last-resort pills stay click-inert because there's no policy
+            // page to send the user to.
+            const isClickable = tool.is_synced && tool.synced_policy_id;
+            actionBtn.style.cssText = 'flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669; cursor: ' + (isClickable ? 'pointer' : 'not-allowed') + '; line-height: 1; display: inline-flex; align-items: center; gap: 4px; transition: background 0.12s, border-color 0.12s;';
+            actionBtn.disabled = !isClickable;
             actionBtn.textContent = (
                 tool.is_last_resort ? '🔒 last-resort' : '🔒 synced'
             );
@@ -1894,8 +2055,21 @@ const ToolPermissionsPage = {
                         'Managed by ' + (tool.synced_source_org || 'cloud policy')
                         + (tool.synced_policy_version != null ? ' (v' + tool.synced_policy_version + ')' : '')
                         + (tool.synced_reason ? ' — ' + tool.synced_reason : '')
+                        + (isClickable ? ' · click to view source policy →' : '')
                     )
             );
+            if (isClickable) {
+                actionBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // SessionStorage handoff — the SPA router strips query
+                    // params on navigation, so we stash the policy_id here
+                    // and the destination page reads it on render.
+                    try {
+                        sessionStorage.setItem('mcp_policy_deep_link', tool.synced_policy_id);
+                    } catch (_) {}
+                    window.location.href = '/mcp-policies';
+                });
+            }
         } else {
             this._applyActionBtnStyle(actionBtn, isBlocked);
             this._setBtnContent(actionBtn, isBlocked);

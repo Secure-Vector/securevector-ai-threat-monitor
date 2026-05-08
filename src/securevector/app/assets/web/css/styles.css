@@ -6706,6 +6706,29 @@ thead tr:hover #records-select-all,
 
 /* --- Responsive ----------------------------------------------------- */
 
+/* --- MCP Policies "Rules" cell — count + tool-name preview -------------- */
+
+.mcp-cell-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.2;
+}
+.mcp-cell-rules .mcp-cell-count {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+.mcp-cell-tools {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
 /* --- MCP Policies drawer rule → Tool Permissions cross-link -------------- */
 
 .mcp-rule-link-row {

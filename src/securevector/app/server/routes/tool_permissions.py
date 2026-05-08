@@ -144,6 +144,8 @@ async def list_essential_tools():
                 "is_synced": synced_rule is not None,
                 "synced_effect": synced_rule.effect if synced_rule else None,
                 "synced_source_org": synced_rule.org_name if synced_rule else None,
+                "synced_policy_id": synced_rule.policy_id if synced_rule else None,
+                "synced_policy_name": synced_rule.policy_name if synced_rule else None,
                 "synced_policy_version": synced_rule.policy_version if synced_rule else None,
                 "synced_reason": synced_rule.reason if synced_rule else None,
                 "is_last_resort": last_resort is not None,

@@ -33,6 +33,21 @@ const McpPoliciesPage = {
         this._container = container;
         this._detailsExpanded = this._detailsExpanded || _MCP_AUDIT_ENTRY;
 
+        // Capture deep-link policy_id stashed by Tool Permissions before
+        // navigation. The SPA router strips query params on navigation,
+        // so the cross-page handoff uses sessionStorage. Auto-open the
+        // matching drawer once policies data lands; we read this below.
+        let _pendingPolicyDeepLink = null;
+        try {
+            _pendingPolicyDeepLink = sessionStorage.getItem('mcp_policy_deep_link');
+            if (_pendingPolicyDeepLink) sessionStorage.removeItem('mcp_policy_deep_link');
+            // Also support ?policy= param as a manual deep-link entry.
+            if (!_pendingPolicyDeepLink) {
+                const params = new URLSearchParams(window.location.search);
+                _pendingPolicyDeepLink = params.get('policy');
+            }
+        } catch (e) { /* deep-link best-effort */ }
+
         // Hero — heavyweight: shield-check icon tile + name + "Cloud-only" pill +
         // Sync Now button. The button gating reads from data.can_refresh once
         // the fetch resolves; until then we render it disabled.
@@ -57,6 +72,15 @@ const McpPoliciesPage = {
             container.removeChild(loading);
             this._refreshHeroSyncButton(hero, data);
             this._renderBody(container, data);
+
+            // Deep-link from Tool Permissions → specific source policy.
+            // The ?policy=<id> param was captured at render() start
+            // (before the SPA router cleaned the URL); auto-open the
+            // matching policy's drawer now that the data has loaded.
+            if (_pendingPolicyDeepLink && data.policies) {
+                const p = data.policies.find(x => x.policy_id === _pendingPolicyDeepLink);
+                if (p) setTimeout(() => this._openPolicyDrawer(p), 60);
+            }
         } catch (err) {
             container.removeChild(loading);
             container.appendChild(this._buildErrorState(err));
@@ -501,10 +525,32 @@ const McpPoliciesPage = {
                     label: 'Rules',
                     sortable: true,
                     render: (_, p) => {
-                        const v = document.createElement('span');
-                        v.className = 'mcp-cell-count';
-                        v.textContent = String(p.rule_count);
-                        return v;
+                        // Two-line cell: count on top, tool name preview below.
+                        // Surfaces the actual tools governed by the policy
+                        // without forcing the user to open the drawer first —
+                        // disambiguates policies on the same MCP server and
+                        // makes the cloud→local mental model concrete.
+                        const wrap = document.createElement('div');
+                        wrap.className = 'mcp-cell-rules';
+                        const cnt = document.createElement('div');
+                        cnt.className = 'mcp-cell-count';
+                        cnt.textContent = String(p.rule_count);
+                        wrap.appendChild(cnt);
+                        const rules = (p.rules || []);
+                        if (rules.length) {
+                            const preview = document.createElement('div');
+                            preview.className = 'mcp-cell-tools';
+                            // Show up to two tool names (bare-suffix), then +N more.
+                            const names = rules.slice(0, 2).map(r => {
+                                const t = r.tool_id || '';
+                                return t.includes(':') ? t.split(':').pop() : t;
+                            });
+                            const more = rules.length > 2 ? ' +' + (rules.length - 2) : '';
+                            preview.textContent = names.join(', ') + more;
+                            preview.title = rules.map(r => r.tool_id).join('\n');
+                            wrap.appendChild(preview);
+                        }
+                        return wrap;
                     },
                 },
                 {
@@ -921,18 +967,17 @@ const McpPoliciesPage = {
         link.addEventListener('click', (e) => {
             e.stopPropagation();
             // Same-page focus path — no full reload, preserves drawer state.
-            // Falls back to navigation with ?tool= when the page isn't
-            // already mounted (the global helper isn't defined yet).
             if (typeof window.ToolPermissionsPage_focusTool === 'function'
                 && window.location.pathname === '/tool-permissions') {
                 window.ToolPermissionsPage_focusTool(rule.tool_id);
-            } else if (window.Sidebar) {
-                // Use the sidebar router so navigation behaves like a click
-                // in the left rail (sets active state, preserves shell).
-                window.location.href = '/tool-permissions?tool=' + encodeURIComponent(rule.tool_id);
-            } else {
-                window.location.href = '/tool-permissions?tool=' + encodeURIComponent(rule.tool_id);
+                return;
             }
+            // Cross-page: stash via sessionStorage so the SPA router
+            // can't strip the param mid-navigation, then send the user.
+            try {
+                sessionStorage.setItem('tool_perms_focus_tool', rule.tool_id);
+            } catch (_) {}
+            window.location.href = '/tool-permissions';
         });
         linkRow.appendChild(link);
         body.appendChild(linkRow);
