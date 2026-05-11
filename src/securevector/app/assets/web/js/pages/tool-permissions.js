@@ -638,14 +638,16 @@ const ToolPermissionsPage = {
             // Cloud mode pill (compact)
             this.renderCloudPill(cloudPill, cloudSettings, this.tools.length);
 
+            // Render tools FIRST — its first line is
+            // `container.textContent = ''` which would wipe out the
+            // cloud-only section if we inserted it before.
+            this.renderTools(toolsContainer);
+
             // Cloud-only synced section — rules for tools NOT in the
             // local registry. Surfaces enforcement-active rules that the
             // category grid would otherwise hide. Empty by default (no
             // section rendered when the user has no cloud-only rules).
             this.renderCloudOnlySyncedSection(toolsContainer);
-
-            // Render tools
-            this.renderTools(toolsContainer);
 
             // Deep-link from MCP Policies → specific tool row. When the
             // sidebar / drawer / any caller navigates here with ?tool=<id>,
@@ -780,21 +782,22 @@ const ToolPermissionsPage = {
         }
 
         // Cloud-only = synced rule whose tool_id (and bare suffix) is not
-        // in registry. Dedupe by tool_id since /synced-overrides emits
-        // both <server>:<tool> AND bare suffix as alias rows.
-        const seen = new Set();
-        const cloudOnly = [];
+        // in registry. Dedupe by bare suffix — /synced-overrides emits
+        // both <server>:<tool> AND bare suffix as alias rows, and we want
+        // exactly one card per logical tool. Prefer the prefixed form as
+        // the display key when both are seen (carries provenance origin).
+        const byBare = new Map();
         for (const r of synced) {
             const tid = r.tool_id;
             if (!tid) continue;
             const bare = tid.includes(':') ? tid.split(':').pop() : tid;
             if (registryIds.has(tid) || registryIds.has(bare)) continue;
-            // Prefer the prefixed form (full origin id) as the canonical key.
-            const key = tid.includes(':') ? tid : bare;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            cloudOnly.push({ ...r, tool_id: key });
+            const existing = byBare.get(bare);
+            if (!existing || (!existing.tool_id.includes(':') && tid.includes(':'))) {
+                byBare.set(bare, { ...r, tool_id: tid });
+            }
         }
+        const cloudOnly = Array.from(byBare.values());
         if (!cloudOnly.length) return;
 
         const card = document.createElement('div');
