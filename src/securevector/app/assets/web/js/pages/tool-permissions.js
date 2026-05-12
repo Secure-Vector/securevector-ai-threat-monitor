@@ -163,6 +163,36 @@ const ToolPermissionsPage = {
         });
     },
 
+    /**
+     * Inline SVG cloud-check icon — replaces the 🔒 emoji on cloud-managed
+     * surfaces. Stroke uses currentColor so the parent's text color drives it,
+     * which means it picks up dark/light theme without a separate variant.
+     * size: number of px for both width and height.
+     */
+    _svgCloudCheck(size) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', String(size));
+        svg.setAttribute('height', String(size));
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.style.flexShrink = '0';
+        // Cloud silhouette
+        const cloud = document.createElementNS(NS, 'path');
+        cloud.setAttribute('d', 'M17.5 19a4.5 4.5 0 1 0-1.4-8.8 6 6 0 1 0-11.1 3.6');
+        svg.appendChild(cloud);
+        // Inset check mark
+        const check = document.createElementNS(NS, 'path');
+        check.setAttribute('d', 'm9 15 2 2 4-4');
+        svg.appendChild(check);
+        return svg;
+    },
+
     _showToolDetail(tool, anchor, accent) {
         // Toggle off if already open for this tool
         const existing = document.getElementById('sv-tool-detail-popup');
@@ -803,32 +833,38 @@ const ToolPermissionsPage = {
         const accent = { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' };
         const col = document.createElement('div');
         col.dataset.categoryCol = 'cloud-only';
-        col.style.cssText = 'min-width: 0;';
+        // Tinted column — visually marks the cloud-managed section as
+        // distinct from local-editable categories. Matches the framing
+        // OpenClaw's column already uses for its proxy tools.
+        col.style.cssText = 'min-width: 0; border-radius: 10px; padding: 8px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.30);';
 
-        // Column header — matches the existing category column style
+        // Column header — SVG cloud-check icon (replaces the 🔒 emoji)
+        // plus a small "From SecureVector cloud" badge so the provenance
+        // is unambiguous at a glance.
         const catHeader = document.createElement('div');
         catHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 2px solid ' + accent.color + ';';
-        const dot = document.createElement('span');
-        dot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: ' + accent.color + ';';
-        catHeader.appendChild(dot);
         const catTitle = document.createElement('span');
-        catTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 5px;';
-        const lockGlyph = document.createElement('span');
-        lockGlyph.textContent = '🔒';
-        lockGlyph.style.cssText = 'font-size: 11px;';
-        catTitle.appendChild(lockGlyph);
+        catTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: ' + accent.color + '; display: flex; align-items: center; gap: 6px;';
+        catTitle.appendChild(this._svgCloudCheck(15));
         catTitle.appendChild(document.createTextNode('Cloud-managed'));
         catHeader.appendChild(catTitle);
         const catCount = document.createElement('span');
-        catCount.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-left: auto; padding: 1px 6px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
+        catCount.style.cssText = 'font-size: 10px; color: ' + accent.color + '; margin-left: auto; padding: 1px 6px; background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.35); border-radius: var(--radius-full); font-weight: 600;';
         catCount.textContent = cloudOnly.length;
         catHeader.appendChild(catCount);
         col.appendChild(catHeader);
 
-        // Helper subtitle once
+        // Provenance badge + subtitle — makes the cloud origin explicit
+        // instead of relying on the lock glyph alone.
+        const provBadge = document.createElement('div');
+        provBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: ' + accent.color + '; background: rgba(6,182,212,0.10); border: 1px solid rgba(6,182,212,0.30); border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;';
+        provBadge.appendChild(this._svgCloudCheck(11));
+        provBadge.appendChild(document.createTextNode('Synced from SecureVector cloud'));
+        col.appendChild(provBadge);
+
         const subtitle = document.createElement('div');
         subtitle.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.35;';
-        subtitle.textContent = 'Rules pushed for tools your local registry doesn’t know yet. Enforced at runtime when those tools become available.';
+        subtitle.textContent = 'Read-only here. Authoring lives in your cloud admin console — these rules apply at runtime even when the tool isn’t in your local registry.';
         col.appendChild(subtitle);
 
         // Sub-group per mcp_server — small label + grouped rows
@@ -917,7 +953,9 @@ const ToolPermissionsPage = {
                 : isPrompt
                     ? 'border: 1px solid rgba(245,158,11,0.45); background: rgba(245,158,11,0.12); color: #d97706;'
                     : 'border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669;');
-        pill.textContent = '🔒 ' + (effect ? effect.charAt(0).toUpperCase() + effect.slice(1) : 'Synced');
+        pill.textContent = '';
+        pill.appendChild(this._svgCloudCheck(10));
+        pill.appendChild(document.createTextNode(effect ? effect.charAt(0).toUpperCase() + effect.slice(1) : 'Synced'));
         row.appendChild(pill);
 
         // Click → source policy on /mcp-policies (matches the synced badge
@@ -2240,9 +2278,9 @@ const ToolPermissionsPage = {
             const isClickable = tool.is_synced && tool.synced_policy_id;
             actionBtn.style.cssText = 'flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; border: 1px solid rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); color: #059669; cursor: ' + (isClickable ? 'pointer' : 'not-allowed') + '; line-height: 1; display: inline-flex; align-items: center; gap: 4px; transition: background 0.12s, border-color 0.12s;';
             actionBtn.disabled = !isClickable;
-            actionBtn.textContent = (
-                tool.is_last_resort ? '🔒 Last-resort' : '🔒 Synced'
-            );
+            actionBtn.textContent = '';
+            actionBtn.appendChild(this._svgCloudCheck(11));
+            actionBtn.appendChild(document.createTextNode(tool.is_last_resort ? 'Last-resort' : 'Synced'));
             actionBtn.title = (
                 tool.is_last_resort
                     ? (tool.last_resort_reason || 'Hard-coded last-resort rule.')
