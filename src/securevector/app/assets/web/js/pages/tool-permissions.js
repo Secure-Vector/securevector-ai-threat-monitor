@@ -859,7 +859,10 @@ const ToolPermissionsPage = {
         }
         col.appendChild(groups);
 
-        columnsWrap.appendChild(col);
+        // Prepend — the cloud-only column is the most novel info on the
+        // page (what your org pushed today), so it leads the grid as the
+        // first column rather than wrapping to the bottom row.
+        columnsWrap.insertBefore(col, columnsWrap.firstChild);
     },
 
     _buildCloudOnlyRow(rule, accent) {
