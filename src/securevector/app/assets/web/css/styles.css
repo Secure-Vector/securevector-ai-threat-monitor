@@ -6806,6 +6806,49 @@ thead tr:hover #records-select-all,
 .mcp-status-strip-match    { border-left-color: var(--success); }
 .mcp-status-strip-degraded { border-left-color: var(--warning); }
 .mcp-status-strip-error    { border-left-color: var(--danger); }
+.mcp-status-strip-tampered { border-left-color: var(--danger); background: rgba(239,68,68,0.04); }
+
+/* Tamper banner — non-dismissible red callout that sits at the very top
+ * of the MCP Policies page when the verifier detected that the stored
+ * bundle envelope no longer matches its signature. */
+.mcp-tamper-banner {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.45);
+    border-left-width: 4px;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    color: var(--text-primary);
+}
+.mcp-tamper-banner-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.mcp-tamper-banner-icon {
+    color: var(--danger);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+}
+.mcp-tamper-banner-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--danger);
+}
+.mcp-tamper-banner-body {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.mcp-tamper-banner-meta {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    word-break: break-word;
+}
 
 .mcp-status-strip-row {
     display: flex;
@@ -6831,6 +6874,7 @@ thead tr:hover #records-select-all,
 .mcp-status-strip-match    .mcp-status-pill-dot { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.55); }
 .mcp-status-strip-degraded .mcp-status-pill-dot { background: var(--warning); box-shadow: 0 0 6px rgba(245,158,11,0.55); }
 .mcp-status-strip-error    .mcp-status-pill-dot { background: var(--danger);  box-shadow: 0 0 6px rgba(239,68,68,0.55); }
+.mcp-status-strip-tampered .mcp-status-pill-dot { background: var(--danger);  box-shadow: 0 0 6px rgba(239,68,68,0.55); }
 
 .mcp-status-pill-lbl {
     font-size: 13px;
@@ -7040,6 +7084,7 @@ thead tr:hover #records-select-all,
 .mcp-cell-status-match    { color: var(--success); background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.30); }
 .mcp-cell-status-degraded { color: var(--warning); background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.30); }
 .mcp-cell-status-error    { color: var(--danger); background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.30); }
+.mcp-cell-status-tampered { color: var(--danger); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.45); }
 
 /* Drawer-rendered policy card — drop the outer-border treatment since the
  * drawer provides its own. */

@@ -236,6 +236,16 @@ const McpPoliciesPage = {
     },
 
     _renderBody(container, data) {
+        // Tamper banner — non-dismissible, always at the top when the
+        // verifier detected that the stored bundle envelope no longer
+        // matches its signature. Most likely cause: a local user edited
+        // synced_tool_rules rows via sqlite3. The synced rules have
+        // already been blanked server-side, so the page just needs to
+        // make the state visible.
+        if ((data.verification_status || '') === 'tampered') {
+            container.appendChild(this._buildTamperBanner(data));
+        }
+
         // Policy Sync ON tile — provenance band, visible only when at least
         // one bundle is applied. Replaces the global header pill that was
         // removed 2026-05-08 (see header.js comment). Surfaces the same
@@ -335,6 +345,56 @@ const McpPoliciesPage = {
      * row that mirrors the same data at a fraction of the vertical real estate.
      * Click the "Details" toggle to expand the full audit panel inline below.
      */
+    /**
+     * Red non-dismissible banner that fires when the bundle envelope
+     * fails re-verify on a poll or on startup. Most common cause: the
+     * user opened the local SQLite DB with `sqlite3` and edited rows
+     * in `synced_tool_rules` directly. The verifier blanks those rules
+     * server-side so this banner just makes the state visible — there
+     * is no "undo" button by design; recovery happens when the cloud
+     * pushes a fresh signed bundle on the next /policy/sync.
+     */
+    _buildTamperBanner(data) {
+        const banner = document.createElement('div');
+        banner.className = 'mcp-tamper-banner';
+        const head = document.createElement('div');
+        head.className = 'mcp-tamper-banner-head';
+        const icon = document.createElement('span');
+        icon.className = 'mcp-tamper-banner-icon';
+        icon.textContent = '⚠';
+        head.appendChild(icon);
+        const title = document.createElement('span');
+        title.className = 'mcp-tamper-banner-title';
+        title.textContent = 'Synced rules suspended — bundle signature mismatch';
+        head.appendChild(title);
+        banner.appendChild(head);
+
+        const body = document.createElement('div');
+        body.className = 'mcp-tamper-banner-body';
+        const parts = [
+            'The signed bundle on this device no longer matches its signature.',
+            'Synced rules have been cleared; the enforcer is falling back to local rules only.',
+            'Recovery is automatic on the next signed bundle from your SecureVector cloud.',
+        ];
+        body.textContent = parts.join(' ');
+        banner.appendChild(body);
+
+        // Meta line: detected time + reason. Truncate the raw reason so a
+        // long exception message doesn't blow out the layout.
+        const meta = document.createElement('div');
+        meta.className = 'mcp-tamper-banner-meta';
+        const when = data.tampered_at
+            ? new Date(data.tampered_at).toLocaleString()
+            : 'just now';
+        const reasonRaw = data.tamper_reason ? String(data.tamper_reason) : '';
+        const reason = reasonRaw.length > 140
+            ? reasonRaw.slice(0, 140) + '…'
+            : reasonRaw;
+        meta.textContent = 'Detected ' + when + (reason ? ' · ' + reason : '');
+        banner.appendChild(meta);
+        return banner;
+    },
+
     _buildStatusStrip(data) {
         const status = data.verification_status || 'match';
         const wrap = document.createElement('div');
@@ -353,6 +413,7 @@ const McpPoliciesPage = {
         lbl.className = 'mcp-status-pill-lbl';
         lbl.textContent = status === 'match' ? 'Up to date'
                         : status === 'degraded' ? 'Sync drift'
+                        : status === 'tampered' ? 'Tamper detected'
                         : 'Bundle expired';
         pill.appendChild(lbl);
         row.appendChild(pill);
@@ -583,6 +644,7 @@ const McpPoliciesPage = {
                         const overall = (self._data && self._data.verification_status) || 'match';
                         const label = overall === 'match' ? '✓ Match'
                                     : overall === 'degraded' ? '⚠ Degraded'
+                                    : overall === 'tampered' ? '✖ Tampered'
                                     : '✖ Expired';
                         const wrap = document.createElement('span');
                         wrap.className = 'mcp-cell-status mcp-cell-status-' + overall;

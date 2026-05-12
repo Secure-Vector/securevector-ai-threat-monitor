@@ -216,3 +216,46 @@ def sign_bundle(payload: dict, signing_key: str) -> str:
         signing_key.encode("utf-8"), canonical, hashlib.sha256
     ).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def verify_envelope(
+    bundle_json: str,
+    *,
+    signing_key: str,
+) -> None:
+    """
+    Re-verify a stored signed envelope without re-fetching from the cloud.
+
+    Used by cloud_sync at the top of every poll and on app startup so
+    direct tampering of `synced_tool_rules` rows (or of the envelope row
+    itself) is detected before any tool-call enforcement reads the rules.
+
+    Skips freshness + version checks — those are entry-time guards on
+    incoming bundles, not invariants on stored ones. The only thing that
+    must hold for the stored envelope is the HMAC signature.
+
+    Raises BundleVerificationError on mismatch. Returns None on success.
+    """
+    try:
+        payload = json.loads(bundle_json)
+    except (ValueError, TypeError) as exc:
+        raise BundleVerificationError(
+            "envelope_unparseable",
+            f"Stored bundle_json is not valid JSON: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise BundleVerificationError(
+            "envelope_unparseable",
+            "Stored bundle_json is not a JSON object",
+        )
+    _verify_signature(payload, signing_key)
+
+
+def fingerprint_signing_key(signing_key: str) -> str:
+    """
+    Produce the same `sha256:<base64>` fingerprint the audit panel
+    already shows for a given signing key. Exposed so cloud_sync can
+    stamp it onto the stored envelope row.
+    """
+    digest = hashlib.sha256(signing_key.encode("utf-8")).digest()
+    return "sha256:" + base64.b64encode(digest).decode("ascii").rstrip("=")

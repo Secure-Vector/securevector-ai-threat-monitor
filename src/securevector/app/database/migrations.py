@@ -22,6 +22,7 @@ from securevector.app.database.models import (
     MIGRATION_V19_SQL,
     MIGRATION_V29_SQL,
     MIGRATION_V30_SQL,
+    MIGRATION_V31_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         28: migrate_to_v28,
         29: migrate_to_v29,
         30: migrate_to_v30,
+        31: migrate_to_v31,
     }
 
     if version in migrations:
@@ -1330,6 +1332,28 @@ async def migrate_to_v30(db: DatabaseConnection) -> None:
     await conn.executescript(MIGRATION_V30_SQL)
     await conn.commit()
     logger.info("Applied migration v30: synced_tool_rules.policy_name column")
+
+
+async def migrate_to_v31(db: DatabaseConnection) -> None:
+    """v30 -> v31: store signed bundle envelope for tamper-detect re-verify.
+
+    Adds the `synced_bundle_envelope` table that holds the raw signed
+    bundle JSON + HS256 signature alongside `synced_tool_rules`. The
+    cloud_sync loop now re-verifies the envelope on every poll and on
+    app startup; if a local user edits `synced_tool_rules` rows directly
+    with sqlite3, the signature recomputed over the canonical bundle
+    won't match what's stored, the verifier blanks the rules, and the
+    MCP Policies page surfaces a red tamper banner.
+
+    Existing v30 deployments have an empty envelope table after this
+    migration — the next successful /policy/sync poll populates it, at
+    which point tamper detection becomes active. Until then the page
+    behaves identically to v30.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V31_SQL)
+    await conn.commit()
+    logger.info("Applied migration v31: synced_bundle_envelope table")
 
 
 # Future migration functions would be defined here:

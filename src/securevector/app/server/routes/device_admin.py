@@ -216,7 +216,12 @@ class PolicySyncPoliciesResponse(BaseModel):
     """Aggregated response for `GET /api/v1/policy-sync/policies`."""
 
     any_active: bool
-    verification_status: str  # match | degraded | error
+    verification_status: str  # match | degraded | error | tampered
+    # When verification_status=='tampered', these two are populated so the
+    # MCP Policies page can render the exact tamper time + reason in the
+    # red banner. Null for every other status.
+    tampered_at: Optional[str] = None
+    tamper_reason: Optional[str] = None
     health: HealthSnapshotView
     policies: List[SyncedPolicyView]
     # Gates the "Sync now" button on the page. False when nothing useful would
@@ -316,6 +321,8 @@ async def policy_sync_policies() -> PolicySyncPoliciesResponse:
     return PolicySyncPoliciesResponse(
         any_active=bool(policies),
         verification_status=health_raw["verification_status"],
+        tampered_at=health_raw.get("tampered_at"),
+        tamper_reason=health_raw.get("tamper_reason"),
         health=HealthSnapshotView(
             last_poll_at=health_raw.get("last_poll_at"),
             last_poll_status=health_raw.get("last_poll_status"),

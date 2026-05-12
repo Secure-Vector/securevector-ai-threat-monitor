@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 30
+CURRENT_SCHEMA_VERSION = 31
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -337,6 +337,34 @@ ALTER TABLE synced_tool_rules ADD COLUMN policy_name TEXT;
 
 INSERT INTO schema_version (version, applied_at, description)
 VALUES (30, CURRENT_TIMESTAMP, 'synced_tool_rules — add policy_name for local MCP Policies page');
+"""
+
+# Migration SQL for v31 — synced_bundle_envelope table.
+#
+# The signed bundle envelope (the raw JSON the cloud pushed PLUS the
+# HS256 signature) lives alongside `synced_tool_rules` so the verifier
+# can re-check the signature on every poll and on app startup. If the
+# verify fails — typically because someone hand-edited
+# `synced_tool_rules` rows with a sqlite3 shell — the verifier blanks
+# `synced_tool_rules`, sets `tampered_at`, and the MCP Policies page
+# flips to a red tamper banner.
+#
+# One row per active enrollment. bundle_id is the PK so a fresh apply
+# overwrites the previous envelope in a single UPSERT.
+MIGRATION_V31_SQL = """
+CREATE TABLE IF NOT EXISTS synced_bundle_envelope (
+    bundle_id                 TEXT PRIMARY KEY,
+    bundle_json               TEXT NOT NULL,
+    signature                 TEXT NOT NULL,
+    signing_key_fingerprint   TEXT,
+    applied_at                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    verified_at               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tampered_at               TIMESTAMP,
+    tamper_reason             TEXT
+);
+
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (31, CURRENT_TIMESTAMP, 'synced_bundle_envelope — store signed envelope for tamper-detect re-verify');
 """
 
 # Migration SQL for v19

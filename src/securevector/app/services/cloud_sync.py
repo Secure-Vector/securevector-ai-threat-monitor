@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 import random
@@ -33,10 +34,15 @@ import httpx
 
 from securevector.app.database.connection import DatabaseConnection
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
+from securevector.app.database.repositories.synced_bundle_envelope import (
+    SyncedBundleEnvelopeRepository,
+)
 from securevector.app.services.bundle_verifier import (
     BUNDLE_FRESHNESS_WINDOW,
     BundleVerificationError,
+    fingerprint_signing_key,
     verify_bundle,
+    verify_envelope,
 )
 from securevector.app.services.cloud_config import get_auth_service_url, get_lse_url
 from securevector.app.services.credentials import (
@@ -74,10 +80,12 @@ _sync_task: Optional[asyncio.Task] = None
 # which is the wrong tradeoff for a v1 surface (see plan: Phase 2 follow-up).
 _HEALTH: dict = {
     "last_poll_at": None,           # ISO8601 — every poll attempt sets this
-    "last_poll_status": None,       # 200_applied | 304_not_modified | 401_refresh | timeout | signature_mismatch | http_error
+    "last_poll_status": None,       # 200_applied | 304_not_modified | 401_refresh | timeout | signature_mismatch | http_error | tampered
     "last_match_at": None,          # ISO8601 — last successful apply or 304-after-good-apply
     "consecutive_mismatch_count": 0,
     "signing_key_fingerprint": None,  # sha256:<32-hex> — proves *which* org key signed
+    "tampered_at": None,            # ISO8601 — set when the stored envelope fails re-verify
+    "tamper_reason": None,          # human-readable reason string from BundleVerificationError
 }
 
 
@@ -122,9 +130,15 @@ def get_health_snapshot(last_applied_at: Optional[str] = None) -> dict:
     # Tiered verification status — see plan Phase 1 table.
     status = "match"
 
-    # Error tier first: bundle past the 24h freshness window means the enforcer
+    # Tamper tier — strictly highest priority. If a re-verify failed, the
+    # synced rules have already been blanked; the UI must show that
+    # loudly even if (e.g.) the bundle would otherwise be in freshness
+    # window. Persists until the next clean re-verify clears it.
+    if _HEALTH["tampered_at"]:
+        status = "tampered"
+    # Error tier: bundle past the 24h freshness window means the enforcer
     # is now falling back to local-only rules — surface this loudly.
-    if freshness_remaining is not None and freshness_remaining <= 0:
+    elif freshness_remaining is not None and freshness_remaining <= 0:
         status = "error"
     # Degraded tier: persistent mismatch streak OR quiet line.
     elif _HEALTH["consecutive_mismatch_count"] >= DEGRADED_MISMATCH_STREAK:
@@ -175,14 +189,80 @@ async def stop_cloud_sync() -> None:
     logger.info("Cloud Sync loop stopped")
 
 
+async def _verify_envelope_or_quarantine(
+    db: DatabaseConnection,
+    rules_repo: SyncedRulesRepository,
+    envelope_repo: SyncedBundleEnvelopeRepository,
+) -> bool:
+    """
+    Re-verify the stored signed envelope against the device's signing key.
+
+    If the signature still matches, return True and refresh `verified_at`
+    on the envelope row.
+
+    If it doesn't match — typically because someone edited
+    `synced_tool_rules` rows directly with sqlite3 (the verifier doesn't
+    actually look at the rules table, but if a future attack edits the
+    envelope itself the same path catches it) — wipe the rules,
+    mark the envelope row tampered, and stamp the in-memory health
+    snapshot so the MCP Policies page flips to the red tamper banner.
+    Returns False.
+
+    If there's no envelope (first poll after enrollment, or post-unenroll),
+    return True without doing anything — there's nothing to verify yet.
+    """
+    envelope = await envelope_repo.load_latest()
+    if envelope is None:
+        return True
+    creds = get_enrolled_credentials()
+    if not creds or not creds.policy_bundle_signing_key:
+        # Can't verify without the key; treat as quiet pass — the next
+        # successful poll will overwrite the envelope and re-establish state.
+        return True
+
+    try:
+        verify_envelope(envelope.bundle_json, signing_key=creds.policy_bundle_signing_key)
+    except BundleVerificationError as exc:
+        logger.error(
+            "Cloud Sync: TAMPER DETECTED — stored envelope %s failed re-verify (%s): %s",
+            envelope.bundle_id,
+            exc.code,
+            exc,
+        )
+        await rules_repo.clear()
+        await envelope_repo.mark_tampered(reason=str(exc))
+        _HEALTH["tampered_at"] = _now_iso()
+        _HEALTH["tamper_reason"] = str(exc)
+        _record_poll("tampered")
+        return False
+
+    await envelope_repo.touch_verified()
+    # Clear any prior tamper state — a clean re-verify means recovery.
+    _HEALTH["tampered_at"] = None
+    _HEALTH["tamper_reason"] = None
+    return True
+
+
 async def _sync_loop(db: DatabaseConnection) -> None:
     """Top-level loop. Never returns on its own."""
     repo = SyncedRulesRepository(db)
+    envelope_repo = SyncedBundleEnvelopeRepository(db)
     backoff = TRANSIENT_BACKOFF_BASE
+
+    # Startup re-verify — catch sqlite3-shell edits made while the app
+    # was down. If it fails, the rules are blanked before the first
+    # enforcement read happens this session.
+    try:
+        await _verify_envelope_or_quarantine(db, repo, envelope_repo)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Cloud Sync: startup envelope verify failed (non-fatal): %s", exc)
 
     while True:
         try:
-            applied = await _sync_once(db, repo)
+            # Re-verify before every poll — cheap (one HMAC) and catches
+            # tampering that happened while the app was running.
+            await _verify_envelope_or_quarantine(db, repo, envelope_repo)
+            applied = await _sync_once(db, repo, envelope_repo)
             backoff = TRANSIENT_BACKOFF_BASE  # reset on success
             # 304 / no-change applied returns False; still wait normal cadence
             await asyncio.sleep(SYNC_INTERVAL_SECONDS if not applied else 1.0)
@@ -196,14 +276,22 @@ async def _sync_loop(db: DatabaseConnection) -> None:
 
 
 async def _sync_once(
-    db: DatabaseConnection, repo: SyncedRulesRepository
+    db: DatabaseConnection,
+    repo: SyncedRulesRepository,
+    envelope_repo: Optional[SyncedBundleEnvelopeRepository] = None,
 ) -> bool:
     """
     One iteration: long-poll for a new bundle, verify, apply, ack.
 
     Returns True if a new bundle was applied; False on 304 / no-change.
     Raises on transient errors (the loop catches and backs off).
+
+    When `envelope_repo` is provided (always, in the main loop; optional
+    for test injection) the signed envelope is persisted on each apply
+    so the tamper-detect re-verify path has something to check.
     """
+    if envelope_repo is None:
+        envelope_repo = SyncedBundleEnvelopeRepository(db)
     creds = get_enrolled_credentials()
     if not creds:
         # Lost enrollment mid-flight — stop the loop cleanly
@@ -263,6 +351,34 @@ async def _sync_once(
         org_name=creds.org_name,
         rules=verified.rules,
     )
+    # Persist the signed envelope alongside the extracted rules so the
+    # next poll (and the next app startup) can re-verify the signature
+    # without re-fetching from the cloud. The bundle JSON we serialise
+    # MUST round-trip through the canonical-JSON form that the signature
+    # was computed over — json.dumps with sort_keys=True + tight
+    # separators matches bundle_verifier._canonical_json's expectation,
+    # so verify_envelope() recomputes the same HMAC.
+    try:
+        envelope_bytes = json.dumps(response, sort_keys=True, separators=(",", ":"))
+        await envelope_repo.save_envelope(
+            bundle_id=verified.bundle_id,
+            bundle_json=envelope_bytes,
+            signature=str(response.get("signature") or ""),
+            signing_key_fingerprint=fingerprint_signing_key(
+                creds.policy_bundle_signing_key
+            ),
+        )
+        # A successful apply clears any prior tamper state — the cloud just
+        # pushed a fresh signed bundle, so we're recovering even if the
+        # previous envelope had been tampered.
+        _HEALTH["tampered_at"] = None
+        _HEALTH["tamper_reason"] = None
+    except Exception as exc:  # noqa: BLE001 — envelope write failure must not break apply
+        logger.warning(
+            "Cloud Sync: failed to persist envelope for bundle %s: %s",
+            verified.bundle_id,
+            exc,
+        )
     logger.info(
         "Cloud Sync: applied bundle %s policy=%s (%s) v=%d (%d rules)",
         verified.bundle_id,
