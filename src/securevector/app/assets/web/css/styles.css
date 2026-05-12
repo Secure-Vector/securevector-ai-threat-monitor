@@ -5998,10 +5998,8 @@ thead tr:hover #records-select-all,
 }
 
 .mcp-cloud-pill {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.4px;
-    text-transform: uppercase;
+    font-size: 11px;
+    font-weight: 600;
     padding: 3px 9px 3px 20px;
     border-radius: 999px;
     color: var(--accent-primary);
@@ -7019,11 +7017,25 @@ thead tr:hover #records-select-all,
 .mcp-cell-time { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .mcp-cell-status {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
+    font-size: 11px;
+    font-weight: 600;
     padding: 3px 8px;
     border-radius: 4px;
+}
+
+/* Scope: sentence-case table headers + rule effect labels only for
+   MCP Policies — the global .data-table uppercase treatment stays
+   put for every other surface. */
+.mcp-table-card .data-table thead th {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+}
+.mcp-table-card .mcp-rule-effect-lbl {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 700;
+    font-size: 12px;
 }
 .mcp-cell-status-match    { color: var(--success); background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.30); }
 .mcp-cell-status-degraded { color: var(--warning); background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.30); }

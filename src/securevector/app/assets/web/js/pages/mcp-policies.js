@@ -182,7 +182,7 @@ const McpPoliciesPage = {
         const cloudPill = document.createElement('span');
         cloudPill.className = 'mcp-cloud-pill';
         cloudPill.title = 'This surface only activates when the device is enrolled in a SecureVector cloud organization.';
-        cloudPill.textContent = 'Cloud-only';
+        cloudPill.textContent = 'Cloud-managed';
         titleRow.appendChild(cloudPill);
 
         text.appendChild(titleRow);
@@ -276,16 +276,23 @@ const McpPoliciesPage = {
 
         const pill = document.createElement('div');
         pill.className = 'mcp-policy-sync-on-pill';
-        // Inline lock SVG — same shape as the old header badge
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        // Inline cloud-check SVG — same iconography as Tool Permissions
+        // so the "this is from your cloud" signal is consistent across pages.
+        const NS = 'http://www.w3.org/2000/svg';
+        const icon = document.createElementNS(NS, 'svg');
         icon.setAttribute('viewBox', '0 0 24 24');
         icon.setAttribute('fill', 'none');
         icon.setAttribute('stroke', 'currentColor');
         icon.setAttribute('stroke-width', '2');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
         icon.classList.add('mcp-policy-sync-on-icon');
-        const lockPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        lockPath.setAttribute('d', 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4');
-        icon.appendChild(lockPath);
+        const cloudPath = document.createElementNS(NS, 'path');
+        cloudPath.setAttribute('d', 'M17.5 19a4.5 4.5 0 1 0-1.4-8.8 6 6 0 1 0-11.1 3.6');
+        icon.appendChild(cloudPath);
+        const checkPath = document.createElementNS(NS, 'path');
+        checkPath.setAttribute('d', 'm9 15 2 2 4-4');
+        icon.appendChild(checkPath);
         pill.appendChild(icon);
         const lbl = document.createElement('span');
         lbl.textContent = 'Policy Sync ON';
@@ -574,9 +581,9 @@ const McpPoliciesPage = {
                         // for now. Mirror the overall status onto every row so the
                         // table doesn't lie when the bundle has expired/drifted.
                         const overall = (self._data && self._data.verification_status) || 'match';
-                        const label = overall === 'match' ? '✓ MATCH'
-                                    : overall === 'degraded' ? '⚠ DEGRADED'
-                                    : '✖ EXPIRED';
+                        const label = overall === 'match' ? '✓ Match'
+                                    : overall === 'degraded' ? '⚠ Degraded'
+                                    : '✖ Expired';
                         const wrap = document.createElement('span');
                         wrap.className = 'mcp-cell-status mcp-cell-status-' + overall;
                         wrap.textContent = label;
@@ -654,7 +661,7 @@ const McpPoliciesPage = {
 
         // Tile 1 — overall verification status
         const statusGlyph = status === 'match' ? '✓' : status === 'degraded' ? '⚠' : '✖';
-        const statusLabel = status === 'match' ? 'MATCH' : status === 'degraded' ? 'DEGRADED' : 'EXPIRED';
+        const statusLabel = status === 'match' ? 'Match' : status === 'degraded' ? 'Degraded' : 'Expired';
         grid.appendChild(this._buildStatTile({
             kind: status,
             label: 'Policy Sync',
@@ -890,9 +897,10 @@ const McpPoliciesPage = {
         // Footer — read-only routing
         const footer = document.createElement('footer');
         footer.className = 'mcp-policy-footer';
+        // SVG cloud-check icon — matches the Tool Permissions provenance treatment.
         const lock = document.createElement('span');
         lock.className = 'mcp-footer-lock';
-        lock.textContent = '🔒';
+        lock.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8 6 6 0 1 0-11.1 3.6"/><path d="m9 15 2 2 4-4"/></svg>';
         footer.appendChild(lock);
         const ftxt = document.createElement('span');
         ftxt.className = 'mcp-footer-text';
@@ -915,7 +923,7 @@ const McpPoliciesPage = {
         effect.className = 'mcp-rule-effect-col';
         const effectLbl = document.createElement('span');
         effectLbl.className = 'mcp-rule-effect-lbl';
-        effectLbl.textContent = rule.effect.toUpperCase();
+        effectLbl.textContent = rule.effect ? (rule.effect.charAt(0).toUpperCase() + rule.effect.slice(1)) : '';
         effect.appendChild(effectLbl);
         row.appendChild(effect);
 
