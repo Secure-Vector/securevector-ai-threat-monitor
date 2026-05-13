@@ -797,7 +797,7 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.55;';
-        desc.textContent = 'MCP Policies are tool-level allow / deny / prompt rules pushed from your SecureVector cloud organization to enrolled devices. They sit above your local Tool Permissions and override them when they conflict. The bundle is HS256-signed; the local app verifies the signature on every poll before applying.';
+        desc.textContent = 'MCP Policies are tool-level allow / deny / prompt rules from your SecureVector account, applied to every enrolled device. They sit above your local Tool Permissions and override them when they conflict. Each update is signed and re-verified before it\'s applied.';
         frag.appendChild(desc);
 
         // Cloud-only callout \u2014 the most important framing for this section.
@@ -825,7 +825,7 @@ const GettingStartedPage = {
         frag.appendChild(precDesc);
 
         frag.appendChild(this.createMiniStep('1', 'Last-resort rules', 'Compiled-in safety blocks. Cannot be overridden, even by cloud policy.'));
-        frag.appendChild(this.createMiniStep('2', 'Cloud-synced rules', 'What MCP Policies shows. Pushed from the cloud admin, signed, and applied automatically.'));
+        frag.appendChild(this.createMiniStep('2', 'Cloud-synced rules', 'What MCP Policies shows. Sent from your SecureVector account, signed, and applied automatically.'));
         frag.appendChild(this.createMiniStep('3', 'Local Tool Permissions', 'Your overrides. Effective only when no synced rule matches the tool_id.'));
         frag.appendChild(this.createMiniStep('4', 'Tool default', 'The default permission for the tool in the registry, if no rule matches above.'));
 
@@ -838,7 +838,7 @@ const GettingStartedPage = {
         frag.appendChild(this.createMiniStep('1', 'Admin mints a token', 'In the SecureVector cloud admin (app.securevector.io), an org admin opens Enroll Devices and clicks Invite User. The cloud generates a single-use svet_* token.'));
         frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + auth credentials, and persists them to the credentials file.'));
         frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth — it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
-        frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app long-polls /policy/sync. Bundles are verified (signature + freshness + version-replay), then applied to the synced_tool_rules table. The MCP Policies page reads from there.'));
+        frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app polls for updates from your SecureVector account. Each update is verified (signed, fresh, monotonic version) before it\'s applied. The MCP Policies page reflects what\'s currently in force.'));
 
         // Sync auth (recommended setup)
         const authTitle = document.createElement('div');
