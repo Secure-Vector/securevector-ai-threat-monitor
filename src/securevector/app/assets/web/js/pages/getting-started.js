@@ -36,7 +36,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'MCP Policies', 'Cloud-pushed tool rules synced from your SecureVector organization',
+            'MCP Policies', 'Org-managed tool rules from your SecureVector account',
             'section-mcp-policies', () => this.buildMcpPoliciesContent(), true
         ));
 
