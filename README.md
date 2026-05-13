@@ -6,6 +6,8 @@
 
 <p>Hard budget caps + auto-stop, per agent. Plus injection blocks, tool-call audits, and skill scanning — all in one local install. Free, open-source, runs on your machine. No signup. <code>pip install</code> and you're protected in 60 seconds.</p>
 
+<p><strong>For teams:</strong> MCP Policies push tool rules from your SecureVector account to every enrolled device — author once, apply fleet-wide.</p>
+
 <br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)

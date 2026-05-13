@@ -28,7 +28,7 @@ const Sidebar = {
         // come from here. Separate sidebar entry keeps the trust artifact
         // (what's pushed to me, by whom) distinct from the operational
         // surface (what does the proxy do for tool X).
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules synced from your SecureVector cloud (read-only).' },
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
@@ -183,6 +183,16 @@ const Sidebar = {
                 badge.id = 'rules-count-badge';
                 badge.textContent = '...';
                 navItem.appendChild(badge);
+            }
+
+            // Tier pill — features that require a SecureVector account get a
+            // small "Cloud" marker so users know up-front before they click.
+            const CLOUD_TIER = new Set(['mcp-policies']);
+            if (CLOUD_TIER.has(item.id)) {
+                const tier = document.createElement('span');
+                tier.textContent = 'Cloud';
+                tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
+                navItem.appendChild(tier);
             }
 
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
