@@ -115,6 +115,10 @@ const Sidebar = {
         // Core features get an orange badge dot overlaid on their icon
         const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
 
+        // Features that require a SecureVector cloud account — small "Cloud"
+        // pill rendered next to the label so users know up-front.
+        const CLOUD_TIER = new Set(['mcp-policies']);
+
         // Section labels before nav items. SIEM Forwarder now anchors
         // the Connect section (it sits above Integrations) so the
         // "Connect" label still renders above the outbound/inbound pipes.
@@ -187,7 +191,6 @@ const Sidebar = {
 
             // Tier pill — features that require a SecureVector account get a
             // small "Cloud" marker so users know up-front before they click.
-            const CLOUD_TIER = new Set(['mcp-policies']);
             if (CLOUD_TIER.has(item.id)) {
                 const tier = document.createElement('span');
                 tier.textContent = 'Cloud';

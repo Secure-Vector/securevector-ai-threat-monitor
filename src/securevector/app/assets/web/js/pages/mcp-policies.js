@@ -1074,7 +1074,7 @@ const McpPoliciesPage = {
 
         const p = document.createElement('p');
         p.textContent =
-            "MCP Policies is how teams enforce tool rules across every enrolled device at once. This device isn't currently receiving any policies — either it isn't enrolled in an organization, or no policies have been assigned to it yet. To start receiving your org's policies, run the command below.";
+            "MCP Policies is how teams enforce tool rules across every enrolled device at once. This device isn't currently receiving any policies — either it isn't enrolled in an organization, or no policies have been assigned to it yet.";
         wrap.appendChild(p);
 
         const cmd = document.createElement('div');
