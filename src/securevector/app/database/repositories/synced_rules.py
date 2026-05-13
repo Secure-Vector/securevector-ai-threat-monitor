@@ -31,6 +31,7 @@ class SyncedToolRule:
     id: int
     bundle_id: str
     policy_id: str
+    policy_name: Optional[str]
     policy_version: int
     org_id: str
     org_name: Optional[str]
@@ -49,8 +50,8 @@ class SyncedRulesRepository:
 
     async def list_all(self) -> List[SyncedToolRule]:
         rows = await self.db.fetch_all(
-            "SELECT id, bundle_id, policy_id, policy_version, org_id, org_name, "
-            "tool_id, effect, priority, reason, applied_at "
+            "SELECT id, bundle_id, policy_id, policy_name, policy_version, "
+            "org_id, org_name, tool_id, effect, priority, reason, applied_at "
             "FROM synced_tool_rules ORDER BY priority DESC, id ASC"
         )
         return [self._row_to_rule(r) for r in rows]
@@ -58,8 +59,8 @@ class SyncedRulesRepository:
     async def find_by_tool(self, tool_id: str) -> Optional[SyncedToolRule]:
         """Return the highest-priority synced rule matching `tool_id`, or None."""
         row = await self.db.fetch_one(
-            "SELECT id, bundle_id, policy_id, policy_version, org_id, org_name, "
-            "tool_id, effect, priority, reason, applied_at "
+            "SELECT id, bundle_id, policy_id, policy_name, policy_version, "
+            "org_id, org_name, tool_id, effect, priority, reason, applied_at "
             "FROM synced_tool_rules WHERE tool_id = ? "
             "ORDER BY priority DESC, id ASC LIMIT 1",
             (tool_id,),
@@ -71,6 +72,7 @@ class SyncedRulesRepository:
         *,
         bundle_id: str,
         policy_id: str,
+        policy_name: Optional[str],
         policy_version: int,
         org_id: str,
         org_name: Optional[str],
@@ -102,15 +104,26 @@ class SyncedRulesRepository:
                         rule,
                     )
                     continue
+                # Per-rule policy attribution — when the engine emits an
+                # aggregated org-level bundle (Option A), each rule carries
+                # its source policy_id / name / version. Fall back to the
+                # bundle-level values for legacy single-policy bundles
+                # where the engine hadn't started stamping per-rule yet.
+                row_policy_id = rule.get("source_policy_id") or policy_id
+                row_policy_name = rule.get("source_policy_name") or policy_name
+                row_policy_version = rule.get("source_policy_version")
+                if row_policy_version is None:
+                    row_policy_version = policy_version
                 await conn.execute(
                     "INSERT INTO synced_tool_rules "
-                    "(bundle_id, policy_id, policy_version, org_id, org_name, "
-                    " tool_id, effect, priority, reason, applied_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(bundle_id, policy_id, policy_name, policy_version, "
+                    " org_id, org_name, tool_id, effect, priority, reason, applied_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         bundle_id,
-                        policy_id,
-                        int(policy_version),
+                        row_policy_id,
+                        row_policy_name,
+                        int(row_policy_version),
                         org_id,
                         org_name,
                         tool_id,
@@ -153,12 +166,63 @@ class SyncedRulesRepository:
         await conn.commit()
         return cursor.rowcount or 0
 
+    async def list_policies(self) -> List[dict]:
+        """
+        One row per distinct policy_id, with aggregated metadata. Used by the
+        local app's MCP Policies page to show what's synced from the cloud.
+
+        We MAX() the per-policy fields because every row in a given policy
+        carries the same bundle/org/version metadata (rewritten atomically
+        on each apply); the aggregation is just to flatten N rules to one
+        policy row.
+        """
+        rows = await self.db.fetch_all(
+            "SELECT policy_id, "
+            "       MAX(bundle_id) AS bundle_id, "
+            "       MAX(policy_name) AS policy_name, "
+            "       MAX(policy_version) AS policy_version, "
+            "       MAX(org_id) AS org_id, "
+            "       MAX(org_name) AS org_name, "
+            "       MAX(applied_at) AS applied_at, "
+            "       COUNT(*) AS rule_count "
+            "FROM synced_tool_rules "
+            "GROUP BY policy_id "
+            "ORDER BY applied_at DESC"
+        )
+        return [
+            {
+                "policy_id": r["policy_id"],
+                "policy_name": r["policy_name"],
+                "bundle_id": r["bundle_id"],
+                "policy_version": int(r["policy_version"]),
+                "org_id": r["org_id"],
+                "org_name": r["org_name"],
+                "applied_at": r["applied_at"],
+                "rule_count": int(r["rule_count"]),
+            }
+            for r in rows
+        ]
+
+    async def list_rules_for_policy(self, policy_id: str) -> List[SyncedToolRule]:
+        """All rules for a given policy_id, sorted by priority then id."""
+        rows = await self.db.fetch_all(
+            "SELECT id, bundle_id, policy_id, policy_name, policy_version, "
+            "org_id, org_name, tool_id, effect, priority, reason, applied_at "
+            "FROM synced_tool_rules WHERE policy_id = ? "
+            "ORDER BY priority DESC, id ASC",
+            (policy_id,),
+        )
+        return [self._row_to_rule(r) for r in rows]
+
     @staticmethod
     def _row_to_rule(row) -> SyncedToolRule:
+        # policy_name may be missing on rows written before V30 migration ran;
+        # SQLite returns the column as None in that case which is what we want.
         return SyncedToolRule(
             id=row["id"],
             bundle_id=row["bundle_id"],
             policy_id=row["policy_id"],
+            policy_name=row["policy_name"] if "policy_name" in row.keys() else None,
             policy_version=row["policy_version"],
             org_id=row["org_id"],
             org_name=row["org_name"],

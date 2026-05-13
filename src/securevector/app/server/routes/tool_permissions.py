@@ -91,7 +91,19 @@ async def list_essential_tools():
         from securevector.app.rules.last_resort import matches_last_resort
         synced_repo = SyncedRulesRepository(db)
         synced_rows = await synced_repo.list_all()
-        synced_map = {r.tool_id: r for r in synced_rows}
+        # Index synced rules under both the full tool_id and the bare suffix
+        # after a `:` (cloud naming convention is `<server>:<tool>` but the
+        # local registry uses bare tool names; without aliasing the lock icon
+        # never appears on synced tools). Keep higher-priority rule on collision.
+        synced_map: dict = {}
+        for r in synced_rows:
+            keys = [r.tool_id]
+            if ':' in r.tool_id:
+                keys.append(r.tool_id.split(':', 1)[1])
+            for k in keys:
+                existing = synced_map.get(k)
+                if not existing or (r.priority or 0) > (existing.priority or 0):
+                    synced_map[k] = r
 
         tools = []
         for tool_id, tool in registry.items():
@@ -132,6 +144,8 @@ async def list_essential_tools():
                 "is_synced": synced_rule is not None,
                 "synced_effect": synced_rule.effect if synced_rule else None,
                 "synced_source_org": synced_rule.org_name if synced_rule else None,
+                "synced_policy_id": synced_rule.policy_id if synced_rule else None,
+                "synced_policy_name": synced_rule.policy_name if synced_rule else None,
                 "synced_policy_version": synced_rule.policy_version if synced_rule else None,
                 "synced_reason": synced_rule.reason if synced_rule else None,
                 "is_last_resort": last_resort is not None,
@@ -162,6 +176,49 @@ async def get_overrides():
 
     except Exception as e:
         logger.error(f"Failed to get overrides: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/synced-overrides")
+async def get_synced_overrides():
+    """Cloud-pushed synced rules in proxy-friendly shape.
+
+    Returned dict per tool_id carries the synced effect + policy provenance so
+    proxy enforcement decisions can be both correct (effect wins over local
+    user override + registry default) and auditable (reason names the policy).
+    """
+    try:
+        from securevector.app.database.repositories.synced_rules import (
+            SyncedRulesRepository,
+        )
+
+        db = get_database()
+        synced_repo = SyncedRulesRepository(db)
+        rows = await synced_repo.list_all()
+
+        # Emit each synced rule under its full tool_id AND, when the cloud
+        # composed `<server>:<tool>`, under the bare suffix as an alias. The
+        # proxy's _load_synced_overrides keys by tool_id directly, so without
+        # aliasing here a synced rule on `github-mcp-server:delete_file`
+        # would never match the LLM call's bare `delete_file` function name.
+        synced: list = []
+        for r in rows:
+            base = {
+                "effect": r.effect,
+                "priority": r.priority,
+                "policy_id": r.policy_id,
+                "policy_name": r.policy_name,
+                "policy_version": r.policy_version,
+                "org_name": r.org_name,
+                "reason": r.reason,
+            }
+            synced.append({"tool_id": r.tool_id, **base})
+            if ':' in r.tool_id:
+                synced.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
+        return {"synced": synced, "total": len(synced)}
+
+    except Exception as e:
+        logger.error(f"Failed to get synced overrides: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

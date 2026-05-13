@@ -49,6 +49,7 @@ class VerifiedBundle:
     bundle_id: str
     org_id: str
     policy_id: str
+    policy_name: Optional[str]  # Free-text label authored in the cloud admin
     version: int
     mode: str
     signed_at: datetime
@@ -185,10 +186,16 @@ def verify_bundle(
         except ValueError:
             expires_at = None
 
+    # policy_name is optional in the canonical signed payload; it's part of
+    # the JSON the server signs, so a tampered name fails signature verify.
+    policy_name_raw = payload.get("policy_name")
+    policy_name = str(policy_name_raw) if policy_name_raw else None
+
     return VerifiedBundle(
         bundle_id=str(payload.get("bundle_id") or ""),
         org_id=str(payload.get("org_id") or ""),
         policy_id=str(payload.get("policy_id") or ""),
+        policy_name=policy_name,
         version=version,
         mode=str(payload.get("mode") or "audit"),
         signed_at=signed_at,
@@ -209,3 +216,46 @@ def sign_bundle(payload: dict, signing_key: str) -> str:
         signing_key.encode("utf-8"), canonical, hashlib.sha256
     ).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def verify_envelope(
+    bundle_json: str,
+    *,
+    signing_key: str,
+) -> None:
+    """
+    Re-verify a stored signed envelope without re-fetching from the cloud.
+
+    Used by cloud_sync at the top of every poll and on app startup so
+    direct tampering of `synced_tool_rules` rows (or of the envelope row
+    itself) is detected before any tool-call enforcement reads the rules.
+
+    Skips freshness + version checks — those are entry-time guards on
+    incoming bundles, not invariants on stored ones. The only thing that
+    must hold for the stored envelope is the HMAC signature.
+
+    Raises BundleVerificationError on mismatch. Returns None on success.
+    """
+    try:
+        payload = json.loads(bundle_json)
+    except (ValueError, TypeError) as exc:
+        raise BundleVerificationError(
+            "envelope_unparseable",
+            f"Stored bundle_json is not valid JSON: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise BundleVerificationError(
+            "envelope_unparseable",
+            "Stored bundle_json is not a JSON object",
+        )
+    _verify_signature(payload, signing_key)
+
+
+def fingerprint_signing_key(signing_key: str) -> str:
+    """
+    Produce the same `sha256:<base64>` fingerprint the audit panel
+    already shows for a given signing key. Exposed so cloud_sync can
+    stamp it onto the stored envelope row.
+    """
+    digest = hashlib.sha256(signing_key.encode("utf-8")).digest()
+    return "sha256:" + base64.b64encode(digest).decode("ascii").rstrip("=")

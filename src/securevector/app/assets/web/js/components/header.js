@@ -74,21 +74,16 @@ const Header = {
         const llmToggle = this.createLLMToggle();
         right.appendChild(llmToggle);
 
-        // Policy Sync badge — rightmost. ON only when the device was
-        // enrolled via an svet_* mint token (active-mcp-and-policy-sync).
-        // Personal-mode users never see this badge.
-        const policySyncBadge = this.createPolicySyncBadge();
-        right.appendChild(policySyncBadge);
-
-        // Cloud Mode toggle - immediately left of the Policy Sync badge
+        // Cloud Mode toggle — global cloud connectivity state. Per-feature
+        // status (Policy Sync, etc.) lives on the feature pages, not in the
+        // header — keeps the top bar uncluttered.
         const cloudToggle = this.createCloudToggle();
         right.appendChild(cloudToggle);
 
         container.appendChild(right);
 
-        // Check cloud mode + Policy Sync state + LLM mode
+        // Check cloud mode + LLM mode
         this.checkCloudMode();
-        this.checkPolicySyncStatus();
         this.checkLLMMode();
     },
 
@@ -197,6 +192,7 @@ const Header = {
             'siem-export':      'section-siem-forwarder',
             'skill-scanner':    'section-skill-scanner',
             'tool-permissions': 'section-tool-permissions',
+            'mcp-policies':     'section-mcp-policies',
             'costs':            'section-costs',
         };
         btn.addEventListener('click', () => {
@@ -928,137 +924,6 @@ const Header = {
         }
     },
 
-    // -----------------------------------------------------------------
-    // Policy Sync header badge — active-mcp-and-policy-sync, Phase 2.
-    //
-    // Hidden by default (personal-mode / legacy / not-enrolled installs
-    // continue working exactly as before — Cloud Connect behaves as a
-    // personal subscription with no policy sync).
-    //
-    // Shown ON only when the device redeemed an svet_* mint token.
-    // No manual toggle: install path determines state. Polled every 60s
-    // so the badge tracks the cloud sync loop's "last applied bundle".
-    // -----------------------------------------------------------------
-
-    createPolicySyncBadge() {
-        const wrapper = document.createElement('div');
-        wrapper.id = 'policy-sync-wrapper';
-        wrapper.className = 'policy-sync-wrapper';
-        wrapper.style.cssText = 'display: none; position: relative; margin-left: 8px;';
-
-        const pill = document.createElement('div');
-        pill.id = 'policy-sync-pill';
-        pill.style.cssText = 'display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: default; background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.15)); color: #059669; border: 1px solid rgba(16, 185, 129, 0.4); white-space: nowrap;';
-
-        // Lock icon — signals read-only / managed
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        icon.setAttribute('viewBox', '0 0 24 24');
-        icon.setAttribute('fill', 'none');
-        icon.setAttribute('stroke', 'currentColor');
-        icon.setAttribute('stroke-width', '2');
-        icon.style.cssText = 'width: 12px; height: 12px;';
-        const lockPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        lockPath.setAttribute(
-            'd',
-            'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4'
-        );
-        icon.appendChild(lockPath);
-        pill.appendChild(icon);
-
-        const label = document.createElement('span');
-        label.id = 'policy-sync-label';
-        label.textContent = 'Policy Sync ON';
-        pill.appendChild(label);
-
-        wrapper.appendChild(pill);
-
-        // Hover tooltip — surfaces org/admin/version info on demand
-        const tooltip = document.createElement('div');
-        tooltip.id = 'policy-sync-tooltip';
-        tooltip.style.cssText = 'position: absolute; top: 100%; right: 0; margin-top: 8px; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px 16px; border-radius: 10px; font-size: 12px; line-height: 1.4; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); min-width: 240px; max-width: 320px; white-space: normal;';
-        wrapper.appendChild(tooltip);
-
-        wrapper.addEventListener('mouseenter', () => {
-            tooltip.style.opacity = '1';
-            tooltip.style.visibility = 'visible';
-        });
-        wrapper.addEventListener('mouseleave', () => {
-            tooltip.style.opacity = '0';
-            tooltip.style.visibility = 'hidden';
-        });
-
-        return wrapper;
-    },
-
-    async checkPolicySyncStatus() {
-        try {
-            const response = await fetch('/api/v1/policy-sync/status');
-            if (!response.ok) {
-                this._hidePolicySyncBadge();
-                return;
-            }
-            const status = await response.json();
-            if (!status || !status.enrolled) {
-                this._hidePolicySyncBadge();
-                return;
-            }
-            this._showPolicySyncBadge(status);
-        } catch (e) {
-            this._hidePolicySyncBadge();
-        }
-        // Re-check every 60s so the badge tracks the cloud_sync loop
-        if (!this._policySyncTimer) {
-            this._policySyncTimer = setInterval(() => this.checkPolicySyncStatus(), 60000);
-        }
-    },
-
-    _showPolicySyncBadge(status) {
-        const wrapper = document.getElementById('policy-sync-wrapper');
-        const tooltip = document.getElementById('policy-sync-tooltip');
-        if (!wrapper) return;
-        wrapper.style.display = 'inline-flex';
-
-        if (tooltip) {
-            tooltip.textContent = '';
-            const titleLine = document.createElement('div');
-            titleLine.style.cssText = 'font-weight: 700; margin-bottom: 6px; letter-spacing: 0.3px;';
-            titleLine.textContent = 'POLICY SYNC ON';
-            tooltip.appendChild(titleLine);
-
-            const orgLine = document.createElement('div');
-            orgLine.style.cssText = 'opacity: 0.95; margin-bottom: 4px;';
-            orgLine.textContent = `Managed by ${status.org_name || 'your organization'}`;
-            tooltip.appendChild(orgLine);
-
-            if (status.admin_email) {
-                const adminLine = document.createElement('div');
-                adminLine.style.cssText = 'opacity: 0.85; font-size: 11px; margin-bottom: 4px;';
-                adminLine.textContent = `Admin: ${status.admin_email}`;
-                tooltip.appendChild(adminLine);
-            }
-
-            const versionLine = document.createElement('div');
-            versionLine.style.cssText = 'opacity: 0.85; font-size: 11px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.2);';
-            if (status.last_synced_version != null) {
-                versionLine.textContent =
-                    `Bundle v${status.last_synced_version} · ${status.synced_rule_count} synced rule${status.synced_rule_count === 1 ? '' : 's'}`;
-            } else {
-                versionLine.textContent = 'Waiting for first signed bundle (≤60s)…';
-            }
-            tooltip.appendChild(versionLine);
-
-            const note = document.createElement('div');
-            note.style.cssText = 'opacity: 0.75; font-size: 10px; margin-top: 6px; font-style: italic;';
-            note.textContent = 'Policy Sync turns on only after enrolling with a mint token. Personal installs are unaffected.';
-            tooltip.appendChild(note);
-        }
-    },
-
-    _hidePolicySyncBadge() {
-        const wrapper = document.getElementById('policy-sync-wrapper');
-        if (wrapper) wrapper.style.display = 'none';
-    },
-
     createCloudToggle() {
         const wrapper = document.createElement('div');
         wrapper.className = 'cloud-toggle-wrapper';
@@ -1703,6 +1568,7 @@ graph.add_edge("output_security", END)`,
             threats: 'Threat Analytics',
             rules: 'Rules',
             'tool-permissions': 'Tool Permissions',
+            'mcp-policies': 'MCP Policies',
             proxy: 'Security',
             settings: 'Settings',
         };
@@ -1795,6 +1661,7 @@ graph.add_edge("output_security", END)`,
         replay:            { title: 'Agent Activity',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
+        'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
