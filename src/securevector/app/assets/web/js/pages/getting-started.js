@@ -36,8 +36,8 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'MCP Policies', 'Org-managed tool rules from your SecureVector account',
-            'section-mcp-policies', () => this.buildMcpPoliciesContent(), true
+            'MCP Policies', 'Set tool rules once in your SecureVector account; they apply across every enrolled device in your org.',
+            'section-mcp-policies', () => this.buildMcpPoliciesContent(), true, 'cloud'
         ));
 
         container.appendChild(this.createCollapsibleCard(
@@ -288,7 +288,7 @@ const GettingStartedPage = {
 
     // === Collapsible card wrapper ===
 
-    createCollapsibleCard(title, subtitle, sectionId, contentBuilder, isNew = false) {
+    createCollapsibleCard(title, subtitle, sectionId, contentBuilder, isNew = false, tier = null) {
         const card = document.createElement('div');
         card.className = 'card';
         card.id = sectionId;
@@ -312,6 +312,12 @@ const GettingStartedPage = {
             badge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(94,173,184,0.15); color: var(--accent-primary); letter-spacing:0.5px; line-height:1.6;';
             badge.textContent = 'NEW';
             titleRow.appendChild(badge);
+        }
+        if (tier === 'cloud') {
+            const tierPill = document.createElement('span');
+            tierPill.style.cssText = 'font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); letter-spacing:0.4px; text-transform:uppercase; line-height:1.4;';
+            tierPill.textContent = 'Cloud';
+            titleRow.appendChild(tierPill);
         }
         headerLeft.appendChild(titleRow);
 
@@ -797,7 +803,13 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.55;';
-        desc.textContent = 'MCP Policies are tool-level allow / deny / prompt rules from your SecureVector account, applied to every enrolled device. They sit above your local Tool Permissions and override them when they conflict. Each update is signed and re-verified before it\'s applied.';
+        // 'For teams' prefix rendered separately so it can be bold without
+        // an innerHTML escape hazard from the body copy.
+        const descLead = document.createElement('strong');
+        descLead.textContent = 'For teams. ';
+        const descRest = document.createTextNode('One place to govern which MCP tools every device can call. Set allow / deny / prompt rules in your SecureVector account and they apply across every enrolled device. Synced rules sit above local Tool Permissions and override them on conflict, so the same baseline is enforced everywhere. Each update is signed and re-verified on every poll.');
+        desc.appendChild(descLead);
+        desc.appendChild(descRest);
         frag.appendChild(desc);
 
         // Cloud-only callout \u2014 the most important framing for this section.
