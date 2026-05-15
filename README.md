@@ -32,7 +32,11 @@
 
 <br>
 
-> **What's new in v4.1.1 (patch):**
+> **What's new in v4.1.2 — MCP Policy & Tool Permission Sync** — *Cloud control plane for your local-app fleet (Cloud tier · opt-in)*:
+> - **Author once, enforce fleet-wide** — write MCP tool-permission rules in the cloud; every enrolled device pulls and enforces them.
+> - **Cloud is opt-in.** Local install still works standalone with no signup — sign in only when you want to manage MCP tool access across laptop + workstation + CI runner from one place.
+>
+> **From v4.1.1 (patch):**
 > - **Fix: macOS hang on Cmd+Q / window close** — desktop app no longer needs force-quit. Also halves `--web` mode shutdown time on Ctrl+C.
 >
 > **From v4.1.0:**
@@ -87,7 +91,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-v4.1.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector_4.1.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector-4.1.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-v4.1.2-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector_4.1.2_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector-4.1.2-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -453,17 +457,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.1.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-v4.1.1-Windows-Setup.exe) |
-| macOS | [SecureVector-4.1.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.1.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.1.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector_4.1.1_amd64.deb) |
-| Linux (RPM) | [securevector-4.1.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector-4.1.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.1.2-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-v4.1.2-Windows-Setup.exe) |
+| macOS | [SecureVector-4.1.2-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.1.2-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.1.2_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector_4.1.2_amd64.deb) |
+| Linux (RPM) | [securevector-4.1.2-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector-4.1.2-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 
