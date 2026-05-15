@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 28
+CURRENT_SCHEMA_VERSION = 31
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -291,8 +291,81 @@ SCHEMA_DESCRIPTION = (
     "v25: SIEM forwarder redaction_level allows 'full' tier (raw_data + llm_output); "
     "v26: SIEM forwarder min_severity + rate_limit_per_minute (SOC signal/noise tuning); "
     "v27: drop kind CHECK on external_forwarders — allow new kinds (e.g. 'file') via app-layer validation; "
-    "v28: lifetime events_sent counter on external_forwarders (per-destination health)"
+    "v28: lifetime events_sent counter on external_forwarders (per-destination health); "
+    "v29: synced_tool_rules — cloud-pushed policy bundle rules layered over local Tool Permissions"
 )
+
+# Migration SQL for v29 — synced_tool_rules layer (active-mcp-and-policy-sync)
+# Cloud-side policy bundles deserialised here; effective_action is computed
+# at read time as: synced rule (cloud) > local user rule > default.
+MIGRATION_V29_SQL = """
+CREATE TABLE IF NOT EXISTS synced_tool_rules (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    bundle_id           TEXT NOT NULL,
+    policy_id           TEXT NOT NULL,
+    policy_version      INTEGER NOT NULL,
+    org_id              TEXT NOT NULL,
+    org_name            TEXT,
+    tool_id             TEXT NOT NULL,
+    effect              TEXT NOT NULL CHECK (effect IN ('allow', 'deny', 'prompt')),
+    priority            INTEGER NOT NULL DEFAULT 0,
+    reason              TEXT,
+    applied_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(policy_id, tool_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_synced_tool_rules_tool_id
+    ON synced_tool_rules (tool_id);
+
+CREATE INDEX IF NOT EXISTS idx_synced_tool_rules_policy
+    ON synced_tool_rules (policy_id, policy_version);
+
+CREATE INDEX IF NOT EXISTS idx_synced_tool_rules_bundle
+    ON synced_tool_rules (bundle_id);
+
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (29, CURRENT_TIMESTAMP, 'synced_tool_rules — cloud policy bundle layer');
+"""
+
+# Migration SQL for v30 — surface human-readable policy_name on synced bundles.
+# Without this, the local MCP Policies page can only show pol_<hex> instead of
+# the friendly name authored in the cloud admin ("E2E Test — Filesystem MCP guardrail").
+# Default NULL keeps existing v29 rows valid; cloud_sync writes the new column on
+# every bundle apply so old rows are replaced naturally on the next /policy/sync.
+MIGRATION_V30_SQL = """
+ALTER TABLE synced_tool_rules ADD COLUMN policy_name TEXT;
+
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (30, CURRENT_TIMESTAMP, 'synced_tool_rules — add policy_name for local MCP Policies page');
+"""
+
+# Migration SQL for v31 — synced_bundle_envelope table.
+#
+# The signed bundle envelope (the raw JSON the cloud pushed PLUS the
+# HS256 signature) lives alongside `synced_tool_rules` so the verifier
+# can re-check the signature on every poll and on app startup. If the
+# verify fails — typically because someone hand-edited
+# `synced_tool_rules` rows with a sqlite3 shell — the verifier blanks
+# `synced_tool_rules`, sets `tampered_at`, and the MCP Policies page
+# flips to a red tamper banner.
+#
+# One row per active enrollment. bundle_id is the PK so a fresh apply
+# overwrites the previous envelope in a single UPSERT.
+MIGRATION_V31_SQL = """
+CREATE TABLE IF NOT EXISTS synced_bundle_envelope (
+    bundle_id                 TEXT PRIMARY KEY,
+    bundle_json               TEXT NOT NULL,
+    signature                 TEXT NOT NULL,
+    signing_key_fingerprint   TEXT,
+    applied_at                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    verified_at               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    tampered_at               TIMESTAMP,
+    tamper_reason             TEXT
+);
+
+INSERT INTO schema_version (version, applied_at, description)
+VALUES (31, CURRENT_TIMESTAMP, 'synced_bundle_envelope — store signed envelope for tamper-detect re-verify');
+"""
 
 # Migration SQL for v19
 MIGRATION_V19_SQL = """

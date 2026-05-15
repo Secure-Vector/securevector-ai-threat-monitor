@@ -6,6 +6,8 @@
 
 <p>Hard budget caps + auto-stop, per agent. Plus injection blocks, tool-call audits, and skill scanning — all in one local install. Free, open-source, runs on your machine. No signup. <code>pip install</code> and you're protected in 60 seconds.</p>
 
+<p><strong>For teams:</strong> MCP Policies push tool rules from your SecureVector account to every enrolled device — author once, apply fleet-wide.</p>
+
 <br>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
@@ -30,7 +32,11 @@
 
 <br>
 
-> **What's new in v4.1.1 (patch):**
+> **What's new in v4.1.2 — MCP Policy & Tool Permission Sync** — *Cloud control plane for your local-app fleet (Cloud tier · opt-in)*:
+> - **Author once, enforce fleet-wide** — write MCP tool-permission rules in the cloud; every enrolled device pulls and enforces them.
+> - **Cloud is opt-in.** Local install still works standalone with no signup — sign in only when you want to manage MCP tool access across laptop + workstation + CI runner from one place.
+>
+> **From v4.1.1 (patch):**
 > - **Fix: macOS hang on Cmd+Q / window close** — desktop app no longer needs force-quit. Also halves `--web` mode shutdown time on Ctrl+C.
 >
 > **From v4.1.0:**
@@ -85,7 +91,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-v4.1.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector_4.1.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector-4.1.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-v4.1.2-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector_4.1.2_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector-4.1.2-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -451,17 +457,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.1.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-v4.1.1-Windows-Setup.exe) |
-| macOS | [SecureVector-4.1.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.1.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SecureVector-4.1.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.1.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector_4.1.1_amd64.deb) |
-| Linux (RPM) | [securevector-4.1.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/securevector-4.1.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.1.2-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-v4.1.2-Windows-Setup.exe) |
+| macOS | [SecureVector-4.1.2-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.1.2-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SecureVector-4.1.2-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.1.2_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector_4.1.2_amd64.deb) |
+| Linux (RPM) | [securevector-4.1.2-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/securevector-4.1.2-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.1/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.1.2/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 
@@ -524,6 +530,41 @@ proxy:
 ```
 
 The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
+
+### MCP Policies — Cloud Sync (optional)
+
+If your org distributes signed MCP tool-policy bundles from SecureVector Cloud, enroll the device once and let the local app long-poll for updates.
+
+**1. Admin mints a token** in the cloud admin UI (`app.securevector.io` → Onboarding → Invite users) and shares the install command.
+
+**2. User enrolls locally:**
+
+```bash
+securevector-app enroll svet_<token>
+```
+
+The local app POSTs `/api/v1/devices/enroll`, persists `org_id` + signing key + auth credentials to `~/Library/Application Support/.credentials` (macOS — equivalent path on Linux/Windows), and starts the cloud sync loop on next launch.
+
+**3. Set `SECUREVECTOR_API_KEY` for stable sync auth (recommended).**
+
+The local app accepts two auth methods on `/policy/sync`. The API key path is **canonical** — it eliminates the short-lived-JWT refresh fragility that can leave a device unable to sync if the refresh token goes stale.
+
+```bash
+export SECUREVECTOR_API_KEY=sk-<long-lived-key>
+```
+
+| Auth method | Header sent | Source | Lifetime | Sync stability |
+|---|---|---|---|---|
+| **API key** ✅ recommended | `X-Api-Key: sk-...` | `SECUREVECTOR_API_KEY` env, then `creds.api_key` | Long-lived | Robust — no refresh path needed |
+| JWT (fallback) | `Authorization: Bearer ...` | Stored from enrollment | ~1h, auto-refresh on 401/403 | Breaks if the refresh token expires; requires re-enrollment to recover |
+
+When both are present, the API key wins. `device_id` rides as `X-SecureVector-Device-Id` on every request regardless of auth method; `org_id` is resolved server-side from the auth principal.
+
+You can mint API keys in the cloud admin UI under Access Management. Set the env var in your shell profile or systemd service unit so it survives restarts.
+
+**4. Cloud Sync starts automatically** — no further configuration needed. The local app already defaults to the production cloud endpoints (`auth.securevector.io` and `engine.securevector.io`). Override env vars exist for self-hosted / on-prem deployments only.
+
+Synced rules are read-only on the device — authoring lives in the cloud admin. The MCP Policies page (sidebar → Configure → MCP Policies) shows verification status, applied policies + rules, and a Sync Now button for manual refresh.
 
 ### Pointing Your Agent at the Proxy
 

@@ -74,13 +74,15 @@ const Header = {
         const llmToggle = this.createLLMToggle();
         right.appendChild(llmToggle);
 
-        // Cloud Mode toggle - rightmost
+        // Cloud Mode toggle — global cloud connectivity state. Per-feature
+        // status (Policy Sync, etc.) lives on the feature pages, not in the
+        // header — keeps the top bar uncluttered.
         const cloudToggle = this.createCloudToggle();
         right.appendChild(cloudToggle);
 
         container.appendChild(right);
 
-        // Check cloud mode and LLM mode
+        // Check cloud mode + LLM mode
         this.checkCloudMode();
         this.checkLLMMode();
     },
@@ -190,6 +192,7 @@ const Header = {
             'siem-export':      'section-siem-forwarder',
             'skill-scanner':    'section-skill-scanner',
             'tool-permissions': 'section-tool-permissions',
+            'mcp-policies':     'section-mcp-policies',
             'costs':            'section-costs',
         };
         btn.addEventListener('click', () => {
@@ -1565,6 +1568,7 @@ graph.add_edge("output_security", END)`,
             threats: 'Threat Analytics',
             rules: 'Rules',
             'tool-permissions': 'Tool Permissions',
+            'mcp-policies': 'MCP Policies',
             proxy: 'Security',
             settings: 'Settings',
         };
@@ -1657,6 +1661,7 @@ graph.add_edge("output_security", END)`,
         replay:            { title: 'Agent Activity',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
+        'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },

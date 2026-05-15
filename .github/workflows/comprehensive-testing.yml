@@ -33,9 +33,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest pytest-cov pyyaml
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # Install package with optional MCP support
+        # Install package with optional MCP and local-app support
         pip install -e .[dev]
         pip install -e .[mcp] || echo "MCP dependencies not available - testing fallback"
+        pip install -e .[app] || echo "App dependencies not available - skipping app tests"
     
     - name: Validate YAML rule files
       run: |

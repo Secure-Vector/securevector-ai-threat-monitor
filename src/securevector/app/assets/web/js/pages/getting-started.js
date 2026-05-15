@@ -36,6 +36,11 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'MCP Policies', 'Set tool rules once in your SecureVector account; they apply across every enrolled device in your org.',
+            'section-mcp-policies', () => this.buildMcpPoliciesContent(), true, 'cloud'
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'Cost Tracking', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
         ));
@@ -283,7 +288,7 @@ const GettingStartedPage = {
 
     // === Collapsible card wrapper ===
 
-    createCollapsibleCard(title, subtitle, sectionId, contentBuilder, isNew = false) {
+    createCollapsibleCard(title, subtitle, sectionId, contentBuilder, isNew = false, tier = null) {
         const card = document.createElement('div');
         card.className = 'card';
         card.id = sectionId;
@@ -307,6 +312,12 @@ const GettingStartedPage = {
             badge.style.cssText = 'font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(94,173,184,0.15); color: var(--accent-primary); letter-spacing:0.5px; line-height:1.6;';
             badge.textContent = 'NEW';
             titleRow.appendChild(badge);
+        }
+        if (tier === 'cloud') {
+            const tierPill = document.createElement('span');
+            tierPill.style.cssText = 'font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); letter-spacing:0.4px; text-transform:uppercase; line-height:1.4;';
+            tierPill.textContent = 'Cloud';
+            titleRow.appendChild(tierPill);
         }
         headerLeft.appendChild(titleRow);
 
@@ -777,6 +788,154 @@ const GettingStartedPage = {
         });
 
         frag.appendChild(stepsWrapper);
+        return frag;
+    },
+
+    /**
+     * Guide content for MCP Policies. The page itself is the trust artifact;
+     * the guide answers the prerequisite questions: what is this, who needs
+     * it, how do I get there, and what's the precedence relative to local
+     * Tool Permissions.
+     */
+    buildMcpPoliciesContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const desc = document.createElement('p');
+        desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.55;';
+        // 'For teams' prefix rendered separately so it can be bold without
+        // an innerHTML escape hazard from the body copy.
+        const descLead = document.createElement('strong');
+        descLead.textContent = 'For teams. ';
+        const descRest = document.createTextNode('One place to govern which MCP tools every device can call. Set allow / deny / prompt rules in your SecureVector account and they apply across every enrolled device. Synced rules sit above local Tool Permissions and override them on conflict, so the same baseline is enforced everywhere. Each update is signed and re-verified on every poll.');
+        desc.appendChild(descLead);
+        desc.appendChild(descRest);
+        frag.appendChild(desc);
+
+        // Cloud-only callout \u2014 the most important framing for this section.
+        const cloudOnly = document.createElement('div');
+        cloudOnly.style.cssText = 'padding: 12px 14px; background: rgba(8,145,178,0.08); border: 1px solid rgba(8,145,178,0.30); border-left: 3px solid var(--accent-primary); border-radius: 6px; margin-bottom: 16px;';
+        const cloudOnlyTitle = document.createElement('div');
+        cloudOnlyTitle.style.cssText = 'font-weight: 700; font-size: 12px; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;';
+        cloudOnlyTitle.textContent = '\u2601\u00a0 Cloud-only feature';
+        cloudOnly.appendChild(cloudOnlyTitle);
+        const cloudOnlyBody = document.createElement('p');
+        cloudOnlyBody.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
+        cloudOnlyBody.textContent = 'Personal-mode installs (no enrollment) bypass this entirely. Policy Sync only activates after a successful svet_* token redeem \u2014 the cloud admin issues the token, the user runs `securevector-app enroll <token>` once, and from there the local app long-polls /policy/sync for signed bundles. Without enrollment, the page renders an empty-state and no cloud rules are enforced.';
+        cloudOnly.appendChild(cloudOnlyBody);
+        frag.appendChild(cloudOnly);
+
+        // Precedence chain \u2014 same model the page right-rail surfaces.
+        const precTitle = document.createElement('div');
+        precTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
+        precTitle.textContent = 'Enforcement precedence';
+        frag.appendChild(precTitle);
+
+        const precDesc = document.createElement('p');
+        precDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 8px 0; font-size: 12px; line-height: 1.5;';
+        precDesc.textContent = 'When a tool call comes in, the proxy walks this list top to bottom and uses the first matching rule. Synced rules win over local \u2014 that\u2019s why locked rows on Tool Permissions can\u2019t be edited.';
+        frag.appendChild(precDesc);
+
+        frag.appendChild(this.createMiniStep('1', 'Last-resort rules', 'Compiled-in safety blocks. Cannot be overridden, even by cloud policy.'));
+        frag.appendChild(this.createMiniStep('2', 'Cloud-synced rules', 'What MCP Policies shows. Sent from your SecureVector account, signed, and applied automatically.'));
+        frag.appendChild(this.createMiniStep('3', 'Local Tool Permissions', 'Your overrides. Effective only when no synced rule matches the tool_id.'));
+        frag.appendChild(this.createMiniStep('4', 'Tool default', 'The default permission for the tool in the registry, if no rule matches above.'));
+
+        // How to enroll
+        const enrollTitle = document.createElement('div');
+        enrollTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        enrollTitle.textContent = 'How to enroll';
+        frag.appendChild(enrollTitle);
+
+        frag.appendChild(this.createMiniStep('1', 'Admin mints a token', 'In the SecureVector cloud admin (app.securevector.io), an org admin opens Enroll Devices and clicks Invite User. The cloud generates a single-use svet_* token.'));
+        frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + auth credentials, and persists them to the credentials file.'));
+        frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth — it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
+        frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app polls for updates from your SecureVector account. Each update is verified (signed, fresh, monotonic version) before it\'s applied. The MCP Policies page reflects what\'s currently in force.'));
+
+        // Sync auth (recommended setup)
+        const authTitle = document.createElement('div');
+        authTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        authTitle.textContent = 'Sync auth (recommended setup)';
+        frag.appendChild(authTitle);
+
+        const authDesc = document.createElement('p');
+        authDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 10px 0; font-size: 12px; line-height: 1.55;';
+        authDesc.textContent = 'The local app accepts two auth methods on /policy/sync. The API key path is canonical — it eliminates the short-lived-JWT refresh fragility that can otherwise leave a device unable to sync if the refresh token goes stale.';
+        frag.appendChild(authDesc);
+
+        const apiKeyCode = document.createElement('pre');
+        apiKeyCode.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); background: var(--bg-tertiary); padding: 10px 12px; border-radius: 4px; margin: 0 0 12px 0; overflow-x: auto;';
+        apiKeyCode.textContent = 'export SECUREVECTOR_API_KEY=sk-<long-lived-key>';
+        frag.appendChild(apiKeyCode);
+
+        // Auth comparison table
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'overflow-x: auto; margin-bottom: 14px;';
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        ['Auth method', 'Header sent', 'Source', 'Lifetime', 'Sync stability'].forEach(h => {
+            const th = document.createElement('th');
+            th.style.cssText = 'text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-primary); font-weight: 700;';
+            th.textContent = h;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const rows = [
+            ['API key (recommended)', 'X-Api-Key: sk-...', 'SECUREVECTOR_API_KEY env, then creds.api_key', 'Long-lived', 'Robust — no refresh path needed'],
+            ['JWT (fallback)', 'Authorization: Bearer ...', 'Stored from enrollment', '~1h, auto-refresh on 401/403', 'Breaks if refresh token expires; requires re-enrollment to recover'],
+        ];
+        rows.forEach((cells, idx) => {
+            const tr = document.createElement('tr');
+            cells.forEach((c, i) => {
+                const td = document.createElement('td');
+                td.style.cssText = 'padding: 8px 10px; border-bottom: 1px solid var(--border-default); color: var(--text-secondary); vertical-align: top;' + (i === 0 ? ' font-weight: 600;' : '') + (i === 1 ? ' font-family: monospace;' : '');
+                if (idx === 0 && i === 0) {
+                    td.style.color = 'var(--accent-primary)';
+                }
+                td.textContent = c;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        frag.appendChild(tableWrap);
+
+        const authNote = document.createElement('p');
+        authNote.style.cssText = 'color: var(--text-secondary); margin: 0 0 10px 0; font-size: 12px; line-height: 1.55;';
+        authNote.textContent = 'When both are present, the API key wins. device_id rides as X-SecureVector-Device-Id on every request regardless of auth method; org_id is resolved server-side from the auth principal. Mint API keys in the cloud admin under Access Management.';
+        frag.appendChild(authNote);
+
+        const defaultsNote = document.createElement('p');
+        defaultsNote.style.cssText = 'color: var(--text-secondary); margin: 14px 0 4px 0; font-size: 12px; line-height: 1.55;';
+        defaultsNote.textContent = 'No further setup needed for the standard SecureVector cloud — the local app defaults to the production endpoints. Override env vars (SECUREVECTOR_AUTH_URL, SECUREVECTOR_LSE_URL) exist only for self-hosted / on-prem deployments.';
+        frag.appendChild(defaultsNote);
+
+        // Reading the MCP Policies page
+        const readTitle = document.createElement('div');
+        readTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin: 18px 0 8px 0;';
+        readTitle.textContent = 'Reading the MCP Policies page';
+        frag.appendChild(readTitle);
+        frag.appendChild(this.createBulletList([
+            'Verification status grid \u2014 Policy Sync MATCH / DEGRADED / EXPIRED. Click "Verify signing chain" for the audit panel (last poll, signing key fingerprint, mismatch counter, freshness countdown).',
+            'Policy table \u2014 one row per active policy. Click a row to open a side drawer with the full rule list, bundle id, and provenance footer.',
+            'Sync Now button (top-right of the hero) \u2014 forces an immediate /policy/sync iteration. Disabled when not enrolled or no API key/JWT available; the tooltip surfaces the exact reason.',
+            'Status column \u2014 mirrors the overall verification status until per-policy state is engine-tracked.',
+        ]));
+
+        const mcpBtn = document.createElement('button');
+        mcpBtn.className = 'btn btn-primary';
+        mcpBtn.style.cssText = 'font-size: 12px; margin: 16px 0 0 0; padding: 6px 14px;';
+        mcpBtn.textContent = 'Open MCP Policies';
+        mcpBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('mcp-policies'); });
+        frag.appendChild(mcpBtn);
+
         return frag;
     },
 

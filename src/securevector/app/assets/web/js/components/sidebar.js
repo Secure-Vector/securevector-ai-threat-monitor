@@ -23,6 +23,12 @@ const Sidebar = {
         // surfaced under Agent Replay above.
         { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
+        // MCP Policies — read-only viewer of cloud-synced policy bundles.
+        // Lives next to Tool Permissions because the rules layered there
+        // come from here. Separate sidebar entry keeps the trust artifact
+        // (what's pushed to me, by whom) distinct from the operational
+        // surface (what does the proxy do for tool X).
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
@@ -40,6 +46,7 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
             { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
             { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
             { id: 'gs-api', label: 'API Reference', section: 'section-api' },
@@ -107,6 +114,10 @@ const Sidebar = {
 
         // Core features get an orange badge dot overlaid on their icon
         const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
+
+        // Features that require a SecureVector cloud account — small "Cloud"
+        // pill rendered next to the label so users know up-front.
+        const CLOUD_TIER = new Set(['mcp-policies']);
 
         // Section labels before nav items. SIEM Forwarder now anchors
         // the Connect section (it sits above Integrations) so the
@@ -176,6 +187,15 @@ const Sidebar = {
                 badge.id = 'rules-count-badge';
                 badge.textContent = '...';
                 navItem.appendChild(badge);
+            }
+
+            // Tier pill — features that require a SecureVector account get a
+            // small "Cloud" marker so users know up-front before they click.
+            if (CLOUD_TIER.has(item.id)) {
+                const tier = document.createElement('span');
+                tier.textContent = 'Cloud';
+                tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
+                navItem.appendChild(tier);
             }
 
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
@@ -743,6 +763,13 @@ const Sidebar = {
                 { tag: 'rect', attrs: { x: '3', y: '11', width: '18', height: '11', rx: '2', ry: '2' } },
                 { tag: 'path', attrs: { d: 'M7 11V7a5 5 0 0 1 10 0v4' } },
             ],
+            // Shield with a checkmark inside — distinguishes MCP Policies
+            // (cloud-pushed verified rules) from the bare 'shield' (Threat
+            // Monitor) and 'lock' (local Tool Permissions).
+            'shield-check': [
+                { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
+                { tag: 'polyline', attrs: { points: '8 12 11 15 16 9' } },
+            ],
             uninstall: [
                 { tag: 'path', attrs: { d: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' } },
                 { tag: 'line', attrs: { x1: '10', y1: '11', x2: '10', y2: '17' } },
@@ -842,7 +869,19 @@ const Sidebar = {
 
         if (alreadyOnPage) {
             const el = document.getElementById(sectionId);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (el) {
+                // Expand the collapsed card body before scrolling so the
+                // section content is visible at the scroll target — without
+                // this, clicking a sub-item while already on /guide just
+                // scrolls to a closed header and the user sees "nothing".
+                const body = el.querySelector('.gs-card-body');
+                const indicator = el.querySelector('.gs-toggle-indicator');
+                if (body && body.style.display === 'none') {
+                    body.style.display = 'block';
+                    if (indicator) indicator.textContent = '−';
+                }
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         } else {
             this._pendingScroll = sectionId;
             if (window.App) App.loadPage(page);

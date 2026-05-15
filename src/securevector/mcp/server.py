@@ -514,7 +514,7 @@ class SecureVectorMCPServer:
             )
 
         # ========================================================================
-        # PHASE 1 AUTHENTICATION: Validate API key via identity-service
+        # PHASE 1 AUTHENTICATION: Validate API key via the SecureVector auth service
         # ========================================================================
         # This happens ONCE per session (cached in self.user_context).
         # Tools don't need to handle authentication - it's automatic!
@@ -534,8 +534,8 @@ class SecureVectorMCPServer:
             # Skip validation if AuthValidator is not initialized (local mode)
             if not self.user_context:
                 if self.auth_validator is not None:
-                    # Identity service available - validate API key
-                    self.logger.debug("Validating API key via identity-service...")
+                    # Auth service available - validate API key
+                    self.logger.debug("Validating API key via SecureVector auth service...")
                     validation_result = await self.auth_validator.validate_api_key(auth_key)
 
                     if not validation_result or not validation_result.get("valid"):
