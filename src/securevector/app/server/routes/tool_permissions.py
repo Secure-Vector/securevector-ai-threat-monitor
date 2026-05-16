@@ -407,6 +407,9 @@ class AuditLogRequest(BaseModel):
     reason: Optional[str] = None
     is_essential: bool = False
     args_preview: Optional[str] = None
+    # Which agent runtime emitted the call (e.g. "claude-code", "openclaw").
+    # Metadata only; not in the v20 hash chain (see migrate_to_v21 / v32).
+    runtime_kind: Optional[str] = None
 
 
 @router.post("/tool-permissions/call-audit")
@@ -426,6 +429,7 @@ async def record_call_audit(request: AuditLogRequest):
             reason=request.reason,
             is_essential=request.is_essential,
             args_preview=request.args_preview,
+            runtime_kind=request.runtime_kind,
         )
         return {"ok": True}
 

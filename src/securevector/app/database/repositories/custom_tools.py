@@ -564,7 +564,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id
+                       seq, prev_hash, row_hash, device_id, runtime_kind
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -580,7 +580,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id
+                       seq, prev_hash, row_hash, device_id, runtime_kind
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
