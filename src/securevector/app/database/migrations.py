@@ -175,6 +175,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         29: migrate_to_v29,
         30: migrate_to_v30,
         31: migrate_to_v31,
+        32: migrate_to_v32,
     }
 
     if version in migrations:
@@ -1354,6 +1355,47 @@ async def migrate_to_v31(db: DatabaseConnection) -> None:
     await conn.executescript(MIGRATION_V31_SQL)
     await conn.commit()
     logger.info("Applied migration v31: synced_bundle_envelope table")
+
+
+# active-guard-plugin bundle. Adds the column that identifies which agent
+# runtime emitted an audit row — `claude-code` for the new plugin,
+# `openclaw` for the existing one (column stays NULL on legacy OpenClaw
+# rows; backfill is deliberately skipped, matching the v21 device_id
+# precedent — see comment above migrate_to_v21).
+#
+# Not added to the v20 hash-chain canonical serialization. Treating
+# runtime_kind as material would break verify_audit_chain() for every
+# row written before v32 lands.
+async def migrate_to_v32(db: DatabaseConnection) -> None:
+    """v31 -> v32: runtime_kind column on tool_call_audit.
+
+    Idempotent via PRAGMA table_info so re-running on a DB that already
+    has the column (e.g. a restored backup) is a no-op. Existing rows
+    keep runtime_kind = NULL — meaning 'pre-v32, runtime unknown'.
+    """
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(tool_call_audit)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "runtime_kind" not in existing:
+        await conn.execute(
+            "ALTER TABLE tool_call_audit ADD COLUMN runtime_kind TEXT DEFAULT NULL"
+        )
+
+    # Index so the fleet view can filter audit rows by runtime efficiently.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_runtime_kind "
+        "ON tool_call_audit (runtime_kind)"
+    )
+
+    # INSERT OR IGNORE so a re-invocation on a DB that already recorded v32
+    # (partial-state recovery, restored backup) is a no-op rather than a
+    # UNIQUE-constraint crash.
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (32, CURRENT_TIMESTAMP, 'runtime_kind on tool_call_audit (Guard plugin family)')"
+    )
+    logger.info("Applied migration v32: runtime_kind column + index")
 
 
 # Future migration functions would be defined here:
