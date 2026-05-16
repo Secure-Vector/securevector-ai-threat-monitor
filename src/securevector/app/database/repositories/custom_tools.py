@@ -338,6 +338,7 @@ class CustomToolsRepository:
         reason: Optional[str] = None,
         is_essential: bool = False,
         args_preview: Optional[str] = None,
+        runtime_kind: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -353,6 +354,9 @@ class CustomToolsRepository:
             reason: Human-readable reason for the decision.
             is_essential: True if matched in essential registry.
             args_preview: First 200 chars of the tool arguments.
+            runtime_kind: Which agent runtime emitted the call — "claude-code",
+                "openclaw", etc. Metadata only; not in the v20 hash chain
+                (same precedent as device_id, see migrate_to_v21 comment).
         """
         conn = await self.db.connect()
 
@@ -404,8 +408,9 @@ class CustomToolsRepository:
             """
             INSERT INTO tool_call_audit
                 (tool_id, function_name, action, risk, reason, is_essential,
-                 args_preview, called_at, seq, prev_hash, row_hash, device_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 args_preview, called_at, seq, prev_hash, row_hash, device_id,
+                 runtime_kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 resolved_tool_id,
@@ -420,6 +425,7 @@ class CustomToolsRepository:
                 prev_hash,
                 row_hash,
                 device_id,
+                runtime_kind,
             ),
         )
         await conn.commit()
