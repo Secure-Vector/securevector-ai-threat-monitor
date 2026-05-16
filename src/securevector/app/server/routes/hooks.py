@@ -15,6 +15,8 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from . import _hooks_common
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/hooks", tags=["Hooks"])
@@ -31,75 +33,49 @@ OPENCLAW_DIR = Path.home() / ".openclaw"
 STAGING_DIR = OPENCLAW_DIR / "plugins" / PLUGIN_NAME
 
 
-def _ensure_bundled_plugin_dir() -> Path:
-    """Ensure the bundled plugin directory exists with all required files.
+def _regenerate_bundled_plugin(target_dir: Path) -> None:
+    """Write OpenClaw plugin template files into ``target_dir``.
 
-    If the directory is missing (e.g. after a clean install or user deletion),
-    regenerate it from embedded templates. Returns the path to use as source.
+    Called by ``_hooks_common.ensure_bundled_dir`` when the bundled dir is
+    missing files (e.g. after a clean install or user deletion).
     """
-    # If bundled dir exists and has all files, use it directly
-    if BUNDLED_PLUGIN_DIR.is_dir() and all(
-        (BUNDLED_PLUGIN_DIR / f).is_file() for f in PLUGIN_FILES
-    ):
-        return BUNDLED_PLUGIN_DIR
+    (target_dir / "openclaw.plugin.json").write_text(_PLUGIN_JSON, encoding="utf-8")
+    (target_dir / "package.json").write_text(_PACKAGE_JSON, encoding="utf-8")
 
-    # Regenerate from embedded content
-    logger.info(f"Bundled plugin dir missing or incomplete at {BUNDLED_PLUGIN_DIR}, regenerating...")
-    BUNDLED_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
-
-    # openclaw.plugin.json
-    (BUNDLED_PLUGIN_DIR / "openclaw.plugin.json").write_text(_PLUGIN_JSON, encoding="utf-8")
-
-    # package.json
-    (BUNDLED_PLUGIN_DIR / "package.json").write_text(_PACKAGE_JSON, encoding="utf-8")
-
-    # index.ts + config.ts — copy from source repo if available, else use embedded
+    # index.ts + config.ts — prefer the source-repo files when running from a
+    # dev checkout; fall back to the embedded copies when running from a wheel.
     source_repo_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "plugins" / "openclaw"
     for ts_file, embedded in [("index.ts", _INDEX_TS), ("config.ts", _CONFIG_TS)]:
         src_candidate = source_repo_dir / ts_file
         if src_candidate.is_file():
-            shutil.copy2(src_candidate, BUNDLED_PLUGIN_DIR / ts_file)
+            shutil.copy2(src_candidate, target_dir / ts_file)
         else:
-            (BUNDLED_PLUGIN_DIR / ts_file).write_text(embedded, encoding="utf-8")
+            (target_dir / ts_file).write_text(embedded, encoding="utf-8")
 
-    logger.info(f"Regenerated bundled plugin files at {BUNDLED_PLUGIN_DIR}")
-    return BUNDLED_PLUGIN_DIR
+
+def _ensure_bundled_plugin_dir() -> Path:
+    """Ensure the bundled OpenClaw plugin dir is populated; thin wrapper."""
+    return _hooks_common.ensure_bundled_dir(
+        BUNDLED_PLUGIN_DIR, PLUGIN_FILES, regenerate_cb=_regenerate_bundled_plugin
+    )
 
 
 def _resolve_sv_url() -> str:
-    """Resolve the actual SecureVector URL from svconfig or env vars."""
-    import os
-    sv_port = os.environ.get("SV_WEB_PORT", "8741")
-    sv_host = "127.0.0.1"
-    try:
-        from securevector.app.utils.config_file import load_config
-        cfg = load_config()
-        server_cfg = cfg.get("server", {})
-        sv_host = server_cfg.get("host", "127.0.0.1")
-        sv_port = str(server_cfg.get("port", sv_port))
-    except Exception as e:
-        logger.debug("Could not load svconfig, using defaults: %s", e)
-    return f"http://{sv_host}:{sv_port}"
+    """Resolve the local app's base URL; thin wrapper."""
+    return _hooks_common.resolve_sv_url()
 
 
 def _stage_plugin_files(sv_url: str, source_dir: Path = None) -> list[str]:
-    """Copy plugin files to staging dir, patching the SecureVector URL."""
-    source = source_dir or BUNDLED_PLUGIN_DIR
-    STAGING_DIR.mkdir(parents=True, exist_ok=True)
-
-    files_written = []
-    for filename in PLUGIN_FILES:
-        src = source / filename
-        dst = STAGING_DIR / filename
-        if src.is_file():
-            content = src.read_text(encoding="utf-8")
-            content = content.replace("http://localhost:8741", sv_url)
-            content = content.replace("http://localhost:8000", sv_url)
-            dst.write_text(content, encoding="utf-8")
-            files_written.append(filename)
-        else:
-            logger.warning(f"Plugin file not found: {src}")
-    return files_written
+    """Copy plugin files to the OpenClaw staging dir with URL substitution; thin wrapper."""
+    return _hooks_common.stage_files(
+        staging_dir=STAGING_DIR,
+        source_dir=source_dir or BUNDLED_PLUGIN_DIR,
+        files=PLUGIN_FILES,
+        substitutions={
+            "http://localhost:8741": sv_url,
+            "http://localhost:8000": sv_url,
+        },
+    )
 
 
 def _find_openclaw_binary() -> str:
