@@ -145,6 +145,39 @@ def evaluate_tool_call(
     # Normalize for case-insensitive matching (LLM tools may use PascalCase e.g. "Read")
     function_name_lower = function_name.lower()
 
+    # Cloud-pushed synced rules are the highest authority — they take priority
+    # over the essential / custom registry. The cloud admin authored a policy
+    # targeting this tool_id by name; whether the tool happens to be in the
+    # local essential registry is an implementation detail, not a permission
+    # gate. Skipping this check would allow non-registry MCP tools (e.g.
+    # write_File on an arbitrary filesystem MCP server) to bypass a synced
+    # `deny` rule, which silently weakens cloud policy enforcement.
+    #
+    # Case handling: try exact, then lowercase, then a folded view of the
+    # synced map so a cloud-authored `write_File` rule matches an LLM-emitted
+    # `WRITE_FILE`, `write_file`, `writeFile`, etc.
+    synced_match = synced_overrides.get(function_name) or synced_overrides.get(function_name_lower)
+    if synced_match is None:
+        for key, val in synced_overrides.items():
+            if key.lower() == function_name_lower:
+                synced_match = val
+                break
+    if synced_match is not None:
+        effect = (synced_match.get("effect") or "").lower()
+        action = _SYNCED_EFFECT_TO_ACTION.get(effect, "block")
+        policy_name = synced_match.get("policy_name") or synced_match.get("policy_id") or "synced"
+        policy_version = synced_match.get("policy_version")
+        ver_suffix = f" v{policy_version}" if policy_version is not None else ""
+        essential_match = essential_registry.get(function_name) or essential_registry.get(function_name_lower)
+        return PermissionDecision(
+            tool_name=function_name,
+            function_name=function_name,
+            action=action,
+            risk=(essential_match or {}).get("risk"),
+            reason=f"Synced policy '{policy_name}'{ver_suffix}: {effect}",
+            is_essential=essential_match is not None,
+        )
+
     # Check if function_name matches any essential tool ID exactly
     matched_tool_id = None
     if function_name in essential_registry:

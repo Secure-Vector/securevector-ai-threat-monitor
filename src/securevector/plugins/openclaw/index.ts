@@ -69,15 +69,51 @@ class SVClient {
     };
   }
 
-  /** Query SecureVector's tool permission registry for an allow/block verdict. */
+  /** Query SecureVector's tool permission registry for an allow/block verdict.
+   *
+   * Priority (highest first):
+   *   1. Cloud-pushed synced policy   — /api/tool-permissions/synced-overrides
+   *   2. Local user override          — /api/tool-permissions/overrides
+   *   3. Essential registry default   — /api/tool-permissions/essential
+   *   4. Allow (non-registry tool with no policy)
+   *
+   * Synced rules win regardless of whether the tool happens to be in the
+   * essential registry — the cloud admin authored a policy by name, and
+   * registry membership is an implementation detail, not a permission gate.
+   * Case-insensitive matching mirrors the Python engine.
+   */
   async toolVerdict(toolName: string): Promise<ToolVerdict | null> {
-    const [registry, overrides] = await Promise.all([
+    const [registry, overrides, synced] = await Promise.all([
       this.get("/api/tool-permissions/essential", 3_000),
       this.get("/api/tool-permissions/overrides", 3_000),
+      this.get("/api/tool-permissions/synced-overrides", 3_000),
     ]);
 
     const overrideMap = this.indexBy(overrides?.overrides, "tool_id");
     const essentialMap = this.indexBy(registry?.tools, "tool_id");
+    const syncedMap = this.indexBy(synced?.synced, "tool_id");
+
+    const toolLower = toolName.toLowerCase();
+    let syncedRule = syncedMap[toolName] || syncedMap[toolLower] || null;
+    if (!syncedRule) {
+      for (const key of Object.keys(syncedMap)) {
+        if (key.toLowerCase() === toolLower) {
+          syncedRule = syncedMap[key];
+          break;
+        }
+      }
+    }
+
+    if (syncedRule) {
+      const effect = String(syncedRule.effect || "").toLowerCase();
+      // Engine has no `prompt` action — fall back to safer `block`.
+      // Mirrors Python's _SYNCED_EFFECT_TO_ACTION table.
+      const action = effect === "allow" ? "allow" : "block";
+      const policyName = syncedRule.policy_name || syncedRule.policy_id || "synced";
+      const verSuffix = syncedRule.policy_version != null ? ` v${syncedRule.policy_version}` : "";
+      const isEssential = (toolName in essentialMap) || (toolLower in essentialMap);
+      return { action, risk: "synced", reason: `Synced policy '${policyName}'${verSuffix}: ${effect}`, tool_id: toolName, is_essential: isEssential };
+    }
 
     if (overrideMap[toolName]) {
       const o = overrideMap[toolName];
