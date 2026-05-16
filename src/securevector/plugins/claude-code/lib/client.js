@@ -72,4 +72,19 @@ function postJsonAndForget(url, body) {
   }
 }
 
-module.exports = { getJson, postJsonAndForget, DEFAULT_TIMEOUT_MS };
+/**
+ * Domain helper: GET the local app's synced-overrides table.
+ *
+ * Thin wrapper around getJson with the canonical path baked in so hook
+ * handlers don't need to know the route. Inherits getJson's fail-open
+ * contract — returns `{}` on any error and never throws.
+ *
+ * @param {string} baseUrl  Local app base URL (e.g. http://127.0.0.1:8741).
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<object>}  `{ synced: [...], total: N }` or `{}`.
+ */
+async function fetchSyncedOverrides(baseUrl, opts = {}) {
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides`, opts);
+}
+
+module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, DEFAULT_TIMEOUT_MS };
