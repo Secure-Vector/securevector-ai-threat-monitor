@@ -39,6 +39,7 @@ const Sidebar = {
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
