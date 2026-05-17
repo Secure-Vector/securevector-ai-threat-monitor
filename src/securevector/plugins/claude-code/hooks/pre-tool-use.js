@@ -37,16 +37,17 @@ const EFFECT_TO_DECISION = Object.freeze({
 });
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
-const ALLOW = Object.freeze({ permissionDecision: 'allow' });
+const ALLOW = Object.freeze({ decision: 'allow' });
 
 
 /**
  * Pure decision logic: given normalized tool candidates and the local app's
- * synced-overrides response, return the permissionDecision payload.
+ * synced-overrides response, return an internal decision object. The host's
+ * exact wire format is applied later by `toHookOutput`.
  *
  * @param {string[]} candidates  Output of lib/normalize.js (may be empty).
  * @param {{synced?: Array<{tool_id: string, effect: string, reason?: string}>} | null} overrides
- * @returns {{permissionDecision: 'allow'|'deny'|'ask', message?: string}}
+ * @returns {{decision: 'allow'|'deny'|'ask', reason?: string}}
  */
 function decideFromOverrides(candidates, overrides) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ALLOW;
@@ -54,10 +55,6 @@ function decideFromOverrides(candidates, overrides) {
     return ALLOW;
   }
 
-  // Index by tool_id for O(1) lookup. Later duplicates (within the same
-  // tool_id) are overwritten by earlier ones to keep the iteration order
-  // stable, but the server side already aliases prefixed→bare, so this is
-  // mostly a single-entry-per-candidate concern.
   const byToolId = new Map();
   for (const row of overrides.synced) {
     if (row && typeof row.tool_id === 'string' && !byToolId.has(row.tool_id)) {
@@ -69,17 +66,42 @@ function decideFromOverrides(candidates, overrides) {
   for (const cand of candidates) {
     const match = byToolId.get(cand);
     if (!match) continue;
-    const decision = EFFECT_TO_DECISION[match.effect];
-    if (!decision) return ALLOW; // unknown effect → fail-open
-    if (decision === 'allow') return ALLOW;
+    const mapped = EFFECT_TO_DECISION[match.effect];
+    if (!mapped) return ALLOW; // unknown effect → fail-open
+    if (mapped === 'allow') return ALLOW;
     return {
-      permissionDecision: decision,
-      message: typeof match.reason === 'string' && match.reason.length > 0
+      decision: mapped,
+      reason: typeof match.reason === 'string' && match.reason.length > 0
         ? match.reason
         : `Tool ${cand} matched policy with effect ${match.effect}`,
     };
   }
   return ALLOW;
+}
+
+
+/**
+ * Wrap an internal decision in Claude Code's PreToolUse output format.
+ *
+ *   { hookSpecificOutput: { hookEventName: "PreToolUse",
+ *                           permissionDecision: "...",
+ *                           permissionDecisionReason: "..."? } }
+ *
+ * See: https://code.claude.com/docs/en/hooks#pretooluse-hook-decision-control
+ *
+ * @param {{decision: 'allow'|'deny'|'ask', reason?: string}} d
+ */
+function toHookOutput(d) {
+  const out = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: d.decision,
+    },
+  };
+  if (typeof d.reason === 'string' && d.reason.length > 0) {
+    out.hookSpecificOutput.permissionDecisionReason = d.reason;
+  }
+  return out;
 }
 
 
@@ -112,8 +134,7 @@ async function main() {
     const raw = await readAllStdin();
     event = raw ? JSON.parse(raw) : {};
   } catch {
-    // malformed JSON on stdin — fail-open allow
-    process.stdout.write(JSON.stringify(ALLOW));
+    process.stdout.write(JSON.stringify(toHookOutput(ALLOW)));
     return;
   }
   const toolName = (event && (event.tool_name || event.toolName)) || '';
@@ -122,14 +143,13 @@ async function main() {
   try {
     decision = await decide(toolName, baseUrl);
   } catch {
-    // unexpected path — still fail-open
     decision = ALLOW;
   }
-  process.stdout.write(JSON.stringify(decision));
+  process.stdout.write(JSON.stringify(toHookOutput(decision)));
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { decide, decideFromOverrides, EFFECT_TO_DECISION };
+module.exports = { decide, decideFromOverrides, toHookOutput, EFFECT_TO_DECISION };

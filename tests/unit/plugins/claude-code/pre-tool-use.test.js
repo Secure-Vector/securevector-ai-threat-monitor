@@ -1,12 +1,17 @@
 /**
  * Tests for the PreToolUse hook handler.
  *
- * Effect → permissionDecision mapping (locked):
- *   allow  → permissionDecision: "allow"
- *   deny   → permissionDecision: "deny"
- *   prompt → permissionDecision: "ask"
+ * Internal decision shape: { decision: "allow"|"deny"|"ask", reason?: string }.
+ * Effect → decision mapping (locked):
+ *   allow  → "allow"
+ *   deny   → "deny"
+ *   prompt → "ask"
  *
- * Fail-open invariant: every error path returns { permissionDecision: "allow" }.
+ * Fail-open invariant: every error path returns { decision: "allow" }.
+ *
+ * `toHookOutput` adapts the internal decision to Claude Code's PreToolUse
+ * wire format: `{ hookSpecificOutput: { hookEventName, permissionDecision,
+ * permissionDecisionReason? } }`.
  */
 
 const test = require('node:test');
@@ -14,6 +19,7 @@ const assert = require('node:assert/strict');
 const {
   decideFromOverrides,
   decide,
+  toHookOutput,
 } = require('../../../../src/securevector/plugins/claude-code/hooks/pre-tool-use.js');
 
 
@@ -23,7 +29,7 @@ const {
 test('allows when overrides is empty', () => {
   assert.deepEqual(
     decideFromOverrides(['srv:tool_a', 'tool_a'], { synced: [], total: 0 }),
-    { permissionDecision: 'allow' },
+    { decision: 'allow' },
   );
 });
 
@@ -37,7 +43,7 @@ test('allows when no candidate matches', () => {
   };
   assert.deepEqual(
     decideFromOverrides(['srv:tool_a', 'tool_a'], overrides),
-    { permissionDecision: 'allow' },
+    { decision: 'allow' },
   );
 });
 
@@ -50,8 +56,8 @@ test('denies when prefixed candidate matches with effect=deny', () => {
     total: 1,
   };
   const result = decideFromOverrides(['srv:tool_a', 'tool_a'], overrides);
-  assert.equal(result.permissionDecision, 'deny');
-  assert.match(result.message, /blocked by policy X/);
+  assert.equal(result.decision, 'deny');
+  assert.match(result.reason, /blocked by policy X/);
 });
 
 
@@ -64,8 +70,8 @@ test('denies when bare-tool fallback candidate matches', () => {
     total: 1,
   };
   const result = decideFromOverrides(['srv:tool_a', 'tool_a'], overrides);
-  assert.equal(result.permissionDecision, 'deny');
-  assert.match(result.message, /bare match/);
+  assert.equal(result.decision, 'deny');
+  assert.match(result.reason, /bare match/);
 });
 
 
@@ -75,7 +81,7 @@ test('maps effect=allow → permissionDecision allow', () => {
     total: 1,
   };
   assert.equal(
-    decideFromOverrides(['srv:tool_a', 'tool_a'], overrides).permissionDecision,
+    decideFromOverrides(['srv:tool_a', 'tool_a'], overrides).decision,
     'allow',
   );
 });
@@ -87,8 +93,8 @@ test('maps effect=prompt → permissionDecision ask', () => {
     total: 1,
   };
   const result = decideFromOverrides(['srv:tool_a', 'tool_a'], overrides);
-  assert.equal(result.permissionDecision, 'ask');
-  assert.match(result.message, /needs confirmation/);
+  assert.equal(result.decision, 'ask');
+  assert.match(result.reason, /needs confirmation/);
 });
 
 
@@ -103,8 +109,8 @@ test('prefixed candidate wins over bare-tool candidate (priority order)', () => 
     total: 2,
   };
   const result = decideFromOverrides(['srv:tool_a', 'tool_a'], overrides);
-  assert.equal(result.permissionDecision, 'deny');
-  assert.match(result.message, /prefixed deny wins/);
+  assert.equal(result.decision, 'deny');
+  assert.match(result.reason, /prefixed deny wins/);
 });
 
 
@@ -116,7 +122,7 @@ test('allows when candidates is empty (built-in tool, normalize returned [])', (
   // candidates=[] short-circuits before any lookup — built-in enforcement deferred (v1).
   assert.deepEqual(
     decideFromOverrides([], overrides),
-    { permissionDecision: 'allow' },
+    { decision: 'allow' },
   );
 });
 
@@ -124,11 +130,11 @@ test('allows when candidates is empty (built-in tool, normalize returned [])', (
 test('allows on malformed overrides (no synced array)', () => {
   assert.deepEqual(
     decideFromOverrides(['srv:tool_a', 'tool_a'], {}),
-    { permissionDecision: 'allow' },
+    { decision: 'allow' },
   );
   assert.deepEqual(
     decideFromOverrides(['srv:tool_a', 'tool_a'], null),
-    { permissionDecision: 'allow' },
+    { decision: 'allow' },
   );
 });
 
@@ -140,7 +146,7 @@ test('allows on unknown effect value (defensive)', () => {
   };
   // Unknown effect = fail-open allow rather than guess.
   assert.equal(
-    decideFromOverrides(['srv:tool_a', 'tool_a'], overrides).permissionDecision,
+    decideFromOverrides(['srv:tool_a', 'tool_a'], overrides).decision,
     'allow',
   );
 });
@@ -161,7 +167,7 @@ test('decide: built-in tool → allow without calling fetch', async () => {
   const restore = stubFetch(async () => { called = true; return new Response('{}'); });
   try {
     const result = await decide('Bash', 'http://127.0.0.1:8741');
-    assert.deepEqual(result, { permissionDecision: 'allow' });
+    assert.deepEqual(result, { decision: 'allow' });
     assert.equal(called, false, 'no fetch call for built-in tool');
   } finally { restore(); }
 });
@@ -174,8 +180,8 @@ test('decide: MCP tool with matching deny rule → deny with reason', async () =
   }), { status: 200 }));
   try {
     const result = await decide('mcp__server-slack__slack_post_message', 'http://127.0.0.1:8741');
-    assert.equal(result.permissionDecision, 'deny');
-    assert.match(result.message, /policy block/);
+    assert.equal(result.decision, 'deny');
+    assert.match(result.reason, /policy block/);
   } finally { restore(); }
 });
 
@@ -184,7 +190,7 @@ test('decide: local app unreachable (fetch throws) → fail-open allow', async (
   const restore = stubFetch(async () => { throw new TypeError('fetch failed'); });
   try {
     const result = await decide('mcp__server-slack__slack_post_message', 'http://127.0.0.1:8741');
-    assert.deepEqual(result, { permissionDecision: 'allow' });
+    assert.deepEqual(result, { decision: 'allow' });
   } finally { restore(); }
 });
 
@@ -193,8 +199,50 @@ test('decide: 500 from local app → fail-open allow', async () => {
   const restore = stubFetch(async () => new Response('boom', { status: 500 }));
   try {
     const result = await decide('mcp__server-slack__slack_post_message', 'http://127.0.0.1:8741');
-    assert.deepEqual(result, { permissionDecision: 'allow' });
+    assert.deepEqual(result, { decision: 'allow' });
   } finally { restore(); }
+});
+
+
+// --- toHookOutput (Claude Code wire format adapter) ---
+
+
+test('toHookOutput wraps allow in hookSpecificOutput (no reason field for allow)', () => {
+  assert.deepEqual(toHookOutput({ decision: 'allow' }), {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'allow',
+    },
+  });
+});
+
+
+test('toHookOutput wraps deny with permissionDecisionReason', () => {
+  assert.deepEqual(toHookOutput({ decision: 'deny', reason: 'blocked by policy' }), {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: 'blocked by policy',
+    },
+  });
+});
+
+
+test('toHookOutput wraps ask with reason', () => {
+  const out = toHookOutput({ decision: 'ask', reason: 'needs confirmation' });
+  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(out.hookSpecificOutput.permissionDecisionReason, 'needs confirmation');
+});
+
+
+test('toHookOutput omits permissionDecisionReason when reason is empty/missing', () => {
+  for (const d of [
+    { decision: 'deny' },
+    { decision: 'deny', reason: '' },
+  ]) {
+    const out = toHookOutput(d);
+    assert.equal('permissionDecisionReason' in out.hookSpecificOutput, false);
+  }
 });
 
 

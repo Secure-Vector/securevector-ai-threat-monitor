@@ -1,0 +1,79 @@
+# SecureVector Guard — Claude Code plugin
+
+Real-time policy enforcement and tamper-evident audit for MCP tool calls invoked from a Claude Code session.
+
+This plugin is a third-party integration for [Claude Code](https://www.anthropic.com/code). It is built by SecureVector and is **not affiliated with or endorsed by Anthropic**.
+
+---
+
+## What it does
+
+Every MCP tool call (`mcp__<server>__<tool>`) that the host issues passes through two hooks installed by this plugin:
+
+| Hook | What happens |
+|---|---|
+| **PreToolUse** | Looks up the call against cloud-pushed deny rules synced to the local SecureVector app. Returns `permissionDecision: "deny"` (with policy reason), `"ask"`, or `"allow"`. **Fails open** — if the local app is unreachable, the call proceeds. |
+| **PostToolUse** | Posts a fire-and-forget audit row to the local SecureVector app with `runtime_kind: "claude-code"`, the resolved policy decision, and a redacted snippet of the arguments. Persisted in a tamper-evident hash chain. |
+
+**Built-in tools** (`Bash`, `Edit`, `Read`, etc.) are not enforced or audited in v1 — only MCP tool calls. Built-in coverage ships in a follow-up.
+
+## Requirements
+
+- [Claude Code](https://www.anthropic.com/code) ≥ the version that supports plugins with `.claude-plugin/plugin.json` manifests
+- Node.js 18+ (the host uses its own Node runtime; no separate install required)
+- A running local [SecureVector AI Threat Monitor](https://github.com/Secure-Vector/securevector-ai-threat-monitor) app on `http://127.0.0.1:8741` (or override via `SV_BASE_URL` env var)
+
+## Installation
+
+The recommended path is via the SecureVector app's **Integrations** page (`/integrations` in the threat-monitor UI), which stages the plugin under `~/.claude/plugins/` and shows the two commands to paste into Claude Code:
+
+```text
+/plugin marketplace add ~/.securevector/staging/claude-code-plugin
+/plugin install securevector-guard
+```
+
+After installation, restart your Claude Code session.
+
+## Verifying it works
+
+1. Confirm SecureVector is running:
+   ```bash
+   curl -fsS http://127.0.0.1:8741/api/health
+   ```
+
+2. From a Claude Code session, invoke any MCP tool. The call should succeed and within a few seconds appear in the SecureVector **Tool Activity** tab with `runtime_kind=claude-code`.
+
+3. To verify deny enforcement, push a cloud-managed deny rule for an MCP tool you control, then call that tool — the host should return a denial with the policy reason in the transcript.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Calls pass even with a deny rule active | SecureVector app not running, OR hook handler can't reach it | Confirm `curl http://127.0.0.1:8741/api/health`; check `SV_BASE_URL` if non-default port |
+| Hook calls feel slow | Local app unreachable; 100ms timeout firing on every call | Restart the SecureVector app — the timeout is fail-open by design |
+| No audit rows appearing | PostToolUse hook not registered | Run `/plugin list` to confirm `securevector-guard` is installed and enabled |
+| Built-in tools (`Bash`, `Edit`) not enforced | Deferred to a follow-up version (locked decision in v1) | Use cloud-managed deny rules on MCP tools only for now |
+
+## Configuration
+
+The plugin reads `SV_BASE_URL` from the environment if set; otherwise defaults to `http://127.0.0.1:8741`. To point at a non-default SecureVector instance:
+
+```bash
+export SV_BASE_URL="http://localhost:9000"
+# then launch Claude Code
+```
+
+## What's NOT in this plugin
+
+- Built-in tool enforcement (`Bash`, `Edit`, `Read`, …)
+- UserPromptSubmit / SessionStart / Stop hook coverage
+- Caching, retries, or buffering of audit posts (fire-and-forget is intentional)
+- Windows-specific install polish
+
+## License
+
+Apache-2.0. See [LICENSE](../../../../../LICENSE) in the repository root.
+
+## Disclaimer
+
+Built by SecureVector. Not affiliated with or endorsed by Anthropic. "Claude Code" is a product name referenced descriptively to identify the target runtime — see Anthropic's [Trademark Policy](https://www.anthropic.com/legal/trademark) for the boundaries of nominative use.
