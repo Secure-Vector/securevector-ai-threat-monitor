@@ -107,6 +107,9 @@ def stage_files(
         if not src.is_file():
             logger.warning("Plugin file not found: %s", src)
             continue
+        # Create any nested parent directories the file path requires
+        # (e.g. .claude-plugin/, hooks/, lib/ under the staging root).
+        dst.parent.mkdir(parents=True, exist_ok=True)
         content = src.read_text(encoding="utf-8")
         for needle, replacement in substitutions.items():
             content = content.replace(needle, replacement)
