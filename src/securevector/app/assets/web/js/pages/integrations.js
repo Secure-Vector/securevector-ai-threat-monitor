@@ -782,10 +782,11 @@ def chat_with_protection(user_input):
     },
 
     createClaudeCodePluginCard() {
-        // Claude Code Guard plugin — install flow stages a plugin tree under
-        // ~/.securevector/staging/claude-code-plugin/ and surfaces two paste-in
-        // commands that the user runs in their Claude Code session. The host
-        // owns the actual `/plugin install` step; we only stage.
+        // SecureVector Guard (securevector-guard) — install flow stages the
+        // plugin tree under ~/.securevector/staging/claude-code-plugin/ and
+        // surfaces two paste-in commands the user runs in their Claude Code
+        // session. The host owns the actual `/plugin install` step; we only
+        // stage. "Claude Code" is the host, not part of the plugin's name.
         const card = document.createElement('div');
         card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
 
@@ -997,7 +998,7 @@ def chat_with_protection(user_input):
             { name: 'MCP Tool Permissions', desc: 'Allow / deny / ask, cloud-pushed rules' },
             { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain on every call' },
             { name: 'Fail-Open', desc: 'Calls pass when SecureVector is unreachable' },
-            { name: 'Built-in Tools', desc: 'Bash / Edit / Read — deferred to v2' },
+            { name: 'Built-in Tools', desc: 'Bash / Edit / Read / Write / Grep / Glob / Web*' },
         ];
         features.forEach(f => {
             const item = document.createElement('div');

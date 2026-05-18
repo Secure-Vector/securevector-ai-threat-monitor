@@ -7,10 +7,9 @@
  * blocks the host CLI — `postJsonAndForget` returns synchronously and
  * swallows every error.
  *
- * Built-in tool names (Bash, Edit, Read, …) short-circuit and emit no
- * audit row — locked decision #3 (MCP tools only in v1). Built-in
- * enforcement + auditing returns in a follow-up version with a
- * cloud-side catalogue change.
+ * Both MCP and built-in (Bash / Edit / Read / etc.) tool names are
+ * normalised to lookup candidates; unknown names short-circuit and emit
+ * no audit row.
  *
  * Effect → audit action mapping (matches OpenClaw's audit table):
  *   allow  → "allow"
@@ -81,7 +80,7 @@ function pickMatch(candidates, overrides) {
 async function audit(event, baseUrl) {
   const toolName = (event && (event.tool_name || event.toolName)) || '';
   const candidates = normalize(toolName);
-  if (candidates.length === 0) return; // built-in / non-MCP — skip audit (locked decision #3)
+  if (candidates.length === 0) return; // unknown tool name — skip audit (fail-open)
 
   const overrides = await fetchSyncedOverrides(baseUrl);
   const match = pickMatch(candidates, overrides);

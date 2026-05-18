@@ -120,12 +120,37 @@ test('pickMatch returns the first candidate that matches', () => {
 // --- audit smoke path ---
 
 
-test('audit early-returns for a built-in (Bash) event — no fetch call', async () => {
+test('audit early-returns for an UNKNOWN bare tool name — no fetch call', async () => {
+  // Unknown bare names (neither MCP-prefixed nor a known built-in) still
+  // short-circuit; the audit fire-and-forget path stays free of noise
+  // from misspellings / future tool names we haven't catalogued yet.
   let called = false;
   const restore = stubFetch(async () => { called = true; return new Response('{}'); });
   try {
+    await audit({ tool_name: 'SomeUnknownTool', tool_input: 'x' }, 'http://127.0.0.1:8741');
+    assert.equal(called, false, 'no fetch issued for unknown bare-name event');
+  } finally { restore(); }
+});
+
+test('audit posts a row with runtime_kind for a built-in (Bash) event', async () => {
+  // Built-in tool names DO now generate audit rows — `Bash` flows through
+  // the same audit-post path as MCP tools.
+  let capturedPost;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      capturedPost = { url, body: JSON.parse(opts.body) };
+      return new Response('{}', { status: 200 });
+    }
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
     await audit({ tool_name: 'Bash', tool_input: 'ls /' }, 'http://127.0.0.1:8741');
-    assert.equal(called, false, 'no fetch issued for built-in event');
+    // Give the fire-and-forget POST a tick to land.
+    await new Promise(r => setTimeout(r, 5));
+    assert.ok(capturedPost, 'expected POST to /call-audit');
+    assert.equal(capturedPost.body.tool_id, 'Bash');
+    assert.equal(capturedPost.body.function_name, 'Bash');
+    assert.equal(capturedPost.body.runtime_kind, 'claude-code');
   } finally { restore(); }
 });
 

@@ -114,12 +114,16 @@ test('prefixed candidate wins over bare-tool candidate (priority order)', () => 
 });
 
 
-test('allows when candidates is empty (built-in tool, normalize returned [])', () => {
+test('decideFromOverrides: empty candidates always returns allow (fail-open invariant)', () => {
+  // Empty candidates means the caller (normalize()) didn't produce any
+  // lookup keys — e.g. an unknown bare tool name, or a malformed MCP
+  // prefix. The fail-open invariant says: never block what we don't
+  // understand. Even if the rule table CONTAINS a matching tool_id, we
+  // can't connect it without a candidate, so allow is correct.
   const overrides = {
-    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'built-in deny' }],
+    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'rule for Bash' }],
     total: 1,
   };
-  // candidates=[] short-circuits before any lookup — built-in enforcement deferred (v1).
   assert.deepEqual(
     decideFromOverrides([], overrides),
     { decision: 'allow' },
@@ -162,13 +166,37 @@ function stubFetch(stub) {
 }
 
 
-test('decide: built-in tool → allow without calling fetch', async () => {
-  let called = false;
-  const restore = stubFetch(async () => { called = true; return new Response('{}'); });
+test('decide: built-in tool with matching deny rule → deny', async () => {
+  // Built-ins go through the same synced-rule lookup path as MCP tools;
+  // a cloud-pushed rule with tool_id="Bash" must take effect.
+  const restore = stubFetch(async () => new Response(JSON.stringify({
+    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'shell-blocked policy' }],
+    total: 1,
+  }), { status: 200 }));
+  try {
+    const result = await decide('Bash', 'http://127.0.0.1:8741');
+    assert.equal(result.decision, 'deny');
+    assert.match(result.reason, /shell-blocked policy/);
+  } finally { restore(); }
+});
+
+test('decide: built-in tool with no matching rule → allow', async () => {
+  const restore = stubFetch(async () => new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 }));
   try {
     const result = await decide('Bash', 'http://127.0.0.1:8741');
     assert.deepEqual(result, { decision: 'allow' });
-    assert.equal(called, false, 'no fetch call for built-in tool');
+  } finally { restore(); }
+});
+
+test('decide: unknown bare tool name → allow without calling fetch', async () => {
+  // Names that are neither MCP-prefixed nor known built-ins short-circuit
+  // to allow without contacting the local app (fail-open path preserved).
+  let called = false;
+  const restore = stubFetch(async () => { called = true; return new Response('{}'); });
+  try {
+    const result = await decide('SomeUnknownTool', 'http://127.0.0.1:8741');
+    assert.deepEqual(result, { decision: 'allow' });
+    assert.equal(called, false, 'no fetch call for unknown bare tool');
   } finally { restore(); }
 });
 

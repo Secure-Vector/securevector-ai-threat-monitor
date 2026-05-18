@@ -18,9 +18,9 @@
  * point of fail-open is that a broken / stopped local app cannot block
  * the host CLI.
  *
- * Built-in tool enforcement (Bash / Edit / Read / etc.) is deferred per
- * locked decision #3 — those names short-circuit to allow without
- * touching the local app.
+ * Both MCP and built-in (Bash / Edit / Read / etc.) tool names route
+ * through `normalize()` to lookup candidates and the same synced-rule
+ * lookup path. Unknown names short-circuit to allow.
  *
  * Zero npm deps. Native Node 18+.
  */
@@ -114,7 +114,7 @@ function toHookOutput(d) {
  */
 async function decide(toolName, baseUrl) {
   const candidates = normalize(toolName);
-  if (candidates.length === 0) return ALLOW; // built-in — short-circuit, no fetch
+  if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
   const overrides = await fetchSyncedOverrides(baseUrl);
   return decideFromOverrides(candidates, overrides);
 }
