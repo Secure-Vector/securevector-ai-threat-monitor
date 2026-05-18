@@ -68,7 +68,7 @@ const ToolPermissionsPage = {
             else alert('No tool audit entries to export');
             return;
         }
-        const headers = ['called_at', 'tool_id', 'function_name', 'action', 'risk', 'is_essential', 'reason', 'args_preview'];
+        const headers = ['called_at', 'tool_id', 'function_name', 'runtime_kind', 'action', 'risk', 'is_essential', 'reason', 'args_preview'];
         const esc = (v) => {
             if (v === null || v === undefined) return '';
             const s = String(v);
@@ -1665,6 +1665,7 @@ const ToolPermissionsPage = {
             { label: 'Decision',     key: 'action',        width: '100px' },
             { label: 'Integrity',    key: null,            width: '120px' },
             { label: 'Tool',         key: 'function_name', width: '200px' },
+            { label: 'Runtime',      key: 'runtime_kind',  width: '110px' },
             { label: 'Risk',         key: 'risk',          width: '75px'  },
             { label: 'Type',         key: 'is_essential',  width: '85px'  },
             { label: 'Reason',       key: 'reason',        width: '240px' },
@@ -1783,7 +1784,10 @@ const ToolPermissionsPage = {
         // Empty / loading row
         const emptyRow = document.createElement('tr');
         const emptyCell = document.createElement('td');
-        emptyCell.colSpan = 9;
+        // +1 for the checkbox column. Compute from COLS so adding/removing
+        // a column never drifts this back into the off-by-N state that
+        // broke the empty/loading row when Runtime was added.
+        emptyCell.colSpan = COLS.length + 1;
         emptyCell.style.cssText = 'padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px;';
         emptyCell.textContent = 'Loading tool call history…';
         emptyRow.appendChild(emptyCell);
@@ -1892,6 +1896,21 @@ const ToolPermissionsPage = {
             typeEl.textContent = typeText;
             metaRow.appendChild(section('Type', typeEl));
             wrap.appendChild(metaRow);
+
+            // Runtime attribution — which agent harness wrote this row.
+            // API always includes the field in the SELECT; NULL on legacy
+            // pre-v32 rows renders as "Unknown" instead of being dropped.
+            const rt = entry.runtime_kind;
+            const rtLabel = !rt ? 'Unknown'
+                : (rt === 'claude-code') ? 'Claude Code'
+                : (rt === 'openclaw') ? 'OpenClaw'
+                : (rt === 'proxy') ? 'Proxy'
+                : rt;
+            const rtEl = document.createElement('span');
+            rtEl.style.cssText = 'display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: var(--radius-full); font-weight: 600; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: var(--text-secondary);';
+            rtEl.textContent = rtLabel;
+            if (rt) rtEl.title = `runtime_kind=${rt}`;
+            wrap.appendChild(section('Runtime', rtEl));
 
             // Device attribution — which machine recorded this row.
             // Hashed form only; raw OS identifier never leaves the device.
@@ -2052,6 +2071,24 @@ const ToolPermissionsPage = {
                 tdTool.appendChild(resolved);
             }
             tr.appendChild(tdTool);
+
+            // Runtime (which agent harness emitted this call — claude-code,
+            // openclaw, or — for legacy pre-v32 rows where runtime is
+            // unknown).
+            const tdRuntime = document.createElement('td');
+            tdRuntime.style.cssText = 'padding: 8px 12px; white-space: nowrap;';
+            const rt = entry.runtime_kind;
+            const rtLabel = !rt ? 'Unknown'
+                : (rt === 'claude-code') ? 'Claude Code'
+                : (rt === 'openclaw') ? 'OpenClaw'
+                : (rt === 'proxy') ? 'Proxy'
+                : rt;
+            const rtBadge = document.createElement('span');
+            rtBadge.style.cssText = 'font-size: 11px; padding: 2px 7px; border-radius: var(--radius-full); font-weight: 600; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: var(--text-secondary);';
+            rtBadge.textContent = rtLabel;
+            rtBadge.title = rt ? `runtime_kind=${rt}` : 'runtime_kind=NULL (legacy pre-v32 row)';
+            tdRuntime.appendChild(rtBadge);
+            tr.appendChild(tdRuntime);
 
             // Risk
             const tdRisk = document.createElement('td');
