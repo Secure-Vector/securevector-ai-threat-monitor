@@ -176,6 +176,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         30: migrate_to_v30,
         31: migrate_to_v31,
         32: migrate_to_v32,
+        33: migrate_to_v33,
     }
 
     if version in migrations:
@@ -1398,6 +1399,29 @@ async def migrate_to_v32(db: DatabaseConnection) -> None:
     logger.info("Applied migration v32: runtime_kind column + index")
 
 
+async def migrate_to_v33(db: DatabaseConnection) -> None:
+    """v32 -> v33: per-tool query index on tool_call_audit.
+
+    The audit dashboard's "recent activity for tool X" query was a sequential
+    scan; with built-in tool enforcement landed (#98 + #100) the table grows
+    fast enough that the scan crosses the second mark in long-running
+    sessions. A composite index on (tool_id, called_at) keeps the lookup
+    sub-second.
+
+    Idempotent — `CREATE INDEX IF NOT EXISTS` is a no-op on re-run.
+    """
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_tool_time "
+        "ON tool_call_audit (tool_id, called_at)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (33, CURRENT_TIMESTAMP, 'idx_tool_call_audit_tool_time per-tool query index')"
+    )
+    logger.info("Applied migration v33: tool_id × called_at composite index")
+
+
 # Future migration functions would be defined here:
 #
 # async def migrate_to_v2(db: DatabaseConnection) -> None:
@@ -1468,6 +1492,10 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     # Clean up old cost records per retention policy
     await cleanup_old_cost_records(db)
 
+    # Clean up old audit rows per retention policy. Mirrors cost cleanup
+    # so both tables respect the same `app_settings.retention_days` knob.
+    await cleanup_old_audit_records(db)
+
     return version
 
 
@@ -1484,6 +1512,28 @@ async def cleanup_old_cost_records(db: DatabaseConnection) -> None:
             logger.info(f"Cleaned up {deleted} expired cost records (retention: {retention_days} days)")
     except Exception as e:
         logger.debug(f"Cost records cleanup skipped: {e}")
+
+
+async def cleanup_old_audit_records(db: DatabaseConnection) -> None:
+    """Delete tool_call_audit rows older than the app's retention_days setting.
+
+    Bounds unbounded growth from per-tool-call audit writes — the matcher
+    widening in #100 means every Read/Edit/Bash/etc. call lands a row, so
+    long-lived installations need rolling retention. The hash chain's
+    verifier handles the resulting truncation (verify_audit_chain treats
+    the lowest remaining seq as the post-truncation anchor).
+    """
+    try:
+        row = await db.fetch_one("SELECT retention_days FROM app_settings WHERE id = 1")
+        retention_days = row["retention_days"] if row and row["retention_days"] else 30
+
+        from securevector.app.database.repositories.custom_tools import CustomToolsRepository
+        repo = CustomToolsRepository(db)
+        deleted = await repo.cleanup_old_audit_records(retention_days)
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} expired audit rows (retention: {retention_days} days)")
+    except Exception as e:
+        logger.debug(f"Audit records cleanup skipped: {e}")
 
 
 async def load_community_rules(db: DatabaseConnection) -> int:

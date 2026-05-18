@@ -458,14 +458,31 @@ class CustomToolsRepository:
     async def verify_audit_chain(self) -> dict:
         """Walk the tool_call_audit hash chain and report integrity status.
 
+        Handles truncation cleanly: retention sweeps prune the OLDEST end
+        of the chain, so the lowest remaining seq may be > 1. In that
+        case we accept the row's stored `prev_hash` as the post-truncation
+        anchor — the verifier still proves nothing was tampered with
+        after the truncation boundary. The `chain_origin_seq` field in
+        the response records where the surviving chain starts.
+
+        IMPORTANT: when ``chain_origin_seq > 1`` the verifier proves
+        integrity only for the surviving rows. It CANNOT detect whether
+        the deleted prefix was forged-and-replaced versus genuinely
+        pruned, because the post-truncation anchor row's ``prev_hash``
+        is accepted unconditionally (it links to a now-pruned row). If
+        you need authenticity proof for the pruned prefix, rely on a
+        SIEM forwarder that captured those rows before retention ran.
+
         Returns:
             dict with keys:
-              - ok            (bool)    — True iff every row_hash recomputes
-              - total         (int)     — rows scanned
-              - tampered_at   (int|None) — seq of the first row that failed
-              - tampered_id   (int|None) — DB id of the first row that failed
-              - reason        (str|None) — short human-readable diagnosis
-              - last_verified_at (str)   — ISO timestamp of this check
+              - ok               (bool)    — True iff every row_hash recomputes
+              - total            (int)     — rows scanned
+              - chain_origin_seq (int|None) — seq of the lowest surviving row,
+                                              or None if the table is empty
+              - tampered_at      (int|None) — seq of the first row that failed
+              - tampered_id      (int|None) — DB id of the first row that failed
+              - reason           (str|None) — short human-readable diagnosis
+              - last_verified_at (str)      — ISO timestamp of this check
         """
         from datetime import datetime, timezone
 
@@ -485,22 +502,55 @@ class CustomToolsRepository:
         )
         rows = await cursor.fetchall()
 
-        prev_hash = _AUDIT_GENESIS_HASH
-        expected_seq = 1
+        # Bootstrap from the actual lowest seq instead of assuming seq=1.
+        # Empty table is trivially valid.
+        if not rows:
+            return {
+                "ok": True,
+                "total": 0,
+                "chain_origin_seq": None,
+                "tampered_at": None,
+                "tampered_id": None,
+                "reason": None,
+                "last_verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+        chain_origin_seq = rows[0]["seq"]
+        # When the chain hasn't been truncated, the first row's prev_hash
+        # is the GENESIS sentinel — verify that explicitly. After
+        # truncation, accept whatever prev_hash the surviving lowest row
+        # stored (it linked to a now-pruned row).
+        if chain_origin_seq == 1 and rows[0]["prev_hash"] != _AUDIT_GENESIS_HASH:
+            return {
+                "ok": False,
+                "total": len(rows),
+                "chain_origin_seq": chain_origin_seq,
+                "tampered_at": 1,
+                "tampered_id": rows[0]["id"],
+                "reason": "seq=1 row has non-GENESIS prev_hash — chain origin tampered",
+                "last_verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+        prev_hash = rows[0]["prev_hash"]
+        expected_seq = chain_origin_seq
         for row in rows:
             if row["seq"] != expected_seq:
                 return {
                     "ok": False,
                     "total": len(rows),
+                    "chain_origin_seq": chain_origin_seq,
                     "tampered_at": expected_seq,
                     "tampered_id": row["id"],
                     "reason": f"seq gap: expected {expected_seq}, got {row['seq']}",
                     "last_verified_at": datetime.now(timezone.utc).isoformat(),
                 }
-            if row["prev_hash"] != prev_hash:
+            # The chain-origin row's stored prev_hash is the anchor; it's
+            # not compared against an earlier row's row_hash because that
+            # row is either GENESIS (untruncated chain) or pruned (post-
+            # truncation). Skip the linkage check on it.
+            if row["seq"] != chain_origin_seq and row["prev_hash"] != prev_hash:
                 return {
                     "ok": False,
                     "total": len(rows),
+                    "chain_origin_seq": chain_origin_seq,
                     "tampered_at": row["seq"],
                     "tampered_id": row["id"],
                     "reason": "prev_hash does not match previous row's row_hash",
@@ -522,6 +572,7 @@ class CustomToolsRepository:
                 return {
                     "ok": False,
                     "total": len(rows),
+                    "chain_origin_seq": chain_origin_seq,
                     "tampered_at": row["seq"],
                     "tampered_id": row["id"],
                     "reason": "row_hash does not match canonical serialization — row content was modified after insert",
@@ -533,6 +584,7 @@ class CustomToolsRepository:
         return {
             "ok": True,
             "total": len(rows),
+            "chain_origin_seq": chain_origin_seq,
             "tampered_at": None,
             "tampered_id": None,
             "reason": None,
@@ -647,3 +699,32 @@ class CustomToolsRepository:
             tuple(ids),
         )
         return len(ids)
+
+    async def cleanup_old_audit_records(self, retention_days: int) -> int:
+        """Delete audit rows older than ``retention_days``.
+
+        Truncates the OLDEST end of the hash chain — the verifier in
+        ``verify_audit_chain`` accepts the new lowest seq + its stored
+        ``prev_hash`` as the post-truncation chain anchor, so the
+        remaining rows still verify intact.
+
+        THREAT MODEL: after truncation, the verifier proves the SURVIVING
+        rows were not modified after they were written, but it cannot
+        prove the deleted prefix wasn't replaced with forged rows by an
+        actor with SQLite write access. Customers who need authenticity
+        proof for the pruned prefix MUST run a SIEM forwarder that
+        captured those rows before retention removed them.
+
+        Returns the number of rows deleted.
+        """
+        if retention_days < 1:
+            return 0
+        cutoff = f"-{int(retention_days)} days"
+        cursor = await self.db.execute(
+            "DELETE FROM tool_call_audit WHERE called_at <= datetime('now', ?)",
+            (cutoff,),
+        )
+        count = cursor.rowcount if cursor else 0
+        if count > 0:
+            logger.info(f"Cleaned up {count} old audit rows (retention: {retention_days} days)")
+        return count
