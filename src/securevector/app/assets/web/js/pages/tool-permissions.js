@@ -1126,6 +1126,7 @@ const ToolPermissionsPage = {
 
         const categoryLabels = {
             openclaw: 'OpenClaw',
+            claude_code: 'Claude Code',
             communication: 'Communication',
             project_management: 'Project Management',
             code_devops: 'Code & DevOps',
@@ -1141,6 +1142,7 @@ const ToolPermissionsPage = {
         // Category accent colors for left border + icon background
         const categoryAccents = {
             openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+            claude_code: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
             communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -1161,7 +1163,9 @@ const ToolPermissionsPage = {
         const STACKED_CHILDREN = { communication: 'project_management', cloud_infra: 'payment' };
 
         const CATEGORY_ORDER = [
-            'openclaw', 'browser_automation',
+            'openclaw',
+            'claude_code',    // Claude Code built-in tools (Bash / Edit / Read / etc.)
+            'browser_automation',
             'communication',   // project_management renders inside its slot
             'cloud_infra',     // payment renders inside its slot
             'code_devops', 'file_system', 'database', 'social_media', 'security',
@@ -2304,6 +2308,34 @@ const ToolPermissionsPage = {
         actionContainer.style.cssText = 'flex-shrink: 0; display: flex; align-items: center; gap: 3px;';
 
         const isManagedRow = !!(tool.is_synced || tool.is_last_resort);
+
+        // Source-of-decision badge — small pill showing WHERE the current
+        // effective decision came from. Hidden for managed rows because the
+        // Synced / Last-resort pill below already carries that information.
+        // For unmanaged rows the badge flips between "Local" (has override)
+        // and "Default" (registry default), and updates reactively when the
+        // user toggles or resets the override.
+        let sourceBadge = null;
+        if (!isManagedRow) {
+            sourceBadge = document.createElement('span');
+            const renderSourceBadge = () => {
+                if (tool.has_override) {
+                    sourceBadge.textContent = 'Local';
+                    sourceBadge.title = 'Local override — click ↺ to reset to default';
+                    sourceBadge.style.cssText = 'flex-shrink: 0; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid rgba(245,158,11,0.45); background: rgba(245,158,11,0.12); color: #d97706; line-height: 1.4;';
+                } else {
+                    sourceBadge.textContent = 'Default';
+                    sourceBadge.title = 'Registry default — no override or cloud rule applied';
+                    sourceBadge.style.cssText = 'flex-shrink: 0; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: var(--text-muted); line-height: 1.4;';
+                }
+            };
+            renderSourceBadge();
+            // Stash on the row so the override/reset handlers below can
+            // re-invoke without an extra DOM lookup.
+            row._svRenderSourceBadge = renderSourceBadge;
+            actionContainer.appendChild(sourceBadge);
+        }
+
         let isBlocked = tool.effective_action === 'block';
         const actionBtn = document.createElement('button');
 
@@ -2355,6 +2387,7 @@ const ToolPermissionsPage = {
                     this._setBtnContent(actionBtn, isBlocked);
                     row.dataset.status = newAction;
                     resetBtn.style.display = 'inline-block';
+                    if (row._svRenderSourceBadge) row._svRenderSourceBadge();
                 } catch (e) {
                     if (window.Toast) Toast.show(e.message || 'Failed to update permission', 'error');
                 }
@@ -2379,6 +2412,7 @@ const ToolPermissionsPage = {
                 this._setBtnContent(actionBtn, isBlocked);
                 row.dataset.status = tool.effective_action === 'block' ? 'block' : 'allow';
                 resetBtn.style.display = 'none';
+                if (row._svRenderSourceBadge) row._svRenderSourceBadge();
             } catch (e2) {
                 if (window.Toast) Toast.show(e2.message || 'Failed to reset', 'error');
             }

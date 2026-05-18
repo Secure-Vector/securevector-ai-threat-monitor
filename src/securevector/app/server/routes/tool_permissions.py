@@ -68,6 +68,109 @@ class EssentialToolResponse(BaseModel):
     has_override: bool
 
 
+# Canonical list of Claude Code built-in tools the UI should govern. Mirrors
+# the `BUILTIN_TOOLS` Set in
+# src/securevector/plugins/claude-code/lib/normalize.js — KEEP THESE TWO IN
+# SYNC. Drift is caught by `tests/unit/app/test_tool_permissions_builtins.py`
+# which asserts every name in the JS Set has an entry here.
+#
+# Each tuple is (name, risk, description). The category is uniformly
+# `"claude_code"`; default_permission is `"allow"` because built-ins
+# are default-allow in the host — cloud rules deny selectively.
+CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
+    # File operations
+    ("Read",          "read",   "Read file contents."),
+    ("Edit",          "write",  "Modify an existing file."),
+    ("Write",         "write",  "Write a new file or replace an existing one."),
+    ("MultiEdit",     "write",  "Apply multiple edits to a single file atomically."),
+    ("NotebookEdit",  "write",  "Modify cells in a Jupyter notebook."),
+    ("NotebookRead",  "read",   "Read cells in a Jupyter notebook."),
+    # Search / navigation
+    ("Glob",          "read",   "Match files by glob pattern."),
+    ("Grep",          "read",   "Search file contents by pattern."),
+    ("LS",            "read",   "List directory contents."),
+    ("LSP",           "read",   "Query language-server protocol metadata."),
+    # Shell
+    ("Bash",          "admin",  "Execute a shell command."),
+    ("PowerShell",    "admin",  "Execute a PowerShell command."),
+    # Web
+    ("WebFetch",      "read",   "Fetch a URL."),
+    ("WebSearch",     "read",   "Run a web search."),
+    # Agents / planning
+    ("Task",          "admin",  "Dispatch a sub-agent task."),
+    ("Agent",         "admin",  "Launch a sub-agent."),
+    ("ExitPlanMode",  "read",   "Exit the planning mode."),
+    ("EnterPlanMode", "read",   "Enter the planning mode."),
+    # Worktrees
+    ("EnterWorktree", "write",  "Switch into a git worktree."),
+    ("ExitWorktree",  "write",  "Switch out of a git worktree."),
+    # Skills / background
+    ("Skill",         "admin",  "Execute a registered skill."),
+    ("Monitor",       "admin",  "Start a background monitor process."),
+    # Todos
+    ("TodoWrite",     "write",  "Update the session todo list."),
+    ("TodoRead",      "read",   "Read the session todo list."),
+]
+
+
+def _build_tool_response_row(
+    tool_id: str,
+    tool_meta: dict,
+    overrides_map: dict,
+    synced_map: dict,
+    last_resort_matcher,
+) -> dict:
+    """Resolve precedence (last_resort > synced > local > default) and
+    build the response row. Shared between registry tools and Claude
+    Code built-ins so a single source of truth governs the precedence
+    chain."""
+    override = overrides_map.get(tool_id)
+    override_action = override["action"] if override else None
+    default_perm = tool_meta.get("default_permission", "block")
+
+    synced_rule = synced_map.get(tool_id)
+    last_resort = last_resort_matcher(tool_id)
+
+    if last_resort is not None:
+        effective = last_resort.effect  # always 'deny'
+        source = "last_resort"
+    elif synced_rule is not None:
+        effective = synced_rule.effect
+        source = "synced"
+    elif override_action is not None:
+        effective = override_action
+        source = "local"
+    else:
+        effective = default_perm
+        source = "default"
+
+    return {
+        "tool_id": tool_id,
+        "name": tool_meta.get("name", tool_id),
+        "provider": tool_meta.get("provider", ""),
+        "category": tool_meta.get("category", "unknown"),
+        "risk": tool_meta.get("risk", "write"),
+        "risk_score": get_risk_score(tool_meta.get("risk")),
+        "default_permission": default_perm,
+        "description": tool_meta.get("description", ""),
+        "effective_action": effective,
+        "effective_source": source,
+        "has_override": override_action is not None,
+        "is_synced": synced_rule is not None,
+        "synced_effect": synced_rule.effect if synced_rule else None,
+        "synced_source_org": synced_rule.org_name if synced_rule else None,
+        "synced_policy_id": synced_rule.policy_id if synced_rule else None,
+        "synced_policy_name": synced_rule.policy_name if synced_rule else None,
+        "synced_policy_version": synced_rule.policy_version if synced_rule else None,
+        "synced_reason": synced_rule.reason if synced_rule else None,
+        "is_last_resort": last_resort is not None,
+        "last_resort_reason": last_resort.reason if last_resort else None,
+        "source": tool_meta.get("source", "official"),
+        "mcp_server": tool_meta.get("mcp_server", ""),
+        "popular": tool_meta.get("popular", False),
+    }
+
+
 @router.get("/tool-permissions/essential")
 async def list_essential_tools():
     """List all essential tools with their effective permissions.
@@ -78,6 +181,12 @@ async def list_essential_tools():
       2. synced rule (cloud-pushed via /policy/sync)
       3. local user override
       4. registry default_permission
+
+    Response includes the YAML registry tools AND the Claude Code
+    built-ins (Bash, Edit, Read, …) under category "claude_code" so the
+    Tool Permissions page surfaces them as governable rows. Built-ins
+    flow through the SAME precedence chain — cloud rules with
+    ``tool_id="Bash"`` Just Work.
     """
     try:
         registry = _get_registry()
@@ -106,54 +215,35 @@ async def list_essential_tools():
                     synced_map[k] = r
 
         tools = []
+
+        # Registry tools first.
         for tool_id, tool in registry.items():
-            override = overrides_map.get(tool_id)
-            override_action = override["action"] if override else None
-            default_perm = tool.get("default_permission", "block")
+            tools.append(_build_tool_response_row(
+                tool_id, tool, overrides_map, synced_map, matches_last_resort,
+            ))
 
-            synced_rule = synced_map.get(tool_id)
-            last_resort = matches_last_resort(tool_id)
-
-            # effective_action precedence: last_resort > synced > local > default
-            if last_resort is not None:
-                effective = last_resort.effect  # always 'deny'
-                source = "last_resort"
-            elif synced_rule is not None:
-                # Map cloud effect names to local override names where they differ
-                effective = synced_rule.effect
-                source = "synced"
-            elif override_action is not None:
-                effective = override_action
-                source = "local"
-            else:
-                effective = default_perm
-                source = "default"
-
-            tools.append({
-                "tool_id": tool_id,
-                "name": tool.get("name", tool_id),
-                "provider": tool.get("provider", ""),
-                "category": tool.get("category", "unknown"),
-                "risk": tool.get("risk", "write"),
-                "risk_score": get_risk_score(tool.get("risk")),
-                "default_permission": default_perm,
-                "description": tool.get("description", ""),
-                "effective_action": effective,
-                "effective_source": source,
-                "has_override": override_action is not None,
-                "is_synced": synced_rule is not None,
-                "synced_effect": synced_rule.effect if synced_rule else None,
-                "synced_source_org": synced_rule.org_name if synced_rule else None,
-                "synced_policy_id": synced_rule.policy_id if synced_rule else None,
-                "synced_policy_name": synced_rule.policy_name if synced_rule else None,
-                "synced_policy_version": synced_rule.policy_version if synced_rule else None,
-                "synced_reason": synced_rule.reason if synced_rule else None,
-                "is_last_resort": last_resort is not None,
-                "last_resort_reason": last_resort.reason if last_resort else None,
-                "source": tool.get("source", "official"),
-                "mcp_server": tool.get("mcp_server", ""),
-                "popular": tool.get("popular", False),
-            })
+        # Claude Code built-ins. Synthesized from the static table above so
+        # cloud rules with `tool_id="Bash"` etc. appear governable in the UI.
+        # Names duplicating a registry tool_id are skipped — registry wins
+        # (the registry's metadata is richer).
+        registry_ids = set(registry.keys())
+        for name, risk, description in CLAUDE_CODE_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Claude Code",
+                "category": "claude_code",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
 
         # Sort by category, then by name
         tools.sort(key=lambda t: (t["category"], t["name"]))
@@ -226,9 +316,13 @@ async def get_synced_overrides():
 async def upsert_override(tool_id: str, request: OverrideRequest):
     """Set or update an override for an essential tool."""
     try:
-        # Validate tool_id exists in registry
+        # Validate tool_id exists either in the YAML registry OR in the
+        # Claude Code built-ins list — the Tool Permissions page renders
+        # both as governable rows, so a 404 on built-in IDs would make
+        # every "Block Bash" click silently fail with a toast error.
         registry = _get_registry()
-        if tool_id not in registry:
+        builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
+        if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,
                 detail=f"Unknown essential tool: {tool_id}",
