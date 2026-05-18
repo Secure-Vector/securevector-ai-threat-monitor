@@ -15,7 +15,7 @@ Every MCP tool call (`mcp__<server>__<tool>`) that the host issues passes throug
 | **PreToolUse** | Looks up the call against cloud-pushed deny rules synced to the local SecureVector app. Returns `permissionDecision: "deny"` (with policy reason), `"ask"`, or `"allow"`. **Fails open** — if the local app is unreachable, the call proceeds. |
 | **PostToolUse** | Posts a fire-and-forget audit row to the local SecureVector app with `runtime_kind: "claude-code"`, the resolved policy decision, and a redacted snippet of the arguments. Persisted in a tamper-evident hash chain. |
 
-**Built-in tools** (`Bash`, `Edit`, `Read`, etc.) are not enforced or audited in v1 — only MCP tool calls. Built-in coverage ships in a follow-up.
+**Both MCP and built-in tools** (`Bash`, `Edit`, `Read`, `Write`, `MultiEdit`, `Glob`, `Grep`, `LS`, `LSP`, `PowerShell`, `WebFetch`, `WebSearch`, `Task`, `Agent`, `Skill`, `Monitor`, `NotebookEdit`, `NotebookRead`, `TodoWrite`, `TodoRead`, `ExitPlanMode`, `EnterPlanMode`, `EnterWorktree`, `ExitWorktree`) are enforced and audited. Unknown tool names short-circuit to allow (fail-open).
 
 ## Requirements
 
@@ -52,7 +52,24 @@ After installation, restart your Claude Code session.
 | Calls pass even with a deny rule active | SecureVector app not running, OR hook handler can't reach it | Confirm `curl http://127.0.0.1:8741/api/health`; check `SV_BASE_URL` if non-default port |
 | Hook calls feel slow | Local app unreachable; 100ms timeout firing on every call | Restart the SecureVector app — the timeout is fail-open by design |
 | No audit rows appearing | PostToolUse hook not registered | Run `/plugin list` to confirm `securevector-guard` is installed and enabled |
-| Built-in tools (`Bash`, `Edit`) not enforced | Deferred to a follow-up version (locked decision in v1) | Use cloud-managed deny rules on MCP tools only for now |
+| Built-in tools (`Bash`, `Edit`) not enforced | A cloud rule targets a name outside the governable built-in list, OR the rule wasn't pushed | Push a synced rule with `tool_id` equal to the exact PascalCase tool name (e.g. `tool_id: "Bash"`, `tool_id: "MultiEdit"`) — see the [governable built-in list](#supported-tool-names) |
+
+## Supported tool names
+
+A cloud-pushed synced rule's `tool_id` must match one of these names exactly (PascalCase, case-sensitive) for built-in enforcement to fire. MCP tools are matched by `<server>:<tool>` or bare `<tool>` form.
+
+| Category | Names |
+|---|---|
+| File ops | `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `NotebookRead` |
+| Search / navigation | `Glob`, `Grep`, `LS`, `LSP` |
+| Shell | `Bash`, `PowerShell` |
+| Web | `WebFetch`, `WebSearch` |
+| Agents / planning | `Task`, `Agent`, `ExitPlanMode`, `EnterPlanMode` |
+| Worktrees | `EnterWorktree`, `ExitWorktree` |
+| Skills / background | `Skill`, `Monitor` |
+| Todos | `TodoWrite`, `TodoRead` |
+
+The canonical list lives in `lib/normalize.js` as the `BUILTIN_TOOLS` Set. Names outside this list short-circuit to allow without contacting the local app (fail-open).
 
 ## Configuration
 
@@ -65,7 +82,6 @@ export SV_BASE_URL="http://localhost:9000"
 
 ## What's NOT in this plugin
 
-- Built-in tool enforcement (`Bash`, `Edit`, `Read`, …)
 - UserPromptSubmit / SessionStart / Stop hook coverage
 - Caching, retries, or buffering of audit posts (fire-and-forget is intentional)
 - Windows-specific install polish

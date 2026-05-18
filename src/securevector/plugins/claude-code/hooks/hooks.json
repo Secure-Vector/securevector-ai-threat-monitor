@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^mcp__",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -13,7 +13,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^mcp__",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",

@@ -80,14 +80,28 @@ test('hooks.json: top-level wraps event names under a "hooks" key', () => {
 });
 
 
-test('hooks.json: PreToolUse registered + matcher is regex + command references pre-tool-use.js', () => {
+// Tool names the matchers MUST admit so the host invokes the hook for
+// them. Built-ins are listed individually because the original v1
+// matcher `^mcp__` silently excluded them (#100) and the previous tests
+// — which asserted the matcher contained `/mcp/` — encoded that bug.
+const MUST_MATCH = [
+  'mcp__server-slack__slack_post_message', // representative MCP tool
+  'Bash', 'Edit', 'Read', 'Write', 'MultiEdit',
+  'PowerShell', 'WebFetch', 'WebSearch', 'Glob', 'Grep',
+  'Task', 'NotebookEdit', 'TodoWrite',
+];
+
+
+test('hooks.json: PreToolUse matcher admits MCP tools AND every governable built-in', () => {
   const h = readJson('hooks/hooks.json');
   assert.ok(Array.isArray(h.hooks.PreToolUse));
   assert.equal(h.hooks.PreToolUse.length, 1);
   const entry = h.hooks.PreToolUse[0];
   assert.equal(typeof entry.matcher, 'string');
-  // Should be a regex matching mcp tools (v1 scope)
-  assert.match(entry.matcher, /mcp/);
+  const re = new RegExp(entry.matcher);
+  for (const name of MUST_MATCH) {
+    assert.ok(re.test(name), `PreToolUse matcher must admit ${name}; got matcher='${entry.matcher}'`);
+  }
   assert.ok(Array.isArray(entry.hooks));
   assert.equal(entry.hooks[0].type, 'command');
   assert.match(entry.hooks[0].command, /pre-tool-use\.js/);
@@ -95,11 +109,14 @@ test('hooks.json: PreToolUse registered + matcher is regex + command references 
 });
 
 
-test('hooks.json: PostToolUse registered + matcher is regex + command references post-tool-use.js', () => {
+test('hooks.json: PostToolUse matcher admits MCP tools AND every governable built-in', () => {
   const h = readJson('hooks/hooks.json');
   assert.ok(Array.isArray(h.hooks.PostToolUse));
   const entry = h.hooks.PostToolUse[0];
-  assert.match(entry.matcher, /mcp/);
+  const re = new RegExp(entry.matcher);
+  for (const name of MUST_MATCH) {
+    assert.ok(re.test(name), `PostToolUse matcher must admit ${name}; got matcher='${entry.matcher}'`);
+  }
   assert.equal(entry.hooks[0].type, 'command');
   assert.match(entry.hooks[0].command, /post-tool-use\.js/);
   assert.match(entry.hooks[0].command, /\$\{CLAUDE_PLUGIN_ROOT\}/);
