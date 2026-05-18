@@ -293,15 +293,36 @@ const Sidebar = {
                     subNav.style.display = isExpanded ? 'block' : 'none';
                 }
 
+                // Sub-items eligible for a session-only NEW badge — first-view
+                // highlight that auto-dismisses after 30s so the sidebar
+                // doesn't stay permanently shouty. Mirror of the top-level
+                // session-NEW list above; kept separate because sub-items
+                // render in a different branch and the keys aren't shared
+                // with the top-level item IDs.
+                const subNewItems = ['proxy-claude-code'];
+
                 item.subItems.forEach(subItem => {
                     const subNavItem = document.createElement('div');
                     subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
-                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85;';
+                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px;';
 
                     const subLabel = document.createElement('span');
                     subLabel.textContent = subItem.label;
+                    subLabel.style.cssText = 'flex: 1; min-width: 0;';
                     subNavItem.appendChild(subLabel);
+
+                    if (subNewItems.includes(subItem.id) && !sessionStorage.getItem('sv-new-seen-' + subItem.id)) {
+                        const newBadge = document.createElement('span');
+                        newBadge.style.cssText = 'display: inline-flex; align-items: center; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(180,83,9,0.2); color: #d97706; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                        newBadge.textContent = 'NEW';
+                        const dismiss = () => {
+                            sessionStorage.setItem('sv-new-seen-' + subItem.id, '1');
+                            newBadge.remove();
+                        };
+                        subNavItem.appendChild(newBadge);
+                        setTimeout(dismiss, 30000);
+                    }
 
                     subNavItem.addEventListener('click', (e) => {
                         e.stopPropagation();
