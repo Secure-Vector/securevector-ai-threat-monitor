@@ -417,7 +417,15 @@ def _auto_install_to_claude_cache(version: str) -> Optional[Path]:
     rollback_cache_dir = False
     rollback_marketplaces_json = False
     rollback_installed_plugins_json = False
+    # Both `*_before` snapshots are bound up-front so the rollback block
+    # never references an unbound name when an exception fires before
+    # the corresponding step completes. CodeQL would otherwise flag the
+    # potentially-uninitialized read on the rollback path (markets_before
+    # was only assigned inside step 3); the `rollback_*` flag already
+    # gates the read at runtime, but a static analyser can't see the
+    # correlation.
     installed_plugins_before: dict | None = None
+    markets_before: dict | None = None
 
     try:
         # 1. Write the marketplace manifest into the staging dir. It lives
@@ -506,7 +514,7 @@ def _auto_install_to_claude_cache(version: str) -> Optional[Path]:
                 _atomic_write_json(CLAUDE_INSTALLED_PLUGINS_JSON, installed_plugins_before)
             except Exception:
                 logger.exception("Rollback of installed_plugins.json failed")
-        if rollback_marketplaces_json:
+        if rollback_marketplaces_json and markets_before is not None:
             try:
                 _atomic_write_json(CLAUDE_KNOWN_MARKETPLACES_JSON, markets_before)
             except Exception:
