@@ -80,11 +80,20 @@ export SV_BASE_URL="http://localhost:9000"
 # then launch Claude Code
 ```
 
+## Hooks registered
+
+- **PreToolUse** (`hooks/pre-tool-use.js`) — blocks tool calls per the synced + local override rules; returns `permissionDecision: allow|deny|ask`.
+- **PostToolUse** (`hooks/post-tool-use.js`) — fire-and-forget audit POST to `/api/tool-permissions/call-audit` (tagged `runtime_kind=claude-code`); high-risk tools (Bash, WebFetch, Edit, Write, MultiEdit, NotebookEdit, PowerShell, Skill, Task, Agent) also POST extracted natural-language text to `/analyze` for threat scanning. Bash uses opt-in marker filtering — outbound network calls (`curl`, `wget`, `nc`), code execution (`eval`, `bash -c`, `python -c`), destructive ops (`rm -rf`, `chmod +s`, `sudo`), sensitive-path writes (`/etc/`, `~/.ssh/`, `~/.aws/`), and reverse-shell shapes (`/dev/tcp/`, `mkfifo`) — to keep volume manageable. Secrets are redacted via shared `lib/redact.js` before either POST.
+- **UserPromptSubmit** (`hooks/user-prompt-submit.js`) — forwards every incoming prompt to local `/analyze` for injection / jailbreak scanning by the rule engine; detection happens server-side, not in the hook. Prompts are first redacted (`lib/redact.js` patterns: sk-/pk- / GitHub PAT / AWS AKIA / JWT / labelled credential kv-pairs) and capped at 8 KB before POST. Fail-open, never blocks the prompt.
+- **Stop** (`hooks/stop-hook-probe.js`) — temporary v4.2.x diagnostic (targeted for removal in v4.3.x). Writes shape-only metadata (key list + `typeof`, **never payloads**) to `~/.securevector/cost-probes/`; probe files are written mode 0600, the directory itself is 0700, capped at 100 files. Used to determine empirically whether Claude Code's Stop-event payload carries token-usage data.
+
+All hooks fail-open: every error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All POSTs target loopback (`http://127.0.0.1:8741` by default).
+
 ## What's NOT in this plugin
 
-- UserPromptSubmit / SessionStart / Stop hook coverage
-- Caching, retries, or buffering of audit posts (fire-and-forget is intentional)
-- Windows-specific install polish
+- SessionStart hook coverage (none today; out of scope for v1).
+- Caching, retries, or buffering of audit posts (fire-and-forget is intentional).
+- Windows-specific install polish.
 
 ## License
 
