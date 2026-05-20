@@ -271,11 +271,24 @@ async def get_overrides():
 
 @router.get("/tool-permissions/synced-overrides")
 async def get_synced_overrides():
-    """Cloud-pushed synced rules in proxy-friendly shape.
+    """Effective tool-permission decisions, in proxy-friendly shape.
 
-    Returned dict per tool_id carries the synced effect + policy provenance so
-    proxy enforcement decisions can be both correct (effect wins over local
-    user override + registry default) and auditable (reason names the policy).
+    Despite the historical name, this endpoint now merges TWO sources:
+      1. Cloud-pushed synced rules (from `synced_rules` table)
+      2. Local user overrides set via the Tool Permissions UI's
+         block/allow buttons (from `tool_essential_overrides` table)
+
+    Precedence: synced > local. Implemented by appending synced rows
+    FIRST and local rows SECOND; downstream consumers (hook, proxy,
+    OpenClaw plugin) all use first-seen-wins by tool_id, so synced
+    rules naturally win when both target the same tool.
+
+    Per-row `source` field discriminates `"synced"` vs `"local"` for
+    telemetry and audit. Existing consumers that ignore `source`
+    will simply start enforcing local overrides, which is what users
+    expect when they click Block in the UI — historically the click
+    was cosmetic for agent runtimes since hooks only consulted the
+    synced table.
     """
     try:
         from securevector.app.database.repositories.synced_rules import (
@@ -291,7 +304,7 @@ async def get_synced_overrides():
         # proxy's _load_synced_overrides keys by tool_id directly, so without
         # aliasing here a synced rule on `github-mcp-server:delete_file`
         # would never match the LLM call's bare `delete_file` function name.
-        synced: list = []
+        merged: list = []
         for r in rows:
             base = {
                 "effect": r.effect,
@@ -301,11 +314,52 @@ async def get_synced_overrides():
                 "policy_version": r.policy_version,
                 "org_name": r.org_name,
                 "reason": r.reason,
+                "source": "synced",
             }
-            synced.append({"tool_id": r.tool_id, **base})
+            merged.append({"tool_id": r.tool_id, **base})
             if ':' in r.tool_id:
-                synced.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
-        return {"synced": synced, "total": len(synced)}
+                merged.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
+
+        # Local overrides — set via the UI's Block/Allow buttons. Mapped
+        # into the synced-row shape so existing consumers don't need to
+        # learn a second format. Local action `block` → effect `deny`;
+        # `allow` → `allow`. `log_only` not exposed as a local-UI option
+        # so no mapping needed.
+        #
+        # Wrapped in its own try/except so a local-overrides DB error
+        # falls back to "synced only" instead of 500-ing the whole
+        # endpoint — preserves the pre-merge fail-quiet contract that
+        # the three downstream consumers (CC hook, OpenClaw plugin,
+        # proxy) rely on for fail-open behaviour.
+        local_rows: list[dict] = []
+        try:
+            local_repo = ToolPermissionsRepository(db)
+            local_rows = await local_repo.get_all_overrides()
+        except Exception as e:
+            logger.warning(
+                "Local-overrides fetch failed in /synced-overrides; "
+                "returning synced-only: %s", e,
+            )
+        ACTION_TO_EFFECT = {"block": "deny", "allow": "allow"}
+        for lr in local_rows:
+            action = lr.get("action")
+            effect = ACTION_TO_EFFECT.get(action)
+            if effect is None:
+                continue
+            merged.append({
+                "tool_id": lr["tool_id"],
+                "effect": effect,
+                "priority": 50,  # below synced (100); first-seen-wins in
+                                 # the hook so synced still wins if both
+                                 # target the same tool_id.
+                "policy_id": "_local",
+                "policy_name": "Local override",
+                "policy_version": 0,
+                "org_name": "Local",
+                "reason": "User-set local override",
+                "source": "local",
+            })
+        return {"synced": merged, "total": len(merged)}
 
     except Exception as e:
         logger.error(f"Failed to get synced overrides: {e}")
@@ -510,8 +564,28 @@ class AuditLogRequest(BaseModel):
 async def record_call_audit(request: AuditLogRequest):
     """Record a tool call decision (block/allow/log_only) in the audit log.
 
-    Called by the proxy after every tool permission evaluation.
+    Called by the proxy after every tool permission evaluation. Volume
+    filter: when the action is `allow` and no policy decision was
+    actually made (i.e., the call passed by default rather than by an
+    explicit rule), we drop the row instead of persisting it.
+
+    Rationale: Claude Code routinely produces 200-500 `allow` rows per
+    developer per day from routine Read/Glob/Bash calls. None of those
+    are policy decisions — they're "no rule matched, default-allow."
+    Persisting them buries the meaningful rows (block / log_only) in
+    noise and bloats the hash chain. Block and log_only ALWAYS persist;
+    a non-empty `reason` field means an explicit rule fired and the row
+    persists too. Threat detections go through `/api/analyze` → the
+    `threat_intel_records` table, not this audit log.
     """
+    # Record every row. The earlier default-allow noise filter dropped
+    # rows where action=allow and reason was None — which silenced
+    # Claude Code's routine Read/Glob/Bash calls and left the Tool
+    # Activity tab empty after install. UI-side filter chips
+    # ("Policy decisions only" / "Blocked only") let users narrow the
+    # view without losing the underlying truth on disk. If chain
+    # volume becomes a real problem, retention/rotation is the answer,
+    # not preemptive row-drops.
     try:
         db = get_database()
         repo = CustomToolsRepository(db)

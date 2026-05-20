@@ -21,8 +21,11 @@ EXPECTED_FILES = {
     "hooks/hooks.json",
     "hooks/pre-tool-use.js",
     "hooks/post-tool-use.js",
+    "hooks/user-prompt-submit.js",
+    "hooks/stop-hook-probe.js",
     "lib/normalize.js",
     "lib/client.js",
+    "lib/redact.js",
     "README.md",
 }
 

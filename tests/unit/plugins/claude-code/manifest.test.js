@@ -42,17 +42,23 @@ test('plugin.json: version tracks the app version (4.x semver)', () => {
 });
 
 
-test('plugin.json: hooks pointer references the existing hooks/hooks.json', () => {
+test('plugin.json: does NOT declare a hooks pointer (CC auto-discovers)', () => {
+  // Empirical finding (v4.2.0): Claude Code automatically loads
+  // hooks/hooks.json and rejects a plugin.json that ALSO declares it —
+  // "Hook load failed: Duplicate hooks file detected" prevents the
+  // plugin from loading at all. The auto-discovery is reliable so we
+  // dropped the field. This guard prevents anyone re-adding it.
   const m = readJson('.claude-plugin/plugin.json');
-  assert.equal(typeof m.hooks, 'string');
-  const hooksPath = path.resolve(PLUGIN_DIR, '.claude-plugin', m.hooks);
-  // Resolve relative to .claude-plugin/ (where the manifest lives) — should
-  // exist as a real file.
-  // Some hosts resolve relative to plugin root; check both.
-  const altPath = path.resolve(PLUGIN_DIR, m.hooks);
+  assert.equal(
+    m.hooks,
+    undefined,
+    'plugin.json must NOT declare a hooks pointer — CC auto-discovers ./hooks/hooks.json and rejects duplicates',
+  );
+  // ...but the auto-discovered file must still exist on disk.
+  const autoDiscoveredPath = path.resolve(PLUGIN_DIR, 'hooks', 'hooks.json');
   assert.ok(
-    fs.existsSync(hooksPath) || fs.existsSync(altPath),
-    `hooks pointer must resolve to an existing file (tried: ${hooksPath}, ${altPath})`,
+    fs.existsSync(autoDiscoveredPath),
+    `auto-discovered hooks file missing: ${autoDiscoveredPath}`,
   );
 });
 
@@ -123,8 +129,44 @@ test('hooks.json: PostToolUse matcher admits MCP tools AND every governable buil
 });
 
 
-test('hooks.json: only PreToolUse + PostToolUse declared (v1 scope)', () => {
+test('hooks.json: declares PreToolUse + PostToolUse + Stop + UserPromptSubmit', () => {
+  // v4.2.x scope. `Stop` is a temporary diagnostic probe for cost
+  // tracking. `UserPromptSubmit` scans incoming chat messages for
+  // prompt-injection — without it, the plugin only sees tool inputs,
+  // so direct injection in chat ("ignore previous instructions and …")
+  // never reaches the rule engine.
   const h = readJson('hooks/hooks.json');
   const events = Object.keys(h.hooks);
-  assert.deepEqual(events.sort(), ['PostToolUse', 'PreToolUse']);
+  assert.deepEqual(events.sort(), [
+    'PostToolUse', 'PreToolUse', 'Stop', 'UserPromptSubmit',
+  ]);
+});
+
+
+test('hooks.json: Stop hook points at the diagnostic stop-hook-probe.js', () => {
+  // The Stop hook is a probe — the file must exist + the command must
+  // reference it by name. Guards against the probe getting renamed
+  // without updating hooks.json (silent no-op).
+  const h = readJson('hooks/hooks.json');
+  const stop = h.hooks.Stop;
+  assert.ok(Array.isArray(stop) && stop.length === 1);
+  assert.equal(stop[0].hooks[0].type, 'command');
+  assert.match(stop[0].hooks[0].command, /stop-hook-probe\.js/);
+  const probePath = path.resolve(PLUGIN_DIR, 'hooks', 'stop-hook-probe.js');
+  assert.ok(fs.existsSync(probePath), `stop-hook-probe.js missing at ${probePath}`);
+});
+
+
+test('hooks.json: UserPromptSubmit hook points at user-prompt-submit.js', () => {
+  // The UserPromptSubmit hook scans incoming chat messages for
+  // prompt-injection. Guards against the file getting renamed without
+  // updating hooks.json (silent no-op), and against the entry being
+  // removed without re-introducing the bug it fixed.
+  const h = readJson('hooks/hooks.json');
+  const ups = h.hooks.UserPromptSubmit;
+  assert.ok(Array.isArray(ups) && ups.length === 1);
+  assert.equal(ups[0].hooks[0].type, 'command');
+  assert.match(ups[0].hooks[0].command, /user-prompt-submit\.js/);
+  const hookPath = path.resolve(PLUGIN_DIR, 'hooks', 'user-prompt-submit.js');
+  assert.ok(fs.existsSync(hookPath), `user-prompt-submit.js missing at ${hookPath}`);
 });

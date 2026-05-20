@@ -132,7 +132,7 @@ const ToolPermissionsPage = {
     // ==================== Shared Helpers ====================
 
     _applyActionBtnStyle(btn, isBlocked) {
-        btn.style.cssText = 'display: flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: var(--radius-full); font-size: 10px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; min-width: 64px; justify-content: center; flex-shrink: 0; ' +
+        btn.style.cssText = 'display: flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: var(--radius-full); font-size: 10px; font-weight: 600; line-height: 1.4; border: none; cursor: pointer; transition: all 0.2s; min-width: 56px; justify-content: center; flex-shrink: 0; ' +
             (isBlocked
                 ? 'background: rgba(239,68,68,0.15); color: #ef4444;'
                 : 'background: rgba(16,185,129,0.15); color: #10b981;');
@@ -494,7 +494,7 @@ const ToolPermissionsPage = {
 
         // Help banner — explains allow / block / log_only behavior
         const helpBanner = document.createElement('div');
-        helpBanner.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px; color: var(--text-secondary);';
+        helpBanner.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);';
         const helpIcon = document.createElement('span');
         helpIcon.textContent = 'ⓘ';
         helpIcon.style.cssText = 'color: var(--accent-primary); font-weight: 600; flex-shrink: 0;';
@@ -535,7 +535,7 @@ const ToolPermissionsPage = {
 
         // Compact toolbar: toggle + cloud info + add button
         const toolbar = document.createElement('div');
-        toolbar.style.cssText = 'display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;';
+        toolbar.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap;';
 
         // Enforcement toggle with label + description
         const toggleWrap = document.createElement('div');
@@ -580,7 +580,11 @@ const ToolPermissionsPage = {
         // Add Custom Tool button
         const topAddBtn = document.createElement('button');
         topAddBtn.id = 'top-add-custom-tool-btn';
-        topAddBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #5eadb8, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
+        // Solid brand teal — the prior red→teal gradient half-read as
+        // destructive on a page whose stripe palette assigns #dc2626 to
+        // last_resort deny rules. A primary "+" affordance must not
+        // share a color band with deny.
+        topAddBtn.style.cssText = 'display: flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: #5eadb8; color: #fff; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;';
         const topAddPlus = document.createElement('span');
         topAddPlus.textContent = '+';
         const topAddLabel = document.createElement('span');
@@ -589,12 +593,22 @@ const ToolPermissionsPage = {
         topAddBtn.appendChild(topAddLabel);
         topAddBtn.addEventListener('mouseenter', () => { topAddBtn.style.opacity = '0.88'; });
         topAddBtn.addEventListener('mouseleave', () => { topAddBtn.style.opacity = '1'; });
+        // Clicking the top button must (1) switch to the Custom tab,
+        // (2) re-render the tools list so the inner section materialises,
+        // (3) then trigger the inner Add button to open the inline form.
+        // Previously this only ran step 3 — the inner button doesn't exist
+        // in the DOM until the Custom tab is active, so from any other tab
+        // the click was a silent no-op.
         topAddBtn.addEventListener('click', () => {
-            const addBtn = document.getElementById('custom-tools-add-btn');
-            if (addBtn) {
+            this._activeCategory = '__custom__';
+            const toolsContainer = document.getElementById('tools-list-container');
+            if (toolsContainer) this.renderTools(toolsContainer);
+            requestAnimationFrame(() => {
+                const addBtn = document.getElementById('custom-tools-add-btn');
+                if (!addBtn) return;
                 addBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                setTimeout(() => addBtn.click(), 300);
-            }
+                addBtn.click();
+            });
         });
         toolbar.appendChild(topAddBtn);
 
@@ -701,7 +715,7 @@ const ToolPermissionsPage = {
 
         if (isCloudActive) {
             pill.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 11px; color: #10b981; padding: 4px 10px; border-radius: var(--radius-full); border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.08); cursor: default;';
-            pill.textContent = '\u2601\uFE0F Cloud \u2022 ' + toolCount + ' tools + 200+ coming soon';
+            pill.textContent = '\u2601\uFE0F Cloud \u2022 ' + toolCount + ' tools';
         } else {
             pill.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); padding: 4px 10px; border-radius: var(--radius-full); border: 1px solid var(--border-default); background: var(--bg-secondary); cursor: pointer; transition: all 0.15s;';
             pill.textContent = '\uD83D\uDCE6 ' + toolCount + ' local tools';
@@ -978,7 +992,7 @@ const ToolPermissionsPage = {
     _renderFilterToolbar(container) {
         const bar = document.createElement('div');
         bar.id = 'tool-perms-filter-bar';
-        bar.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; position: sticky; top: 0; z-index: 5; flex-wrap: wrap;';
+        bar.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; position: sticky; top: 0; z-index: 5; flex-wrap: wrap;';
 
         // Search input
         const searchWrap = document.createElement('div');
@@ -1079,7 +1093,11 @@ const ToolPermissionsPage = {
             const matchText = !q || text.indexOf(q) !== -1;
             const matchStatus = status === 'all' || rowStatus === status;
             const show = matchText && matchStatus;
-            row.style.display = show ? '' : 'none';
+            // Restore 'grid' explicitly — clearing to '' would drop the
+            // inline grid mode set in _createToolListCard, leaving the
+            // grid-template-columns orphaned and collapsing the row to
+            // block stacking (regression caught in run-16 UI review).
+            row.style.display = show ? 'grid' : 'none';
             if (show) visibleCount++;
         });
         // Hide empty category columns whose rows all filtered out
@@ -1094,7 +1112,7 @@ const ToolPermissionsPage = {
             if (!emptyBanner) {
                 emptyBanner = document.createElement('div');
                 emptyBanner.id = 'tool-perms-empty-state';
-                emptyBanner.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;';
+                emptyBanner.style.cssText = 'width: 100%; text-align: center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;';
                 emptyBanner.textContent = 'No tools match the current filter.';
                 grid.appendChild(emptyBanner);
             }
@@ -1113,6 +1131,14 @@ const ToolPermissionsPage = {
             container.appendChild(empty);
             return;
         }
+
+        // Render the governance hero AT THE TOP of the page — above the
+        // search/filter toolbar — so the policy-state summary is the
+        // first thing the user sees. The hero element is built later in
+        // this function and appended to a placeholder we create now.
+        const heroSlot = document.createElement('div');
+        heroSlot.style.cssText = 'margin-bottom: 6px;';
+        container.appendChild(heroSlot);
 
         this._renderFilterToolbar(container);
 
@@ -1155,139 +1181,524 @@ const ToolPermissionsPage = {
             browser_automation: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
         };
 
-        // Pairs: child stacks directly below parent in same grid slot
-        const STACKED_UNDER = {
-            project_management: 'communication',
-            payment: 'cloud_infra',
-        };
-        const STACKED_CHILDREN = { communication: 'project_management', cloud_infra: 'payment' };
-
         const CATEGORY_ORDER = [
             'openclaw',
             'claude_code',    // Claude Code built-in tools (Bash / Edit / Read / etc.)
             'browser_automation',
-            'communication',   // project_management renders inside its slot
-            'cloud_infra',     // payment renders inside its slot
+            'communication',
+            'project_management',
+            'cloud_infra',
+            'payment',
             'code_devops', 'file_system', 'database', 'social_media', 'security',
         ];
-        const sortedCategories = [
-            ...CATEGORY_ORDER.filter(k => categories[k]),
-            ...Object.keys(categories).filter(k => !CATEGORY_ORDER.includes(k) && !STACKED_UNDER[k]),
-        ];
-
-        // ==================== Categories as columns ====================
-        const columnsWrap = document.createElement('div');
-        columnsWrap.className = 'tool-permissions-grid';
-        columnsWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; align-items: start;';
-
-        const buildCategoryCol = (catKey) => {
-            const tools = categories[catKey];
-            if (!tools) return null;
-            const accent = categoryAccents[catKey] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
-            const isOpenClaw = catKey === 'openclaw';
-            const isCodeDevops = catKey === 'code_devops';
-
-            const col = document.createElement('div');
-            col.dataset.categoryCol = catKey;
-            if (isOpenClaw) {
-                col.id = 'openclaw-column';
-                col.style.cssText = 'min-width: 0; border-radius: 10px; padding: 8px; background: rgba(249,115,22,0.07); border: 1px solid rgba(249,115,22,0.30);';
-            } else {
-                col.style.cssText = 'min-width: 0;';
-            }
-
-            // Column header
-            const catHeader = document.createElement('div');
-            if (isOpenClaw) {
-                catHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 2px solid #f97316;';
-                const flame = document.createElement('span');
-                flame.style.cssText = 'font-size: 13px; line-height: 1;';
-                flame.textContent = '🔥';
-                catHeader.appendChild(flame);
-            } else {
-                catHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 2px solid ' + accent.color + ';';
-                const catDot = document.createElement('span');
-                catDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: ' + accent.color + ';';
-                catHeader.appendChild(catDot);
-            }
-
-            const catTitle = document.createElement('span');
-            catTitle.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary);';
-            catTitle.textContent = categoryLabels[catKey] || catKey;
-            catHeader.appendChild(catTitle);
-
-            const catCount = document.createElement('span');
-            catCount.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-left: auto; padding: 1px 5px; background: var(--bg-tertiary); border-radius: var(--radius-full);';
-            catCount.textContent = tools.length;
-            catHeader.appendChild(catCount);
-
-            col.appendChild(catHeader);
-
-            // OpenClaw info note (dismissible)
-            if (isOpenClaw && !sessionStorage.getItem('sv-openclaw-note-dismissed')) {
-                const note = document.createElement('div');
-                note.style.cssText = 'position: relative; font-size: 11px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; padding: 6px 28px 6px 8px; background: rgba(249,115,22,0.06); border-radius: 6px;';
-
-                const noteText = document.createElement('div');
-                noteText.innerHTML = '<strong style="color:#f97316;">Where did these come from?</strong><br>These tools were auto-detected from your running <strong>OpenClaw proxy</strong>. OpenClaw exposes Google Workspace tools (Gmail, Drive, Calendar, Meet, etc.) as MCP tool calls — SecureVector intercepts those calls and lists them here so you can allow or block each one.';
-                note.appendChild(noteText);
-
-                const closeNote = document.createElement('button');
-                closeNote.textContent = '×';
-                closeNote.style.cssText = 'position: absolute; top: 4px; right: 6px; background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; line-height: 1; padding: 0;';
-                closeNote.addEventListener('click', () => {
-                    sessionStorage.setItem('sv-openclaw-note-dismissed', '1');
-                    note.remove();
-                });
-                note.appendChild(closeNote);
-                col.appendChild(note);
-            }
-
-            // Tool rows (ultra-compact)
-            const list = document.createElement('div');
-            list.style.cssText = 'display: flex; flex-direction: column; gap: 2px;';
-
-            tools.forEach(tool => {
-                list.appendChild(this.createToolCard(tool, accent));
-            });
-
-            col.appendChild(list);
-
-            // Custom Tools section appended inside Code & DevOps column
-            if (isCodeDevops) {
-                this.renderCustomToolsSection(col);
-            }
-
-            return col;
+        // Order rank used for the default "sort by category" — falls back to
+        // alphabetical-tail-after-known-prefixes for unknown keys so they sit
+        // in a deterministic position rather than mid-table jumping around.
+        const categoryRank = (k) => {
+            const i = CATEGORY_ORDER.indexOf(k);
+            return i < 0 ? CATEGORY_ORDER.length : i;
         };
 
-        sortedCategories.forEach(catKey => {
-            const col = buildCategoryCol(catKey);
-            if (!col) return;
+        // ==================== Dense flat table ====================
+        //
+        // Earlier iterations laid out one CSS-grid column per category.
+        // That layout fought our actual data: ~90 tools growing to several
+        // hundred, ~8 unevenly-sized categories, four orthogonal axes
+        // (category, risk, source, decision-source), and an audit
+        // workflow that wants to scan across categories ("show me all
+        // admin-risk tools", "show me everything cloud-managed").
+        //
+        // The flat table puts every tool on one full-width row, exposes
+        // those orthogonal axes as sortable columns, and reuses the
+        // existing search + status chips for filtering. Category is now
+        // just a colored pill on each row — categorical grouping comes
+        // from default-sorting by category, not from physical layout.
+        //
+        // We still keep the wrapper id #tools-list-container and the
+        // per-row `data-tool-row` + `data-status` + `data-search` attrs
+        // so the existing _applyToolFilter implementation Just Works.
+        const columnsWrap = document.createElement('div');
+        columnsWrap.className = 'tool-permissions-grid';
+        columnsWrap.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
 
-            // If this category has a child stacked below it, wrap both in a vertical stack
-            const childKey = STACKED_CHILDREN[catKey];
-            if (childKey && categories[childKey]) {
-                const stack = document.createElement('div');
-                stack.style.cssText = 'display: flex; flex-direction: column; gap: 14px; min-width: 0;';
-                stack.appendChild(col);
-                stack.appendChild(buildCategoryCol(childKey));
-                columnsWrap.appendChild(stack);
-            } else {
-                columnsWrap.appendChild(col);
-            }
-        });
-
-        // If code_devops column didn't exist, render custom tools as last column
-        if (!categories.code_devops) {
-            this.renderCustomToolsSection(columnsWrap);
+        // ── OpenClaw info note (now above the table, no longer per-column) ──
+        if (categories.openclaw && !sessionStorage.getItem('sv-openclaw-note-dismissed')) {
+            const note = document.createElement('div');
+            note.style.cssText = 'position: relative; font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 8px 32px 8px 12px; background: rgba(249,115,22,0.07); border: 1px solid rgba(249,115,22,0.25); border-radius: 6px;';
+            const noteText = document.createElement('div');
+            noteText.innerHTML = '<strong style="color:#f97316;">🔥 OpenClaw tools detected.</strong> SecureVector auto-detected your running OpenClaw proxy and added its Google Workspace tools (Gmail, Drive, Calendar, Meet, etc.) below.';
+            note.appendChild(noteText);
+            const closeNote = document.createElement('button');
+            closeNote.textContent = '×';
+            closeNote.style.cssText = 'position: absolute; top: 4px; right: 8px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; line-height: 1; padding: 0;';
+            closeNote.addEventListener('click', () => {
+                sessionStorage.setItem('sv-openclaw-note-dismissed', '1');
+                note.remove();
+            });
+            note.appendChild(closeNote);
+            columnsWrap.appendChild(note);
         }
 
-        // Cloud-only synced column — last in the grid. Renders only when
-        // the device has synced rules for tool_ids the local registry
-        // doesn't know about. Sub-grouped by mcp_server so each MCP
-        // exposes its own tools in a clearly-labeled mini-section.
-        this.renderCloudOnlyCategoryColumn(columnsWrap);
+        // ── Governance hero — slim total counter + 3 prominent filter tiles ──
+        //
+        // Review feedback (round 2): "Tools" was visually equal-weight to the
+        // 3 actionable tiles, making the hero read as a vanilla stat header.
+        // Fix: shrink total to a one-line breadcrumb above the 3 filter tiles,
+        // making the actionable tiles the visual focus.
+        const counts = {
+            total: this.tools.length,
+            override: 0,
+            synced: 0,
+            last_resort: 0,
+        };
+        this.tools.forEach(t => {
+            if (t.is_last_resort) counts.last_resort++;
+            else if (t.is_synced) counts.synced++;
+            else if (t.has_override) counts.override++;
+        });
+
+        if (this._heroFilter === undefined) this._heroFilter = null; // null | 'override' | 'synced' | 'last_resort'
+        const heroFilter = this._heroFilter;
+
+        // (Removed the matchMedia listener — it existed to flip the
+        // main/sidebar split-column at narrow viewports. With the
+        // sidebar folded into the tab bar, there is no responsive
+        // breakpoint to manage anymore — the tab bar already wraps via
+        // `flex-wrap`, and the list is single-column at all widths.)
+
+        // Single-line summary — total + inline clickable count chips.
+        // Replaces the prior 3-tile row that ate a horizontal band for
+        // 3 numbers + a filter shortcut. Zero-count chips are omitted so
+        // the line stays short. Each chip toggles its `_heroFilter` axis
+        // — affordance preserved, chrome dropped.
+        const summary = document.createElement('div');
+        summary.style.cssText = 'display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 2px;';
+
+        const totalNum = document.createElement('strong');
+        totalNum.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;';
+        totalNum.textContent = String(counts.total);
+        summary.appendChild(totalNum);
+        const totalLbl = document.createElement('span');
+        totalLbl.style.cssText = 'font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;';
+        totalLbl.textContent = 'tools governed';
+        summary.appendChild(totalLbl);
+
+        const mkInlineFilter = (key, value, label, accent) => {
+            if (value === 0) return null;
+            const isActive = heroFilter === key;
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.dataset.heroTile = key;
+            const activeBg = 'color-mix(in srgb, ' + accent + ' 14%, transparent)';
+            chip.style.cssText = 'display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; font: inherit; font-size: 11px; font-weight: 600; line-height: 1.3; background: ' + (isActive ? activeBg : 'transparent') + '; border: 1px solid ' + (isActive ? accent : 'transparent') + '; border-radius: 999px; color: var(--text-secondary); cursor: pointer; transition: border-color 0.12s, background 0.12s, color 0.12s;';
+            chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            chip.addEventListener('mouseenter', () => {
+                if (!isActive) {
+                    chip.style.color = 'var(--text-primary)';
+                    chip.style.borderColor = accent + '66';
+                }
+            });
+            chip.addEventListener('mouseleave', () => {
+                if (!isActive) {
+                    chip.style.color = 'var(--text-secondary)';
+                    chip.style.borderColor = 'transparent';
+                }
+            });
+            chip.addEventListener('click', () => {
+                const nextFilter = (this._heroFilter === key) ? null : key;
+                this._heroFilter = nextFilter;
+                // Auto-switch the category tab so the filtered rows
+                // actually have a home. Without this, clicking "cloud"
+                // on the Claude Code tab tries to filter editableTools
+                // by is_synced — but editableTools EXCLUDES synced
+                // rows by construction → empty result. Symmetric for
+                // clicking "local" while parked on Org Policies.
+                if (nextFilter === 'synced' || nextFilter === 'last_resort') {
+                    this._activeCategory = '__cloud__';
+                } else if (nextFilter === 'override') {
+                    this._activeCategory = null; // "All" — local rows can live in any category
+                }
+                this.renderTools(container);
+            });
+            const v = document.createElement('strong');
+            v.style.cssText = 'font-weight: 700; color: ' + accent + ';';
+            v.textContent = String(value);
+            chip.appendChild(v);
+            const l = document.createElement('span');
+            l.textContent = ' ' + label;
+            chip.appendChild(l);
+            return chip;
+        };
+
+        const localChip = mkInlineFilter('override',    counts.override,    'local',       '#d97706');
+        const cloudChip = mkInlineFilter('synced',      counts.synced,      'cloud',       '#06b6d4');
+        const lastChip  = mkInlineFilter('last_resort', counts.last_resort, 'last-resort', '#dc2626');
+        if (localChip || cloudChip || lastChip) {
+            const sep = document.createElement('span');
+            sep.style.cssText = 'font-size: 10px; color: var(--text-muted);';
+            sep.textContent = '·';
+            summary.appendChild(sep);
+        }
+        if (localChip) summary.appendChild(localChip);
+        if (cloudChip) summary.appendChild(cloudChip);
+        if (lastChip)  summary.appendChild(lastChip);
+
+        heroSlot.textContent = '';
+        heroSlot.appendChild(summary);
+
+        // ── Page-level two-column layout: editable list + cloud sidebar ──
+        //
+        // Splitting cloud-managed rows out of the main flow turns the
+        // page into two clear narratives: the left column is editable
+        // rows (default + local overrides); the right is the org's
+        // decisions (synced + last-resort). Below 960px the sidebar
+        // wraps under the main list.
+        const sortedTools = [...this.tools].sort((a, b) => {
+            const ra = categoryRank(a.category || 'unknown');
+            const rb = categoryRank(b.category || 'unknown');
+            if (ra !== rb) return ra - rb;
+            return (a.name || a.tool_id || '').localeCompare(b.name || b.tool_id || '');
+        });
+
+        const passesHeroFilter = (tool) => {
+            if (!this._heroFilter) return true;
+            if (this._heroFilter === 'override')    return !!tool.has_override && !tool.is_synced && !tool.is_last_resort;
+            if (this._heroFilter === 'synced')      return !!tool.is_synced;
+            if (this._heroFilter === 'last_resort') return !!tool.is_last_resort;
+            return true;
+        };
+
+        const editableTools = sortedTools.filter(t => !t.is_synced && !t.is_last_resort);
+        const managedTools  = sortedTools.filter(t =>  t.is_synced ||  t.is_last_resort);
+        // "Cloud policies" = org-pushed synced rules. Compiled-in
+        // last_resort rules are NOT cloud policies — they ship with the
+        // app — so the Cloud Sync · Org Policies tab is gated on the
+        // synced count alone. Last-resort rows still appear in their
+        // native category tabs.
+        const cloudPolicyCount = sortedTools.filter(t => t.is_synced).length;
+
+        // Category-tab state (null = All). Stored on `this` so tab choice
+        // survives re-renders (hero filter clicks, override toggles).
+        if (this._activeCategory === undefined) this._activeCategory = null;
+        // Defensive — if a category disappears from the data (e.g. the
+        // last tool in that category becomes cloud-managed), reset to
+        // All rather than leaving the user with an unmatchable tab.
+        const editableCategoryCounts = {};
+        editableTools.forEach(t => {
+            const c = t.category || 'unknown';
+            editableCategoryCounts[c] = (editableCategoryCounts[c] || 0) + 1;
+        });
+        // Exempt synthetic sentinels (__custom__ + __cloud__) from the
+        // category-disappeared reset — they're never real tool.category
+        // values, so the count check would falsely reset them every
+        // render and those tabs would never activate.
+        const SYNTHETIC_TABS = new Set(['__custom__', '__cloud__']);
+        if (this._activeCategory
+            && !SYNTHETIC_TABS.has(this._activeCategory)
+            && !editableCategoryCounts[this._activeCategory]) {
+            this._activeCategory = null;
+        }
+        // If the Cloud tab is no longer rendered (last cloud policy was
+        // retracted) but the user was sitting on it, fall back to All so
+        // the page doesn't render an empty list under a missing tab.
+        if (this._activeCategory === '__cloud__' && cloudPolicyCount === 0) {
+            this._activeCategory = null;
+        }
+        const passesCategoryTab = (tool) => {
+            if (this._activeCategory === null) return true;
+            return (tool.category || 'unknown') === this._activeCategory;
+        };
+
+        // Org Policies (formerly the left sidebar / cloud-managed-as-tab
+        // confusion) is now a single dedicated tab placed right after
+        // "All" in the tab bar. The split-column layout goes away — the
+        // page is a single column again, and the tab system carries the
+        // routing between "your editable tools" and "your org's rules".
+        const split = document.createElement('div');
+        split.style.cssText = 'display: flex; flex-direction: column; min-width: 0;';
+
+        const mainCol = document.createElement('div');
+        mainCol.style.cssText = 'min-width: 0; display: flex; flex-direction: column; gap: 6px;';
+
+        // Tab bar — "All <total>" followed by one tab per non-empty
+        // category, ordered by CATEGORY_ORDER. Underline-style active
+        // indicator using the category's accent color so the active tab
+        // visually picks up the category's brand.
+        const visibleCats = [
+            ...CATEGORY_ORDER.filter(k => editableCategoryCounts[k] > 0),
+            ...Object.keys(editableCategoryCounts).filter(k => !CATEGORY_ORDER.includes(k)),
+        ];
+
+        const tabBar = document.createElement('div');
+        tabBar.setAttribute('role', 'tablist');
+        tabBar.setAttribute('aria-label', 'Filter by category');
+        // Wrap onto multiple lines so EVERY category tab is visible
+        // without horizontal scrolling. Earlier `overflow-x: auto` hid
+        // late-order categories (Code & DevOps, File System, etc.) off
+        // the right edge with no scroll affordance.
+        tabBar.style.cssText = 'display: flex; align-items: stretch; flex-wrap: wrap; gap: 4px; padding: 2px 0;';
+
+        const mkTab = (key, label, count, accentColor, withCloudIcon) => {
+            const isActive = (this._activeCategory === key);
+            const isHighlighted = !!withCloudIcon; // Org Policies tab — always
+            // visually pinned (accent border + tinted fill + bolder text)
+            // even when inactive, so it can't be missed in the tab row.
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            const tabKeyStr = key === null ? '__all__' : key;
+            const tabId = `tp-tab-${tabKeyStr.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+            tab.id = tabId;
+            tab.setAttribute('role', 'tab');
+            tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            // Associate each tab with the single listWrap panel so SRs
+            // can navigate from tab to its content region. Panel id is
+            // set on listWrap below (id="tool-perms-list").
+            tab.setAttribute('aria-controls', 'tool-perms-list');
+            tab.tabIndex = isActive ? 0 : -1; // roving tabindex
+            tab.dataset.tabKey = tabKeyStr;
+
+            const restingBorder = isHighlighted
+                ? (accentColor || '#06b6d4')
+                : 'var(--border-default)';
+            const borderColor = isActive
+                ? (accentColor || '#06b6d4')
+                : restingBorder;
+
+            const restingBg = isHighlighted
+                ? (accentColor
+                    ? 'color-mix(in srgb, ' + accentColor + ' 12%, var(--bg-card))'
+                    : 'rgba(6,182,212,0.10)')
+                : 'var(--bg-tertiary)';
+            const fillBg = isActive
+                ? (accentColor
+                    ? 'color-mix(in srgb, ' + accentColor + ' 22%, var(--bg-card))'
+                    : 'rgba(6,182,212,0.16)')
+                : restingBg;
+
+            const txtColor = (isActive || isHighlighted)
+                ? 'var(--text-primary)'
+                : 'var(--text-secondary)';
+            const borderWidth = isHighlighted ? '1.5px' : '1px';
+            const ringShadow = isHighlighted
+                ? '0 0 0 2px ' + (accentColor || '#06b6d4') + '1f, 0 1px 4px ' + (accentColor || '#06b6d4') + '24'
+                : 'none';
+
+            tab.style.cssText = 'flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font: inherit; font-size: 11px; font-weight: 700; background: ' + fillBg + '; border: ' + borderWidth + ' solid ' + borderColor + '; border-radius: 6px; color: ' + txtColor + '; cursor: pointer; line-height: 1; white-space: nowrap; box-shadow: ' + ringShadow + '; transition: color 0.12s, border-color 0.12s, background 0.12s, transform 0.08s, box-shadow 0.12s;';
+            tab.addEventListener('mouseenter', () => {
+                if (!isActive) {
+                    tab.style.color = 'var(--text-primary)';
+                    tab.style.borderColor = accentColor || 'var(--text-secondary)';
+                    tab.style.transform = 'translateY(-1px)';
+                }
+            });
+            tab.addEventListener('mouseleave', () => {
+                if (!isActive) {
+                    tab.style.color = isHighlighted ? 'var(--text-primary)' : 'var(--text-secondary)';
+                    tab.style.borderColor = restingBorder;
+                    tab.style.transform = 'translateY(0)';
+                }
+            });
+            if (withCloudIcon) {
+                // Inline cloud-check SVG — makes the Org Policies tab
+                // visually distinct from the category tabs without a
+                // second color cue.
+                const ico = this._svgCloudCheck(12);
+                ico.style.color = accentColor || '#06b6d4';
+                tab.appendChild(ico);
+            } else if (accentColor && key !== null) {
+                const dot = document.createElement('span');
+                dot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: ' + accentColor + '; flex-shrink: 0;';
+                dot.setAttribute('aria-hidden', 'true');
+                tab.appendChild(dot);
+            }
+            const lbl = document.createElement('span');
+            lbl.textContent = label;
+            tab.appendChild(lbl);
+            const cnt = document.createElement('span');
+            cnt.style.cssText = 'font-size: 10px; font-weight: 500; padding: 1px 6px; background: ' + (isActive ? (accentColor ? 'color-mix(in srgb, ' + accentColor + ' 18%, transparent)' : 'rgba(6,182,212,0.18)') : 'var(--bg-tertiary)') + '; color: ' + (isActive ? (accentColor || '#06b6d4') : 'var(--text-muted)') + '; border-radius: 999px;';
+            cnt.textContent = String(count);
+            tab.appendChild(cnt);
+            tab.addEventListener('click', () => {
+                this._activeCategory = key;
+                // Switching to the Cloud tab clears the hero "Local
+                // overrides" filter — that filter excludes synced rows
+                // by definition, so leaving it on would render the cloud
+                // tab empty with a stale lit chip. Conflict noted by
+                // dev + designer reviews (round 5).
+                if (key === '__cloud__' && this._heroFilter === 'override') {
+                    this._heroFilter = null;
+                }
+                this.renderTools(container);
+            });
+            // Provenance tooltip on the highlighted tabs — supplements
+            // the removed in-page intro banner without adding chrome.
+            if (withCloudIcon && key === '__cloud__') {
+                tab.title = 'Managed in your cloud admin console — read-only here.';
+            }
+            return tab;
+        };
+
+        tabBar.appendChild(mkTab(null, 'All', editableTools.length, null));
+        // Cloud-Sync Org Policies tab — leftmost after All, cyan accent,
+        // prefixed with a cloud-check icon, always visually pinned
+        // (highlight=true) even when inactive. Renders only when at
+        // least one synced (org-pushed) rule exists — last_resort rules
+        // alone do not warrant the tab since they aren't cloud policies.
+        if (cloudPolicyCount > 0) {
+            // Shortened from "Cloud Sync · Org Policies" — the cloud
+            // icon next to the label already conveys the sync semantic
+            // and the byline below says "Managed in your cloud admin
+            // console", so the longer label was redundant + caused
+            // tab-row wrap on narrow viewports.
+            tabBar.appendChild(mkTab('__cloud__', 'Org Policies', cloudPolicyCount, '#06b6d4', true));
+        }
+        visibleCats.forEach(cat => {
+            const acc = categoryAccents[cat] || { color: '#64748b' };
+            tabBar.appendChild(mkTab(cat, categoryLabels[cat] || cat, editableCategoryCounts[cat], acc.color));
+        });
+        // Custom tools tab — surfaces user-authored tools that previously
+        // only existed as a section buried below the registry list.
+        const customCount = (this.customTools || []).length;
+        tabBar.appendChild(mkTab('__custom__', '+ Custom', customCount, '#5eadb8'));
+
+        // Arrow-key navigation across tabs (left/right) per WAI-ARIA tab
+        // pattern — Home/End jump to first/last. Click already works.
+        //
+        // Focus-restore: the click handler calls renderTools() which
+        // wipes + rebuilds the tab bar synchronously, so the tab DOM
+        // node we focused before the click becomes detached. After
+        // re-render, requestAnimationFrame schedules a re-query of
+        // the new tab bar and focuses the now-active tab — keeping
+        // keyboard navigation usable across re-renders.
+        const focusActiveTabAfterRender = () => {
+            requestAnimationFrame(() => {
+                const newBar = container.querySelector('[role="tablist"]');
+                if (!newBar) return;
+                const activeTab = newBar.querySelector('[aria-selected="true"]');
+                if (activeTab) activeTab.focus();
+            });
+        };
+        tabBar.addEventListener('keydown', (e) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+            const tabs = Array.from(tabBar.querySelectorAll('[role="tab"]'));
+            const currentIdx = tabs.findIndex(t => t === document.activeElement);
+            if (currentIdx < 0) return;
+            let next;
+            if (e.key === 'ArrowLeft')  next = (currentIdx - 1 + tabs.length) % tabs.length;
+            else if (e.key === 'ArrowRight') next = (currentIdx + 1) % tabs.length;
+            else if (e.key === 'Home')  next = 0;
+            else                        next = tabs.length - 1;
+            e.preventDefault();
+            tabs[next].click();
+            focusActiveTabAfterRender();
+        });
+
+        mainCol.appendChild(tabBar);
+
+        const listWrap = document.createElement('div');
+        listWrap.id = 'tool-perms-list';
+        // WAI-ARIA tabs pattern: each tab in tabBar carries
+        // aria-controls="tool-perms-list", and the panel points back
+        // at the active tab via aria-labelledby. SRs now navigate
+        // tab → content region as a proper relationship.
+        listWrap.setAttribute('role', 'tabpanel');
+        listWrap.setAttribute('tabindex', '0');
+        // Resolve which tab is "active" for aria-labelledby. Synthetic
+        // sentinels render their own tab ids; real category keys do too.
+        const activeTabKey = this._activeCategory === null
+            ? '__all__'
+            : this._activeCategory;
+        listWrap.setAttribute(
+            'aria-labelledby',
+            'tp-tab-' + activeTabKey.replace(/[^a-zA-Z0-9_]/g, '_'),
+        );
+        // 2-column grid at wide viewports — 89 rows in a single column
+        // forced ~2400px of vertical scroll. With minmax(540px, 1fr) the
+        // grid produces 2 cols at ≥1100px and falls back to 1 col below
+        // ~620px (mobile + narrow split panes). Each row still carries
+        // the full stripe + icon + name + meta + action, so the
+        // scan-down-the-stripe affordance survives per column.
+        listWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(540px, 1fr)); gap: 2px 8px; align-content: start;';
+
+        // Route the list to the right population based on the active tab.
+        // Org Policies tab → cloud-managed (synced+last_resort) rows.
+        // Custom tab → handled below (renders custom-tools UI in place).
+        // Anything else → editable rows filtered by category.
+        let activeList;
+        let emptyMsg;
+        if (this._activeCategory === '__cloud__') {
+            activeList = managedTools.filter(passesHeroFilter);
+            emptyMsg = this._heroFilter
+                ? 'No org-pushed rules match the active filter.'
+                : 'No org-pushed rules yet.';
+        } else {
+            activeList = editableTools.filter(t => passesHeroFilter(t) && passesCategoryTab(t));
+            emptyMsg = this._heroFilter
+                ? 'No tools match the active filter.'
+                : 'No editable tools found.';
+        }
+
+        // Single muted byline (no card chrome) when the Cloud tab is
+        // active — the tab + count + row stripes already establish the
+        // "cloud" identity. Designer review (round 5) flagged the prior
+        // cyan-tinted card as redundant repetition.
+        if (this._activeCategory === '__cloud__' && activeList.length > 0) {
+            const byline = document.createElement('div');
+            byline.style.cssText = 'padding: 0 4px; margin-bottom: 2px; font-size: 11px; color: var(--text-muted); line-height: 1.4;';
+            byline.textContent = 'Managed in your cloud admin console — read-only here.';
+            mainCol.appendChild(byline);
+        }
+
+        // Bulk-actions toolbar for the active tab — Allow all / Block all
+        // chain PUT calls. Hidden on the Org Policies + Custom tabs and
+        // when there are no editable rows. The strip shows a count of
+        // rows the action will affect (locked/synced rows are skipped).
+        if (
+            this._activeCategory !== '__cloud__'
+            && this._activeCategory !== '__custom__'
+            && activeList.length > 0
+        ) {
+            const editable = activeList.filter(t => !t.is_last_resort && !t.is_synced);
+            if (editable.length > 0) {
+                mainCol.appendChild(this._buildBulkActionsBar(editable, categoryLabels));
+            }
+        }
+
+        activeList.forEach(tool => {
+            const accent = categoryAccents[tool.category] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+            listWrap.appendChild(this._createToolListCard(tool, accent, categoryLabels));
+        });
+        if (activeList.length === 0 && this._activeCategory !== '__custom__') {
+            const placeholder = document.createElement('div');
+            placeholder.style.cssText = 'padding: 24px 12px; text-align: center; font-size: 12px; color: var(--text-muted); border: 1px dashed var(--border-default); border-radius: 8px;';
+            placeholder.textContent = emptyMsg;
+            listWrap.appendChild(placeholder);
+        }
+        mainCol.appendChild(listWrap);
+
+        split.appendChild(mainCol);
+        columnsWrap.appendChild(split);
+
+        // Custom Tools section — now driven by the "+ Custom" tab.
+        // When that tab is active, render inline INSIDE the main column
+        // (replaces listWrap content). Otherwise render nothing — users
+        // discover custom tools via the visible tab in the tab bar
+        // instead of having to scroll past the whole registry to find
+        // them buried at the bottom.
+        if (this._activeCategory === '__custom__') {
+            // Empty out the registry list — custom tools take the slot.
+            listWrap.textContent = '';
+            listWrap.style.display = 'none';
+            // Render custom tools UI inline under the tabs.
+            const customHost = document.createElement('div');
+            mainCol.appendChild(customHost);
+            this.renderCustomToolsSection(customHost);
+        }
+
+        // (Removed: the standalone renderCloudOnlyCategoryColumn block.
+        // It was duplicating the cloud-managed sidebar visually. Cloud-
+        // only-unregistered rules will reappear as a sub-section inside
+        // the sidebar in a follow-up commit.)
 
         container.appendChild(columnsWrap);
 
@@ -2230,6 +2641,340 @@ const ToolPermissionsPage = {
         };
 
         await loadAuditData(null);
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // Compact list card — 56px row used in the 2-column flow layout.
+    //
+    // Visual contract (from UX-expert direction):
+    //   • Leading 4px left edge stripe colored by decision-source
+    //     (gray=default, amber=local, cyan=cloud-synced, red=last-resort).
+    //     Scanning down the list = instant policy-drift view.
+    //   • Three columns: icon (32px) · text block (name + mcp_server
+    //     subtitle, both single-line) · action button (right-aligned).
+    //   • NO category pill, NO source pill, NO inline risk pill — those
+    //     dimensions live in the search index (data-search) and tooltip.
+    //     The user can search by category/source/risk text; on hover the
+    //     row title surfaces tool_id + server.
+    //   • Locked rows (synced / last-resort): opacity 0.6, action button
+    //     becomes a lock pill with the policy attribution as tooltip.
+    //
+    // Filter-compatibility contract — _applyToolFilter queries
+    // `[data-tool-row]` and reads `data-status` + `data-search`, so the
+    // row must carry those exact attributes for the existing search +
+    // status chip filter to keep working unchanged.
+    // ──────────────────────────────────────────────────────────────────
+    /**
+     * Bulk-actions strip for a category tab — Allow all / Block all that
+     * chain `setToolOverride` / `deleteToolOverride` per row. Skips
+     * locked rows (synced / last_resort). Fires a themed `Modal.confirm`
+     * before chaining so users don't trip the dozen-PUT cascade by
+     * accident.
+     */
+    _buildBulkActionsBar(editable, categoryLabels) {
+        const self = this;
+        const wrap = document.createElement('div');
+        wrap.dataset.bulkActions = '1';
+        wrap.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 6px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border-default); font-size: 12px;';
+
+        const label = document.createElement('span');
+        label.style.cssText = 'color: var(--text-muted); margin-right: 4px;';
+        const tabLabel = this._activeCategory === null
+            ? 'All editable tools'
+            : (categoryLabels[this._activeCategory] || this._activeCategory);
+        label.textContent = `${tabLabel} · ${editable.length} editable`;
+        wrap.appendChild(label);
+
+        const spacer = document.createElement('div');
+        spacer.style.cssText = 'flex: 1;';
+        wrap.appendChild(spacer);
+
+        const mkBtn = (text, variant, hoverColor) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            const palette = variant === 'allow'
+                ? { fg: '#10b981', bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.35)' }
+                : { fg: '#ef4444', bg: 'rgba(239,68,68,0.10)', border: 'rgba(239,68,68,0.35)' };
+            btn.style.cssText = 'padding: 3px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s; '
+                + 'color: ' + palette.fg + '; background: ' + palette.bg + '; border: 1px solid ' + palette.border + ';';
+            btn.textContent = text;
+            return btn;
+        };
+
+        const allowBtn = mkBtn('✓ Allow all', 'allow');
+        const blockBtn = mkBtn('🔒 Block all', 'block');
+        wrap.appendChild(allowBtn);
+        wrap.appendChild(blockBtn);
+
+        const runBulk = async (action) => {
+            const verb = action === 'allow' ? 'Allow' : 'Block';
+            const past = action === 'allow' ? 'allowed' : 'blocked';
+            try {
+                let okCount = 0;
+                let failCount = 0;
+                // Chain sequentially — backend already serialises override
+                // writes through the same SQLite connection; firing 24 in
+                // parallel doesn't help and complicates error reporting.
+                for (const tool of editable) {
+                    try {
+                        await API.setToolOverride(tool.tool_id, action);
+                        okCount += 1;
+                    } catch (e) {
+                        failCount += 1;
+                        // continue — don't let one failure abort the rest
+                    }
+                }
+                const msg = failCount === 0
+                    ? `${okCount} tool${okCount === 1 ? '' : 's'} ${past}`
+                    : `${okCount} ${past}, ${failCount} failed`;
+                if (window.Toast) Toast.show(msg, failCount === 0 ? 'success' : 'warning');
+                // Re-render the active tab so the new effective_action
+                // + source badge state is reflected immediately.
+                const container = document.getElementById('page-content');
+                if (container) self.renderTools(document.getElementById('tools-list-container') || container);
+            } catch (e) {
+                if (window.Toast) Toast.show(`Bulk ${verb.toLowerCase()} failed: ${e.message || e}`, 'error');
+            }
+        };
+
+        allowBtn.addEventListener('click', () => {
+            Modal.confirm({
+                title: 'Allow all in this tab?',
+                message: `This will set ${editable.length} tool${editable.length === 1 ? '' : 's'} in “${tabLabel}” to Allow. Synced and last-resort rows are skipped. You can change individual rows after.`,
+                confirmLabel: 'Allow all',
+                cancelLabel: 'Cancel',
+                onConfirm: () => runBulk('allow'),
+            });
+        });
+        blockBtn.addEventListener('click', () => {
+            Modal.confirm({
+                title: 'Block all in this tab?',
+                message: `This will set ${editable.length} tool${editable.length === 1 ? '' : 's'} in “${tabLabel}” to Block. Synced and last-resort rows are skipped. Subsequent tool calls to these tools will be denied at the agent runtime.`,
+                confirmLabel: 'Block all',
+                cancelLabel: 'Cancel',
+                onConfirm: () => runBulk('block'),
+            });
+        });
+
+        return wrap;
+    },
+
+    _createToolListCard(tool, accent, categoryLabels) {
+        const isManagedRow = !!(tool.is_synced || tool.is_last_resort);
+
+        // Decision-source → left-edge stripe color. The 4 colors are the
+        // page's semantic accent palette (gray/amber/cyan/red), reused
+        // from the hero tiles so visual language is consistent.
+        let stripeColor;
+        if (tool.is_last_resort)    stripeColor = '#dc2626';
+        else if (tool.is_synced)    stripeColor = '#06b6d4';
+        else if (tool.has_override) stripeColor = '#d97706';
+        else                        stripeColor = 'var(--border-default)';
+
+        const row = document.createElement('div');
+        row.dataset.toolId = tool.tool_id;
+        row.dataset.toolRow = '1';
+        row.dataset.status = isManagedRow
+            ? 'synced'
+            : (tool.effective_action === 'block' ? 'block' : 'allow');
+        // Include category + source + risk text in the search blob so a
+        // user can filter for "admin" or "communication" even though
+        // those dimensions don't render inline.
+        row.dataset.search = [
+            tool.name, tool.tool_id, tool.mcp_server, tool.provider,
+            categoryLabels[tool.category] || tool.category, tool.category,
+            tool.risk, tool.source,
+        ].filter(Boolean).join(' ').toLowerCase();
+        const titleParts = [tool.tool_id];
+        if (tool.mcp_server) titleParts.push('server: ' + tool.mcp_server);
+        if (tool.risk) titleParts.push('risk: ' + tool.risk);
+        row.title = titleParts.join(' · ');
+
+        // Row is NOT role="button" — that would create a nested-
+        // interactive a11y violation since the row contains real
+        // <button> children (action + reset). Instead, the row is a
+        // plain container; the name span below carries a dedicated
+        // "open details" affordance via `nameBtn`.
+        // RTL-correct: `border-inline-start` instead of `border-left`
+        // so the decision-source stripe stays on the leading edge.
+        //
+        // Single-line layout: [icon] [name] [meta] [flex spacer] [action]
+        // The previous two-line layout (name above, category+server
+        // subtitle stacked below) made rows feel tall AND left a wide
+        // empty horizontal gap between name and action button at desktop
+        // widths. Inlining the metadata fills the gap, drops row height
+        // from ~44px to ~32px, and gives a cleaner scan-down stripe.
+        // Row is a container — NOT clickable as a whole. The detail
+        // affordance lives on the name <button> (column 2) only. The
+        // earlier whole-row click handler created three overlapping
+        // affordances (row → detail, nameBtn → detail, actionBtn →
+        // allow/block) where users tapping "the row" expected the
+        // primary action (allow/block) and got the detail drawer. The
+        // model also diverged between mouse and keyboard. Keeping the
+        // row as a passive container resolves both ambiguities.
+        row.style.cssText = 'display: grid; grid-template-columns: 20px max-content minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; padding: 3px 8px 3px 6px; background: var(--bg-card); border: 1px solid var(--border-default); border-inline-start: 3px solid ' + stripeColor + '; border-radius: 5px; transition: border-color 0.12s, background 0.12s; ' + (isManagedRow ? 'opacity: 0.85;' : '');
+        row.addEventListener('mouseenter', () => {
+            row.style.borderColor = stripeColor;
+            row.style.background = 'var(--bg-secondary)';
+        });
+        row.addEventListener('mouseleave', () => {
+            row.style.borderColor = 'var(--border-default)';
+            row.style.background = 'var(--bg-card)';
+        });
+        const openDetail = () => this._showToolDetail(tool, row, accent);
+
+        // ── Icon ──
+        const icon = document.createElement('div');
+        icon.style.cssText = 'width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; background: ' + accent.bg + '; color: ' + accent.color + ';';
+        icon.textContent = this._getProviderIcon(tool);
+        icon.setAttribute('aria-hidden', 'true');
+        row.appendChild(icon);
+
+        // ── Name (column 2, max-content) ──
+        // The name acts as the row's primary affordance (open details).
+        // Real <button> so it's keyboard-focusable, announced as a
+        // button by SRs, and doesn't create a nested-interactive
+        // violation with the action+reset buttons in the row.
+        const nameWrap = document.createElement('div');
+        nameWrap.style.cssText = 'display: inline-flex; align-items: center; gap: 5px; min-width: 0;';
+        const nameEl = document.createElement('button');
+        nameEl.type = 'button';
+        nameEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: transparent; border: 0; padding: 0; text-align: start; cursor: pointer; min-width: 0; max-width: 240px; font-family: inherit; line-height: 1.3;';
+        nameEl.textContent = tool.name || tool.tool_id;
+        nameEl.setAttribute('aria-label', (tool.name || tool.tool_id) + ' — open details');
+        nameEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openDetail();
+        });
+        nameWrap.appendChild(nameEl);
+        if (tool.popular === true) {
+            const star = document.createElement('span');
+            star.style.cssText = 'font-size: 10px; color: #f59e0b; flex-shrink: 0;';
+            star.title = 'Commonly used by agents';
+            star.setAttribute('aria-label', 'Commonly used by agents');
+            star.setAttribute('role', 'img');
+            star.textContent = '★';
+            nameWrap.appendChild(star);
+        }
+        row.appendChild(nameWrap);
+
+        // ── Inline metadata (column 3, fills the horizontal gap) ──
+        // Category dot+label + mcp_server, formerly stacked under the
+        // name. Inlining recovers ~12px of row height and uses the
+        // horizontal space that was previously empty between the name
+        // and the action button at desktop widths.
+        const meta = document.createElement('div');
+        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 1.3;';
+        const catName = categoryLabels[tool.category] || tool.category;
+        if (catName) {
+            const catDot = document.createElement('span');
+            catDot.style.cssText = 'width: 5px; height: 5px; border-radius: 50%; background: ' + accent.color + '; flex-shrink: 0;';
+            catDot.setAttribute('aria-hidden', 'true');
+            meta.appendChild(catDot);
+            // Category label uses --text-secondary so 11px/600 over
+            // --bg-card passes WCAG AA — accent.color often fails
+            // (e.g. #a78bfa for browser_automation).
+            const catTxt = document.createElement('span');
+            catTxt.style.cssText = 'color: var(--text-secondary); font-weight: 600;';
+            catTxt.textContent = catName;
+            meta.appendChild(catTxt);
+        }
+        if (tool.mcp_server) {
+            const sep = document.createElement('span');
+            sep.textContent = '·';
+            sep.style.cssText = 'opacity: 0.5; flex-shrink: 0;';
+            if (catName) meta.appendChild(sep);
+            const srv = document.createElement('span');
+            srv.style.cssText = 'overflow: hidden; text-overflow: ellipsis; min-width: 0;';
+            srv.textContent = tool.mcp_server;
+            meta.appendChild(srv);
+        }
+        row.appendChild(meta);
+
+        // ── Action button (right-aligned) ──
+        const actionWrap = document.createElement('div');
+        actionWrap.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;';
+        let isBlocked = tool.effective_action === 'block';
+        const actionBtn = document.createElement('button');
+        actionBtn.dataset.actionBtn = '1';
+        const resetBtn = document.createElement('button');
+
+        if (isManagedRow) {
+            const isClickable = tool.is_synced && tool.synced_policy_id;
+            actionBtn.style.cssText = 'padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 1.4; border: 1px solid ' + stripeColor + '40; background: ' + stripeColor + '14; color: ' + stripeColor + '; cursor: ' + (isClickable ? 'pointer' : 'not-allowed') + '; display: inline-flex; align-items: center; gap: 4px;';
+            actionBtn.disabled = !isClickable;
+            actionBtn.appendChild(this._svgCloudCheck(11));
+            actionBtn.appendChild(document.createTextNode(tool.is_last_resort ? 'Last-resort' : 'Synced'));
+            actionBtn.title = tool.is_last_resort
+                ? (tool.last_resort_reason || 'Compiled-in last-resort rule.')
+                : ('Managed by ' + (tool.synced_source_org || 'cloud policy')
+                    + (tool.synced_policy_version != null ? ' (v' + tool.synced_policy_version + ')' : '')
+                    + (tool.synced_reason ? ' — ' + tool.synced_reason : '')
+                    + (isClickable ? ' · click to view source policy →' : ''));
+            if (isClickable) {
+                actionBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    try { sessionStorage.setItem('mcp_policy_deep_link', tool.synced_policy_id); } catch (_) {}
+                    // do not interpolate tool fields into this URL
+                    window.location.href = '/mcp-policies';
+                });
+            }
+        } else {
+            this._applyActionBtnStyle(actionBtn, isBlocked);
+            this._setBtnContent(actionBtn, isBlocked);
+            actionBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const newAction = isBlocked ? 'allow' : 'block';
+                try {
+                    await API.setToolOverride(tool.tool_id, newAction);
+                    tool.effective_action = newAction;
+                    tool.has_override = true;
+                    tool.effective_source = 'local';
+                    isBlocked = newAction === 'block';
+                    this._applyActionBtnStyle(actionBtn, isBlocked);
+                    this._setBtnContent(actionBtn, isBlocked);
+                    row.dataset.status = newAction;
+                    // Repaint the leading-edge stripe — decision source
+                    // changed to local-override (amber). Logical property
+                    // so RTL locales keep the stripe on the leading edge.
+                    row.style.borderInlineStartColor = '#d97706';
+                    resetBtn.style.display = 'inline-flex';
+                } catch (err) {
+                    if (window.Toast) Toast.show(err.message || 'Failed to update permission', 'error');
+                }
+            });
+        }
+        actionWrap.appendChild(actionBtn);
+
+        resetBtn.style.cssText = 'min-width: 20px; min-height: 20px; padding: 1px 4px; font-size: 11px; background: transparent; color: var(--text-muted); border: none; cursor: pointer; line-height: 1; border-radius: 4px; ' +
+            (tool.has_override ? 'display: inline-flex; align-items: center; justify-content: center;' : 'display: none;');
+        resetBtn.textContent = '↺';
+        resetBtn.title = 'Reset to registry default';
+        resetBtn.setAttribute('aria-label', 'Reset ' + (tool.name || tool.tool_id) + ' to registry default');
+        resetBtn.addEventListener('mouseenter', () => { resetBtn.style.color = 'var(--text-primary)'; resetBtn.style.background = 'var(--bg-secondary)'; });
+        resetBtn.addEventListener('mouseleave', () => { resetBtn.style.color = 'var(--text-muted)'; resetBtn.style.background = 'transparent'; });
+        resetBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                await API.deleteToolOverride(tool.tool_id);
+                tool.effective_action = tool.default_permission;
+                tool.has_override = false;
+                tool.effective_source = 'default';
+                isBlocked = tool.effective_action === 'block';
+                this._applyActionBtnStyle(actionBtn, isBlocked);
+                this._setBtnContent(actionBtn, isBlocked);
+                row.dataset.status = tool.effective_action === 'block' ? 'block' : 'allow';
+                row.style.borderInlineStartColor = 'var(--border-default)';
+                resetBtn.style.display = 'none';
+            } catch (err) {
+                if (window.Toast) Toast.show(err.message || 'Failed to reset', 'error');
+            }
+        });
+        actionWrap.appendChild(resetBtn);
+
+        row.appendChild(actionWrap);
+
+        return row;
     },
 
     createToolCard(tool, accent) {

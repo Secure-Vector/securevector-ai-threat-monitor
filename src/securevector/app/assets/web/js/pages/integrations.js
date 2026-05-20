@@ -880,12 +880,29 @@ def chat_with_protection(user_input):
         };
 
         const setStatusPill = (state, opts = {}) => {
-            // state: 'not-staged' | 'staged' | 'error' | 'checking'
+            // state: 'not-staged' | 'staged' | 'installed' | 'installed-disabled' | 'error' | 'checking'
+            //
+            // - 'installed' — registered AND enabled in settings.json;
+            //   user only needs /reload-plugins. Single-line success.
+            // - 'installed-disabled' — registered but settings.json
+            //   couldn't be touched; user has to enable manually.
+            // - 'staged' — files on disk but Claude Code config dir
+            //   absent. Surface legacy two-command paste-in.
             statusPill.textContent = '';
             const span = document.createElement('strong');
-            if (state === 'staged') {
+            // Unified vocabulary with sidebar banner:
+            //   Active                 — auto-installed AND enabled
+            //   Installed, not enabled — auto-installed but disabled in CC
+            //   Staged                 — files on disk, legacy paste-in path
+            if (state === 'installed') {
                 span.style.color = 'var(--success)';
-                span.textContent = 'Staged · awaiting Claude Code install';
+                span.textContent = 'Active · run /reload-plugins in Claude Code to load into your session';
+            } else if (state === 'installed-disabled') {
+                span.style.color = 'var(--warning)';
+                span.textContent = 'Installed, not enabled · enable in Claude Code then /reload-plugins';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · run the two commands below in Claude Code to finish install';
             } else if (state === 'not-staged') {
                 statusPill.style.color = 'var(--text-secondary)';
                 span.style.fontWeight = '400';
@@ -926,9 +943,19 @@ def chat_with_protection(user_input):
                 const res = await fetch('/api/hooks/claude-code/install', { method: 'POST' });
                 const result = await res.json();
                 if (result.ok) {
-                    showResult('success', `Plugin staged at ${result.staging_dir} (${result.files.length} files).`);
-                    renderCommands(result.commands);
-                    setStatusPill('staged');
+                    if (result.auto_installed && result.enabled) {
+                        showResult('success', `Installed and enabled. ${result.next_step || ''}`.trim());
+                        renderCommands([]);
+                        setStatusPill('installed');
+                    } else if (result.auto_installed) {
+                        showResult('warning', result.next_step || 'Installed but not enabled.');
+                        renderCommands([]);
+                        setStatusPill('installed-disabled');
+                    } else {
+                        showResult('success', `Plugin staged at ${result.staging_dir} (${result.files.length} files).`);
+                        renderCommands(result.commands);
+                        setStatusPill('staged');
+                    }
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';
                 } else {
@@ -950,7 +977,7 @@ def chat_with_protection(user_input):
                 const res = await fetch('/api/hooks/claude-code/uninstall', { method: 'POST' });
                 const result = await res.json();
                 if (result.ok) {
-                    showResult('warning', 'Plugin staging directory removed. The plugin will remain registered in your Claude Code session until you run `/plugin uninstall securevector-guard`.');
+                    showResult('warning', 'Plugin removed. Run /reload-plugins in your Claude Code session to drop it from the active runtime.');
                     renderCommands([]);
                     setStatusPill('not-staged');
                     installBtn.textContent = 'Install Plugin';
@@ -966,16 +993,45 @@ def chat_with_protection(user_input):
         };
 
         // --- Initial status check ---
+        // The /status endpoint reports installation but does NOT echo the
+        // two paste-in commands (that lives on /install's response). When
+        // the user lands on this page with the plugin already staged, the
+        // badge says "run the two commands below" — so derive the same
+        // two commands here from status.staging_dir + the constant plugin
+        // name. Format mirrors hooks_claude_code.py:
+        //   /plugin marketplace add <staging_dir>
+        //   /plugin install securevector-guard
+        const commandsForStaging = (stagingDir) => [
+            `/plugin marketplace add ${stagingDir}`,
+            '/plugin install securevector-guard',
+        ];
+
         setTimeout(async () => {
             try {
                 const res = await fetch('/api/hooks/claude-code/status');
                 const status = await res.json();
-                if (status.installed) {
+                if (status.installed && status.auto_installed && status.enabled) {
+                    setStatusPill('installed');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed && status.auto_installed) {
+                    // Registered in installed_plugins.json but not flipped
+                    // on in settings.json — flag so the user can enable.
+                    setStatusPill('installed-disabled');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    // Files staged but not auto-installed (e.g. ~/.claude
+                    // doesn't exist) — fall back to the legacy paste-in.
                     setStatusPill('staged');
+                    renderCommands(commandsForStaging(status.staging_dir));
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';
                 } else if (status.files_present && status.files_present.length > 0) {
                     setStatusPill('staged', { message: 'Partially staged' });
+                    renderCommands(commandsForStaging(status.staging_dir));
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';
                 } else {
@@ -989,7 +1045,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v1)';
+        featuresLabel.textContent = 'Capabilities (v4.2)';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -999,6 +1055,12 @@ def chat_with_protection(user_input):
             { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain on every call' },
             { name: 'Fail-Open', desc: 'Calls pass when SecureVector is unreachable' },
             { name: 'Built-in Tools', desc: 'Bash / Edit / Read / Write / Grep / Glob / Web*' },
+            // New capabilities introduced in this release. Threat scanning
+            // covers BOTH inbound (UserPromptSubmit — catches direct
+            // prompt-injection in chat) and outbound (PostToolUse —
+            // catches exfil shapes in Bash commands / Edit content / etc).
+            { name: 'Prompt-Injection Detection', desc: 'Scans every chat message for injection / jailbreak' },
+            { name: 'Outbound Threat Scan', desc: 'Per-tool content checked for exfil + secret leaks' },
         ];
         features.forEach(f => {
             const item = document.createElement('div');

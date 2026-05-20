@@ -15,6 +15,5 @@
     "policy-enforcement",
     "mcp",
     "guardrails"
-  ],
-  "hooks": "./hooks/hooks.json"
+  ]
 }
