@@ -4,7 +4,7 @@
 
 <h3>Audit every tool. Catch the threats. All locally.</h3>
 
-<p>Tamper-evident hash-chain audit of every tool call your AI agent makes, with allow / deny / ask rules enforced at the agent runtime — not just on a proxy. Real-time detection of prompt injection (direct and indirect), jailbreaks, credential exfiltration, and PII disclosure via 72 rules covering the OWASP LLM Top 10 + 28 agent-attack chains; monitor-by-default at zero latency, opt-in block mode for hard-stop. Token + cost tracking included. Works with Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM. Free, open-source under Apache 2.0, runs on your machine. No signup. <code>pip install</code> and you're covered in 60 seconds.</p>
+<p>SHA-256 hash-chained tamper-evident audit of every tool call your AI agent makes (one-click verifiable from the Tool Activity tab), with allow / deny / ask rules enforced at the agent runtime — not just on a proxy. Real-time detection of prompt injection (direct and indirect), jailbreaks, credential exfiltration, and PII disclosure via 72 rules covering the OWASP LLM Top 10 + 28 agent-attack chains; monitor-by-default at zero latency, opt-in block mode for hard-stop. Token + cost tracking included. Works with Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM. Free, open-source under Apache 2.0, runs on your machine. No signup. <code>pip install</code> and you're covered in 60 seconds.</p>
 
 <p><strong>For teams (Cloud · opt-in):</strong> author MCP tool-permission policies once in your SecureVector account; every enrolled device pulls and enforces them. Cloud-pushed <code>deny</code> rules fire on non-registry tools too (e.g. <code>write_File</code> on any filesystem MCP server) with case-insensitive matching. Per-org policy versioning, audit attribution to the originating policy, sliceable by device. The local install always works standalone with no signup — cloud is strictly additive.</p>
 
@@ -162,7 +162,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Every tool call is recorded into a SHA-256 hash-chained audit log — tamper-evident, queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
+Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
 
 </td>
 <td valign="top">
