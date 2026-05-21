@@ -38,7 +38,13 @@ rules:
   - (bypass|override|circumvent|disable|turn\s+off)\s+(safety|filter|restriction|guardrail|protection)
   - now\s+you\s+(are|act\s+as)\s+(a|an)\s+(unrestricted|uncensored|jailbroken)\s+\w+
   - "\\b(tell|show|give|reveal)\\s+me\\s+(everything|all|any|your)\\s+(?:\\S+\\s+){0,4}\\b(password|secret|key|token)\\b"
-  - "\\bdan\\b\\s+(?:\\S+\\s+){0,4}\\bmode\\b|developer\\s+mode|god\\s+mode\\b"
+  # Alternation parenthesised so word-boundary anchors apply to every arm.
+  # Without (?: ... ), '|' has lowest precedence and the trailing \b only
+  # anchors the LAST arm — letting 'badeveloper mode' match.
+  # The dan/mode arm uses `.{0,40}` instead of `\s+(?:\S+\s+){0,4}` so
+  # canonical phrasings like 'DAN, do anything mode' or 'DAN: mode' (with
+  # punctuation right after DAN) still match — `\s+` would have missed them.
+  - "(?:\\bdan\\b.{0,40}\\bmode\\b|\\bdeveloper\\s+mode\\b|\\bgod\\s+mode\\b)"
   - "\\b(jailbreak|escape)\\s+(?:\\S+\\s+){0,4}prompt\\b"
   - enable\s+(developer|debug|admin)\s+mode
   detection_logic:
@@ -163,9 +169,14 @@ rules:
   pattern_type: regex
   patterns:
   - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
-  - "\\b(credit.card|card.number|ccn)\\s+(?:\\S+\\s+){0,4}\\d{4}.*\\d{4}.*\\d{4}.*\\d{4}"
-  - "\\b(ssn|social.security)\\s+(?:\\S+\\s+){0,4}\\d{3}-?\\d{2}-?\\d{4}"
-  - "\\bphone\\s+(?:\\S+\\s+){0,4}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
+  # PII patterns use `.{0,40}` (max ~40 chars in a single phrase) rather
+  # than `\s+(?:\S+\s+){0,4}` so non-whitespace separators like `:`, `=`
+  # match — `ssn: 123-45-6789`, `ccn=1234567890123456`, `phone:+1...`
+  # are the canonical formats PII detectors must catch. `.` doesn't match
+  # newline by default, so multi-paragraph FPs are still prevented.
+  - "\\b(credit.card|card.number|ccn)\\b.{0,40}\\d{4}.*\\d{4}.*\\d{4}.*\\d{4}"
+  - "\\b(ssn|social.security)\\b.{0,40}\\d{3}-?\\d{2}-?\\d{4}"
+  - "\\bphone\\b.{0,40}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
   detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
   pattern_definitions:
     pattern_1:
