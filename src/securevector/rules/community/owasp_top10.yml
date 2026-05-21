@@ -185,20 +185,24 @@ rules:
   - "\\b(credit.card|card.number|ccn)\\b.{0,40}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}"
   - "\\b(ssn|social.security)\\b.{0,40}\\d{3}-?\\d{2}-?\\d{4}"
   - "\\bphone\\b.{0,40}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
-  detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
+  # NOTE: detection_logic + pattern_definitions are doc-only — engine reads
+  # `patterns:` only (verified via grep across src/ + tests/). Synced here
+  # to reflect the bounded forms shipped in 8c94d1e / baa8a45 / a1806f4 /
+  # f76e9eb so future readers / auditors see the live regex shapes.
+  detection_logic: '.*((api.key|apikey|secret.key|password|token)\s*[:=]\s*[''"]?[a-zA-Z0-9_-]{8,}|\b(credit.card|card.number|ccn)\b.{0,40}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}|\b(ssn|social.security)\b.{0,40}\d{3}-?\d{2}-?\d{4}|\bphone\b.{0,40}\+?\d{1,3}[-.\s]?\d{3,14}).*'
   pattern_definitions:
     pattern_1:
       regex: (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
-      description: Detection pattern for (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}...
+      description: Credential label followed by separator and a long secret-shaped value
     pattern_2:
-      regex: (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}
-      description: Detection pattern for (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}...
+      regex: \b(credit.card|card.number|ccn)\b.{0,40}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}
+      description: Card label followed by 16 digits in 4-4-4-4 grouping (real card formatting only)
     pattern_3:
-      regex: (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
-      description: Detection pattern for (ssn|social.security).*\d{3}-?\d{2}-?\d{4}...
+      regex: \b(ssn|social.security)\b.{0,40}\d{3}-?\d{2}-?\d{4}
+      description: SSN label followed by a 3-2-4 digit sequence
     pattern_4:
-      regex: phone.*\+?\d{1,3}[-.\s]?\d{3,14}
-      description: Detection pattern for phone.*\+?\d{1,3}[-.\s]?\d{3,14}...
+      regex: \bphone\b.{0,40}\+?\d{1,3}[-.\s]?\d{3,14}
+      description: Phone label followed by an E.164-ish digit sequence
 - category: malicious_code_generation
   description: Detects potential plugin security issues
   id: sv_llm_007_insecure_plugins
