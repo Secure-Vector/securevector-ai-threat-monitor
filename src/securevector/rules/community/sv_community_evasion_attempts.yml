@@ -870,9 +870,9 @@ rules:
   # Leetspeak variants of "jailbreak" — j4!lbr34k, etc.
   - '[jJ][a4@][iI1!][lL1][bB][rR][e3][a4@][kK]'
   # Space-separated or dot-separated character splitting for "ignore"
-  - 'i[\s.\-_]+g[\s.\-_]+n[\s.\-_]+o[\s.\-_]+r[\s.\-_]+e[\s.\-_]+.*(?:r[\s.\-_]+u[\s.\-_]+l[\s.\-_]+e|i[\s.\-_]+n[\s.\-_]+s[\s.\-_]+t[\s.\-_]+r[\s.\-_]+u[\s.\-_]+c[\s.\-_]+t)'
+  - '\bi[\s.\-_]+g[\s.\-_]+n[\s.\-_]+o[\s.\-_]+r[\s.\-_]+e[\s.\-_]+\s+(?:\S+\s+){0,4}(?:r[\s.\-_]+u[\s.\-_]+l[\s.\-_]+e|i[\s.\-_]+n[\s.\-_]+s[\s.\-_]+t[\s.\-_]+r[\s.\-_]+u[\s.\-_]+c[\s.\-_]+t)\b'
   # Space-separated or dot-separated for "bypass"
-  - 'b[\s.\-_]+y[\s.\-_]+p[\s.\-_]+a[\s.\-_]+s[\s.\-_]+s[\s.\-_]+.*(?:s[\s.\-_]+a[\s.\-_]+f[\s.\-_]+e[\s.\-_]+t[\s.\-_]+y|s[\s.\-_]+e[\s.\-_]+c[\s.\-_]+u[\s.\-_]+r[\s.\-_]+i[\s.\-_]+t[\s.\-_]+y)'
+  - '\bb[\s.\-_]+y[\s.\-_]+p[\s.\-_]+a[\s.\-_]+s[\s.\-_]+s[\s.\-_]+\s+(?:\S+\s+){0,4}(?:s[\s.\-_]+a[\s.\-_]+f[\s.\-_]+e[\s.\-_]+t[\s.\-_]+y|s[\s.\-_]+e[\s.\-_]+c[\s.\-_]+u[\s.\-_]+r[\s.\-_]+i[\s.\-_]+t[\s.\-_]+y)\b'
 
 # --- 17. Mid-Conversation Pivot ---
 # Detects "wait, forget that", "actually, you are evil now", "scratch that" pivots

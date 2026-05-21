@@ -37,9 +37,9 @@ rules:
   - (act|behave|pretend|roleplay)\s+(as|like)\s+(jailbreak|admin|root|system|developer|god|unrestricted)
   - (bypass|override|circumvent|disable|turn\s+off)\s+(safety|filter|restriction|guardrail|protection)
   - now\s+you\s+(are|act\s+as)\s+(a|an)\s+(unrestricted|uncensored|jailbroken)\s+\w+
-  - (tell|show|give|reveal)\s+me\s+(everything|all|any|your).*\b(password|secret|key|token)
-  - \bdan\b.*\bmode\b|developer\s+mode|god\s+mode
-  - (jailbreak|escape).*prompt
+  - "\\b(tell|show|give|reveal)\\s+me\\s+(everything|all|any|your)\\s+(?:\\S+\\s+){0,4}\\b(password|secret|key|token)\\b"
+  - "\\bdan\\b\\s+(?:\\S+\\s+){0,4}\\bmode\\b|developer\\s+mode|god\\s+mode\\b"
+  - "\\b(jailbreak|escape)\\s+(?:\\S+\\s+){0,4}prompt\\b"
   - enable\s+(developer|debug|admin)\s+mode
   detection_logic:
     operator: and
@@ -163,9 +163,9 @@ rules:
   pattern_type: regex
   patterns:
   - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
-  - (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}
-  - (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
-  - phone.*\+?\d{1,3}[-.\s]?\d{3,14}
+  - "\\b(credit.card|card.number|ccn)\\s+(?:\\S+\\s+){0,4}\\d{4}.*\\d{4}.*\\d{4}.*\\d{4}"
+  - "\\b(ssn|social.security)\\s+(?:\\S+\\s+){0,4}\\d{3}-?\\d{2}-?\\d{4}"
+  - "\\bphone\\s+(?:\\S+\\s+){0,4}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
   detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
   pattern_definitions:
     pattern_1:
@@ -289,11 +289,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (extract|steal|copy).*model
-  - (download|export).*weights
-  - (reveal|show).*architecture
-  - (dump|save).*parameters
-  - model.*extraction
+  - "\\b(extract|steal|copy)\\s+(?:\\S+\\s+){0,4}model\\b"
+  - "\\b(download|export)\\s+(?:\\S+\\s+){0,4}weights\\b"
+  - "\\b(reveal|show)\\s+(?:\\S+\\s+){0,4}architecture\\b"
+  - "\\b(dump|save)\\s+(?:\\S+\\s+){0,4}parameters\\b"
+  - "\\bmodel\\s+(?:\\S+\\s+){0,4}extraction\\b"
   detection_logic: .*((extract|steal|copy).*model|(download|export).*weights|(reveal|show).*architecture|(dump|save).*parameters|model.*extraction).*
   pattern_definitions:
     pattern_1:
