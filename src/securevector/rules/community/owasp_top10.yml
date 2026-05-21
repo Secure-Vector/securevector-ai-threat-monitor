@@ -217,29 +217,38 @@ rules:
   severity: high
   tier: community
   pattern_type: regex
+  # Bounded-distance variants — replace unanchored `.*` with `\s+(?:\S+\s+){0,4}`
+  # to limit each pair of trigger tokens to a single phrase (~5 words). The
+  # prior patterns matched across arbitrary distances and produced critical-
+  # severity false positives on any 1-2 KB prose that happened to contain
+  # the trigger words in unrelated paragraphs (e.g. a security-review brief
+  # mentioning "Remove" early and "files" near the end). The alternation
+  # `(send|transfer).*money|funds` was also wrong — it matched any text
+  # containing the word "funds" because of operator precedence; corrected
+  # below.
   patterns:
-  - (execute|run|perform).*autonomous
-  - (delete|remove|destroy).*all.*files
-  - (send|transfer).*money|funds
-  - (access|modify).*system.*files
-  - unlimited.*permissions
-  detection_logic: .*((execute|run|perform).*autonomous|(delete|remove|destroy).*all.*files|(send|transfer).*money|funds|(access|modify).*system.*files|unlimited.*permissions).*
+  - \b(execute|run|perform)\s+(?:\S+\s+){0,4}autonomous\b
+  - \b(delete|remove|destroy)\s+(?:\S+\s+){0,4}all\s+(?:\S+\s+){0,4}files\b
+  - \b(send|transfer)\s+(?:\S+\s+){0,4}(money|funds)\b
+  - \b(access|modify)\s+(?:\S+\s+){0,4}system\s+(?:\S+\s+){0,4}files\b
+  - \bunlimited\s+(?:\S+\s+){0,4}permissions\b
+  detection_logic: any
   pattern_definitions:
     pattern_1:
-      regex: (execute|run|perform).*autonomous
-      description: Detection pattern for (execute|run|perform).*autonomous...
+      regex: \b(execute|run|perform)\s+(?:\S+\s+){0,4}autonomous\b
+      description: Autonomous-execution intent within a single phrase
     pattern_2:
-      regex: (delete|remove|destroy).*all.*files
-      description: Detection pattern for (delete|remove|destroy).*all.*files...
+      regex: \b(delete|remove|destroy)\s+(?:\S+\s+){0,4}all\s+(?:\S+\s+){0,4}files\b
+      description: Destructive bulk-delete intent within a single phrase
     pattern_3:
-      regex: (send|transfer).*money|funds
-      description: Detection pattern for (send|transfer).*money|funds...
+      regex: \b(send|transfer)\s+(?:\S+\s+){0,4}(money|funds)\b
+      description: Financial-transfer intent within a single phrase
     pattern_4:
-      regex: (access|modify).*system.*files
-      description: Detection pattern for (access|modify).*system.*files...
+      regex: \b(access|modify)\s+(?:\S+\s+){0,4}system\s+(?:\S+\s+){0,4}files\b
+      description: System-file access intent within a single phrase
     pattern_5:
-      regex: unlimited.*permissions
-      description: Detection pattern for unlimited.*permissions...
+      regex: \bunlimited\s+(?:\S+\s+){0,4}permissions\b
+      description: Excessive-permission grant within a single phrase
 - category: misinformation_generation
   description: Detects scenarios that may lead to overreliance on LLM outputs
   id: sv_llm_009_overreliance
