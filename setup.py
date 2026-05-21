@@ -125,6 +125,11 @@ setup(
             "app/assets/web/js/**/*",
             "app/assets/web/icons/*",
             "plugins/openclaw/*",
+            "plugins/claude-code/**/*",
+            # setuptools' `**/*` glob skips dot-prefixed dirs — list .claude-plugin/
+            # explicitly so plugin.json (the file Claude Code reads to discover
+            # the plugin) actually ships in the wheel.
+            "plugins/claude-code/.claude-plugin/*",
         ],
         "": ["NOTICE"],
     },

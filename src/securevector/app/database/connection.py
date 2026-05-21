@@ -37,7 +37,17 @@ class DatabaseConnection:
         """
         self.db_path = db_path or get_database_path()
         self._connection: Optional[aiosqlite.Connection] = None
-        self._lock = asyncio.Lock()
+        # Lock is lazy-initialised on first async access. On Python 3.9
+        # `asyncio.Lock()` calls `events.get_event_loop()` eagerly, which
+        # raises `RuntimeError: There is no current event loop` whenever
+        # the connection is constructed from sync code that hasn't yet
+        # entered an event loop (e.g., pytest fixtures that build the
+        # connection before `asyncio.run`). On 3.10+ the loop binding is
+        # deferred internally so direct construction is fine. Lazy-init
+        # keeps both paths working. Asyncio's cooperative single-thread
+        # model makes the check + assign race-free without a sync
+        # primitive.
+        self._lock: Optional[asyncio.Lock] = None
 
     async def connect(self) -> aiosqlite.Connection:
         """
@@ -46,6 +56,8 @@ class DatabaseConnection:
         Returns:
             Active aiosqlite connection.
         """
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         async with self._lock:
             if self._connection is None:
                 logger.info(f"Connecting to database: {self.db_path}")
@@ -65,6 +77,11 @@ class DatabaseConnection:
 
     async def disconnect(self) -> None:
         """Close database connection if open."""
+        if self._lock is None:
+            # No connect() ever ran → nothing to disconnect. Lazy-init
+            # mirrors the connect() pattern so disconnect-before-connect
+            # is a no-op rather than NoneType errors.
+            return
         async with self._lock:
             if self._connection is not None:
                 logger.info("Closing database connection")

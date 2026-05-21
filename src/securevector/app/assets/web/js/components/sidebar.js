@@ -39,6 +39,7 @@ const Sidebar = {
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
@@ -292,15 +293,36 @@ const Sidebar = {
                     subNav.style.display = isExpanded ? 'block' : 'none';
                 }
 
+                // Sub-items eligible for a session-only NEW badge — first-view
+                // highlight that auto-dismisses after 30s so the sidebar
+                // doesn't stay permanently shouty. Mirror of the top-level
+                // session-NEW list above; kept separate because sub-items
+                // render in a different branch and the keys aren't shared
+                // with the top-level item IDs.
+                const subNewItems = ['proxy-claude-code'];
+
                 item.subItems.forEach(subItem => {
                     const subNavItem = document.createElement('div');
                     subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
-                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85;';
+                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px;';
 
                     const subLabel = document.createElement('span');
                     subLabel.textContent = subItem.label;
+                    subLabel.style.cssText = 'flex: 1; min-width: 0;';
                     subNavItem.appendChild(subLabel);
+
+                    if (subNewItems.includes(subItem.id) && !sessionStorage.getItem('sv-new-seen-' + subItem.id)) {
+                        const newBadge = document.createElement('span');
+                        newBadge.style.cssText = 'display: inline-flex; align-items: center; font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(180,83,9,0.2); color: #d97706; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
+                        newBadge.textContent = 'NEW';
+                        const dismiss = () => {
+                            sessionStorage.setItem('sv-new-seen-' + subItem.id, '1');
+                            newBadge.remove();
+                        };
+                        subNavItem.appendChild(newBadge);
+                        setTimeout(dismiss, 30000);
+                    }
 
                     subNavItem.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -363,6 +385,54 @@ const Sidebar = {
         proxyBanner.appendChild(bannerText);
         bottomSection.appendChild(proxyBanner);
 
+        // Claude Code plugin indicator — same compact pattern as the
+        // proxy/SIEM banners. Visible only when the plugin is staged
+        // (or auto-installed on Claude Code) so it doesn't shout when
+        // nothing is in flight. Purple accent (8b5cf6) matches the
+        // Claude Code category color on Tool Permissions.
+        // Use a real <button> so keyboard users can Tab into it and
+        // Enter/Space activates the same handler — replaces the prior
+        // clickable <div> pattern (fails WCAG 2.1 SC 2.1.1 and 4.1.2).
+        // aria-live="polite" announces state transitions to screen
+        // readers when the banner becomes visible / changes copy.
+        // Real <button> for keyboard reach + WCAG 2.1 SC 2.1.1/4.1.2.
+        // aria-label uses neutral verb ("Open Claude Code plugin
+        // settings") so it doesn't exclude keyboard/touch users with
+        // "click to manage" phrasing.
+        // Note: aria-live is placed on the INNER text span only —
+        // SRs skip live-region announcements on display:none parents,
+        // and we want state transitions ("staged" → "active") to be
+        // heard. The wrapper button stays hidden until needed; the
+        // inner span is the live region that gets repopulated.
+        const ccPluginBanner = document.createElement('button');
+        ccPluginBanner.type = 'button';
+        ccPluginBanner.id = 'cc-plugin-active-banner';
+        ccPluginBanner.className = 'proxy-banner-pulse';
+        ccPluginBanner.setAttribute('aria-label', 'Open Claude Code plugin settings');
+        // Padding + margin match the OpenClaw / SIEM banners exactly
+        // (4px 10px / 8px 12px 0) so the three stack as equal-height
+        // rows. `min-height` is dropped — letting the row size to its
+        // content keeps it the same height as the sibling banners.
+        // `width: calc(100% - 24px)` is still needed because <button>
+        // doesn't auto-fill the way <div> does.
+        ccPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(139,92,246,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        ccPluginBanner.addEventListener('mouseenter', () => { ccPluginBanner.style.background = 'rgba(139,92,246,0.06)'; });
+        ccPluginBanner.addEventListener('mouseleave', () => { ccPluginBanner.style.background = 'transparent'; });
+        const ccDot = document.createElement('span');
+        ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #8b5cf6; flex-shrink: 0;';
+        ccDot.setAttribute('aria-hidden', 'true');
+        ccPluginBanner.appendChild(ccDot);
+        const ccText = document.createElement('span');
+        ccText.id = 'cc-plugin-banner-text';
+        // aria-live on the text-bearing inner span so SRs announce
+        // state changes regardless of parent display state.
+        ccText.setAttribute('aria-live', 'polite');
+        ccText.setAttribute('aria-atomic', 'true');
+        ccText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        ccPluginBanner.appendChild(ccText);
+        ccPluginBanner.addEventListener('click', () => this.navigate('proxy-claude-code'));
+        bottomSection.appendChild(ccPluginBanner);
+
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
         // when the master toggle is enabled AND at least one destination
@@ -385,9 +455,29 @@ const Sidebar = {
         siemBanner.addEventListener('click', () => this.navigate('siem-export'));
         bottomSection.appendChild(siemBanner);
 
-        // Check both indicators on init; each polls its own interval.
+        // Check all three indicators on init; each polls its own interval.
         this.checkProxyStatus();
         this.checkSiemStatus();
+        this.checkClaudeCodePluginStatus();
+
+        // Resume polling when the document becomes visible again. The
+        // poll loops self-terminate when visibilityState !== 'visible'
+        // (to save background CPU), so without this listener a window
+        // that was briefly backgrounded — e.g., during a backend
+        // restart — would silently stop refreshing the indicators and
+        // never restart them. Idempotent because each `check*` checks
+        // for its own DOM node before re-scheduling, so calling them
+        // when already polling is a no-op.
+        if (!this._visibilityHookInstalled) {
+            this._visibilityHookInstalled = true;
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    this.checkProxyStatus();
+                    this.checkSiemStatus();
+                    this.checkClaudeCodePluginStatus();
+                }
+            });
+        }
 
         // Try SecureVector button — opens floating chat
         const tryBtn = document.createElement('button');
@@ -705,6 +795,48 @@ const Sidebar = {
             }
         } catch (_) { /* ignore */ }
         setTimeout(() => this.checkSiemStatus(), 5000);
+    },
+
+    async checkClaudeCodePluginStatus() {
+        // Sidebar "Claude Code plugin" indicator. Visible whenever the
+        // SecureVector Guard plugin is staged (files on disk) — wording
+        // varies by deployment state. Wording is now consistent with
+        // the integrations page's three states (Active / Installed,
+        // not enabled / Staged) so users see the same labels in both
+        // surfaces.
+        const banner = document.getElementById('cc-plugin-active-banner');
+        const textEl = document.getElementById('cc-plugin-banner-text');
+        // If the sidebar was torn down (page navigation, SPA re-render),
+        // both lookups return null. Stop polling — don't leak a timer.
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/claude-code/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Claude Code plugin · Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Claude Code plugin · Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Claude Code plugin · Staged';
+            }
+        } catch (_) { /* ignore */ }
+        // Only re-schedule when the document is visible and the banner
+        // is still mounted — saves CPU when the tab is in background.
+        // Cadence: if the banner is currently HIDDEN (plugin not yet
+        // installed, or initial fetch raced an install), poll every
+        // 2s so the banner appears quickly after install completes.
+        // Once visible, drop to a 10s cadence — the state is settled.
+        if (document.visibilityState === 'visible'
+            && document.getElementById('cc-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
+        }
     },
 
     createIcon(name) {

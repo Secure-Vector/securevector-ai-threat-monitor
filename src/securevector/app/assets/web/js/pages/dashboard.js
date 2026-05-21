@@ -886,12 +886,191 @@ const DashboardPage = {
         container.appendChild(chart);
     },
 
+    /**
+     * Reusable SVG line/area timeline chart.
+     *
+     * Replaces the prior column-bar charts. The dashboard surface
+     * benefits from a continuous-time mental model — bars segregate
+     * each day into a vertical silo, while a line traces the trend
+     * across days and makes spikes/dips visually obvious.
+     *
+     * Renderer: pure SVG, no deps. Smooth path via Catmull-Rom
+     * approximation through midpoints (cardinal-spline-lite). Filled
+     * area under each line at low alpha so the line stays the focus.
+     * Hover dots + tooltips per data point. Y-axis: max + midpoint
+     * grid line. X-axis: day labels at each bucket.
+     *
+     * opts:
+     *   - title: optional inline header (omitted — the Card already
+     *            wraps with a title)
+     *   - series: [{ label, color, data: number[], format?: fn(n)→str }]
+     *             All series MUST share the same x-axis (buckets) length.
+     *   - labels: string[] — x-axis tick labels, same length as data
+     *   - yFormat: fn(n) → str — Y-axis tick formatter (default: integer)
+     *   - height: chart height in px (default 140)
+     */
+    _renderTimelineChart(container, opts) {
+        const series = opts.series || [];
+        const labels = opts.labels || [];
+        const height = opts.height || 140;
+        const yFormat = opts.yFormat || (n => Math.round(n).toLocaleString());
+        if (series.length === 0 || labels.length === 0) return;
+
+        const n = labels.length;
+        // Compute the per-series max separately, then the global max for
+        // scale. A single shared y-axis keeps the two series comparable.
+        const allValues = series.flatMap(s => s.data || []);
+        const maxVal = Math.max(...allValues, 1);
+        // Round up to a "nice" max so the y-tick labels are clean.
+        const niceMax = (() => {
+            if (maxVal <= 10) return Math.ceil(maxVal);
+            const pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
+            const norm = maxVal / pow;
+            const rounded = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+            return rounded * pow;
+        })();
+
+        // SVG layout — fixed paddings so labels never get cropped.
+        const padL = 36, padR = 8, padT = 8, padB = 22;
+        const w = 600; // logical width; viewBox preserves aspect, host can scale
+        const innerW = w - padL - padR;
+        const innerH = height - padT - padB;
+
+        const xAt = i => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+        const yAt = v => padT + innerH - (v / niceMax) * innerH;
+
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('viewBox', `0 0 ${w} ${height}`);
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.style.cssText = `width: 100%; height: ${height}px; display: block; overflow: visible;`;
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', series.map(s => s.label).join(' and ') + ' over time');
+
+        // Grid lines + Y-axis ticks (3 lines: 0, mid, max).
+        [0, 0.5, 1].forEach(frac => {
+            const y = padT + innerH - frac * innerH;
+            const line = document.createElementNS(svgNS, 'line');
+            line.setAttribute('x1', padL);
+            line.setAttribute('x2', w - padR);
+            line.setAttribute('y1', y);
+            line.setAttribute('y2', y);
+            line.setAttribute('stroke', 'var(--border-default)');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('stroke-dasharray', frac === 0 ? '0' : '3 3');
+            line.setAttribute('opacity', frac === 0 ? '0.7' : '0.35');
+            svg.appendChild(line);
+
+            const tick = document.createElementNS(svgNS, 'text');
+            tick.setAttribute('x', padL - 6);
+            tick.setAttribute('y', y + 3);
+            tick.setAttribute('text-anchor', 'end');
+            tick.setAttribute('font-size', '9');
+            tick.setAttribute('fill', 'var(--text-muted)');
+            tick.textContent = yFormat(frac * niceMax);
+            svg.appendChild(tick);
+        });
+
+        // X-axis labels.
+        labels.forEach((lbl, i) => {
+            const t = document.createElementNS(svgNS, 'text');
+            t.setAttribute('x', xAt(i));
+            t.setAttribute('y', height - 6);
+            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('font-size', '10');
+            t.setAttribute('fill', 'var(--text-muted)');
+            t.textContent = lbl;
+            svg.appendChild(t);
+        });
+
+        // Catmull-Rom → cubic Bézier path for smooth lines without
+        // sharp corners at each data point. Avoids degenerate splines
+        // when n < 3 by falling back to straight L commands.
+        const smoothPath = (data) => {
+            if (data.length === 0) return '';
+            if (data.length === 1) {
+                return `M ${xAt(0)} ${yAt(data[0])}`;
+            }
+            let d = `M ${xAt(0)} ${yAt(data[0])}`;
+            for (let i = 0; i < data.length - 1; i++) {
+                const x0 = xAt(Math.max(i - 1, 0));
+                const y0 = yAt(data[Math.max(i - 1, 0)]);
+                const x1 = xAt(i);
+                const y1 = yAt(data[i]);
+                const x2 = xAt(i + 1);
+                const y2 = yAt(data[i + 1]);
+                const x3 = xAt(Math.min(i + 2, data.length - 1));
+                const y3 = yAt(data[Math.min(i + 2, data.length - 1)]);
+                // Cardinal spline tension 0.5.
+                const cp1x = x1 + (x2 - x0) / 6;
+                const cp1y = y1 + (y2 - y0) / 6;
+                const cp2x = x2 - (x3 - x1) / 6;
+                const cp2y = y2 - (y3 - y1) / 6;
+                d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+            }
+            return d;
+        };
+
+        series.forEach((s, sIdx) => {
+            const data = s.data || [];
+            const pathStr = smoothPath(data);
+            if (!pathStr) return;
+
+            // Area fill — same path closed to baseline with low alpha.
+            const areaStr = `${pathStr} L ${xAt(data.length - 1)} ${padT + innerH} L ${xAt(0)} ${padT + innerH} Z`;
+            const area = document.createElementNS(svgNS, 'path');
+            area.setAttribute('d', areaStr);
+            area.setAttribute('fill', s.color);
+            area.setAttribute('fill-opacity', '0.14');
+            svg.appendChild(area);
+
+            // Line stroke.
+            const line = document.createElementNS(svgNS, 'path');
+            line.setAttribute('d', pathStr);
+            line.setAttribute('fill', 'none');
+            line.setAttribute('stroke', s.color);
+            line.setAttribute('stroke-width', '2');
+            line.setAttribute('stroke-linecap', 'round');
+            line.setAttribute('stroke-linejoin', 'round');
+            svg.appendChild(line);
+
+            // Dot markers — every point, larger on the latest day.
+            data.forEach((v, i) => {
+                const dot = document.createElementNS(svgNS, 'circle');
+                dot.setAttribute('cx', xAt(i));
+                dot.setAttribute('cy', yAt(v));
+                dot.setAttribute('r', i === data.length - 1 ? '4' : '3');
+                dot.setAttribute('fill', 'var(--bg-card)');
+                dot.setAttribute('stroke', s.color);
+                dot.setAttribute('stroke-width', '2');
+                const fmt = s.format || yFormat;
+                const titleEl = document.createElementNS(svgNS, 'title');
+                titleEl.textContent = `${labels[i]} · ${s.label}: ${fmt(v)}`;
+                dot.appendChild(titleEl);
+                svg.appendChild(dot);
+            });
+        });
+
+        container.appendChild(svg);
+
+        // Legend — uses the same color swatches as the lines.
+        const legend = document.createElement('div');
+        legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
+        series.forEach(s => {
+            const item = document.createElement('span');
+            item.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+            const sw = document.createElement('span');
+            sw.style.cssText = `width: 16px; height: 2px; background: ${s.color}; flex-shrink: 0; border-radius: 1px;`;
+            item.appendChild(sw);
+            item.appendChild(document.createTextNode(s.label));
+            legend.appendChild(item);
+        });
+        container.appendChild(legend);
+    },
+
     renderTrendChart(container) {
-        // Build last-7-days buckets from loaded threats
         const days = 7;
         const buckets = [];
-        const now = new Date();
-        // Use local dates so chart labels match timestamps shown in the UI
         const toLocalDateStr = ts => {
             const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
             return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -907,7 +1086,6 @@ const DashboardPage = {
                 threats: 0,
             });
         }
-
         (this.threats || []).forEach(t => {
             const dateStr = toLocalDateStr(t.created_at || new Date().toISOString());
             const bucket = buckets.find(b => b.dateStr === dateStr);
@@ -917,69 +1095,17 @@ const DashboardPage = {
             }
         });
 
-        const maxVal = Math.max(...buckets.map(b => b.total), 1);
-
-        // Fixed-height chart: value(12px) + bar(flex) + day label(16px)
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'display: flex; align-items: stretch; gap: 5px; height: 110px;';
-
-        buckets.forEach(bucket => {
-            const col = document.createElement('div');
-            col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-
-            // Value label (top, fixed height)
-            const valLbl = document.createElement('div');
-            valLbl.style.cssText = 'height: 14px; font-size: 9px; color: var(--text-secondary); text-align: center; line-height: 14px; white-space: nowrap;';
-            valLbl.textContent = bucket.total > 0 ? bucket.total : '';
-            col.appendChild(valLbl);
-
-            // Bar area (grows to fill)
-            const barArea = document.createElement('div');
-            barArea.style.cssText = 'flex: 1; width: 100%; position: relative;';
-            barArea.title = `${bucket.dateStr}: ${bucket.total} requests, ${bucket.threats} threats`;
-
-            const pct = (bucket.total / maxVal) * 100;
-            const barTotal = document.createElement('div');
-            barTotal.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${pct}%; background: var(--accent-primary); opacity: 0.3; border-radius: 3px 3px 0 0; min-height: ${bucket.total > 0 ? 3 : 0}px;`;
-            barArea.appendChild(barTotal);
-
-            if (bucket.threats > 0) {
-                const threatPct = (bucket.threats / maxVal) * 100;
-                const barThreat = document.createElement('div');
-                barThreat.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${threatPct}%; background: #ef4444; opacity: 0.7; border-radius: 3px 3px 0 0; min-height: 3px;`;
-                barArea.appendChild(barThreat);
-            }
-            col.appendChild(barArea);
-
-            // Day label (bottom, fixed height)
-            const lbl = document.createElement('div');
-            lbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px; white-space: nowrap;';
-            lbl.textContent = bucket.label;
-            col.appendChild(lbl);
-
-            wrap.appendChild(col);
+        this._renderTimelineChart(container, {
+            labels: buckets.map(b => b.label),
+            series: [
+                { label: 'Requests',           color: '#5eadb8', data: buckets.map(b => b.total) },
+                { label: 'Threats (risk ≥60%)', color: '#ef4444', data: buckets.map(b => b.threats) },
+            ],
+            yFormat: n => Math.round(n).toLocaleString(),
         });
-
-        container.appendChild(wrap);
-
-        // Legend
-        const legend = document.createElement('div');
-        legend.style.cssText = 'display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--text-secondary);';
-        [['var(--accent-primary)', 'Requests'], ['#ef4444', 'Threats (risk ≥60%)']]
-            .forEach(([color, label]) => {
-                const item = document.createElement('span');
-                item.style.cssText = 'display: flex; align-items: center; gap: 4px;';
-                const dot = document.createElement('span');
-                dot.style.cssText = `width: 8px; height: 8px; border-radius: 2px; background: ${color}; opacity: 0.75; flex-shrink: 0;`;
-                item.appendChild(dot);
-                item.appendChild(document.createTextNode(label));
-                legend.appendChild(item);
-            });
-        container.appendChild(legend);
     },
 
     async renderCostTrendChart(container) {
-        // Fetch last 7 days of cost records
         const days = 7;
         const buckets = [];
         const now = new Date();
@@ -993,7 +1119,6 @@ const DashboardPage = {
             const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
             buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), dateStr, cost: 0 });
         }
-
         try {
             const start = new Date(now);
             start.setDate(start.getDate() - 7);
@@ -1005,53 +1130,18 @@ const DashboardPage = {
             });
         } catch (e) {}
 
-        const maxVal = Math.max(...buckets.map(b => b.cost), 0.000001);
-
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'display: flex; align-items: stretch; gap: 5px; height: 110px;';
-
-        buckets.forEach(bucket => {
-            const col = document.createElement('div');
-            col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-
-            // Value label (top, fixed height)
-            const valLbl = document.createElement('div');
-            valLbl.style.cssText = 'height: 14px; font-size: 9px; color: var(--text-secondary); text-align: center; line-height: 14px; white-space: nowrap;';
-            valLbl.textContent = bucket.cost > 0 ? '$' + bucket.cost.toFixed(2) : '';
-            col.appendChild(valLbl);
-
-            // Bar area (grows)
-            const barArea = document.createElement('div');
-            barArea.style.cssText = 'flex: 1; width: 100%; position: relative;';
-            barArea.title = `${bucket.dateStr}: $${bucket.cost.toFixed(4)}`;
-
-            const pct = (bucket.cost / maxVal) * 100;
-            const bar = document.createElement('div');
-            bar.style.cssText = `position: absolute; bottom: 0; left: 0; right: 0; height: ${pct}%; background: #10b981; opacity: 0.6; border-radius: 3px 3px 0 0; min-height: ${bucket.cost > 0 ? 3 : 0}px;`;
-            barArea.appendChild(bar);
-            col.appendChild(barArea);
-
-            // Day label (bottom, fixed height)
-            const lbl = document.createElement('div');
-            lbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px; white-space: nowrap;';
-            lbl.textContent = bucket.label;
-            col.appendChild(lbl);
-
-            wrap.appendChild(col);
+        this._renderTimelineChart(container, {
+            labels: buckets.map(b => b.label),
+            series: [
+                {
+                    label: 'Daily spend (USD)',
+                    color: '#10b981',
+                    data: buckets.map(b => b.cost),
+                    format: n => '$' + (n || 0).toFixed(2),
+                },
+            ],
+            yFormat: n => '$' + (n || 0).toFixed(2),
         });
-
-        container.appendChild(wrap);
-
-        const legend = document.createElement('div');
-        legend.style.cssText = 'display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--text-secondary);';
-        const item = document.createElement('span');
-        item.style.cssText = 'display: flex; align-items: center; gap: 4px;';
-        const dot = document.createElement('span');
-        dot.style.cssText = 'width: 8px; height: 8px; border-radius: 2px; background: #10b981; opacity: 0.75; flex-shrink: 0;';
-        item.appendChild(dot);
-        item.appendChild(document.createTextNode('Daily spend (USD)'));
-        legend.appendChild(item);
-        container.appendChild(legend);
     },
 
     renderRecentActivity(container) {

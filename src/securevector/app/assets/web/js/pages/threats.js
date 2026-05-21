@@ -401,7 +401,7 @@ const ThreatsPage = {
             const riskClass = threat.risk_score >= 80 ? 'risk-high' : threat.risk_score >= 40 ? 'risk-medium' : 'risk-low';
             const content = escapeHtml((threat.text_preview || threat.text_content || '').substring(0, 100));
             const llmStatus = threat.llm_reviewed ? (threat.llm_agrees ? 'Confirmed' : 'Disputed') : 'Not Reviewed';
-            const date = threat.created_at ? new Date(threat.created_at).toLocaleDateString() : '-';
+            const date = threat.created_at ? this.formatDate(threat.created_at).split(' ')[0] : '-';
             rows += '<tr><td>' + content + '</td><td>' + escapeHtml(threat.threat_type || 'No Threat Detected') + '</td><td class="' + riskClass + '">' + threat.risk_score + '%</td><td>' + llmStatus + '</td><td>' + date + '</td></tr>';
         });
         let details = '';
@@ -621,7 +621,14 @@ const ThreatsPage = {
                     } else if (key === 'risk_score') {
                         return ((a.risk_score || 0) - (b.risk_score || 0)) * d;
                     } else if (key === 'first_seen') {
-                        return (new Date(a.first_seen || a.created_at || 0).getTime() - new Date(b.first_seen || b.created_at || 0).getTime()) * d;
+                        // parseTs: same UTC normalisation as formatDate so
+                        // sort ordering matches displayed time.
+                        const parseTs = (s) => {
+                            if (!s) return 0;
+                            if (/[Z+\-]\d?\d?(:?\d\d)?$/.test(s)) return new Date(s).getTime();
+                            return new Date(s.includes('T') ? s + 'Z' : s.replace(' ', 'T') + 'Z').getTime();
+                        };
+                        return (parseTs(a.first_seen || a.created_at) - parseTs(b.first_seen || b.created_at)) * d;
                     } else {
                         va = (a[key] || '').toString().toLowerCase();
                         vb = (b[key] || '').toString().toLowerCase();
@@ -1038,7 +1045,15 @@ const ThreatsPage = {
     formatDate(dateStr) {
         if (!dateStr) return '-';
         try {
-            const date = new Date(dateStr);
+            // Backend serialises UTC timestamps without a trailing 'Z'
+            // (`2026-05-20T03:19:55.155752`). ECMA-262 parses bare
+            // date-time strings as LOCAL, so without normalisation we
+            // render the UTC clock-numbers in the user's locale (off
+            // by their UTC offset). Append 'Z' so JS converts to local.
+            const norm = /[Z+\-]\d?\d?(:?\d\d)?$/.test(dateStr)
+                ? dateStr
+                : (dateStr.includes('T') ? dateStr + 'Z' : dateStr.replace(' ', 'T') + 'Z');
+            const date = new Date(norm);
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } catch (e) {
             return dateStr;
