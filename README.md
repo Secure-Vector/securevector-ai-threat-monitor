@@ -4,9 +4,24 @@
 
 <h3>Audit every tool. Catch the threats. All locally.</h3>
 
-<p>Tamper-evident SHA-256 hash-chained audit of every tool call your agent makes, verifiable from the Tool Activity tab, with allow / deny / ask rules enforced at the agent runtime — not just on a proxy. 72 rules covering the OWASP LLM Top 10 plus 28 agent-attack chains catch prompt injection, jailbreaks, credential exfiltration, and PII disclosure; monitor by default, opt-in block mode. Token and cost tracking included. Works with Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM. Apache 2.0, runs on your machine, no signup — <code>pip install</code> and you're covered in 60 seconds.</p>
+</div>
 
-<p><strong>For teams (Cloud · opt-in):</strong> author MCP tool-permission policies once; every enrolled device pulls and enforces them. Cloud-pushed <code>deny</code> rules cover non-registry tools too (e.g. <code>write_File</code> on any filesystem MCP server). Per-org versioning, audit attribution, device slicing. Local always works standalone — cloud is strictly additive.</p>
+- **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
+- **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy, not just on a proxy.
+- **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
+- **Monitor by default, opt-in block mode** — drop-in observability with no breakage risk; flip block mode when ready.
+- **Token + cost tracking** — per-agent, per-model spend in real time.
+- **Works with** Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
+- **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
+
+**For teams (Cloud · opt-in):**
+
+- Author MCP tool-permission policies once; every enrolled device pulls and enforces them.
+- Cloud-pushed `deny` rules cover non-registry tools too (e.g. `write_File` on any filesystem MCP server).
+- Per-org versioning, audit attribution, device slicing.
+- Local always works standalone — cloud is strictly additive.
+
+<div align="center">
 
 <br>
 
