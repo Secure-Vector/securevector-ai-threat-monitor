@@ -37,7 +37,11 @@ rules:
   - (act|behave|pretend|roleplay)\s+(as|like)\s+(jailbreak|admin|root|system|developer|god|unrestricted)
   - (bypass|override|circumvent|disable|turn\s+off)\s+(safety|filter|restriction|guardrail|protection)
   - now\s+you\s+(are|act\s+as)\s+(a|an)\s+(unrestricted|uncensored|jailbroken)\s+\w+
-  - "\\b(tell|show|give|reveal)\\s+me\\s+(everything|all|any|your)\\s+(?:\\S+\\s+){0,4}\\b(password|secret|key|token)\\b"
+  # Uses `.{0,40}` (not `\s+(?:\S+\s+){0,4}`) so canonical phrasings like
+  # 'show me your: password' or 'tell me your=api_key' — colon/equals
+  # right after the noun — still match. The `\s+` form required whitespace
+  # and missed these (same bug as the PII patterns below).
+  - "\\b(tell|show|give|reveal)\\s+me\\s+(everything|all|any|your)\\b.{0,40}\\b(password|secret|key|token)\\b"
   # Alternation parenthesised so word-boundary anchors apply to every arm.
   # Without (?: ... ), '|' has lowest precedence and the trailing \b only
   # anchors the LAST arm — letting 'badeveloper mode' match.
@@ -174,7 +178,11 @@ rules:
   # match — `ssn: 123-45-6789`, `ccn=1234567890123456`, `phone:+1...`
   # are the canonical formats PII detectors must catch. `.` doesn't match
   # newline by default, so multi-paragraph FPs are still prevented.
-  - "\\b(credit.card|card.number|ccn)\\b.{0,40}\\d{4}.*\\d{4}.*\\d{4}.*\\d{4}"
+  # Inter-quad separator bounded to `[\s.\-]{0,4}` — real card formatting
+  # only (contiguous, spaces, or dashes). Unbounded `.*` between digit
+  # chunks matched scattered four-digit runs in unrelated prose
+  # ('order 2024 build 5678 sku 9012 qty 3456').
+  - "\\b(credit.card|card.number|ccn)\\b.{0,40}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}"
   - "\\b(ssn|social.security)\\b.{0,40}\\d{3}-?\\d{2}-?\\d{4}"
   - "\\bphone\\b.{0,40}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
   detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
