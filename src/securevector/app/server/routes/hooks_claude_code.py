@@ -59,6 +59,12 @@ PLUGIN_FILES = [
     # whether Claude Code exposes token usage to plugins. Removed once
     # the cost-tracking gap is resolved (or confirmed unresolvable).
     "hooks/stop-hook-probe.js",
+    # Optional statusline emitter — users wire this into their Claude
+    # Code `statusLine` (or shell out from an existing statusline
+    # script) to surface live SecureVector findings next to model /
+    # cwd / git state. Reads stats from the local app on loopback
+    # with sub-500ms total budget; fails silently if the app is down.
+    "hooks/statusline.js",
     "lib/normalize.js",
     "lib/client.js",
     # Shared secret-redaction helpers — imported by post-tool-use.js
@@ -114,6 +120,11 @@ class StatusResponse(BaseModel):
     auto_installed: bool = False
     claude_install_path: Optional[str] = None
     enabled: bool = False
+    # True when Claude Code appears to be present on this machine — used by
+    # the dashboard plugin-nudge banner to gate the "Install for Claude Code"
+    # CTA so it isn't shown to users who don't have Claude Code at all.
+    # Signal is the per-user settings file Claude Code writes on first launch.
+    claude_code_detected: bool = False
 
 
 class InstallResponse(BaseModel):
@@ -684,6 +695,9 @@ async def plugin_status():
     """
     files_present = [f for f in PLUGIN_FILES if (STAGING_DIR / f).is_file()]
     claude_path = _claude_install_path()
+    # Claude Code creates ~/.claude/settings.json on first launch; either that
+    # file or the plugins dir is sufficient evidence the host is installed.
+    cc_detected = CLAUDE_SETTINGS_JSON.exists() or CLAUDE_PLUGINS_DIR.exists()
     return StatusResponse(
         installed=len(files_present) == len(PLUGIN_FILES),
         staging_dir=str(STAGING_DIR),
@@ -691,6 +705,7 @@ async def plugin_status():
         auto_installed=claude_path is not None,
         claude_install_path=str(claude_path) if claude_path else None,
         enabled=_is_enabled_in_claude_settings(),
+        claude_code_detected=cc_detected,
     )
 
 

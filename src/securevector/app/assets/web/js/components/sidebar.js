@@ -47,6 +47,7 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            { id: 'guide-claude-code', label: 'Claude Code Plugin' },
             { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
             { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
             { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
@@ -203,7 +204,7 @@ const Sidebar = {
             const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export'];
+            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export', 'integrations'];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist

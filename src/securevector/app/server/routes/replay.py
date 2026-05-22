@@ -172,13 +172,21 @@ async def get_replay_timeline(
                 if end_dt and ts_dt and ts_dt > end_dt:
                     continue
                 tool_id = d.get("tool_id") or d.get("function_name") or "unknown"
-                if agent and tool_id != agent:
+                # The audit table has no per-call agent ID — the closest
+                # signal is runtime_kind (claude-code | openclaw | …),
+                # added in migration v32. Use that as the "agent" so the
+                # dropdown stays heterogeneous-but-honest instead of
+                # mixing tool names (Bash / WebFetch / …) with real
+                # agent identifiers from threat scans + cost rows.
+                row_agent = d.get("runtime_kind") or "unknown"
+                if agent and row_agent != agent:
                     continue
                 action = (d.get("action") or "").lower()
                 rows.append({
                     "kind": "tool_audit",
                     "timestamp": _to_iso(ts),
-                    "agent": tool_id,
+                    "agent": row_agent,
+                    "tool": tool_id,
                     "severity": (
                         "block" if action == "block" else
                         "medium" if action == "log_only" else
