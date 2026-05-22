@@ -311,16 +311,6 @@ rm -rf ~/.securevector/cost-probes`));
         disc.style.cssText = 'margin-top: 4px;';
         disc.textContent = 'Built by SecureVector. Not affiliated with or endorsed by Anthropic. "Claude Code" is a product name referenced descriptively to identify the target runtime.';
         footer.appendChild(disc);
-        const src = document.createElement('div');
-        src.style.cssText = 'margin-top: 8px;';
-        const srcLink = document.createElement('a');
-        srcLink.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/CLAUDE_CODE.md';
-        srcLink.target = '_blank';
-        srcLink.rel = 'noreferrer noopener';
-        srcLink.style.cssText = 'color: var(--accent-primary); text-decoration: underline;';
-        srcLink.textContent = 'Source: docs/CLAUDE_CODE.md on GitHub →';
-        src.appendChild(srcLink);
-        footer.appendChild(src);
         root.appendChild(footer);
 
         container.appendChild(root);
