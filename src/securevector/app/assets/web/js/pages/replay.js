@@ -13,7 +13,7 @@ const ReplayPage = {
         kinds: ['scan', 'tool_audit', 'cost'],
         since: '',          // ISO; empty = no lower bound
         until: '',          // ISO; empty = no upper bound
-        rangePreset: '7d',  // '1h' | '6h' | '24h' | '7d' | 'all' — default to 7d so the overview chart has enough buckets
+        rangePreset: 'all', // '1h' | '6h' | '24h' | '7d' | 'all' — default to all-time so the overview captures everything the user has accumulated; chart auto-derives bucket sizing from data min/max
         limit: 1000,        // bumped from 200 so a 7-day window doesn't truncate the chart
     },
 

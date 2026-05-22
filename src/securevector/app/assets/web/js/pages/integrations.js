@@ -837,14 +837,21 @@ def chat_with_protection(user_input):
         resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
         content.appendChild(resultArea);
 
-        // Two paste-in command blocks (revealed after install)
+        // Two paste-in command blocks (revealed after install). These are
+        // OPTIONAL — the manual fallback when auto-install can't reach
+        // Claude Code's config dir. If "Install Plugin" succeeded with
+        // auto_installed=true, this block stays hidden.
         const commandsWrap = document.createElement('div');
         commandsWrap.id = 'claude-code-plugin-commands';
         commandsWrap.style.cssText = 'display: none; margin-bottom: 16px;';
         const commandsHeading = document.createElement('div');
-        commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 8px;';
-        commandsHeading.textContent = 'Run these two commands in your Claude Code session:';
+        commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px;';
+        commandsHeading.textContent = 'Optional · troubleshooting fallback';
         commandsWrap.appendChild(commandsHeading);
+        const commandsSubhead = document.createElement('div');
+        commandsSubhead.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
+        commandsSubhead.textContent = 'Only needed if auto-install couldn’t register the plugin with Claude Code (e.g., the host has never been launched on this machine, or your ~/.claude config dir is read-only). Otherwise click Install Plugin above and just run /reload-plugins in your Claude Code session.';
+        commandsWrap.appendChild(commandsSubhead);
         content.appendChild(commandsWrap);
 
         // Helper to build a code block with a copy button
@@ -901,8 +908,8 @@ def chat_with_protection(user_input):
                 span.style.color = 'var(--warning)';
                 span.textContent = 'Installed, not enabled · enable in Claude Code then /reload-plugins';
             } else if (state === 'staged') {
-                span.style.color = 'var(--success)';
-                span.textContent = 'Staged · run the two commands below in Claude Code to finish install';
+                span.style.color = 'var(--warning)';
+                span.textContent = 'Staged · auto-install was skipped — click Install Plugin to register, or use the optional fallback below';
             } else if (state === 'not-staged') {
                 statusPill.style.color = 'var(--text-secondary)';
                 span.style.fontWeight = '400';

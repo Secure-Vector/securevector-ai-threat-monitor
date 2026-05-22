@@ -204,7 +204,7 @@ const Sidebar = {
             const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export'];
+            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export', 'integrations'];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist

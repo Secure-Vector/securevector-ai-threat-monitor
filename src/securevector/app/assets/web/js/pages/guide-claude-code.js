@@ -95,7 +95,7 @@ const GuideClaudeCodePage = {
         hooksTable.appendChild(hdr);
         const tbody = document.createElement('tbody');
         const hookRows = [
-            ['PreToolUse', 'blocking (await, sub-ms)', 'Enforces cloud-synced and local tool-permission rules. Returns permissionDecision: allow / deny / ask with a reason that propagates to the audit row.'],
+            ['PreToolUse', 'blocking; 100 ms fail-open ceiling', 'Enforces cloud-synced and local tool-permission rules. Returns permissionDecision: allow / deny / ask with a reason that propagates to the audit row.'],
             ['PostToolUse', 'fire-and-forget', 'Writes the call to the SHA-256 hash-chained tool_call_audit table tagged runtime_kind=claude-code. For prose-shaped tool inputs (WebFetch, Skill, Task, Agent), also forwards to /analyze for prompt-injection / data-leak scanning.'],
             ['UserPromptSubmit', 'fire-and-forget', 'Forwards every incoming prompt to /analyze for jailbreak / injection detection. Prompts are redacted via lib/redact.js (sk-/pk-, gh[pousr]_, AKIA, JWT triples, and labelled kv-pairs for password/secret/token/api_key/bearer) and capped at 8000 bytes before POST.'],
             ['Stop', 'diagnostic', 'Captures shape-only Stop-event metadata to ~/.securevector/cost-probes/. Used to investigate Claude Code\'s Stop payload empirically; targeted for removal in a future release.'],
@@ -109,6 +109,24 @@ const GuideClaudeCodePage = {
         root.appendChild(hooksTable);
         const failopen = p('All hooks fail-open: any error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All HTTP targets the local app on loopback at http://127.0.0.1:8741 (override with the SECUREVECTOR_URL env var).');
         root.appendChild(failopen);
+
+        // --- Latency (honest framing — no "zero-latency" marketing copy) ---
+        root.appendChild(h3('Latency'));
+        const latencyCallout = document.createElement('div');
+        latencyCallout.style.cssText = 'margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
+        const latencyP1 = document.createElement('p');
+        latencyP1.style.cssText = 'margin: 0 0 6px 0; color: var(--text-primary); font-size: 13px; line-height: 1.5;';
+        latencyP1.textContent = 'Policy enforcement (PreToolUse) is synchronous — every tool call waits on a loopback HTTP request to the local app before it proceeds. Threat detection (UserPromptSubmit and the PostToolUse → /analyze leg) is fire-and-forget and adds no user-visible latency, but is also not preventive: by the time a threat is flagged, the prompt has already gone to the model or the tool has already returned.';
+        latencyCallout.appendChild(latencyP1);
+        const latencyP2 = document.createElement('p');
+        latencyP2.style.cssText = 'margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5;';
+        const latencyStrong = document.createElement('strong');
+        latencyStrong.style.color = 'var(--text-primary)';
+        latencyStrong.textContent = 'Hard ceiling: 100 ms.';
+        latencyP2.appendChild(latencyStrong);
+        latencyP2.appendChild(document.createTextNode(' That is the fail-open timeout in lib/client.js. If the local app is unreachable or slow, the hook returns allow at 100 ms and the tool call proceeds — so a misbehaving local app cannot stall Claude Code beyond 100 ms per tool call.'));
+        latencyCallout.appendChild(latencyP2);
+        root.appendChild(latencyCallout);
 
         // --- Install ---
         root.appendChild(h2('Install'));
