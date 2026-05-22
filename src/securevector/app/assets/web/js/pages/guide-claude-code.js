@@ -119,8 +119,8 @@ const GuideClaudeCodePage = {
         root.appendChild(p('Open http://127.0.0.1:8741, click Integrations → Claude Code, then click Install Plugin.'));
 
         root.appendChild(h3('Option B — via CLI'));
-        root.appendChild(p('Triggers the same endpoint the UI button calls:'));
-        root.appendChild(code('curl -X POST http://127.0.0.1:8741/api/hooks/claude-code/install'));
+        root.appendChild(p('Same operation the UI button performs. Runs the install handler in-process — the web server does not need to be running.'));
+        root.appendChild(code('securevector-app --install-plugin claude-code'));
         const respLabel = document.createElement('p');
         respLabel.style.cssText = 'margin: 8px 0 4px 0; color: var(--text-secondary); font-size: 13px;';
         respLabel.textContent = 'A successful response looks like:';
@@ -241,7 +241,7 @@ if candidates:
         root.appendChild(h2('Uninstall'));
         root.appendChild(p('Via the app UI: Integrations → Claude Code → Uninstall.'));
         root.appendChild(p('Or via CLI:'));
-        root.appendChild(code('curl -X POST http://127.0.0.1:8741/api/hooks/claude-code/uninstall'));
+        root.appendChild(code('securevector-app --uninstall-plugin claude-code'));
         root.appendChild(p('Either path removes the cache dir, the marketplace entry from known_marketplaces.json, the install entry from installed_plugins.json, and the enabled flag from settings.json. Then run /reload-plugins in your Claude Code session.'));
 
         root.appendChild(h3('Optional: clear cached data'));

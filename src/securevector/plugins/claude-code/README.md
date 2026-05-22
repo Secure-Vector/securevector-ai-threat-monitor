@@ -25,20 +25,32 @@ Every MCP tool call (`mcp__<server>__<tool>`) that the host issues passes throug
 
 ## Installation
 
-The recommended path is via the SecureVector app's **Integrations** page (`/integrations` in the threat-monitor UI), which stages the plugin under `~/.claude/plugins/` and shows the two commands to paste into Claude Code:
+Two equivalent paths:
+
+```bash
+# Option A: via the SecureVector app UI
+# Open http://127.0.0.1:8741 → Integrations → Claude Code → Install Plugin
+
+# Option B: via CLI (runs the same handler in-process)
+securevector-app --install-plugin claude-code
+```
+
+Then, in your Claude Code session: `/reload-plugins`.
+
+If `~/.claude/plugins/` doesn't exist yet (Claude Code hasn't been launched on this machine), auto-install can't run; the install endpoint returns `auto_installed: false` and the Integrations page shows two paste-in commands to run inside your Claude Code session as fallback:
 
 ```text
 /plugin marketplace add ~/.securevector/staging/claude-code-plugin
 /plugin install securevector-guard
 ```
 
-After installation, restart your Claude Code session.
+Uninstall: `securevector-app --uninstall-plugin claude-code`.
 
 ## Verifying it works
 
 1. Confirm SecureVector is running:
    ```bash
-   curl -fsS http://127.0.0.1:8741/api/health
+   curl -fsS http://127.0.0.1:8741/health
    ```
 
 2. From a Claude Code session, invoke any MCP tool. The call should succeed and within a few seconds appear in the SecureVector **Tool Activity** tab with `runtime_kind=claude-code`.
@@ -49,7 +61,7 @@ After installation, restart your Claude Code session.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Calls pass even with a deny rule active | SecureVector app not running, OR hook handler can't reach it | Confirm `curl http://127.0.0.1:8741/api/health`; check `SV_BASE_URL` if non-default port |
+| Calls pass even with a deny rule active | SecureVector app not running, OR hook handler can't reach it | Confirm `curl http://127.0.0.1:8741/health`; check `SECUREVECTOR_URL` if non-default port |
 | Hook calls feel slow | Local app unreachable; 100ms timeout firing on every call | Restart the SecureVector app — the timeout is fail-open by design |
 | No audit rows appearing | PostToolUse hook not registered | Run `/plugin list` to confirm `securevector-guard` is installed and enabled |
 | Built-in tools (`Bash`, `Edit`) not enforced | A cloud rule targets a name outside the governable built-in list, OR the rule wasn't pushed | Push a synced rule with `tool_id` equal to the exact PascalCase tool name (e.g. `tool_id: "Bash"`, `tool_id: "MultiEdit"`) — see the [governable built-in list](#supported-tool-names) |

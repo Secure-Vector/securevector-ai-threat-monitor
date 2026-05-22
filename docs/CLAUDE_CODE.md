@@ -33,8 +33,9 @@ Then pick one of the two install paths:
 ### Option B — via CLI
 
 ```bash
-# Trigger the same install endpoint the UI button calls
-curl -X POST http://127.0.0.1:8741/api/hooks/claude-code/install
+# Same operation the UI button performs. Does not require the web
+# server to be running — runs the install handler in-process.
+securevector-app --install-plugin claude-code
 ```
 
 A successful response looks like:
@@ -138,10 +139,10 @@ Set `NO_COLOR=1` to disable the cyan/red ANSI styling.
 ## Uninstall
 
 ```bash
-# Via API (recommended — also strips the marketplace + enabled-plugin entries)
-curl -X POST http://127.0.0.1:8741/api/hooks/claude-code/uninstall
+# Via CLI (recommended — also strips the marketplace + enabled-plugin entries)
+securevector-app --uninstall-plugin claude-code
 
-# Manual cleanup if the API isn't available — three config files to touch:
+# Manual cleanup if the CLI isn't available — three config files to touch:
 rm -rf ~/.claude/plugins/cache/securevector-local
 # Edit ~/.claude/plugins/known_marketplaces.json and remove the
 #   "securevector-local" key.

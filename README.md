@@ -328,8 +328,9 @@ First-class plugin for Anthropic's Claude Code CLI — `PreToolUse` enforces too
 # Option A: via the app UI
 # Open http://127.0.0.1:8741 → Integrations → Claude Code → Install Plugin
 
-# Option B: via CLI (same endpoint the UI button calls)
-curl -X POST http://127.0.0.1:8741/api/hooks/claude-code/install
+# Option B: via CLI
+securevector-app --install-plugin claude-code
+# Uninstall: securevector-app --uninstall-plugin claude-code
 
 # Then, in your Claude Code session:
 /reload-plugins
