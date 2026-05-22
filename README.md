@@ -318,6 +318,12 @@ Native plugin with **ZERO latency** — runs inside the agent, no proxy needed. 
 
 [Full setup guide](docs/OPENCLAW.md)
 
+### Claude Code
+
+First-class plugin for Anthropic's Claude Code CLI — `PreToolUse` enforces tool-permission rules (allow / deny / ask, cloud-syncable), `PostToolUse` writes a tamper-evident audit row + scans prose tool inputs, `UserPromptSubmit` catches direct prompt-injection. Optional one-line statusline emitter surfaces live findings next to model / cwd / git state. One-click install from the Integrations tab, or `curl -X POST http://localhost:8741/api/hooks/claude-code/install`. Loopback-only, fail-open.
+
+[Full setup guide](docs/CLAUDE_CODE.md)
+
 <br>
 
 ## What It Detects
