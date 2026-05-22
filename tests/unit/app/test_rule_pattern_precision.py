@@ -126,6 +126,41 @@ def test_credential_leak_matches_canonical_credential_dump():
     )
 
 
+def test_credential_leak_lookaheads_scoped_to_immediate_token():
+    """
+    Regression: the bulleted-token pattern's lookaheads previously used
+    `(?=.*X)` which scanned the entire rest of the text from the bullet
+    position. Any prose containing both a `- ` bullet AND a long regex-
+    syntax token elsewhere (e.g. `[a-zA-Z0-9_-]{8,}` in a code-review
+    brief) tripped the rule.
+
+    Fix: lookaheads are scoped to `[^\\s]*` — the immediate non-whitespace
+    token after the bullet. The composition check now applies to the
+    token only, not arbitrary content elsewhere in the prose.
+    """
+    patterns = _load_patterns(
+        "sv_community_output_leakage.yml",
+        "sv_community_output_001_credential_leak",
+    )
+    # FP shape — a bulleted brief containing regex syntax tokens elsewhere
+    fp_brief = (
+        "Review a commit. Specific questions:\n"
+        "- Confirm the new doc fields are accurate.\n"
+        "- Compare patterns line-by-line.\n"
+        "The regex `[a-zA-Z0-9_-]{8,}` is the credential token shape.\n"
+    )
+    assert not _any_pattern_matches(patterns, fp_brief), (
+        "scoped-lookahead must prevent a bulleted brief from matching "
+        "via a regex-syntax token elsewhere in the text"
+    )
+    # Positive control — canonical credential dump with the token AT the
+    # bullet position must still match.
+    assert _any_pattern_matches(
+        patterns,
+        "1. sk_test_AbCd123!XyZw secret values follow",
+    ), "canonical bulleted credential must still match"
+
+
 def test_credential_leak_does_not_match_path_or_url_tokens():
     """
     The prior `[^\\s]{8,}` accepted any non-whitespace token, so paths like

@@ -25,7 +25,17 @@ rules:
   # from matching ordinary prose with URLs, file paths, or numbered points
   # containing references like "1. See /var/log/foo.log". JWT-shaped credentials
   # have their own dedicated pattern below (eyJ.../eyJ.../...).
-  - "(?:[•\\-\\*]|\\d+[\\.)\\]])\\s*`?(?=.*[A-Za-z])(?=.*[0-9])(?=.*[!@#$%^&*_#])[^\\s/:.@]{8,}`?"
+  #
+  # Bullet anchored to LINE START — `(?:^|\n)\s{0,4}` requires the bullet
+  # to be at the beginning of a line (with optional indentation), not
+  # mid-line. The earlier mid-line `-` matched the `-` inside regex
+  # character classes (`[a-zA-Z0-9_-]`) when the followed token had all
+  # the credential-shape properties, producing FPs on code-review prose.
+  #
+  # Lookaheads use `[^\s]*` (not `.*`) so they're scoped to the immediate
+  # non-whitespace token after the bullet. Combined with the line-start
+  # anchor, this ensures the rule only fires on real list items.
+  - "(?:^|\\n)\\s{0,4}(?:[•\\-\\*]|\\d+[\\.)\\]])\\s*`?(?=[^\\s]*[A-Za-z])(?=[^\\s]*[0-9])(?=[^\\s]*[!@#$%^&*_#])[^\\s/:.@]{8,}`?"
   - "[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{1,15}"
   - sk-[a-zA-Z0-9]{32,}
   - sk_(?:test|live)_[a-zA-Z0-9]{20,}
