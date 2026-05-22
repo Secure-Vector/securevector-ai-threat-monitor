@@ -59,6 +59,12 @@ PLUGIN_FILES = [
     # whether Claude Code exposes token usage to plugins. Removed once
     # the cost-tracking gap is resolved (or confirmed unresolvable).
     "hooks/stop-hook-probe.js",
+    # Optional statusline emitter — users wire this into their Claude
+    # Code `statusLine` (or shell out from an existing statusline
+    # script) to surface live SecureVector findings next to model /
+    # cwd / git state. Reads stats from the local app on loopback
+    # with sub-500ms total budget; fails silently if the app is down.
+    "hooks/statusline.js",
     "lib/normalize.js",
     "lib/client.js",
     # Shared secret-redaction helpers — imported by post-tool-use.js

@@ -1164,6 +1164,53 @@ def _handle_enroll() -> None:
     sys.exit(0)
 
 
+def _handle_plugin_command(args) -> None:
+    """Dispatch --install-plugin / --uninstall-plugin to the same async
+    handler the POST /api/hooks/<agent>/{install,uninstall} routes use.
+
+    Runs the handler in a fresh event loop and prints the response as
+    pretty JSON. Exit code is 0 on ok, 1 on failure.
+    """
+    import asyncio
+    import json
+
+    if args.install_plugin:
+        name, action = args.install_plugin, "install"
+    else:
+        name, action = args.uninstall_plugin, "uninstall"
+
+    if name == "claude-code":
+        from securevector.app.server.routes import hooks_claude_code as mod
+        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        result = asyncio.run(handler())
+    elif name == "openclaw":
+        from securevector.app.server.routes import hooks as mod
+        if action == "install":
+            # OpenClaw's install_plugin accepts an Optional[InstallRequest];
+            # None matches the route's default ("install with bundled config").
+            result = asyncio.run(mod.install_plugin(None))
+        else:
+            result = asyncio.run(mod.uninstall_plugin())
+    else:
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw.", file=sys.stderr)
+        sys.exit(1)
+
+    # Response models are Pydantic — serialise consistently.
+    if hasattr(result, "model_dump"):
+        data = result.model_dump()
+    elif hasattr(result, "dict"):
+        data = result.dict()
+    elif isinstance(result, dict):
+        data = result
+    else:
+        data = {"result": str(result)}
+    print(json.dumps(data, indent=2, default=str))
+
+    # Plugin handlers return ok-shaped responses. Surface failure as exit 1.
+    ok = data.get("ok") if isinstance(data, dict) else None
+    sys.exit(0 if ok is None or ok is True else 1)
+
+
 def main() -> None:
     """Main entry point."""
     # Dispatch enroll subcommand before the main parser runs
@@ -1276,8 +1323,31 @@ Examples:
         action="store_true",
         help="Restore original OpenClaw pi-ai files (undo --openclaw patches)",
     )
+    parser.add_argument(
+        "--install-plugin",
+        type=str,
+        choices=["claude-code", "openclaw"],
+        metavar="NAME",
+        help="Install a SecureVector Guard plugin (claude-code or openclaw) and exit",
+    )
+    parser.add_argument(
+        "--uninstall-plugin",
+        type=str,
+        choices=["claude-code", "openclaw"],
+        metavar="NAME",
+        help="Uninstall a SecureVector Guard plugin (claude-code or openclaw) and exit",
+    )
 
     args = parser.parse_args()
+
+    # Plugin install / uninstall short-circuit. Runs the same handler the
+    # POST /api/hooks/<agent>/{install,uninstall} routes invoke, prints
+    # the response as JSON, exits. Doesn't need the web server running —
+    # the handlers touch only the file system and Claude Code's config
+    # files.
+    if args.install_plugin or args.uninstall_plugin:
+        _handle_plugin_command(args)
+        return
 
     # If --port / --host were not explicitly passed, prefer values from svconfig.yml
     explicit_args = {a.lstrip("-").replace("-", "_") for a in sys.argv[1:] if a.startswith("-")}

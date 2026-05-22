@@ -47,6 +47,7 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            { id: 'guide-claude-code', label: 'Claude Code Plugin' },
             { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
             { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
             { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
