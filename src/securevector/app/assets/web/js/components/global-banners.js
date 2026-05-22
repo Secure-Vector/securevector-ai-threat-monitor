@@ -146,7 +146,11 @@ const GlobalBanners = {
             // the lede.
             primary: ccActionable,
             onInstall: () => {
-                if (window.Sidebar) { Sidebar.expandSection('guide'); Sidebar.navigate('guide-claude-code'); }
+                // Send users to the integrations card (proxy-claude-code) —
+                // that's where the actual "Install Plugin" button lives.
+                // The in-app guide page (guide-claude-code) is documentation
+                // only; routing there would be a dead-end for the CTA.
+                if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-claude-code'); }
             },
         }));
 
