@@ -48,12 +48,12 @@
 <br>
 
 > **What's new in v4.2.\*** *(latest: v4.2.1)*
-> - **Claude Code statusline emitter** *(v4.2.1)* — optional `hooks/statusline.js` prints a one-line live summary next to model / cwd / git state: `SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok`. Pulls from the local app on loopback with a 60-second on-disk cache so warm calls return in ~100 ms; fails silently if the app is down. Wire it into Claude Code's `statusLine` (or shell out from an existing statusline script).
-> - **SecureVector Guard plugin v1 for Claude Code** — PreToolUse enforces tool-permission rules, PostToolUse writes the tamper-evident audit chain, UserPromptSubmit catches prompt-injection. One-click install from Integrations. Loopback-only, fail-open.
-> - **UI Block now enforces** — clicking Block in Tool Permissions denies the call at the agent runtime, not just on the proxy. Synced rules still win over local on conflict. Per-category Allow-all / Block-all bulk actions with themed confirm.
-> - **Claude Code token telemetry** — Costs page surfaces input / output / cache tokens per model + 7-day trend, read locally from session transcripts. Dashboard charts switched to smoothed SVG timelines.
-> - **Lower threat-tab noise** — `/analyze` threat scans now run only on prose-shaped tool inputs (WebFetch / Skill / Task / Agent prompts) and on user prompts. Shell command bodies, file content, and edit diffs are still audited to the SHA-256 hash chain but no longer fed to the LLM-prose rule pack — that mismatch was the noise source.
-> - **Community rule pack precision sweep** — 70+ regex patterns across 15 community rules tightened to fix high-volume false positives on multi-paragraph prose (PII labels with `:` / `=` separators now match correctly, jailbreak alternation properly anchored, scattered digit runs no longer trip the credit-card rule, leetspeak no-space form caught).
+> - **Claude Code statusline** *(v4.2.1)* — one-line live summary of threats / allow-block balance / 7-day tokens, ~100 ms warm via local cache.
+> - **Claude Code plugin** — PreToolUse enforces tool rules, PostToolUse hash-chains every call, UserPromptSubmit catches prompt-injection. One-click install, loopback-only, fail-open.
+> - **UI Block enforces at runtime** — the Block button now denies at the hook, not just the proxy. Cloud rules beat local on conflict. Per-category bulk Allow-all / Block-all.
+> - **Claude Code token telemetry** — input / output / cache tokens per model + 7-day trend, read from session transcripts.
+> - **Lower threat noise** — `/analyze` scans only prose tool inputs (WebFetch / Skill / Task / Agent) and user prompts; shell + file edits still audited to the hash chain.
+> - **Rule-pack precision sweep** — 70+ regex patterns tightened to kill false positives on PII labels, credit-card runs, leetspeak no-space, and jailbreak alternation.
 
 > **What's new in v4.1.\*** *(latest: v4.1.3)*
 > - **MCP Policy & Tool Permission Sync** *(Cloud tier · opt-in)* — author MCP tool-permission rules in the cloud; every enrolled device pulls and enforces them. v4.1.3 hardens enforcement so cloud `deny` rules fire on non-registry tools too (e.g. `write_File` on an arbitrary filesystem MCP server), with case-insensitive name matching. Cloud is opt-in — local install still works standalone with no signup.
