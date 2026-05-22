@@ -23,6 +23,7 @@ EXPECTED_FILES = {
     "hooks/post-tool-use.js",
     "hooks/user-prompt-submit.js",
     "hooks/stop-hook-probe.js",
+    "hooks/statusline.js",
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
