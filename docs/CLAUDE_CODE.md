@@ -6,12 +6,18 @@ SecureVector ships a first-class plugin for Claude Code: real-time tool-permissi
 
 | Hook | Mode | Description |
 |---|---|---|
-| `PreToolUse` | blocking (await, sub-ms) | Enforces cloud-synced and local tool-permission rules. Returns `permissionDecision: allow / deny / ask` with a reason that propagates to the audit row. |
+| `PreToolUse` | blocking; loopback HTTP with **100 ms fail-open ceiling** | Enforces cloud-synced and local tool-permission rules. Returns `permissionDecision: allow / deny / ask` with a reason that propagates to the audit row. The 100 ms cap (in `lib/client.js`) means a slow or unreachable local app can't stall Claude Code beyond that per call — the hook returns `allow` and the call proceeds. |
 | `PostToolUse` | fire-and-forget | Writes the call to the SHA-256 hash-chained `tool_call_audit` table tagged `runtime_kind=claude-code`. For prose-shaped tool inputs (WebFetch, Skill, Task, Agent), also forwards to `/analyze` for prompt-injection / data-leak scanning. |
 | `UserPromptSubmit` | fire-and-forget | Forwards every incoming prompt to `/analyze` for jailbreak / injection detection by the rule engine. Prompts are redacted via the shared `lib/redact.js` patterns (`sk-`/`pk-`, `gh[pousr]_` GitHub tokens, `AKIA` AWS keys, JWT triples, and labelled kv-pairs for `password`/`secret`/`token`/`api_key`/`bearer`) and capped at 8000 bytes before POST. |
 | `Stop` | diagnostic | Captures shape-only Stop-event metadata to `~/.securevector/cost-probes/`. Used to investigate Claude Code's Stop payload empirically; targeted for removal in a future release. |
 
 All hooks fail-open: any error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All HTTP targets the local app at `http://127.0.0.1:8741` (overridable via the `SECUREVECTOR_URL` env var).
+
+### Latency — honest framing
+
+Policy enforcement (`PreToolUse`) is **synchronous** — every tool call waits on a loopback HTTP request to the local app before it proceeds. Threat detection (`UserPromptSubmit` and the `PostToolUse` → `/analyze` leg) is **fire-and-forget** and adds no user-visible latency, but it is also **not preventive**: by the time a threat is flagged, the prompt has already gone to the model or the tool has already returned.
+
+**Hard ceiling: 100 ms.** That's the fail-open timeout in `lib/client.js`. If the local app is unreachable or slow, the hook returns `allow` at 100 ms and the tool call proceeds — so a misbehaving local app cannot stall Claude Code beyond 100 ms per tool call.
 
 ## Install
 

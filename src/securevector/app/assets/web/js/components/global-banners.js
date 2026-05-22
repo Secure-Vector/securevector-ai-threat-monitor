@@ -112,7 +112,7 @@ const GlobalBanners = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'Zero latency. Full audit trail. No proxy or env vars required. Available for OpenClaw and Claude Code.';
+        desc.textContent = 'Native hooks. Tamper-evident audit. No proxy or env vars required. Available for OpenClaw and Claude Code.';
         textCol.appendChild(desc);
 
         banner.appendChild(textCol);
