@@ -5,6 +5,14 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] - 2026-05-22
+
+### Added
+- **Claude Code statusline emitter** (`hooks/statusline.js`) — optional one-line summary for Claude Code's `statusLine` slot: `SecureVector Guard · 2 threats detected · 5 calls (3a/2b) · 7d 1.4M tok`. Pulls threat scans (from the replay timeline), audit allow/block counts (`/api/tool-permissions/call-audit/stats`), and trailing-7-day token totals (`/api/hooks/claude-code/token-usage`) on loopback in parallel against a 2-second budget. Results cached at `~/.securevector/statusline-cache.json` (60 s TTL, mode 0600) so warm calls return in ~100 ms. Fails silently if the local app is unreachable — never blocks the host statusline. Honours `SECUREVECTOR_URL` for non-default ports. Two integration patterns documented in the plugin README: replace `statusLine.command` outright, or shell out from an existing statusline script and append the line.
+
+### Changed
+- `PLUGIN_FILES` (Claude Code plugin manifest) gains `hooks/statusline.js`, bringing the staged file count from 10 to 11.
+
 ## [4.2.0] - 2026-05-20
 
 ### Added

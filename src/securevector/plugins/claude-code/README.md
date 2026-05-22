@@ -89,6 +89,35 @@ export SV_BASE_URL="http://localhost:9000"
 
 All hooks fail-open: every error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All POSTs target loopback (`http://127.0.0.1:8741` by default).
 
+## Optional: statusline integration
+
+`hooks/statusline.js` is a tiny Node script that prints one line of live SecureVector findings — threat count, allow/block tally, 7-day token usage — for Claude Code's `statusLine` slot. It reads (and ignores) the standard Claude Code statusline JSON on stdin, hits the local app on loopback in parallel, and exits within ~400 ms. **If the app is down it prints nothing**, so the host statusline always renders.
+
+Example output: `SecureVector Guard · 2 threats detected · 5 calls (3a/2b) · 7d 1.4M tok`
+
+**Wire it in (replace your statusLine):** add to `~/.claude/settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js",
+  "refreshInterval": 5
+}
+```
+
+**Wire it in (compose with an existing statusline):** call it from your existing script and append the output, e.g. in a Python statusline:
+
+```python
+import subprocess, sys
+sv = subprocess.run(
+    ["node", "/Users/me/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js"],
+    input=sys.stdin.read(), capture_output=True, text=True, timeout=1
+).stdout.strip()
+print(f"{your_existing_line}  {sv}" if sv else your_existing_line)
+```
+
+Override the app URL with `SECUREVECTOR_URL=http://127.0.0.1:9999` if you bind the local app to a non-default port.
+
 ## What's NOT in this plugin
 
 - SessionStart hook coverage (none today; out of scope for v1).
