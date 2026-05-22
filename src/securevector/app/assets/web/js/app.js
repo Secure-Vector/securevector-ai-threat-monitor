@@ -19,6 +19,7 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
+        'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         settings: SettingsPage,
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
         // Tool Activity / Cost Tracking are sub-items under Agent Replay;

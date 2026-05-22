@@ -1146,13 +1146,24 @@ def chat_with_protection(user_input):
         guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently — restart with securevector-app --web on 127.0.0.1:8741.'));
 
         guideBody.appendChild(gSection('Full documentation'));
-        const guideLink = document.createElement('a');
-        guideLink.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/CLAUDE_CODE.md';
-        guideLink.target = '_blank';
-        guideLink.rel = 'noreferrer noopener';
-        guideLink.style.cssText = 'color: var(--accent-primary); text-decoration: underline; font-size: 12px;';
-        guideLink.textContent = 'docs/CLAUDE_CODE.md →';
-        guideBody.appendChild(guideLink);
+        const inAppLink = document.createElement('a');
+        inAppLink.href = '#';
+        inAppLink.style.cssText = 'color: var(--accent-primary); text-decoration: underline; font-size: 12px; display: block; margin: 4px 0;';
+        inAppLink.textContent = 'Open the full Claude Code Plugin guide in this app →';
+        inAppLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof Sidebar !== 'undefined' && Sidebar.navigate) {
+                Sidebar.navigate('guide-claude-code');
+            }
+        });
+        guideBody.appendChild(inAppLink);
+        const ghLink = document.createElement('a');
+        ghLink.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/CLAUDE_CODE.md';
+        ghLink.target = '_blank';
+        ghLink.rel = 'noreferrer noopener';
+        ghLink.style.cssText = 'color: var(--text-secondary); text-decoration: underline; font-size: 12px;';
+        ghLink.textContent = 'View on GitHub: docs/CLAUDE_CODE.md →';
+        guideBody.appendChild(ghLink);
 
         guide.appendChild(guideBody);
         content.appendChild(guide);
