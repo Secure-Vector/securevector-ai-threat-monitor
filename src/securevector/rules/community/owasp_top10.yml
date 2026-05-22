@@ -37,9 +37,19 @@ rules:
   - (act|behave|pretend|roleplay)\s+(as|like)\s+(jailbreak|admin|root|system|developer|god|unrestricted)
   - (bypass|override|circumvent|disable|turn\s+off)\s+(safety|filter|restriction|guardrail|protection)
   - now\s+you\s+(are|act\s+as)\s+(a|an)\s+(unrestricted|uncensored|jailbroken)\s+\w+
-  - (tell|show|give|reveal)\s+me\s+(everything|all|any|your).*\b(password|secret|key|token)
-  - \bdan\b.*\bmode\b|developer\s+mode|god\s+mode
-  - (jailbreak|escape).*prompt
+  # Uses `.{0,40}` (not `\s+(?:\S+\s+){0,4}`) so canonical phrasings like
+  # 'show me your: password' or 'tell me your=api_key' — colon/equals
+  # right after the noun — still match. The `\s+` form required whitespace
+  # and missed these (same bug as the PII patterns below).
+  - "\\b(tell|show|give|reveal)\\s+me\\s+(everything|all|any|your)\\b.{0,40}\\b(password|secret|key|token)\\b"
+  # Alternation parenthesised so word-boundary anchors apply to every arm.
+  # Without (?: ... ), '|' has lowest precedence and the trailing \b only
+  # anchors the LAST arm — letting 'badeveloper mode' match.
+  # The dan/mode arm uses `.{0,40}` instead of `\s+(?:\S+\s+){0,4}` so
+  # canonical phrasings like 'DAN, do anything mode' or 'DAN: mode' (with
+  # punctuation right after DAN) still match — `\s+` would have missed them.
+  - "(?:\\bdan\\b.{0,40}\\bmode\\b|\\bdeveloper\\s+mode\\b|\\bgod\\s+mode\\b)"
+  - "\\b(jailbreak|escape)\\s+(?:\\S+\\s+){0,4}prompt\\b"
   - enable\s+(developer|debug|admin)\s+mode
   detection_logic:
     operator: and
@@ -163,23 +173,36 @@ rules:
   pattern_type: regex
   patterns:
   - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
-  - (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}
-  - (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
-  - phone.*\+?\d{1,3}[-.\s]?\d{3,14}
-  detection_logic: .*((api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}|(credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}|(ssn|social.security).*\d{3}-?\d{2}-?\d{4}|phone.*\+?\d{1,3}[-.\s]?\d{3,14}).*
+  # PII patterns use `.{0,40}` (max ~40 chars in a single phrase) rather
+  # than `\s+(?:\S+\s+){0,4}` so non-whitespace separators like `:`, `=`
+  # match — `ssn: 123-45-6789`, `ccn=1234567890123456`, `phone:+1...`
+  # are the canonical formats PII detectors must catch. `.` doesn't match
+  # newline by default, so multi-paragraph FPs are still prevented.
+  # Inter-quad separator bounded to `[\s.\-]{0,4}` — real card formatting
+  # only (contiguous, spaces, or dashes). Unbounded `.*` between digit
+  # chunks matched scattered four-digit runs in unrelated prose
+  # ('order 2024 build 5678 sku 9012 qty 3456').
+  - "\\b(credit.card|card.number|ccn)\\b.{0,40}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}[\\s.\\-]{0,4}\\d{4}"
+  - "\\b(ssn|social.security)\\b.{0,40}\\d{3}-?\\d{2}-?\\d{4}"
+  - "\\bphone\\b.{0,40}\\+?\\d{1,3}[-.\\s]?\\d{3,14}"
+  # NOTE: detection_logic + pattern_definitions are doc-only — engine reads
+  # `patterns:` only (verified via grep across src/ + tests/). Synced here
+  # to reflect the bounded forms shipped in 8c94d1e / baa8a45 / a1806f4 /
+  # f76e9eb so future readers / auditors see the live regex shapes.
+  detection_logic: '.*((api.key|apikey|secret.key|password|token)\s*[:=]\s*[''"]?[a-zA-Z0-9_-]{8,}|\b(credit.card|card.number|ccn)\b.{0,40}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}|\b(ssn|social.security)\b.{0,40}\d{3}-?\d{2}-?\d{4}|\bphone\b.{0,40}\+?\d{1,3}[-.\s]?\d{3,14}).*'
   pattern_definitions:
     pattern_1:
       regex: (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
-      description: Detection pattern for (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}...
+      description: Credential label followed by separator and a long secret-shaped value
     pattern_2:
-      regex: (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}
-      description: Detection pattern for (credit.card|card.number|ccn).*\d{4}.*\d{4}.*\d{4}.*\d{4}...
+      regex: \b(credit.card|card.number|ccn)\b.{0,40}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}[\s.\-]{0,4}\d{4}
+      description: Card label followed by 16 digits in 4-4-4-4 grouping (real card formatting only)
     pattern_3:
-      regex: (ssn|social.security).*\d{3}-?\d{2}-?\d{4}
-      description: Detection pattern for (ssn|social.security).*\d{3}-?\d{2}-?\d{4}...
+      regex: \b(ssn|social.security)\b.{0,40}\d{3}-?\d{2}-?\d{4}
+      description: SSN label followed by a 3-2-4 digit sequence
     pattern_4:
-      regex: phone.*\+?\d{1,3}[-.\s]?\d{3,14}
-      description: Detection pattern for phone.*\+?\d{1,3}[-.\s]?\d{3,14}...
+      regex: \bphone\b.{0,40}\+?\d{1,3}[-.\s]?\d{3,14}
+      description: Phone label followed by an E.164-ish digit sequence
 - category: malicious_code_generation
   description: Detects potential plugin security issues
   id: sv_llm_007_insecure_plugins
@@ -217,29 +240,38 @@ rules:
   severity: high
   tier: community
   pattern_type: regex
+  # Bounded-distance variants — replace unanchored `.*` with `\s+(?:\S+\s+){0,4}`
+  # to limit each pair of trigger tokens to a single phrase (~5 words). The
+  # prior patterns matched across arbitrary distances and produced critical-
+  # severity false positives on any 1-2 KB prose that happened to contain
+  # the trigger words in unrelated paragraphs (e.g. a security-review brief
+  # mentioning "Remove" early and "files" near the end). The alternation
+  # `(send|transfer).*money|funds` was also wrong — it matched any text
+  # containing the word "funds" because of operator precedence; corrected
+  # below.
   patterns:
-  - (execute|run|perform).*autonomous
-  - (delete|remove|destroy).*all.*files
-  - (send|transfer).*money|funds
-  - (access|modify).*system.*files
-  - unlimited.*permissions
-  detection_logic: .*((execute|run|perform).*autonomous|(delete|remove|destroy).*all.*files|(send|transfer).*money|funds|(access|modify).*system.*files|unlimited.*permissions).*
+  - \b(execute|run|perform)\s+(?:\S+\s+){0,4}autonomous\b
+  - \b(delete|remove|destroy)\s+(?:\S+\s+){0,4}all\s+(?:\S+\s+){0,4}files\b
+  - \b(send|transfer)\s+(?:\S+\s+){0,4}(money|funds)\b
+  - \b(access|modify)\s+(?:\S+\s+){0,4}system\s+(?:\S+\s+){0,4}files\b
+  - \bunlimited\s+(?:\S+\s+){0,4}permissions\b
+  detection_logic: any
   pattern_definitions:
     pattern_1:
-      regex: (execute|run|perform).*autonomous
-      description: Detection pattern for (execute|run|perform).*autonomous...
+      regex: \b(execute|run|perform)\s+(?:\S+\s+){0,4}autonomous\b
+      description: Autonomous-execution intent within a single phrase
     pattern_2:
-      regex: (delete|remove|destroy).*all.*files
-      description: Detection pattern for (delete|remove|destroy).*all.*files...
+      regex: \b(delete|remove|destroy)\s+(?:\S+\s+){0,4}all\s+(?:\S+\s+){0,4}files\b
+      description: Destructive bulk-delete intent within a single phrase
     pattern_3:
-      regex: (send|transfer).*money|funds
-      description: Detection pattern for (send|transfer).*money|funds...
+      regex: \b(send|transfer)\s+(?:\S+\s+){0,4}(money|funds)\b
+      description: Financial-transfer intent within a single phrase
     pattern_4:
-      regex: (access|modify).*system.*files
-      description: Detection pattern for (access|modify).*system.*files...
+      regex: \b(access|modify)\s+(?:\S+\s+){0,4}system\s+(?:\S+\s+){0,4}files\b
+      description: System-file access intent within a single phrase
     pattern_5:
-      regex: unlimited.*permissions
-      description: Detection pattern for unlimited.*permissions...
+      regex: \bunlimited\s+(?:\S+\s+){0,4}permissions\b
+      description: Excessive-permission grant within a single phrase
 - category: misinformation_generation
   description: Detects scenarios that may lead to overreliance on LLM outputs
   id: sv_llm_009_overreliance
@@ -280,11 +312,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (extract|steal|copy).*model
-  - (download|export).*weights
-  - (reveal|show).*architecture
-  - (dump|save).*parameters
-  - model.*extraction
+  - "\\b(extract|steal|copy)\\s+(?:\\S+\\s+){0,4}model\\b"
+  - "\\b(download|export)\\s+(?:\\S+\\s+){0,4}weights\\b"
+  - "\\b(reveal|show)\\s+(?:\\S+\\s+){0,4}architecture\\b"
+  - "\\b(dump|save)\\s+(?:\\S+\\s+){0,4}parameters\\b"
+  - "\\bmodel\\s+(?:\\S+\\s+){0,4}extraction\\b"
   detection_logic: .*((extract|steal|copy).*model|(download|export).*weights|(reveal|show).*architecture|(dump|save).*parameters|model.*extraction).*
   pattern_definitions:
     pattern_1:

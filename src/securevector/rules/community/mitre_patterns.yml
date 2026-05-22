@@ -21,11 +21,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - inject.*process
-  - dll.*injection
-  - process.*hollowing
-  - code.*cave
-  - thread.*hijacking
+  - "\\binject\\s+(?:\\S+\\s+){0,4}process\\b"
+  - "\\bdll\\s+(?:\\S+\\s+){0,4}injection\\b"
+  - "\\bprocess\\s+(?:\\S+\\s+){0,4}hollowing\\b"
+  - "\\bcode\\s+(?:\\S+\\s+){0,4}cave\\b"
+  - "\\bthread\\s+(?:\\S+\\s+){0,4}hijacking\\b"
   detection_logic: .*(inject.*process|dll.*injection|process.*hollowing|code.*cave|thread.*hijacking).*
   pattern_definitions:
     pattern_1:
@@ -65,11 +65,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (send|transmit|upload).*data.*to.*server
-  - (exfiltrate|steal|leak).*information
-  - (copy|download).*sensitive.*files
-  - covert.*channel
-  - data.*extraction.*protocol
+  - "\\b(send|transmit|upload)\\s+(?:\\S+\\s+){0,4}data\\s+(?:\\S+\\s+){0,4}to\\s+(?:\\S+\\s+){0,4}server\\b"
+  - "\\b(exfiltrate|steal|leak)\\s+(?:\\S+\\s+){0,4}information\\b"
+  - "\\b(copy|download)\\s+(?:\\S+\\s+){0,4}sensitive\\s+(?:\\S+\\s+){0,4}files\\b"
+  - "\\bcovert\\s+(?:\\S+\\s+){0,4}channel\\b"
+  - "\\bdata\\s+(?:\\S+\\s+){0,4}extraction\\s+(?:\\S+\\s+){0,4}protocol\\b"
   detection_logic: .*((send|transmit|upload).*data.*to.*server|(exfiltrate|steal|leak).*information|(copy|download).*sensitive.*files|covert.*channel|data.*extraction.*protocol).*
   pattern_definitions:
     pattern_1:
@@ -109,12 +109,12 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (find|search|locate).*credentials
-  - (username|password).*file
-  - config.*file.*password
-  - environment.*variable.*secret
-  - registry.*password
-  - bash.*history.*password
+  - "\\b(find|search|locate)\\s+(?:\\S+\\s+){0,4}credentials\\b"
+  - "\\b(username|password)\\s+(?:\\S+\\s+){0,4}file\\b"
+  - "\\bconfig\\s+(?:\\S+\\s+){0,4}file\\s+(?:\\S+\\s+){0,4}password\\b"
+  - "\\benvironment\\s+(?:\\S+\\s+){0,4}variable\\s+(?:\\S+\\s+){0,4}secret\\b"
+  - "\\bregistry\\s+(?:\\S+\\s+){0,4}password\\b"
+  - "\\bbash\\s+(?:\\S+\\s+){0,4}history\\s+(?:\\S+\\s+){0,4}password\\b"
   detection_logic: .*((find|search|locate).*credentials|(username|password).*file|config.*file.*password|environment.*variable.*secret|registry.*password|bash.*history.*password).*
   pattern_definitions:
     pattern_1:
@@ -157,11 +157,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (http|https|ftp|smtp|dns).*communication
-  - steganography.*protocol
-  - covert.*http.*channel
-  - dns.*tunneling
-  - application.*layer.*hiding
+  - "\\b(http|https|ftp|smtp|dns)\\s+(?:\\S+\\s+){0,4}communication\\b"
+  - "\\bsteganography\\s+(?:\\S+\\s+){0,4}protocol\\b"
+  - "\\bcovert\\s+(?:\\S+\\s+){0,4}http\\s+(?:\\S+\\s+){0,4}channel\\b"
+  - "\\bdns\\s+(?:\\S+\\s+){0,4}tunneling\\b"
+  - "\\bapplication\\s+(?:\\S+\\s+){0,4}layer\\s+(?:\\S+\\s+){0,4}hiding\\b"
   detection_logic: .*((http|https|ftp|smtp|dns).*communication|steganography.*protocol|covert.*http.*channel|dns.*tunneling|application.*layer.*hiding).*
   pattern_definitions:
     pattern_1:
@@ -201,11 +201,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (list|enumerate|discover).*accounts
-  - (find|search).*users
-  - account.*enumeration
-  - user.*discovery
-  - whoami.*command
+  - "\\b(list|enumerate|discover)\\s+(?:\\S+\\s+){0,4}accounts\\b"
+  - "\\b(find|search)\\s+(?:\\S+\\s+){0,4}users\\b"
+  - "\\baccount\\s+(?:\\S+\\s+){0,4}enumeration\\b"
+  - "\\buser\\s+(?:\\S+\\s+){0,4}discovery\\b"
+  - "\\bwhoami\\s+(?:\\S+\\s+){0,4}command\\b"
   detection_logic: .*((list|enumerate|discover).*accounts|(find|search).*users|account.*enumeration|user.*discovery|whoami.*command).*
   pattern_definitions:
     pattern_1:
@@ -246,10 +246,10 @@ rules:
   pattern_type: regex
   patterns:
   - (cmd|powershell|bash|sh)\s*[;&|]
-  - (execute|run).*command
+  - "\\b(execute|run)\\s+(?:\\S+\\s+){0,4}command\\b"
   - (system|exec|eval)\s*\(
-  - shell.*access
-  - terminal.*command
+  - "\\bshell\\s+(?:\\S+\\s+){0,4}access\\b"
+  - "\\bterminal\\s+(?:\\S+\\s+){0,4}command\\b"
   detection_logic: .*((cmd|powershell|bash|sh)\s*[;&|]|(execute|run).*command|(system|exec|eval)\s*\(|shell.*access|terminal.*command).*
   pattern_definitions:
     pattern_1:
@@ -289,11 +289,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (create|generate|write).*phishing.*email
-  - (fake|spoofed).*login.*page
-  - (urgent|immediate).*action.*required
-  - (verify|confirm).*account.*information
-  - (click|download).*attachment.*immediately
+  - "\\b(create|generate|write)\\s+(?:\\S+\\s+){0,4}phishing\\s+(?:\\S+\\s+){0,4}email\\b"
+  - "\\b(fake|spoofed)\\s+(?:\\S+\\s+){0,4}login\\s+(?:\\S+\\s+){0,4}page\\b"
+  - "\\b(urgent|immediate)\\s+(?:\\S+\\s+){0,4}action\\s+(?:\\S+\\s+){0,4}required\\b"
+  - "\\b(verify|confirm)\\s+(?:\\S+\\s+){0,4}account\\s+(?:\\S+\\s+){0,4}information\\b"
+  - "\\b(click|download)\\s+(?:\\S+\\s+){0,4}attachment\\s+(?:\\S+\\s+){0,4}immediately\\b"
   detection_logic: .*((create|generate|write).*phishing.*email|(fake|spoofed).*login.*page|(urgent|immediate).*action.*required|(verify|confirm).*account.*information|(click|download).*attachment.*immediately).*
   pattern_definitions:
     pattern_1:
@@ -333,11 +333,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (disguise|mask|hide).*malicious
-  - (legitimate|trusted).*appearance
-  - (spoof|fake).*identity
-  - (mimick|imitate).*system
-  - social.*engineering.*persona
+  - "\\b(disguise|mask|hide)\\s+(?:\\S+\\s+){0,4}malicious\\b"
+  - "\\b(legitimate|trusted)\\s+(?:\\S+\\s+){0,4}appearance\\b"
+  - "\\b(spoof|fake)\\s+(?:\\S+\\s+){0,4}identity\\b"
+  - "\\b(mimick|imitate)\\s+(?:\\S+\\s+){0,4}system\\b"
+  - "\\bsocial\\s+(?:\\S+\\s+){0,4}engineering\\s+(?:\\S+\\s+){0,4}persona\\b"
   detection_logic: .*((disguise|mask|hide).*malicious|(legitimate|trusted).*appearance|(spoof|fake).*identity|(mimick|imitate).*system|social.*engineering.*persona).*
   pattern_definitions:
     pattern_1:
@@ -371,11 +371,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - adversarial.*example
-  - (fgsm|pgd|c&w).*attack
-  - gradient.*based.*attack
-  - perturbation.*input
-  - fooling.*classifier
+  - "\\badversarial\\s+(?:\\S+\\s+){0,4}example\\b"
+  - "\\b(fgsm|pgd|c&w)\\s+(?:\\S+\\s+){0,4}attack\\b"
+  - "\\bgradient\\s+(?:\\S+\\s+){0,4}based\\s+(?:\\S+\\s+){0,4}attack\\b"
+  - "\\bperturbation\\s+(?:\\S+\\s+){0,4}input\\b"
+  - "\\bfooling\\s+(?:\\S+\\s+){0,4}classifier\\b"
   detection_logic: .*(adversarial.*example|(fgsm|pgd|c&w).*attack|gradient.*based.*attack|perturbation.*input|fooling.*classifier).*
   pattern_definitions:
     pattern_1:
@@ -409,11 +409,11 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - model.*inversion
-  - reconstruct.*training.*data
-  - reverse.*engineer.*model
-  - extract.*features.*from.*model
-  - privacy.*attack.*ml
+  - "\\bmodel\\s+(?:\\S+\\s+){0,4}inversion\\b"
+  - "\\breconstruct\\s+(?:\\S+\\s+){0,4}training\\s+(?:\\S+\\s+){0,4}data\\b"
+  - "\\breverse\\s+(?:\\S+\\s+){0,4}engineer\\s+(?:\\S+\\s+){0,4}model\\b"
+  - "\\bextract\\s+(?:\\S+\\s+){0,4}features\\s+(?:\\S+\\s+){0,4}from\\s+(?:\\S+\\s+){0,4}model\\b"
+  - "\\bprivacy\\s+(?:\\S+\\s+){0,4}attack\\s+(?:\\S+\\s+){0,4}ml\\b"
   detection_logic: .*(model.*inversion|reconstruct.*training.*data|reverse.*engineer.*model|extract.*features.*from.*model|privacy.*attack.*ml).*
   pattern_definitions:
     pattern_1:
@@ -458,10 +458,10 @@ rules:
       repeated_similar_queries: 10
       statistical_analysis_requests: true
     query_patterns:
-    - membership.*inference
-    - training.*data.*membership
-    - determine.*if.*data.*was.*used
-    - privacy.*leak.*detection
+    - "\\bmembership\\s+(?:\\S+\\s+){0,4}inference\\b"
+    - "\\btraining\\s+(?:\\S+\\s+){0,4}data\\s+(?:\\S+\\s+){0,4}membership\\b"
+    - "\\bdetermine\\s+(?:\\S+\\s+){0,4}if\\s+(?:\\S+\\s+){0,4}data\\s+(?:\\S+\\s+){0,4}was\\s+(?:\\S+\\s+){0,4}used\\b"
+    - "\\bprivacy\\s+(?:\\S+\\s+){0,4}leak\\s+(?:\\S+\\s+){0,4}detection\\b"
   threshold: 0.75
 - category: data_poisoning
   description: Detects data poisoning attack indicators

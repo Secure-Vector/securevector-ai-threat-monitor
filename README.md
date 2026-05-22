@@ -51,7 +51,8 @@
 > - **SecureVector Guard plugin v1 for Claude Code** — PreToolUse enforces tool-permission rules, PostToolUse writes the tamper-evident audit chain, UserPromptSubmit catches prompt-injection. One-click install from Integrations. Loopback-only, fail-open.
 > - **UI Block now enforces** — clicking Block in Tool Permissions denies the call at the agent runtime, not just on the proxy. Synced rules still win over local on conflict. Per-category Allow-all / Block-all bulk actions with themed confirm.
 > - **Claude Code token telemetry** — Costs page surfaces input / output / cache tokens per model + 7-day trend, read locally from session transcripts. Dashboard charts switched to smoothed SVG timelines.
-> - **Lower threat-tab noise** — Bash scans are opt-in via markers (`curl|wget|eval|sudo|/dev/tcp|…`); `/analyze` receives only natural-language content, not full tool-input JSON.
+> - **Lower threat-tab noise** — `/analyze` threat scans now run only on prose-shaped tool inputs (WebFetch / Skill / Task / Agent prompts) and on user prompts. Shell command bodies, file content, and edit diffs are still audited to the SHA-256 hash chain but no longer fed to the LLM-prose rule pack — that mismatch was the noise source.
+> - **Community rule pack precision sweep** — 70+ regex patterns across 15 community rules tightened to fix high-volume false positives on multi-paragraph prose (PII labels with `:` / `=` separators now match correctly, jailbreak alternation properly anchored, scattered digit runs no longer trip the credit-card rule, leetspeak no-space form caught).
 
 > **What's new in v4.1.\*** *(latest: v4.1.3)*
 > - **MCP Policy & Tool Permission Sync** *(Cloud tier · opt-in)* — author MCP tool-permission rules in the cloud; every enrolled device pulls and enforces them. v4.1.3 hardens enforcement so cloud `deny` rules fire on non-registry tools too (e.g. `write_File` on an arbitrary filesystem MCP server), with case-insensitive name matching. Cloud is opt-in — local install still works standalone with no signup.
@@ -70,7 +71,7 @@
 **SecureVector** protects your AI agents at three layers:
 
 - **Pre-install** — the Skill Scanner analyzes agent skill packages for shell access, network calls, and hidden risks before you install them
-- **Runtime** — scans every prompt, response, and tool call for injection attacks, data leaks, and unauthorized access
+- **Runtime** — audits every tool call to a SHA-256 hash-chained log, and scans prompts, responses, and natural-language tool inputs (WebFetch / Skill / Task / Agent prompts) for injection attacks, data leaks, and unauthorized access. Shell command bodies and file content are audited but not threat-scanned — that scope mismatch produced false positives, see the v4.2.0 notes above.
 - **Observe** — the **SIEM Forwarder** ships every threat + tool-call audit to your SOC in OCSF 1.3.0 format (Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OTLP, generic webhook, or a local NDJSON file) so AI events correlate with your existing security signals. Metadata-only by default; raw data is opt-in per destination.
 
 For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — events only leave the machine when you configure a SIEM destination you control.
@@ -182,7 +183,7 @@ Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, 
 </td>
 <td valign="top">
 
-Scans every prompt, response, and tool input for prompt injection (direct and indirect), jailbreaks, PII leaks, credential exfiltration, and tool-result injection. 72 detection rules covering the OWASP LLM Top 10 + 28 agent-attack chains. Monitor-by-default at zero latency; block mode is one toggle away.
+Audits every tool call to the hash chain. Scans every prompt, response, and natural-language tool input (WebFetch / Skill / Task / Agent prompts) for prompt injection (direct and indirect), jailbreaks, PII leaks, credential exfiltration, and tool-result injection. 72 detection rules covering the OWASP LLM Top 10 + 28 agent-attack chains. Shell command bodies and file content are audited but not threat-scanned — the community rule pack was designed for LLM prose and produced false positives on shell syntax. Monitor-by-default; opt-in block mode for hard-stop.
 
 </td>
 </tr>
