@@ -48,7 +48,7 @@
 <br>
 
 > **What's new in v4.2.\*** *(latest: v4.2.1)*
-> - **Claude Code statusline emitter** *(v4.2.1)* — optional `hooks/statusline.js` prints a one-line live summary next to model / cwd / git state: `SecureVector Guard · 2 threats detected · 5 calls (3a/2b) · 7d 1.4M tok`. Pulls from the local app on loopback with a 60-second on-disk cache so warm calls return in ~100 ms; fails silently if the app is down. Wire it into Claude Code's `statusLine` (or shell out from an existing statusline script).
+> - **Claude Code statusline emitter** *(v4.2.1)* — optional `hooks/statusline.js` prints a one-line live summary next to model / cwd / git state: `SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok`. Pulls from the local app on loopback with a 60-second on-disk cache so warm calls return in ~100 ms; fails silently if the app is down. Wire it into Claude Code's `statusLine` (or shell out from an existing statusline script).
 > - **SecureVector Guard plugin v1 for Claude Code** — PreToolUse enforces tool-permission rules, PostToolUse writes the tamper-evident audit chain, UserPromptSubmit catches prompt-injection. One-click install from Integrations. Loopback-only, fail-open.
 > - **UI Block now enforces** — clicking Block in Tool Permissions denies the call at the agent runtime, not just on the proxy. Synced rules still win over local on conflict. Per-category Allow-all / Block-all bulk actions with themed confirm.
 > - **Claude Code token telemetry** — Costs page surfaces input / output / cache tokens per model + 7-day trend, read locally from session transcripts. Dashboard charts switched to smoothed SVG timelines.

@@ -8,7 +8,7 @@
  * statusline script and appended).
  *
  * Example output:
- *   SecureVector Guard · 2 threats detected · 5 calls (3a/2b) · 7d 1.4M tok
+ *   SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok
  *
  * Contract:
  *   - Reads (and ignores) Claude Code statusline JSON from stdin.
@@ -110,7 +110,9 @@ function buildLine(stats, tokens, timeline) {
   }
 
   if (stats && (stats.total ?? 0) > 0) {
-    tail.push(`${stats.total} calls (${stats.allowed ?? 0}a/${stats.blocked ?? 0}b)`);
+    tail.push(
+      `${stats.total} tool calls (${stats.allowed ?? 0} allow / ${stats.blocked ?? 0} block)`
+    );
   }
 
   if (tokens && Array.isArray(tokens.daily)) {

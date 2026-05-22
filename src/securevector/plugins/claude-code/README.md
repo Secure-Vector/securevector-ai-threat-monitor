@@ -93,7 +93,7 @@ All hooks fail-open: every error path emits the equivalent of "allow" (or an emp
 
 `hooks/statusline.js` is a tiny Node script that prints one line of live SecureVector findings — threat count, allow/block tally, 7-day token usage — for Claude Code's `statusLine` slot. It reads (and ignores) the standard Claude Code statusline JSON on stdin, hits the local app on loopback in parallel, and exits within ~400 ms. **If the app is down it prints nothing**, so the host statusline always renders.
 
-Example output: `SecureVector Guard · 2 threats detected · 5 calls (3a/2b) · 7d 1.4M tok`
+Example output: `SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok`
 
 **Wire it in (replace your statusLine):** add to `~/.claude/settings.json`:
 
