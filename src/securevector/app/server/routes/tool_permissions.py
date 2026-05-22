@@ -68,6 +68,109 @@ class EssentialToolResponse(BaseModel):
     has_override: bool
 
 
+# Canonical list of Claude Code built-in tools the UI should govern. Mirrors
+# the `BUILTIN_TOOLS` Set in
+# src/securevector/plugins/claude-code/lib/normalize.js — KEEP THESE TWO IN
+# SYNC. Drift is caught by `tests/unit/app/test_tool_permissions_builtins.py`
+# which asserts every name in the JS Set has an entry here.
+#
+# Each tuple is (name, risk, description). The category is uniformly
+# `"claude_code"`; default_permission is `"allow"` because built-ins
+# are default-allow in the host — cloud rules deny selectively.
+CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
+    # File operations
+    ("Read",          "read",   "Read file contents."),
+    ("Edit",          "write",  "Modify an existing file."),
+    ("Write",         "write",  "Write a new file or replace an existing one."),
+    ("MultiEdit",     "write",  "Apply multiple edits to a single file atomically."),
+    ("NotebookEdit",  "write",  "Modify cells in a Jupyter notebook."),
+    ("NotebookRead",  "read",   "Read cells in a Jupyter notebook."),
+    # Search / navigation
+    ("Glob",          "read",   "Match files by glob pattern."),
+    ("Grep",          "read",   "Search file contents by pattern."),
+    ("LS",            "read",   "List directory contents."),
+    ("LSP",           "read",   "Query language-server protocol metadata."),
+    # Shell
+    ("Bash",          "admin",  "Execute a shell command."),
+    ("PowerShell",    "admin",  "Execute a PowerShell command."),
+    # Web
+    ("WebFetch",      "read",   "Fetch a URL."),
+    ("WebSearch",     "read",   "Run a web search."),
+    # Agents / planning
+    ("Task",          "admin",  "Dispatch a sub-agent task."),
+    ("Agent",         "admin",  "Launch a sub-agent."),
+    ("ExitPlanMode",  "read",   "Exit the planning mode."),
+    ("EnterPlanMode", "read",   "Enter the planning mode."),
+    # Worktrees
+    ("EnterWorktree", "write",  "Switch into a git worktree."),
+    ("ExitWorktree",  "write",  "Switch out of a git worktree."),
+    # Skills / background
+    ("Skill",         "admin",  "Execute a registered skill."),
+    ("Monitor",       "admin",  "Start a background monitor process."),
+    # Todos
+    ("TodoWrite",     "write",  "Update the session todo list."),
+    ("TodoRead",      "read",   "Read the session todo list."),
+]
+
+
+def _build_tool_response_row(
+    tool_id: str,
+    tool_meta: dict,
+    overrides_map: dict,
+    synced_map: dict,
+    last_resort_matcher,
+) -> dict:
+    """Resolve precedence (last_resort > synced > local > default) and
+    build the response row. Shared between registry tools and Claude
+    Code built-ins so a single source of truth governs the precedence
+    chain."""
+    override = overrides_map.get(tool_id)
+    override_action = override["action"] if override else None
+    default_perm = tool_meta.get("default_permission", "block")
+
+    synced_rule = synced_map.get(tool_id)
+    last_resort = last_resort_matcher(tool_id)
+
+    if last_resort is not None:
+        effective = last_resort.effect  # always 'deny'
+        source = "last_resort"
+    elif synced_rule is not None:
+        effective = synced_rule.effect
+        source = "synced"
+    elif override_action is not None:
+        effective = override_action
+        source = "local"
+    else:
+        effective = default_perm
+        source = "default"
+
+    return {
+        "tool_id": tool_id,
+        "name": tool_meta.get("name", tool_id),
+        "provider": tool_meta.get("provider", ""),
+        "category": tool_meta.get("category", "unknown"),
+        "risk": tool_meta.get("risk", "write"),
+        "risk_score": get_risk_score(tool_meta.get("risk")),
+        "default_permission": default_perm,
+        "description": tool_meta.get("description", ""),
+        "effective_action": effective,
+        "effective_source": source,
+        "has_override": override_action is not None,
+        "is_synced": synced_rule is not None,
+        "synced_effect": synced_rule.effect if synced_rule else None,
+        "synced_source_org": synced_rule.org_name if synced_rule else None,
+        "synced_policy_id": synced_rule.policy_id if synced_rule else None,
+        "synced_policy_name": synced_rule.policy_name if synced_rule else None,
+        "synced_policy_version": synced_rule.policy_version if synced_rule else None,
+        "synced_reason": synced_rule.reason if synced_rule else None,
+        "is_last_resort": last_resort is not None,
+        "last_resort_reason": last_resort.reason if last_resort else None,
+        "source": tool_meta.get("source", "official"),
+        "mcp_server": tool_meta.get("mcp_server", ""),
+        "popular": tool_meta.get("popular", False),
+    }
+
+
 @router.get("/tool-permissions/essential")
 async def list_essential_tools():
     """List all essential tools with their effective permissions.
@@ -78,6 +181,12 @@ async def list_essential_tools():
       2. synced rule (cloud-pushed via /policy/sync)
       3. local user override
       4. registry default_permission
+
+    Response includes the YAML registry tools AND the Claude Code
+    built-ins (Bash, Edit, Read, …) under category "claude_code" so the
+    Tool Permissions page surfaces them as governable rows. Built-ins
+    flow through the SAME precedence chain — cloud rules with
+    ``tool_id="Bash"`` Just Work.
     """
     try:
         registry = _get_registry()
@@ -106,54 +215,35 @@ async def list_essential_tools():
                     synced_map[k] = r
 
         tools = []
+
+        # Registry tools first.
         for tool_id, tool in registry.items():
-            override = overrides_map.get(tool_id)
-            override_action = override["action"] if override else None
-            default_perm = tool.get("default_permission", "block")
+            tools.append(_build_tool_response_row(
+                tool_id, tool, overrides_map, synced_map, matches_last_resort,
+            ))
 
-            synced_rule = synced_map.get(tool_id)
-            last_resort = matches_last_resort(tool_id)
-
-            # effective_action precedence: last_resort > synced > local > default
-            if last_resort is not None:
-                effective = last_resort.effect  # always 'deny'
-                source = "last_resort"
-            elif synced_rule is not None:
-                # Map cloud effect names to local override names where they differ
-                effective = synced_rule.effect
-                source = "synced"
-            elif override_action is not None:
-                effective = override_action
-                source = "local"
-            else:
-                effective = default_perm
-                source = "default"
-
-            tools.append({
-                "tool_id": tool_id,
-                "name": tool.get("name", tool_id),
-                "provider": tool.get("provider", ""),
-                "category": tool.get("category", "unknown"),
-                "risk": tool.get("risk", "write"),
-                "risk_score": get_risk_score(tool.get("risk")),
-                "default_permission": default_perm,
-                "description": tool.get("description", ""),
-                "effective_action": effective,
-                "effective_source": source,
-                "has_override": override_action is not None,
-                "is_synced": synced_rule is not None,
-                "synced_effect": synced_rule.effect if synced_rule else None,
-                "synced_source_org": synced_rule.org_name if synced_rule else None,
-                "synced_policy_id": synced_rule.policy_id if synced_rule else None,
-                "synced_policy_name": synced_rule.policy_name if synced_rule else None,
-                "synced_policy_version": synced_rule.policy_version if synced_rule else None,
-                "synced_reason": synced_rule.reason if synced_rule else None,
-                "is_last_resort": last_resort is not None,
-                "last_resort_reason": last_resort.reason if last_resort else None,
-                "source": tool.get("source", "official"),
-                "mcp_server": tool.get("mcp_server", ""),
-                "popular": tool.get("popular", False),
-            })
+        # Claude Code built-ins. Synthesized from the static table above so
+        # cloud rules with `tool_id="Bash"` etc. appear governable in the UI.
+        # Names duplicating a registry tool_id are skipped — registry wins
+        # (the registry's metadata is richer).
+        registry_ids = set(registry.keys())
+        for name, risk, description in CLAUDE_CODE_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Claude Code",
+                "category": "claude_code",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
 
         # Sort by category, then by name
         tools.sort(key=lambda t: (t["category"], t["name"]))
@@ -181,11 +271,24 @@ async def get_overrides():
 
 @router.get("/tool-permissions/synced-overrides")
 async def get_synced_overrides():
-    """Cloud-pushed synced rules in proxy-friendly shape.
+    """Effective tool-permission decisions, in proxy-friendly shape.
 
-    Returned dict per tool_id carries the synced effect + policy provenance so
-    proxy enforcement decisions can be both correct (effect wins over local
-    user override + registry default) and auditable (reason names the policy).
+    Despite the historical name, this endpoint now merges TWO sources:
+      1. Cloud-pushed synced rules (from `synced_rules` table)
+      2. Local user overrides set via the Tool Permissions UI's
+         block/allow buttons (from `tool_essential_overrides` table)
+
+    Precedence: synced > local. Implemented by appending synced rows
+    FIRST and local rows SECOND; downstream consumers (hook, proxy,
+    OpenClaw plugin) all use first-seen-wins by tool_id, so synced
+    rules naturally win when both target the same tool.
+
+    Per-row `source` field discriminates `"synced"` vs `"local"` for
+    telemetry and audit. Existing consumers that ignore `source`
+    will simply start enforcing local overrides, which is what users
+    expect when they click Block in the UI — historically the click
+    was cosmetic for agent runtimes since hooks only consulted the
+    synced table.
     """
     try:
         from securevector.app.database.repositories.synced_rules import (
@@ -201,7 +304,7 @@ async def get_synced_overrides():
         # proxy's _load_synced_overrides keys by tool_id directly, so without
         # aliasing here a synced rule on `github-mcp-server:delete_file`
         # would never match the LLM call's bare `delete_file` function name.
-        synced: list = []
+        merged: list = []
         for r in rows:
             base = {
                 "effect": r.effect,
@@ -211,11 +314,52 @@ async def get_synced_overrides():
                 "policy_version": r.policy_version,
                 "org_name": r.org_name,
                 "reason": r.reason,
+                "source": "synced",
             }
-            synced.append({"tool_id": r.tool_id, **base})
+            merged.append({"tool_id": r.tool_id, **base})
             if ':' in r.tool_id:
-                synced.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
-        return {"synced": synced, "total": len(synced)}
+                merged.append({"tool_id": r.tool_id.split(':', 1)[1], **base})
+
+        # Local overrides — set via the UI's Block/Allow buttons. Mapped
+        # into the synced-row shape so existing consumers don't need to
+        # learn a second format. Local action `block` → effect `deny`;
+        # `allow` → `allow`. `log_only` not exposed as a local-UI option
+        # so no mapping needed.
+        #
+        # Wrapped in its own try/except so a local-overrides DB error
+        # falls back to "synced only" instead of 500-ing the whole
+        # endpoint — preserves the pre-merge fail-quiet contract that
+        # the three downstream consumers (CC hook, OpenClaw plugin,
+        # proxy) rely on for fail-open behaviour.
+        local_rows: list[dict] = []
+        try:
+            local_repo = ToolPermissionsRepository(db)
+            local_rows = await local_repo.get_all_overrides()
+        except Exception as e:
+            logger.warning(
+                "Local-overrides fetch failed in /synced-overrides; "
+                "returning synced-only: %s", e,
+            )
+        ACTION_TO_EFFECT = {"block": "deny", "allow": "allow"}
+        for lr in local_rows:
+            action = lr.get("action")
+            effect = ACTION_TO_EFFECT.get(action)
+            if effect is None:
+                continue
+            merged.append({
+                "tool_id": lr["tool_id"],
+                "effect": effect,
+                "priority": 50,  # below synced (100); first-seen-wins in
+                                 # the hook so synced still wins if both
+                                 # target the same tool_id.
+                "policy_id": "_local",
+                "policy_name": "Local override",
+                "policy_version": 0,
+                "org_name": "Local",
+                "reason": "User-set local override",
+                "source": "local",
+            })
+        return {"synced": merged, "total": len(merged)}
 
     except Exception as e:
         logger.error(f"Failed to get synced overrides: {e}")
@@ -226,9 +370,13 @@ async def get_synced_overrides():
 async def upsert_override(tool_id: str, request: OverrideRequest):
     """Set or update an override for an essential tool."""
     try:
-        # Validate tool_id exists in registry
+        # Validate tool_id exists either in the YAML registry OR in the
+        # Claude Code built-ins list — the Tool Permissions page renders
+        # both as governable rows, so a 404 on built-in IDs would make
+        # every "Block Bash" click silently fail with a toast error.
         registry = _get_registry()
-        if tool_id not in registry:
+        builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
+        if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,
                 detail=f"Unknown essential tool: {tool_id}",
@@ -407,14 +555,37 @@ class AuditLogRequest(BaseModel):
     reason: Optional[str] = None
     is_essential: bool = False
     args_preview: Optional[str] = None
+    # Which agent runtime emitted the call (e.g. "claude-code", "openclaw").
+    # Metadata only; not in the v20 hash chain (see migrate_to_v21 / v32).
+    runtime_kind: Optional[str] = None
 
 
 @router.post("/tool-permissions/call-audit")
 async def record_call_audit(request: AuditLogRequest):
     """Record a tool call decision (block/allow/log_only) in the audit log.
 
-    Called by the proxy after every tool permission evaluation.
+    Called by the proxy after every tool permission evaluation. Volume
+    filter: when the action is `allow` and no policy decision was
+    actually made (i.e., the call passed by default rather than by an
+    explicit rule), we drop the row instead of persisting it.
+
+    Rationale: Claude Code routinely produces 200-500 `allow` rows per
+    developer per day from routine Read/Glob/Bash calls. None of those
+    are policy decisions — they're "no rule matched, default-allow."
+    Persisting them buries the meaningful rows (block / log_only) in
+    noise and bloats the hash chain. Block and log_only ALWAYS persist;
+    a non-empty `reason` field means an explicit rule fired and the row
+    persists too. Threat detections go through `/api/analyze` → the
+    `threat_intel_records` table, not this audit log.
     """
+    # Record every row. The earlier default-allow noise filter dropped
+    # rows where action=allow and reason was None — which silenced
+    # Claude Code's routine Read/Glob/Bash calls and left the Tool
+    # Activity tab empty after install. UI-side filter chips
+    # ("Policy decisions only" / "Blocked only") let users narrow the
+    # view without losing the underlying truth on disk. If chain
+    # volume becomes a real problem, retention/rotation is the answer,
+    # not preemptive row-drops.
     try:
         db = get_database()
         repo = CustomToolsRepository(db)
@@ -426,6 +597,7 @@ async def record_call_audit(request: AuditLogRequest):
             reason=request.reason,
             is_essential=request.is_essential,
             args_preview=request.args_preview,
+            runtime_kind=request.runtime_kind,
         )
         return {"ok": True}
 

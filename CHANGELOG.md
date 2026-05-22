@@ -5,6 +5,41 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-05-20
+
+### Added
+- **SecureVector Guard plugin v1 for Claude Code** — first-class integration. **PreToolUse** hook enforces cloud + local tool-permission rules (allow / deny / ask) for every MCP and built-in tool call. **PostToolUse** writes to the tamper-evident `tool_call_audit` hash chain tagged `runtime_kind=claude-code`. **UserPromptSubmit** captures direct prompt-injection attempts ("ignore previous instructions and …") that PostToolUse cannot see — prompts are redacted (sk-/pk- / GitHub PAT / AWS AKIA / JWT / labelled credential kv-pairs via shared `lib/redact.js`) then scanned by the existing rule packs; matches land in the Threats UI. One-click install / uninstall from the Integrations page; loopback-only, fail-open on every error path.
+- **Local UI Block enforces at the agent runtime** — `/tool-permissions/synced-overrides` now merges `tool_essential_overrides` (UI Block/Allow rows) alongside cloud-synced rules with a `source: "synced"|"local"` discriminator. Synced rules win on conflict via first-seen-wins by tool_id. Closes the gap where the UI's Block button only affected the proxy.
+- **Per-category bulk Allow-all / Block-all** on the Tool Permissions page, gated by a themed `Modal.confirm`. Synced and last-resort rows are skipped automatically.
+- **Filter chip auto-tab-switch** — clicking the local / cloud / last-resort chips on the Tool Permissions hero pins the appropriate category tab so the row list never lands silently empty.
+- **`/api/hooks/claude-code/token-usage` route** — reads `~/.claude/projects/<slug>/<session>.jsonl` directly, aggregates input / output / cache-creation / cache-read tokens per model and per local-day. Surfaced on the Costs page as a token panel + 7-day trend chart + by-model breakdown. Dollar cost intentionally omitted (most users are on flat-rate subscriptions; a per-token equivalent would mislead).
+- **Dashboard timeline charts** — LLM Requests (7d) and Provider Cost (7d) render as smoothed SVG line/area timelines (Catmull-Rom Béziers, dot markers, hover tooltips, low-alpha area fill) instead of bar columns. Same chart engine reused in the Costs page.
+- **Bash opt-in threat scan** — built-in `Bash` tool calls only fire `/analyze` when the command carries explicit security-relevant markers (`curl|wget|nc|socat`, `eval|exec|source`, `bash|sh|python -c`, `rm -rf`, `sudo`, writes into `/etc/`/`~/.ssh/`/`/usr/local/bin/`, `/dev/tcp/`, `mkfifo`). Marker check runs on the FULL extracted command before truncation. Cuts Threats UI false-positive volume on routine `ls`/`grep`/`git log`/`wc` calls dramatically.
+- **Per-tool `extractScanText`** — `/analyze` now receives only the agent-emitted natural-language text (Bash `command`, Edit `new_string`, Write `content`, WebFetch `prompt`, etc.) instead of the full `tool_input` JSON. Eliminates a class of `data_leakage` false positives on routine path strings and stops `args_preview` from bloating `threat_intel_records` with structural JSON.
+- **Sidebar `visibilitychange` listener** — proxy / SIEM / Claude Code banner polling now resumes when the window comes back to foreground (the recursive `setTimeout` self-terminated when `visibilityState !== 'visible'` and never restarted, leaving stale indicators).
+- **Sidebar Claude Code banner** — three states (Active / Installed, not enabled / Staged) matching the Integrations page wording. Padding and margins tuned to stack at equal height with the OpenClaw and SIEM sibling banners.
+- **Integrations page Claude Code card** — six capability tiles (cloud-rule enforcement, audit chain, prompt-injection detection, outbound threat scan, token telemetry, fail-open contract).
+
+### Changed
+- **`record_call_audit` noise filter removed** — every default-allow tool-call row now persists. The earlier filter dropped `action=allow` rows where `reason is None`, which silenced Claude Code's routine Read/Glob/Bash calls and left the Tool Activity tab empty after install. Bulk-delete remains the lever for users who want a focused view.
+- **`/tool-permissions/synced-overrides` response semantics** (see Added above) — same shape as before, plus a `source` field. Existing consumers that ignore `source` start enforcing local UI overrides automatically. Local-overrides fetch wrapped in its own try/except to preserve the fail-quiet contract on partial DB errors.
+- **Threats page timestamps** render in local time. `formatDate` normalises bare UTC ISO timestamps (no `Z` designator) to local for both display and sort, matching the dashboard timeline convention.
+
+### Fixed
+- **Transcript-timestamp comparison** in `_aggregate_session_usage` now uses parsed `datetime` ordering rather than a lexicographic string compare on ISO strings — defends against any future transcript-format change.
+- **Auto-install rollback symmetry** — `installed_plugins.json` is snapshotted via `copy.deepcopy` before the step-4 mutation and restored on partial failure. Previous behaviour rolled back the marketplace registration but left `installed_plugins.json` mutated.
+- **`markets_before` initialised up-front** in the auto-install rollback path. Runtime gate already ensured the read was safe; this clears the corresponding CodeQL static-analysis finding and prevents a future refactor from introducing an `UnboundLocalError`.
+
+### Security
+- **`safeSessionId()`** in `UserPromptSubmit` strips C0 controls + DEL and clamps to 128 chars before forwarding to `/analyze` metadata. Defensive against log-injection in any future textual log sink.
+- **Plugin version regex tightened** — `_VERSION_RE` accepts only semver-shaped versions before path composition, blocking path-traversal payloads in `plugin.json::version`.
+- **Shared secret-redaction module** (`lib/redact.js`) — both `post-tool-use.js` and `user-prompt-submit.js` now import the same `SECRET_PATTERNS`. Keeps masked surfaces in lockstep across the two hooks.
+
+### Tests
+- **91 plugin JS tests** (`node --test tests/unit/plugins/claude-code/*.test.js`) — adds `extractScanText` per-tool coverage (Bash, Edit, Write, MultiEdit, NotebookEdit, WebFetch, Skill/Task/Agent, string inputs, unknown shapes), Edit-body regression guard, benign-Bash negative.
+- **7 backend route tests** (`tests/unit/app/test_hooks_claude_code.py`) — install/uninstall/status round-trip with `lib/redact.js`, `hooks/user-prompt-submit.js`, `hooks/stop-hook-probe.js` in the expected file set.
+- **6 integration tests** (`-m integration`) — live uvicorn + subprocess hook invocations remain green.
+
 ## [4.1.1] - 2026-04-27
 
 ### Fixed

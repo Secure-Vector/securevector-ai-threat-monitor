@@ -175,6 +175,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         29: migrate_to_v29,
         30: migrate_to_v30,
         31: migrate_to_v31,
+        32: migrate_to_v32,
+        33: migrate_to_v33,
     }
 
     if version in migrations:
@@ -1356,6 +1358,70 @@ async def migrate_to_v31(db: DatabaseConnection) -> None:
     logger.info("Applied migration v31: synced_bundle_envelope table")
 
 
+# active-guard-plugin bundle. Adds the column that identifies which agent
+# runtime emitted an audit row — `claude-code` for the new plugin,
+# `openclaw` for the existing one (column stays NULL on legacy OpenClaw
+# rows; backfill is deliberately skipped, matching the v21 device_id
+# precedent — see comment above migrate_to_v21).
+#
+# Not added to the v20 hash-chain canonical serialization. Treating
+# runtime_kind as material would break verify_audit_chain() for every
+# row written before v32 lands.
+async def migrate_to_v32(db: DatabaseConnection) -> None:
+    """v31 -> v32: runtime_kind column on tool_call_audit.
+
+    Idempotent via PRAGMA table_info so re-running on a DB that already
+    has the column (e.g. a restored backup) is a no-op. Existing rows
+    keep runtime_kind = NULL — meaning 'pre-v32, runtime unknown'.
+    """
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(tool_call_audit)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "runtime_kind" not in existing:
+        await conn.execute(
+            "ALTER TABLE tool_call_audit ADD COLUMN runtime_kind TEXT DEFAULT NULL"
+        )
+
+    # Index so the fleet view can filter audit rows by runtime efficiently.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_runtime_kind "
+        "ON tool_call_audit (runtime_kind)"
+    )
+
+    # INSERT OR IGNORE so a re-invocation on a DB that already recorded v32
+    # (partial-state recovery, restored backup) is a no-op rather than a
+    # UNIQUE-constraint crash.
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (32, CURRENT_TIMESTAMP, 'runtime_kind on tool_call_audit (Guard plugin family)')"
+    )
+    logger.info("Applied migration v32: runtime_kind column + index")
+
+
+async def migrate_to_v33(db: DatabaseConnection) -> None:
+    """v32 -> v33: per-tool query index on tool_call_audit.
+
+    The audit dashboard's "recent activity for tool X" query was a sequential
+    scan; with built-in tool enforcement landed (#98 + #100) the table grows
+    fast enough that the scan crosses the second mark in long-running
+    sessions. A composite index on (tool_id, called_at) keeps the lookup
+    sub-second.
+
+    Idempotent — `CREATE INDEX IF NOT EXISTS` is a no-op on re-run.
+    """
+    conn = await db.connect()
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_tool_time "
+        "ON tool_call_audit (tool_id, called_at)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (33, CURRENT_TIMESTAMP, 'idx_tool_call_audit_tool_time per-tool query index')"
+    )
+    logger.info("Applied migration v33: tool_id × called_at composite index")
+
+
 # Future migration functions would be defined here:
 #
 # async def migrate_to_v2(db: DatabaseConnection) -> None:
@@ -1426,6 +1492,10 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     # Clean up old cost records per retention policy
     await cleanup_old_cost_records(db)
 
+    # Clean up old audit rows per retention policy. Mirrors cost cleanup
+    # so both tables respect the same `app_settings.retention_days` knob.
+    await cleanup_old_audit_records(db)
+
     return version
 
 
@@ -1442,6 +1512,28 @@ async def cleanup_old_cost_records(db: DatabaseConnection) -> None:
             logger.info(f"Cleaned up {deleted} expired cost records (retention: {retention_days} days)")
     except Exception as e:
         logger.debug(f"Cost records cleanup skipped: {e}")
+
+
+async def cleanup_old_audit_records(db: DatabaseConnection) -> None:
+    """Delete tool_call_audit rows older than the app's retention_days setting.
+
+    Bounds unbounded growth from per-tool-call audit writes — the matcher
+    widening in #100 means every Read/Edit/Bash/etc. call lands a row, so
+    long-lived installations need rolling retention. The hash chain's
+    verifier handles the resulting truncation (verify_audit_chain treats
+    the lowest remaining seq as the post-truncation anchor).
+    """
+    try:
+        row = await db.fetch_one("SELECT retention_days FROM app_settings WHERE id = 1")
+        retention_days = row["retention_days"] if row and row["retention_days"] else 30
+
+        from securevector.app.database.repositories.custom_tools import CustomToolsRepository
+        repo = CustomToolsRepository(db)
+        deleted = await repo.cleanup_old_audit_records(retention_days)
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} expired audit rows (retention: {retention_days} days)")
+    except Exception as e:
+        logger.debug(f"Audit records cleanup skipped: {e}")
 
 
 async def load_community_rules(db: DatabaseConnection) -> int:

@@ -7112,3 +7112,72 @@ thead tr:hover #records-select-all,
     .mcp-rule-effect-col { padding-left: 14px; }
 }
 
+/* ----------------------------------------------------------------- *
+ * Focus rings — :focus-visible only, so mouse clicks don't trigger
+ * a focus outline. Replaces the prior JS focus/blur listener pattern
+ * which painted on every focus (including mouse) and was fragile.
+ * ----------------------------------------------------------------- */
+#cc-plugin-active-banner:focus-visible {
+    outline: 2px solid #8b5cf6;
+    outline-offset: 1px;
+}
+
+/* Tool-permissions row's primary affordance (the name button) +
+ * row's inline action / reset buttons. */
+[data-tool-row] button:focus-visible {
+    outline: 2px solid var(--accent-primary, #5eadb8);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Tool-permissions tabs — the WAI-ARIA tablist needs a visible
+ * focus indicator distinct from the active-selected state. */
+[role="tab"]:focus-visible {
+    outline: 2px solid var(--accent-primary, #5eadb8);
+    outline-offset: -2px;
+}
+
+/* Forced-colors (Windows High Contrast) safety net — preserves
+ * focus visibility when system colors override our accents. */
+@media (forced-colors: active) {
+    #cc-plugin-active-banner:focus-visible,
+    [data-tool-row] button:focus-visible,
+    [role="tab"]:focus-visible {
+        outline: 2px solid Highlight;
+    }
+}
+
+/* Reduced-motion: disable transforms + transitions on hover affordances
+ * that would otherwise lift / shift content for users who set the
+ * prefers-reduced-motion preference. Targets the actual class used by
+ * proxy/SIEM/CC banners (.proxy-banner-pulse) rather than IDs that the
+ * sibling banners don't have. */
+@media (prefers-reduced-motion: reduce) {
+    [data-tool-row], [role="tab"], .proxy-banner-pulse {
+        transition: none !important;
+        animation: none !important;
+    }
+    [role="tab"]:hover, [data-tool-row]:hover {
+        transform: none !important;
+    }
+}
+
+/* WCAG 2.5.5: minimum touch target size 24x24 (AA). The Tool Permissions
+ * row + action button + reset button intentionally render dense on
+ * desktop (30px row, ~22px button) for scan-density. On coarse pointers
+ * (touch / stylus) the dense layout would force mis-taps. This media
+ * query bumps the hit area up to ≥24x24 on those input modes without
+ * touching the mouse/desktop look. */
+@media (pointer: coarse) {
+    [data-tool-row] {
+        min-height: 36px !important;
+    }
+    [data-tool-row] button {
+        min-height: 24px !important;
+        min-width: 24px !important;
+    }
+    [data-tool-row] [data-action-btn="1"] {
+        padding: 3px 10px !important;
+    }
+}
+
