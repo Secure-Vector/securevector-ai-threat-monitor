@@ -1083,6 +1083,80 @@ def chat_with_protection(user_input):
         });
         content.appendChild(featuresGrid);
 
+        // --- Setup Guide disclosure ---
+        // In-product abbreviation of docs/CLAUDE_CODE.md so the user
+        // doesn't have to leave the app to learn install / verify /
+        // statusline wire-up / common troubleshooting steps. Native
+        // <details> for zero-JS toggle + screen-reader semantics.
+        const guide = document.createElement('details');
+        guide.style.cssText = 'margin-top: 18px; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px;';
+
+        const guideSummary = document.createElement('summary');
+        guideSummary.style.cssText = 'cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-primary); list-style: revert;';
+        guideSummary.textContent = 'Setup Guide & Troubleshooting';
+        guide.appendChild(guideSummary);
+
+        const guideBody = document.createElement('div');
+        guideBody.style.cssText = 'margin-top: 12px; font-size: 12px; line-height: 1.6; color: var(--text-primary);';
+
+        const gSection = (title) => {
+            const h = document.createElement('div');
+            h.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin: 14px 0 6px 0; letter-spacing: 0.3px;';
+            h.textContent = title;
+            return h;
+        };
+        const gPara = (text) => {
+            const p = document.createElement('div');
+            p.style.cssText = 'color: var(--text-secondary); margin: 4px 0;';
+            p.textContent = text;
+            return p;
+        };
+        const gCode = (text) => {
+            const c = document.createElement('code');
+            c.style.cssText = 'display: block; padding: 8px 10px; margin: 4px 0; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; font-family: monospace; font-size: 11px; user-select: all; overflow-x: auto;';
+            c.textContent = text;
+            return c;
+        };
+        const gItem = (label, text) => {
+            const i = document.createElement('div');
+            i.style.cssText = 'color: var(--text-secondary); margin: 6px 0; padding-left: 14px; text-indent: -14px;';
+            const strong = document.createElement('strong');
+            strong.style.cssText = 'color: var(--text-primary); font-weight: 600;';
+            strong.textContent = label + ' — ';
+            i.appendChild(strong);
+            i.appendChild(document.createTextNode(text));
+            return i;
+        };
+
+        guideBody.appendChild(gSection('Install'));
+        guideBody.appendChild(gPara('Click "Install Plugin" above. Then in your Claude Code session:'));
+        guideBody.appendChild(gCode('/reload-plugins'));
+        guideBody.appendChild(gPara('Run any Bash command and check Tool Activity in the sidebar — every call lands as an audit row tagged runtime_kind=claude-code.'));
+
+        guideBody.appendChild(gSection('Statusline (optional)'));
+        guideBody.appendChild(gPara('Wire hooks/statusline.js into ~/.claude/settings.json — it surfaces threats / tool-call balance / 7-day token totals in one line. Compose with an existing statusline by shelling out from your script and appending its stdout. Set NO_COLOR=1 to disable the cyan/red palette.'));
+
+        guideBody.appendChild(gSection('Uninstall'));
+        guideBody.appendChild(gPara('Click "Uninstall" above (recommended — strips the settings.json entries automatically). Then in Claude Code: /reload-plugins.'));
+
+        guideBody.appendChild(gSection('Troubleshooting'));
+        guideBody.appendChild(gItem("Hooks don't fire after install", 'run /reload-plugins, or restart Claude Code.'));
+        guideBody.appendChild(gItem('Every call shows action=allow even with a synced rule', 'open Settings → Cloud and confirm the device is paired; check /api/tool-permissions/synced-overrides returns non-empty.'));
+        guideBody.appendChild(gItem('No 7d tokens in the statusline', 'first render after install can take ≤ 5 s to populate the token cache; subsequent renders pick it up.'));
+        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently — restart with securevector-app --web on 127.0.0.1:8741.'));
+
+        guideBody.appendChild(gSection('Full documentation'));
+        const guideLink = document.createElement('a');
+        guideLink.href = 'https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/master/docs/CLAUDE_CODE.md';
+        guideLink.target = '_blank';
+        guideLink.rel = 'noreferrer noopener';
+        guideLink.style.cssText = 'color: var(--accent-primary); text-decoration: underline; font-size: 12px;';
+        guideLink.textContent = 'docs/CLAUDE_CODE.md →';
+        guideBody.appendChild(guideLink);
+
+        guide.appendChild(guideBody);
+        content.appendChild(guide);
+
         card.appendChild(content);
         return card;
     },
