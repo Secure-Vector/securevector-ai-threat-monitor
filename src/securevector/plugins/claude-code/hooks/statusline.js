@@ -101,16 +101,17 @@ function writeCache(line) {
   } catch { /* cache is opportunistic — ignore */ }
 }
 
-// ANSI styling — blue/red palette. Threats in red (alert), brand prefix +
-// body in bright blue. Block count is also red to mirror the threat signal.
-// Disable with NO_COLOR=1 (https://no-color.org).
+// ANSI styling — cyan/red palette. Threats in red (alert), brand prefix +
+// body in cyan, matching the host statusline's cyan accent. Block count is
+// also red to mirror the threat signal. Disable with NO_COLOR=1
+// (https://no-color.org).
 const NO_COLOR = process.env.NO_COLOR === '1' || process.env.NO_COLOR === 'true';
 const C = NO_COLOR
-  ? { reset: '', boldBlue: '', blue: '', red: '', dim: '' }
+  ? { reset: '', boldCyan: '', cyan: '', red: '', dim: '' }
   : {
       reset: '\x1b[0m',
-      boldBlue: '\x1b[1;94m',
-      blue: '\x1b[94m',
+      boldCyan: '\x1b[1;36m',
+      cyan: '\x1b[36m',
       red: '\x1b[31m',
       dim: '\x1b[2m',
     };
@@ -129,7 +130,7 @@ function buildLine(stats, tokens, timeline) {
     const a = stats.allowed ?? 0;
     const b = stats.blocked ?? 0;
     tail.push(
-      `${C.blue}${stats.total} tool calls (${a} allow / ${C.reset}${C.red}${b} block${C.reset}${C.blue})${C.reset}`
+      `${C.cyan}${stats.total} tool calls (${a} allow / ${C.reset}${C.red}${b} block${C.reset}${C.cyan})${C.reset}`
     );
   }
 
@@ -144,12 +145,12 @@ function buildLine(stats, tokens, timeline) {
       0
     );
     if (total7d > 0) {
-      tail.push(`${C.blue}7d ${fmtTokens(total7d)} tok${C.reset}`);
+      tail.push(`${C.cyan}7d ${fmtTokens(total7d)} tok${C.reset}`);
     }
   }
 
   if (tail.length === 0) return null;
-  return `${C.boldBlue}SecureVector Guard${C.reset} ${C.dim}·${C.reset} ` + tail.join(` ${C.dim}·${C.reset} `);
+  return `${C.boldCyan}SecureVector Guard${C.reset} ${C.dim}·${C.reset} ` + tail.join(` ${C.dim}·${C.reset} `);
 }
 
 async function main() {
