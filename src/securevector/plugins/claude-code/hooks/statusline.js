@@ -101,17 +101,35 @@ function writeCache(line) {
   } catch { /* cache is opportunistic — ignore */ }
 }
 
+// ANSI styling — blue/red palette. Threats in red (alert), brand prefix +
+// body in bright blue. Block count is also red to mirror the threat signal.
+// Disable with NO_COLOR=1 (https://no-color.org).
+const NO_COLOR = process.env.NO_COLOR === '1' || process.env.NO_COLOR === 'true';
+const C = NO_COLOR
+  ? { reset: '', boldBlue: '', blue: '', red: '', dim: '' }
+  : {
+      reset: '\x1b[0m',
+      boldBlue: '\x1b[1;94m',
+      blue: '\x1b[94m',
+      red: '\x1b[31m',
+      dim: '\x1b[2m',
+    };
+
 function buildLine(stats, tokens, timeline) {
   const tail = [];
 
   if (timeline && Array.isArray(timeline.items)) {
     const scans = timeline.items.filter((i) => i.kind === 'scan').length;
-    if (scans > 0) tail.push(`${scans} threats detected`);
+    if (scans > 0) {
+      tail.push(`${C.red}${scans} threats detected${C.reset}`);
+    }
   }
 
   if (stats && (stats.total ?? 0) > 0) {
+    const a = stats.allowed ?? 0;
+    const b = stats.blocked ?? 0;
     tail.push(
-      `${stats.total} tool calls (${stats.allowed ?? 0} allow / ${stats.blocked ?? 0} block)`
+      `${C.blue}${stats.total} tool calls (${a} allow / ${C.reset}${C.red}${b} block${C.reset}${C.blue})${C.reset}`
     );
   }
 
@@ -125,11 +143,13 @@ function buildLine(stats, tokens, timeline) {
       (sum, d) => sum + (d.input_tokens || 0) + (d.output_tokens || 0),
       0
     );
-    if (total7d > 0) tail.push(`7d ${fmtTokens(total7d)} tok`);
+    if (total7d > 0) {
+      tail.push(`${C.blue}7d ${fmtTokens(total7d)} tok${C.reset}`);
+    }
   }
 
   if (tail.length === 0) return null;
-  return 'SecureVector Guard · ' + tail.join(' · ');
+  return `${C.boldBlue}SecureVector Guard${C.reset} ${C.dim}·${C.reset} ` + tail.join(` ${C.dim}·${C.reset} `);
 }
 
 async function main() {
