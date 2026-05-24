@@ -27,6 +27,24 @@ SECRET_PATTERNS = [
     (r'(AKIA)[A-Z0-9]{16}', r'\1****'),
     # JWT tokens (keep header, redact payload and signature)
     (r'(eyJ[a-zA-Z0-9_-]{10,})\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+', r'\1.[REDACTED].[REDACTED]'),
+    # PEM private-key blocks — keeps the BEGIN/END envelope (which is what
+    # the matching rule sv_community_output_003_pem_private_key_leak fires
+    # on), redacts the key body in between. Without this, a tool response
+    # containing a leaked SSH/TLS key flows raw into threat_intel_records
+    # and then out through any SIEM forwarder configured at full redaction
+    # tier — defeating the very rule that flagged it. Pattern is non-greedy
+    # and constrained to PRIVATE KEY variants only (PUBLIC KEY envelopes
+    # are not redacted because they are not secrets).
+    (
+        r'(-----BEGIN\s+(?:RSA|DSA|EC|OPENSSH|ENCRYPTED|PGP)?\s*PRIVATE\s+KEY(?:\s+BLOCK)?-----)'
+        r'[\s\S]*?'
+        r'(-----END\s+(?:RSA|DSA|EC|OPENSSH|ENCRYPTED|PGP)?\s*PRIVATE\s+KEY(?:\s+BLOCK)?-----)',
+        r'\1\n[REDACTED-PRIVATE-KEY]\n\2',
+    ),
+    # OpenSSH binary key carrier — `openssh-key-v1\0` magic + bounded
+    # base64-shaped tail. Bounded length so a stray match doesn't eat
+    # arbitrary trailing content.
+    (r'openssh-key-v1\x00[A-Za-z0-9+/=\s]{0,4096}', '[REDACTED-OPENSSH-KEY]'),
     # Generic API key patterns
     (r'(api[_-]?key[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]'),
     (r'(api[_-]?secret[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]'),
