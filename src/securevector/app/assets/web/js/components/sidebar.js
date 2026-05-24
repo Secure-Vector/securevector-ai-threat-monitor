@@ -16,6 +16,7 @@ const Sidebar = {
         { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
             { id: 'replay',         label: 'Timeline' },
             { id: 'tool-activity',  label: 'Tool Activity' },
+            { id: 'bill-of-tools',  label: 'Bill of Tools' },
             { id: 'costs',          label: 'Cost Tracking' },
         ]},
         // Skills + Tools entries cover their primary "configure" surfaces

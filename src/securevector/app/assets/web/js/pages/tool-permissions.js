@@ -460,6 +460,7 @@ const ToolPermissionsPage = {
         const defs = [
             { id: 'permissions', label: 'Tool Permissions' },
             { id: 'activity',    label: 'Tool Call History' },
+            { id: 'bill',        label: 'Bill of Tools' },
         ];
 
         defs.forEach(({ id, label }) => {
@@ -485,6 +486,7 @@ const ToolPermissionsPage = {
 
         if (this.activeTab === 'permissions') await this._renderPermissionsTab(content);
         else if (this.activeTab === 'activity') await this._renderActivityTab(content);
+        else if (this.activeTab === 'bill') await this._renderBillOfToolsTab(content);
     },
 
     async _renderPermissionsTab(content) {
@@ -641,6 +643,308 @@ const ToolPermissionsPage = {
         page.className = 'page-wrapper';
         content.appendChild(page);
         await this.renderAuditSection(page);
+    },
+
+    // ============================================================
+    // Bill of Tools — SBOM-style per-(server, tool) inventory.
+    // Sources: GET /api/tool-permissions/bill-of-tools?window_days=N
+    // ============================================================
+
+    _billState: { windowDays: 7, rows: [] },
+
+    _formatBillTimestamp(iso) {
+        if (!iso) return '—';
+        try {
+            const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+            if (isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+        } catch { return iso; }
+    },
+
+    _billRowToFlat(row) {
+        // Used by both CSV and PDF exports so the columns stay in lockstep.
+        return {
+            server: row.server || '',
+            tool: row.tool || '',
+            source: row.source || '',
+            auth_scope: row.auth_scope || '',
+            auth_scope_origin: row.auth_scope_origin || '',
+            last_used: row.last_used || '',
+            calls: row.calls ?? 0,
+            allowed: row.allowed ?? 0,
+            blocked: row.blocked ?? 0,
+            logged: row.logged ?? 0,
+            touched_secrets: row.touched_secrets ? 'yes' : 'no',
+            policy_name: row.policy_name || '',
+            policy_org: row.policy_org || '',
+        };
+    },
+
+    _exportBillCsv() {
+        const rows = this._billState.rows || [];
+        if (rows.length === 0) {
+            if (window.Toast) Toast.show('No tool activity in the selected window', 'info');
+            else alert('No tool activity in the selected window');
+            return;
+        }
+        const headers = [
+            'server', 'tool', 'source', 'auth_scope', 'auth_scope_origin',
+            'last_used', 'calls', 'allowed', 'blocked', 'logged',
+            'touched_secrets', 'policy_name', 'policy_org',
+        ];
+        const escape = (v) => {
+            const s = String(v ?? '');
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csvBody = rows.map((r) => {
+            const f = this._billRowToFlat(r);
+            return headers.map((h) => escape(f[h])).join(',');
+        }).join('\n');
+        const csv = headers.join(',') + '\n' + csvBody;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.download = `securevector-bill-of-tools-${stamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    _exportBillPdf() {
+        const rows = this._billState.rows || [];
+        if (rows.length === 0) {
+            if (window.Toast) Toast.show('No tool activity in the selected window', 'info');
+            else alert('No tool activity in the selected window');
+            return;
+        }
+        // Reuse the print-to-PDF pattern already used by Threats page —
+        // open a new window with structured HTML, let the user Save as PDF.
+        const stamp = new Date().toISOString();
+        const win = window.open('', '_blank');
+        if (!win) {
+            if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
+            return;
+        }
+        const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+        const rowsHtml = rows.map((r) => {
+            const f = this._billRowToFlat(r);
+            return `<tr>
+                <td>${escapeHtml(f.server)}</td>
+                <td>${escapeHtml(f.tool)}</td>
+                <td>${escapeHtml(f.source)}</td>
+                <td>${escapeHtml(f.auth_scope)}</td>
+                <td>${escapeHtml(f.last_used)}</td>
+                <td style="text-align:right">${f.calls}</td>
+                <td style="text-align:right">${f.blocked}</td>
+                <td>${escapeHtml(f.touched_secrets)}</td>
+                <td>${escapeHtml(f.policy_name)}</td>
+            </tr>`;
+        }).join('');
+        win.document.write(`<!doctype html><html><head><meta charset="utf-8">
+            <title>SecureVector — Bill of Tools (${escapeHtml(stamp)})</title>
+            <style>
+                body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111}
+                h1{font-size:20px;margin:0 0 4px}
+                .meta{font-size:11px;color:#666;margin-bottom:14px}
+                table{width:100%;border-collapse:collapse;font-size:11px}
+                th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;vertical-align:top}
+                th{background:#f4f4f7;font-weight:600}
+                .note{font-size:10px;color:#888;margin-top:14px}
+            </style></head><body>
+            <h1>SecureVector — MCP Bill of Tools</h1>
+            <div class="meta">Generated ${escapeHtml(stamp)} · Window: trailing ${this._billState.windowDays} days · Rows: ${rows.length}</div>
+            <table>
+                <thead><tr>
+                    <th>Server</th><th>Tool</th><th>Source</th><th>Auth scope</th>
+                    <th>Last used</th><th>Calls</th><th>Blocked</th>
+                    <th>Touched secrets</th><th>Policy</th>
+                </tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="note">Auth scope is SecureVector's classification (read / write / delete / admin), not the MCP server's self-declared capability. "Touched secrets" reflects audit-row reasons mentioning credential/PII rule hits in the window — does not catch unflagged exfiltration through tools that legitimately accept secrets.</div>
+            <script>setTimeout(()=>window.print(),200);<\/script>
+            </body></html>`);
+        win.document.close();
+    },
+
+    async _renderBillOfToolsTab(content) {
+        const page = document.createElement('div');
+        page.className = 'page-wrapper';
+        content.appendChild(page);
+
+        // Header — explains what the page is, plus the window selector and
+        // the two export buttons. Kept compact; the table is the artifact.
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;';
+
+        const titleWrap = document.createElement('div');
+        const title = document.createElement('h2');
+        title.textContent = 'Bill of Tools';
+        title.style.cssText = 'margin:0 0 4px;font-size:18px;';
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:640px;line-height:1.45;';
+        subtitle.textContent = 'One row per (server, tool) pair active on this device in the trailing window. Treats MCP as a supply-chain inventory problem — an SBOM for your agent’s tools. Auth scope is SecureVector’s classification, not the MCP server’s self-declared capability.';
+        titleWrap.appendChild(title);
+        titleWrap.appendChild(subtitle);
+        header.appendChild(titleWrap);
+
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+        const windowLabel = document.createElement('label');
+        windowLabel.textContent = 'Window:';
+        windowLabel.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+        const windowSelect = document.createElement('select');
+        windowSelect.style.cssText = 'padding:5px 8px;border-radius:6px;border:1px solid var(--border-default);background:var(--bg-secondary);color:var(--text-primary);font-size:12px;';
+        [
+            { v: 7,  l: '7 days' },
+            { v: 14, l: '14 days' },
+            { v: 30, l: '30 days' },
+            { v: 90, l: '90 days' },
+        ].forEach(({ v, l }) => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = l;
+            if (v === this._billState.windowDays) opt.selected = true;
+            windowSelect.appendChild(opt);
+        });
+        windowSelect.addEventListener('change', async () => {
+            this._billState.windowDays = parseInt(windowSelect.value, 10) || 7;
+            await this._loadAndRenderBillTable(tableMount, summaryMount);
+        });
+        controls.appendChild(windowLabel);
+        controls.appendChild(windowSelect);
+
+        const csvBtn = document.createElement('button');
+        csvBtn.className = 'sv-btn-secondary';
+        csvBtn.textContent = 'Export CSV';
+        csvBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
+        csvBtn.title = 'Download the visible bill as CSV';
+        csvBtn.addEventListener('click', () => this._exportBillCsv());
+        controls.appendChild(csvBtn);
+
+        const pdfBtn = document.createElement('button');
+        pdfBtn.className = 'sv-btn-secondary';
+        pdfBtn.textContent = 'Export PDF';
+        pdfBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
+        pdfBtn.title = 'Open a print-ready view; use the browser print dialog to save as PDF';
+        pdfBtn.addEventListener('click', () => this._exportBillPdf());
+        controls.appendChild(pdfBtn);
+
+        header.appendChild(controls);
+        page.appendChild(header);
+
+        const summaryMount = document.createElement('div');
+        summaryMount.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-bottom:8px;';
+        page.appendChild(summaryMount);
+
+        const tableMount = document.createElement('div');
+        page.appendChild(tableMount);
+
+        await this._loadAndRenderBillTable(tableMount, summaryMount);
+    },
+
+    async _loadAndRenderBillTable(mount, summaryMount) {
+        mount.textContent = '';
+        const loading = document.createElement('div');
+        loading.textContent = 'Loading…';
+        loading.style.cssText = 'padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;';
+        mount.appendChild(loading);
+
+        const data = await API.getBillOfTools(this._billState.windowDays);
+        this._billState.rows = data.rows || [];
+
+        mount.textContent = '';
+
+        if (summaryMount) {
+            summaryMount.textContent = `${data.row_count || 0} tool${data.row_count === 1 ? '' : 's'} active in the last ${data.window_days || this._billState.windowDays} days.`;
+        }
+
+        if (!this._billState.rows.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:36px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border-default);border-radius:8px;';
+            empty.textContent = 'No tool calls recorded in this window. Run any agent integration, then come back.';
+            mount.appendChild(empty);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        [
+            { l: 'Server',          w: '120px' },
+            { l: 'Tool',            w: '160px' },
+            { l: 'Source',          w: '95px'  },
+            { l: 'Auth scope',      w: '95px'  },
+            { l: 'Last used',       w: '130px' },
+            { l: 'Calls',           w: '60px', align: 'right' },
+            { l: 'Blocked',         w: '60px', align: 'right' },
+            { l: 'Touched secrets', w: '85px'  },
+            { l: 'Policy',          w: '160px' },
+        ].forEach(({ l, w, align }) => {
+            const th = document.createElement('th');
+            th.textContent = l;
+            th.style.cssText = `text-align:${align || 'left'};padding:8px 10px;border-bottom:2px solid var(--border-default);font-weight:600;color:var(--text-primary);${w ? 'width:' + w + ';' : ''}`;
+            trh.appendChild(th);
+        });
+        thead.appendChild(trh);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        this._billState.rows.forEach((r) => {
+            const tr = document.createElement('tr');
+            tr.style.cssText = 'border-bottom:1px solid var(--border-default);';
+            const cell = (text, opts = {}) => {
+                const td = document.createElement('td');
+                td.style.cssText = `padding:7px 10px;${opts.align ? 'text-align:' + opts.align + ';' : ''}${opts.mono ? 'font-family:monospace;font-size:11px;' : ''}`;
+                if (opts.html) td.innerHTML = text;
+                else td.textContent = text;
+                return td;
+            };
+
+            tr.appendChild(cell(r.server || '—', { mono: true }));
+            tr.appendChild(cell(r.tool || '—', { mono: true }));
+
+            const sourceBadgeColor =
+                r.source === 'cloud-policy' ? 'background:rgba(48,87,245,0.15);color:#3057f5'
+              : r.source === 'local-custom' ? 'background:rgba(96,165,250,0.15);color:#2563eb'
+              : 'background:rgba(148,163,184,0.15);color:var(--text-secondary)';
+            tr.appendChild(cell(
+                `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;${sourceBadgeColor};">${r.source || '—'}</span>`,
+                { html: true }
+            ));
+
+            tr.appendChild(cell(r.auth_scope || 'unknown', { mono: true }));
+            tr.appendChild(cell(this._formatBillTimestamp(r.last_used)));
+            tr.appendChild(cell(String(r.calls ?? 0), { align: 'right' }));
+
+            const blocked = r.blocked ?? 0;
+            const blockedHtml = blocked > 0
+                ? `<span style="color:#dc2626;font-weight:600;">${blocked}</span>`
+                : `<span style="color:var(--text-secondary);">0</span>`;
+            tr.appendChild(cell(blockedHtml, { align: 'right', html: true }));
+
+            const secretsHtml = r.touched_secrets
+                ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(220,38,38,0.15);color:#dc2626;font-size:10px;font-weight:600;">YES</span>`
+                : `<span style="color:var(--text-secondary);font-size:11px;">no</span>`;
+            tr.appendChild(cell(secretsHtml, { html: true }));
+
+            const policyText = r.policy_name
+                ? (r.policy_org ? `${r.policy_name} · ${r.policy_org}` : r.policy_name)
+                : '—';
+            tr.appendChild(cell(policyText));
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        mount.appendChild(table);
     },
 
     async loadData(toggleInput, toolsContainer, cloudPill) {

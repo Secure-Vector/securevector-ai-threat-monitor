@@ -700,6 +700,76 @@ class CustomToolsRepository:
         )
         return len(ids)
 
+    async def get_bill_of_tools(self, window_days: int = 7) -> list[dict]:
+        """Aggregate per-(tool_id) inventory of every tool active in the window.
+
+        Returns one row per tool_id seen in tool_call_audit during the trailing
+        window. Each row joins:
+          - tool_call_audit (counts, last_used, recent risk, secrets-touch heuristic)
+          - custom_tools (locally-registered risk classification, category)
+          - synced_tool_rules (cloud-pushed policy attribution: org, policy)
+
+        The ``touched_secrets`` flag is a LIKE-match over ``reason`` for keywords
+        the rules engine writes when a credential/PII rule fires on a tool's
+        arg scan (e.g. ``credential_exfil``, ``secret_exposure``). It catches
+        rule-flagged calls; it does NOT catch unflagged exfiltration through
+        a tool that legitimately accepts secrets (e.g. a vault MCP).
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            WITH calls AS (
+                SELECT
+                    tool_id,
+                    MAX(function_name) AS function_name,
+                    COUNT(*) AS calls,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                    SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
+                    SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                    MAX(called_at) AS last_used,
+                    MAX(risk) AS recent_risk,
+                    MAX(CASE
+                        WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api_key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%token%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%password%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%exfil%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%pii%'
+                        THEN 1 ELSE 0
+                    END) AS touched_secrets
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+                GROUP BY tool_id
+            )
+            SELECT
+                c.tool_id,
+                c.function_name,
+                c.calls,
+                c.blocked,
+                c.allowed,
+                c.logged,
+                c.last_used,
+                c.recent_risk,
+                c.touched_secrets,
+                ct.risk AS local_risk,
+                ct.category AS local_category,
+                ct.name AS local_name,
+                s.effect AS synced_effect,
+                s.policy_name AS synced_policy_name,
+                s.org_name AS synced_org_name,
+                s.policy_id AS synced_policy_id
+            FROM calls c
+            LEFT JOIN custom_tools ct ON ct.tool_id = c.tool_id
+            LEFT JOIN synced_tool_rules s ON s.tool_id = c.tool_id
+            ORDER BY c.last_used DESC
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def cleanup_old_audit_records(self, retention_days: int) -> int:
         """Delete audit rows older than ``retention_days``.
 

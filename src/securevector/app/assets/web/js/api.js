@@ -458,6 +458,12 @@ const API = {
         }));
     },
 
+    async getBillOfTools(windowDays = 7) {
+        return this.request(`/api/tool-permissions/bill-of-tools?window_days=${windowDays}`).catch(() => ({
+            window_days: windowDays, row_count: 0, rows: [],
+        }));
+    },
+
     async getDeviceId() {
         return this.request('/api/system/device-id').catch(() => ({ device_id: null }));
     },

@@ -29,6 +29,7 @@ const App = {
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         'mcp-policies':      McpPoliciesPage,
         'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,
