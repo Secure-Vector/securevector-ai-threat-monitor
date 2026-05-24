@@ -24,7 +24,7 @@ def test_rsa_private_key_body_redacted_envelope_preserved():
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456\n"
         "-----END RSA PRIVATE KEY-----"
     )
-    out, n = redact_secrets(pem)
+    out, n = redact_secrets(pem, direction="incoming")
     assert n >= 1
     # Envelope kept so the matching rule still fires when re-scanning.
     assert "BEGIN RSA PRIVATE KEY" in out
@@ -41,7 +41,7 @@ def test_openssh_private_key_body_redacted():
         "AAAAEbm9uZQAAAAAAAAABAAACFwAAAA\n"
         "-----END OPENSSH PRIVATE KEY-----"
     )
-    out, n = redact_secrets(pem)
+    out, n = redact_secrets(pem, direction="incoming")
     assert n >= 1
     assert "b3BlbnNzaC1rZXk" not in out
     assert "[REDACTED-PRIVATE-KEY]" in out
@@ -54,7 +54,7 @@ def test_bare_private_key_envelope_redacted():
         "secret-key-body-here-encoded-base64\n"
         "-----END PRIVATE KEY-----"
     )
-    out, n = redact_secrets(pem)
+    out, n = redact_secrets(pem, direction="incoming")
     assert n >= 1
     assert "secret-key-body-here-encoded-base64" not in out
 
@@ -65,7 +65,7 @@ def test_encrypted_private_key_redacted():
         "encryptedbody1234567890\n"
         "-----END ENCRYPTED PRIVATE KEY-----"
     )
-    out, n = redact_secrets(pem)
+    out, n = redact_secrets(pem, direction="incoming")
     assert n >= 1
     assert "encryptedbody1234567890" not in out
 
@@ -95,7 +95,7 @@ def test_multiple_keys_in_same_text_all_redacted():
         "SECONDKEYBODY5678\n"
         "-----END EC PRIVATE KEY-----"
     )
-    out, n = redact_secrets(pem)
+    out, n = redact_secrets(pem, direction="incoming")
     assert n == 2
     assert "FIRSTKEYBODY1234" not in out
     assert "SECONDKEYBODY5678" not in out
@@ -108,7 +108,7 @@ def test_multiple_keys_in_same_text_all_redacted():
 
 def test_openssh_binary_carrier_redacted():
     raw = "prefix openssh-key-v1\x00\x00\x00\x07ssh-rsa AAAAB3NzaC1yc2EAAAA suffix"
-    out, n = redact_secrets(raw)
+    out, n = redact_secrets(raw, direction="incoming")
     assert n == 1
     assert "openssh-key-v1\x00" not in out
     assert "[REDACTED-OPENSSH-KEY]" in out
@@ -125,7 +125,64 @@ def test_redaction_output_is_stable_across_repeated_passes():
         "keybody12345\n"
         "-----END RSA PRIVATE KEY-----"
     )
-    once, _ = redact_secrets(pem)
-    twice, _ = redact_secrets(once)
+    once, _ = redact_secrets(pem, direction="incoming")
+    twice, _ = redact_secrets(once, direction="incoming")
     assert once == twice
     assert "keybody12345" not in twice
+
+
+# ---------------------------------------------------------------------------
+# Direction gating — PEM redaction is incoming-only
+# ---------------------------------------------------------------------------
+
+
+def test_pem_redaction_does_NOT_fire_on_outgoing_direction():
+    # A user prompt containing a PEM block (e.g. "what does this key
+    # look like?") is the user's deliberate input. We do not silently
+    # strip content from outgoing user prompts — only from incoming
+    # tool responses where a leak path is the likely cause.
+    pem = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "outgoinguserprompted12345\n"
+        "-----END RSA PRIVATE KEY-----"
+    )
+    out, n = redact_secrets(pem, direction="outgoing")
+    assert n == 0
+    assert "outgoinguserprompted12345" in out
+
+
+def test_pem_redaction_does_NOT_fire_on_llm_response_direction():
+    # LLM responses that include a PEM block (e.g. "here is an example
+    # RSA key from the RFC") also stay verbatim — output-sanitization
+    # is the LLM-response rule pack's job, not the incoming-tool path.
+    pem = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "llmresponsebody12345\n"
+        "-----END RSA PRIVATE KEY-----"
+    )
+    out, n = redact_secrets(pem, direction="llm_response")
+    assert n == 0
+    assert "llmresponsebody12345" in out
+
+
+def test_default_direction_outgoing_does_NOT_fire_pem():
+    # Existing callers that pre-date the direction parameter pass no
+    # argument. Default is "outgoing", so they keep the pre-v4.3
+    # behaviour: PEM bodies are NOT redacted from those code paths.
+    pem = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "legacycaller12345\n"
+        "-----END RSA PRIVATE KEY-----"
+    )
+    out, n = redact_secrets(pem)
+    assert n == 0
+    assert "legacycaller12345" in out
+
+
+def test_existing_secret_patterns_still_fire_on_outgoing():
+    # The scoping must not break existing always-on patterns. An sk-
+    # OpenAI key in an outgoing prompt should still be redacted.
+    text = "my key is sk-aBcDeFgHiJkLmNoPqRsT1234567890XYZA"
+    out, n = redact_secrets(text, direction="outgoing")
+    assert n >= 1
+    assert "aBcDeFgHiJkLmNoPqRsT1234567890XYZA" not in out

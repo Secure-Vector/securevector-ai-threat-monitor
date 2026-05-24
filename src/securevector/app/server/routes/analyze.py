@@ -388,11 +388,15 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
-        # Always run redaction to return redacted_text for output sanitization
+        # Always run redaction to return redacted_text for output sanitization.
+        # `direction` is forwarded so INCOMING_ONLY_PATTERNS (PEM private-key
+        # blocks + OpenSSH binary carrier) fire ONLY on fetched content
+        # (tool responses, RAG) — see redaction.py docstring for why these
+        # are scoped to incoming only.
         redacted_text_result = None
         redaction_count = 0
         if final_is_threat:
-            redacted_text, redaction_count = redact_secrets(request.text)
+            redacted_text, redaction_count = redact_secrets(request.text, direction=direction)
             if redaction_count > 0:
                 redacted_text_result = redacted_text
                 logger.info("Redacted")
