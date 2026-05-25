@@ -713,7 +713,29 @@ const ToolPermissionsPage = {
         URL.revokeObjectURL(url);
     },
 
-    _exportBillPdf() {
+    async _fetchBillLogoDataUrl() {
+        // Cache the SecureVector favicon as a base64 data URL so the print
+        // preview never races with image loading and the resulting PDF is
+        // self-contained. Falls back to null on any error — PDF still
+        // generates, just without the logo.
+        if (this._billLogoDataUrl !== undefined) return this._billLogoDataUrl;
+        try {
+            const resp = await fetch('/images/favicon.png');
+            if (!resp.ok) throw new Error('favicon fetch failed');
+            const blob = await resp.blob();
+            this._billLogoDataUrl = await new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = reject;
+                r.readAsDataURL(blob);
+            });
+        } catch {
+            this._billLogoDataUrl = null;
+        }
+        return this._billLogoDataUrl;
+    },
+
+    async _exportBillPdf() {
         const rows = this._billState.rows || [];
         if (rows.length === 0) {
             if (window.Toast) Toast.show('No tool activity in the selected window', 'info');
@@ -723,6 +745,7 @@ const ToolPermissionsPage = {
         // Reuse the print-to-PDF pattern already used by Threats page —
         // open a new window with structured HTML, let the user Save as PDF.
         const stamp = new Date().toISOString();
+        const logoDataUrl = await this._fetchBillLogoDataUrl();
         const win = window.open('', '_blank');
         if (!win) {
             if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
@@ -745,18 +768,29 @@ const ToolPermissionsPage = {
                 <td>${escapeHtml(f.policy_name)}</td>
             </tr>`;
         }).join('');
+        const logoImg = logoDataUrl
+            ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
+            : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
             <title>SecureVector — Bill of Tools (${escapeHtml(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111}
-                h1{font-size:20px;margin:0 0 4px}
+                .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
+                .brand-text h1{font-size:20px;margin:0 0 2px;letter-spacing:-0.01em;}
+                .brand-text .product{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#3057f5;font-weight:600;}
                 .meta{font-size:11px;color:#666;margin-bottom:14px}
                 table{width:100%;border-collapse:collapse;font-size:11px}
                 th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;vertical-align:top}
                 th{background:#f4f4f7;font-weight:600}
                 .note{font-size:10px;color:#888;margin-top:14px}
             </style></head><body>
-            <h1>SecureVector — MCP Bill of Tools</h1>
+            <div class="brand">
+                ${logoImg}
+                <div class="brand-text">
+                    <div class="product">SecureVector · AI Threat Monitor</div>
+                    <h1>MCP Bill of Tools</h1>
+                </div>
+            </div>
             <div class="meta">Generated ${escapeHtml(stamp)} · Window: trailing ${this._billState.windowDays} days · Rows: ${rows.length}</div>
             <table>
                 <thead><tr>

@@ -293,13 +293,37 @@ const RedactionsPage = {
         URL.revokeObjectURL(url);
     },
 
-    _exportPdf() {
+    async _fetchLogoDataUrl() {
+        // Fetch the SecureVector favicon PNG and inline as a base64 data
+        // URL so the print preview never races with image loading and
+        // the resulting PDF is self-contained (no external fetches when
+        // the user saves it). Falls back to null on any error — the PDF
+        // still generates, just without the logo.
+        if (this._logoDataUrl !== undefined) return this._logoDataUrl;
+        try {
+            const resp = await fetch('/images/favicon.png');
+            if (!resp.ok) throw new Error('favicon fetch failed');
+            const blob = await resp.blob();
+            this._logoDataUrl = await new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = reject;
+                r.readAsDataURL(blob);
+            });
+        } catch {
+            this._logoDataUrl = null;
+        }
+        return this._logoDataUrl;
+    },
+
+    async _exportPdf() {
         const rows = this._state.events || [];
         const summary = this._state.summary || {};
         if (rows.length === 0) {
             if (window.Toast) Toast.show('No redactions in the selected window', 'info');
             return;
         }
+        const logoDataUrl = await this._fetchLogoDataUrl();
         const win = window.open('', '_blank');
         if (!win) {
             if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
@@ -332,11 +356,16 @@ const RedactionsPage = {
             <td style="font-family:monospace;font-size:9px;">${esc(r.redaction_hash || '')}</td>
         </tr>`).join('');
 
+        const logoImg = logoDataUrl
+            ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
+            : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
             <title>SecureVector — Redactions Report (${esc(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111;}
-                h1{font-size:20px;margin:0 0 4px;}
+                .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
+                .brand-text h1{font-size:20px;margin:0 0 2px;letter-spacing:-0.01em;}
+                .brand-text .product{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#3057f5;font-weight:600;}
                 .meta{font-size:11px;color:#666;margin-bottom:14px;}
                 .headline{font-size:14px;margin:8px 0 16px;padding:10px 12px;background:#f4f4f7;border-radius:6px;}
                 table{width:100%;border-collapse:collapse;font-size:11px;margin-top:14px;}
@@ -344,7 +373,13 @@ const RedactionsPage = {
                 th{background:#f4f4f7;font-weight:600;}
                 .note{font-size:10px;color:#888;margin-top:14px;}
             </style></head><body>
-            <h1>SecureVector — Redactions Report</h1>
+            <div class="brand">
+                ${logoImg}
+                <div class="brand-text">
+                    <div class="product">SecureVector · AI Threat Monitor</div>
+                    <h1>Redactions Report</h1>
+                </div>
+            </div>
             <div class="meta">Generated ${esc(stamp)} · Window: trailing ${esc(summary.window_days ?? this._state.windowDays)} days · Direction filter: ${esc(this._state.direction || 'all')}</div>
             <div class="headline"><strong>${summary.total ?? 0}</strong> redactions · <strong>${summary.distinct_tools ?? 0}</strong> distinct tools</div>
             ${breakdown('By direction', summary.by_direction)}
