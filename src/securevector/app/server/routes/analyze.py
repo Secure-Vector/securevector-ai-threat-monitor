@@ -392,58 +392,71 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
-        # Always run redaction to return redacted_text for output sanitization.
-        # `direction` is forwarded so INCOMING_ONLY_PATTERNS (PEM private-key
-        # blocks + OpenSSH binary carrier) fire ONLY on fetched content
-        # (tool responses, RAG) — see redaction.py docstring for why these
-        # are scoped to incoming only.
+        # Always run redaction — regardless of whether the threat engine
+        # flagged the text. Rationale:
+        #   - The threat engine and the redactor are independent layers.
+        #     The engine catches injection/exfil PATTERNS; the redactor
+        #     catches raw secret SHAPES. A response containing a bare
+        #     ghp_<token> or AKIA<id> with no surrounding instruction
+        #     prose won't trip any threat rule, but the redactor will —
+        #     and we still want that secret scrubbed before the agent
+        #     ingests the content, and we still want an audit-log row.
+        #   - Gating redaction on is_threat (the pre-v4.3 behaviour) made
+        #     redactor coverage strictly less than what the redactor's
+        #     own patterns claim. End-to-end testing of the Redactions
+        #     page surfaced this on a bare GitHub PAT: the engine
+        #     returned is_threat=False and the redaction never ran.
         #
-        # Every match is also recorded to the redaction_events audit log via
-        # the record_event callback. The callback receives the raw matched
-        # substring — we IMMEDIATELY hash it and discard, never persist the
-        # raw value (see RedactionsRepository docstring for the storage
-        # posture). This is what backs the local Redactions page.
+        # `direction` is forwarded so INCOMING_ONLY_PATTERNS (PEM private-
+        # key blocks + OpenSSH binary carrier) fire ONLY on fetched
+        # content (tool responses, RAG) — see redaction.py docstring.
+        #
+        # Every match is also recorded to the redaction_events audit log
+        # via the record_event callback. The callback receives the raw
+        # matched substring — we IMMEDIATELY hash it and discard, never
+        # persist the raw value (see RedactionsRepository docstring).
+        # This is what backs the local Redactions page.
         redacted_text_result = None
         redaction_count = 0
-        if final_is_threat:
-            # Resolve tool metadata from the scan metadata (PostToolUse fills
-            # tool_name + tool_id when this is a tool-response scan). Stays
-            # None for direct /analyze callers that don't set them.
-            scan_meta = augmented_metadata or {}
-            source_tool = scan_meta.get("tool_name") if isinstance(scan_meta, dict) else None
-            source_tool_id = scan_meta.get("tool_id") if isinstance(scan_meta, dict) else None
-            redactions_repo = RedactionsRepository(db)
-            pending_events: list[dict] = []
 
-            def _capture(match_meta: dict) -> None:
-                # Hash before queuing — the raw substring stops here.
-                pending_events.append({
-                    "pattern_id": match_meta["pattern_id"],
-                    "secret_type": match_meta["secret_type"],
-                    "redaction_hash": hash_matched_substring(match_meta["matched"]),
-                })
+        # Resolve tool metadata from the scan metadata (PostToolUse fills
+        # tool_name + tool_id when this is a tool-response scan). Stays
+        # None for direct /analyze callers that don't set them.
+        scan_meta = augmented_metadata or {}
+        source_tool = scan_meta.get("tool_name") if isinstance(scan_meta, dict) else None
+        source_tool_id = scan_meta.get("tool_id") if isinstance(scan_meta, dict) else None
+        redactions_repo = RedactionsRepository(db)
+        pending_events: list[dict] = []
 
-            redacted_text, redaction_count = redact_secrets(
-                request.text,
+        def _capture(match_meta: dict) -> None:
+            # Hash before queuing — the raw substring stops here.
+            pending_events.append({
+                "pattern_id": match_meta["pattern_id"],
+                "secret_type": match_meta["secret_type"],
+                "redaction_hash": hash_matched_substring(match_meta["matched"]),
+            })
+
+        redacted_text, redaction_count = redact_secrets(
+            request.text,
+            direction=direction,
+            record_event=_capture,
+        )
+        if redaction_count > 0:
+            redacted_text_result = redacted_text
+            logger.info("Redacted %d secret(s) from %s scan", redaction_count, direction)
+        # Persist the events outside the redactor (DB writes are async,
+        # the redactor itself is sync). Failures are swallowed inside
+        # RedactionsRepository.record — they must never derail a scan.
+        for ev in pending_events:
+            await redactions_repo.record(
+                pattern_id=ev["pattern_id"],
+                secret_type=ev["secret_type"],
                 direction=direction,
-                record_event=_capture,
+                source_tool=source_tool,
+                source_tool_id=source_tool_id,
+                request_id=request.request_id,
+                redaction_hash=ev["redaction_hash"],
             )
-            if redaction_count > 0:
-                redacted_text_result = redacted_text
-                logger.info("Redacted")
-            # Persist the events outside the redactor (DB writes are async,
-            # the redactor itself is sync). Failures are swallowed inside
-            # RedactionsRepository.record — they must never derail a scan.
-            for ev in pending_events:
-                await redactions_repo.record(
-                    pattern_id=ev["pattern_id"],
-                    secret_type=ev["secret_type"],
-                    direction=direction,
-                    source_tool=source_tool,
-                    source_tool_id=source_tool_id,
-                    request_id=request.request_id,
-                    redaction_hash=ev["redaction_hash"],
-                )
 
         # Determine action_taken from metadata (always, for response)
         # Priority: blocked > redacted > logged

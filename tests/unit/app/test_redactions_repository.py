@@ -199,6 +199,26 @@ def test_redact_secrets_callback_swallows_errors():
     assert "sk-aBcDeFgHiJkLmNoPqRsT1234567890XYZA" not in redacted
 
 
+def test_redact_secrets_finds_bare_token_with_no_surrounding_prose():
+    # End-to-end coverage check for the de-gated /analyze path: a bare
+    # secret with no surrounding instruction prose (which means no threat
+    # rule would fire on it) is still picked up by the redactor. Pre-
+    # v4.3 this case slipped through because redaction was gated on
+    # is_threat — the redactor never even ran when the engine returned
+    # is_threat=False. The fix moves redaction outside that gate.
+    captured = []
+    # Real GitHub classic PAT shape: ``ghp_`` + exactly 36 alphanumeric chars.
+    text = "ghp_abcdefghijklmnopqrst1234567890123456"  # bare PAT, nothing else
+    redacted, n = redact_secrets(
+        text,
+        direction="incoming",
+        record_event=lambda m: captured.append(m),
+    )
+    assert n >= 1
+    assert "ghp_abcdefghijklmnopqrst1234567890123456" not in redacted
+    assert any(c["pattern_id"] == "github-pat-classic" for c in captured)
+
+
 def test_redact_secrets_callback_fires_for_pem_only_on_incoming():
     # Direction gating must also gate which patterns the callback sees.
     pem = (
