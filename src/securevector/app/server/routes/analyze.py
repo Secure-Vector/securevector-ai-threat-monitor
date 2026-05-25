@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
 from securevector.app.database.repositories.settings import SettingsRepository
+from securevector.app.database.repositories.redactions import (
+    RedactionsRepository,
+    hash_matched_substring,
+)
 from securevector.app.utils.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -393,13 +397,53 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # blocks + OpenSSH binary carrier) fire ONLY on fetched content
         # (tool responses, RAG) — see redaction.py docstring for why these
         # are scoped to incoming only.
+        #
+        # Every match is also recorded to the redaction_events audit log via
+        # the record_event callback. The callback receives the raw matched
+        # substring — we IMMEDIATELY hash it and discard, never persist the
+        # raw value (see RedactionsRepository docstring for the storage
+        # posture). This is what backs the local Redactions page.
         redacted_text_result = None
         redaction_count = 0
         if final_is_threat:
-            redacted_text, redaction_count = redact_secrets(request.text, direction=direction)
+            # Resolve tool metadata from the scan metadata (PostToolUse fills
+            # tool_name + tool_id when this is a tool-response scan). Stays
+            # None for direct /analyze callers that don't set them.
+            scan_meta = augmented_metadata or {}
+            source_tool = scan_meta.get("tool_name") if isinstance(scan_meta, dict) else None
+            source_tool_id = scan_meta.get("tool_id") if isinstance(scan_meta, dict) else None
+            redactions_repo = RedactionsRepository(db)
+            pending_events: list[dict] = []
+
+            def _capture(match_meta: dict) -> None:
+                # Hash before queuing — the raw substring stops here.
+                pending_events.append({
+                    "pattern_id": match_meta["pattern_id"],
+                    "secret_type": match_meta["secret_type"],
+                    "redaction_hash": hash_matched_substring(match_meta["matched"]),
+                })
+
+            redacted_text, redaction_count = redact_secrets(
+                request.text,
+                direction=direction,
+                record_event=_capture,
+            )
             if redaction_count > 0:
                 redacted_text_result = redacted_text
                 logger.info("Redacted")
+            # Persist the events outside the redactor (DB writes are async,
+            # the redactor itself is sync). Failures are swallowed inside
+            # RedactionsRepository.record — they must never derail a scan.
+            for ev in pending_events:
+                await redactions_repo.record(
+                    pattern_id=ev["pattern_id"],
+                    secret_type=ev["secret_type"],
+                    direction=direction,
+                    source_tool=source_tool,
+                    source_tool_id=source_tool_id,
+                    request_id=request.request_id,
+                    redaction_hash=ev["redaction_hash"],
+                )
 
         # Determine action_taken from metadata (always, for response)
         # Priority: blocked > redacted > logged

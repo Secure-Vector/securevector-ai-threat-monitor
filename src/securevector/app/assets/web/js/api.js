@@ -464,6 +464,16 @@ const API = {
         }));
     },
 
+    async getRedactions(windowDays = 7, { direction = null, secretType = null, limit = 1000 } = {}) {
+        const params = new URLSearchParams({ window_days: String(windowDays), limit: String(limit) });
+        if (direction) params.set('direction', direction);
+        if (secretType) params.set('secret_type', secretType);
+        return this.request(`/api/redactions?${params}`).catch(() => ({
+            summary: { window_days: windowDays, total: 0, distinct_tools: 0, by_direction: {}, by_secret_type: {} },
+            events: [],
+        }));
+    },
+
     async getDeviceId() {
         return this.request('/api/system/device-id').catch(() => ({ device_id: null }));
     },

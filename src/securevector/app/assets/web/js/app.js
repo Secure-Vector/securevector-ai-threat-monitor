@@ -30,6 +30,7 @@ const App = {
         'mcp-policies':      McpPoliciesPage,
         'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'redactions':        RedactionsPage,
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,

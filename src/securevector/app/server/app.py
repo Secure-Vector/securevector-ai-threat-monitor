@@ -230,6 +230,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         skill_permissions,
         siem_forwarders,
         device_admin,
+        redactions,
     )
 
     # Quick analysis endpoint (uses X-Api-Key for cloud)
@@ -251,6 +252,8 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])
     # active-mcp-and-policy-sync — device admin (POST /api/system/device-id/reset)
     app.include_router(device_admin.router, prefix="/api", tags=["Device Admin"])
+    # Redactions audit log — backs the local Redactions page (v4.3+).
+    app.include_router(redactions.router, prefix="/api", tags=["Redactions"])
     # Bundle 0.4 — Agent Replay Timeline. Merged threat / tool-audit / cost feed.
     from securevector.app.server.routes import replay
     app.include_router(replay.router, prefix="/api", tags=["Replay"])
