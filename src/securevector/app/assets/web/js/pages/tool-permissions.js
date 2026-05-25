@@ -460,7 +460,7 @@ const ToolPermissionsPage = {
         const defs = [
             { id: 'permissions', label: 'Tool Permissions' },
             { id: 'activity',    label: 'Tool Call History' },
-            { id: 'bill',        label: 'Bill of Tools' },
+            { id: 'bill',        label: 'Tool Inventory' },
         ];
 
         defs.forEach(({ id, label }) => {
@@ -772,7 +772,7 @@ const ToolPermissionsPage = {
             ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
             : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-            <title>SecureVector — Bill of Tools (${escapeHtml(stamp)})</title>
+            <title>SecureVector — Tool Inventory (${escapeHtml(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111}
                 .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
@@ -788,7 +788,7 @@ const ToolPermissionsPage = {
                 ${logoImg}
                 <div class="brand-text">
                     <div class="product">SecureVector · AI Threat Monitor</div>
-                    <h1>MCP Bill of Tools</h1>
+                    <h1>Tool Inventory</h1>
                 </div>
             </div>
             <div class="meta">Generated ${escapeHtml(stamp)} · Window: trailing ${this._billState.windowDays} days · Rows: ${rows.length}</div>
@@ -818,11 +818,11 @@ const ToolPermissionsPage = {
 
         const titleWrap = document.createElement('div');
         const title = document.createElement('h2');
-        title.textContent = 'Bill of Tools';
+        title.textContent = 'Tool Inventory';
         title.style.cssText = 'margin:0 0 4px;font-size:18px;';
         const subtitle = document.createElement('div');
         subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:640px;line-height:1.45;';
-        subtitle.textContent = 'One row per (server, tool) pair active on this device in the trailing window. Treats MCP as a supply-chain inventory problem — an SBOM for your agent’s tools. Auth scope is SecureVector’s classification, not the MCP server’s self-declared capability.';
+        subtitle.textContent = 'Every (server, tool) pair the agent has called on this device in the trailing window. SBOM-style — treats MCP as a supply-chain inventory problem. Auth scope is SecureVector’s classification, not the MCP server’s self-declared capability.';
         titleWrap.appendChild(title);
         titleWrap.appendChild(subtitle);
         header.appendChild(titleWrap);

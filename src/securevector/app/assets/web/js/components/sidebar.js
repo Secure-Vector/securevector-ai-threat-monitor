@@ -16,7 +16,7 @@ const Sidebar = {
         { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
             { id: 'replay',         label: 'Timeline' },
             { id: 'tool-activity',  label: 'Tool Activity' },
-            { id: 'bill-of-tools',  label: 'Bill of Tools' },
+            { id: 'bill-of-tools',  label: 'Tool Inventory' },
             { id: 'redactions',     label: 'Redactions' },
             { id: 'costs',          label: 'Cost Tracking' },
         ]},

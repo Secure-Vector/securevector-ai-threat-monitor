@@ -98,16 +98,31 @@ const RedactionsPage = {
         header.appendChild(controls);
         page.appendChild(header);
 
-        const summaryMount = document.createElement('div');
-        summaryMount.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-bottom:10px;';
-        page.appendChild(summaryMount);
+        // Headline tile — large, prominent total count. Differentiates this
+        // page from Tool Inventory (which leads with a wide table). On
+        // Redactions the page's story is the event count + breakdown; the
+        // table below is the detail.
+        const headlineMount = document.createElement('div');
+        headlineMount.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;';
+        page.appendChild(headlineMount);
 
         const breakdownMount = document.createElement('div');
-        breakdownMount.style.cssText = 'display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;';
+        breakdownMount.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;';
         page.appendChild(breakdownMount);
+
+        // Section heading above the event table — frames the rows below as
+        // "the log" rather than the primary content of the page.
+        const tableHeading = document.createElement('div');
+        tableHeading.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-secondary);margin:6px 0 10px;font-weight:600;';
+        tableHeading.textContent = 'Event log';
+        page.appendChild(tableHeading);
 
         const tableMount = document.createElement('div');
         page.appendChild(tableMount);
+
+        // Compat: pass headlineMount as the "summary" slot the existing
+        // _reload signature uses.
+        const summaryMount = headlineMount;
 
         await this._reload(tableMount, summaryMount, breakdownMount);
     },
@@ -137,16 +152,53 @@ const RedactionsPage = {
         this._state.summary = data.summary;
         this._state.events = data.events || [];
 
-        // Headline summary line
-        if (summaryMount) {
-            const s = data.summary || {};
-            summaryMount.textContent =
-                `${s.total ?? 0} redaction${s.total === 1 ? '' : 's'} in the last ` +
-                `${s.window_days ?? this._state.windowDays} day${s.window_days === 1 ? '' : 's'} · ` +
-                `${s.distinct_tools ?? 0} distinct tool${s.distinct_tools === 1 ? '' : 's'}`;
-        }
+        // Headline tiles — big number cards above the table, so the page
+        // visually leads with the event-count story (not yet-another table).
+        // This is what distinguishes Redactions from Tool Inventory: the
+        // table is supporting detail, not the page's primary content.
+        const s = data.summary || {};
+        summaryMount.textContent = '';
 
-        // Two small breakdown cards (by direction + by secret type)
+        const tile = (label, value, sublabel, accent) => {
+            const t = document.createElement('div');
+            t.style.cssText = `flex:1;min-width:200px;padding:16px 18px;background:var(--bg-secondary);border:1px solid var(--border-default);border-left:3px solid ${accent};border-radius:8px;`;
+            const v = document.createElement('div');
+            v.style.cssText = 'font-size:28px;font-weight:600;color:var(--text-primary);line-height:1;font-variant-numeric:tabular-nums;';
+            v.textContent = String(value);
+            const l = document.createElement('div');
+            l.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);margin-top:6px;';
+            l.textContent = label;
+            const sl = document.createElement('div');
+            sl.style.cssText = 'font-size:11px;color:var(--text-secondary);margin-top:4px;';
+            sl.textContent = sublabel;
+            t.appendChild(v);
+            t.appendChild(l);
+            if (sublabel) t.appendChild(sl);
+            return t;
+        };
+
+        const days = s.window_days ?? this._state.windowDays;
+        summaryMount.appendChild(tile(
+            'Redactions',
+            s.total ?? 0,
+            `in the last ${days} day${days === 1 ? '' : 's'}`,
+            '#3057f5'
+        ));
+        summaryMount.appendChild(tile(
+            'Distinct tools',
+            s.distinct_tools ?? 0,
+            'sources scrubbed from',
+            '#22c55e'
+        ));
+        const incomingCount = (s.by_direction || {}).incoming || 0;
+        summaryMount.appendChild(tile(
+            'Incoming-only',
+            incomingCount,
+            'caught in tool responses',
+            '#f59e0b'
+        ));
+
+        // Breakdown bars (by direction + by secret type)
         breakdownMount.textContent = '';
         breakdownMount.appendChild(this._buildBreakdownCard('By direction', data.summary?.by_direction || {}));
         breakdownMount.appendChild(this._buildBreakdownCard('By secret type', data.summary?.by_secret_type || {}));
