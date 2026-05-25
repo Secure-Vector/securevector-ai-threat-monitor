@@ -5,7 +5,7 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.3.0] - 2026-05-25
 
 ### Added
 - **MCP Bill of Tools view** *(Tool Permissions → Bill of Tools tab)* — single rolled-up SBOM-style inventory of every (server, tool) pair active on this device in the trailing window (7 / 14 / 30 / 90 days). Columns: server, tool, source (cloud-policy / local-custom / built-in), auth scope (SecureVector's read/write/delete/admin classification), last used, calls, blocked, touched-secrets, governing policy. New backend route `GET /api/tool-permissions/bill-of-tools?window_days=N` — pure read-only aggregation over `tool_call_audit` (counts, recency, secrets-touch via reason LIKE), `custom_tools` (local risk classification), and `synced_tool_rules` (cloud policy attribution). No migration. Two exports: CSV (machine-readable) and PDF (print-ready via popup). Treats MCP as a supply-chain inventory problem — what an SBOM is to a software release, this is to an agent's tool surface. Limitation: `touched_secrets` reflects rule-flagged calls (credential/PII keywords in the audit row's reason); does NOT catch unflagged exfiltration through tools that legitimately accept secrets (e.g. a vault MCP).
