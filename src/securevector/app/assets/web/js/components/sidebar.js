@@ -17,7 +17,7 @@ const Sidebar = {
             { id: 'replay',         label: 'Timeline' },
             { id: 'tool-activity',  label: 'Tool Activity' },
             { id: 'bill-of-tools',  label: 'Tool Inventory' },
-            { id: 'redactions',     label: 'Redactions' },
+            { id: 'redactions',     label: 'Secret Detections' },
             { id: 'costs',          label: 'Cost Tracking' },
         ]},
         // Skills + Tools entries cover their primary "configure" surfaces

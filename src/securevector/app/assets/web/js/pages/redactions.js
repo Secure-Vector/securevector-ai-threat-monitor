@@ -27,11 +27,16 @@ const RedactionsPage = {
 
         const titleWrap = document.createElement('div');
         const title = document.createElement('h2');
-        title.textContent = 'Redactions';
+        title.textContent = 'Secret Detections';
         title.style.cssText = 'margin:0 0 4px;font-size:18px;';
         const subtitle = document.createElement('div');
-        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:680px;line-height:1.45;';
-        subtitle.textContent = 'Secret matches scrubbed from scanned content before persistence. Direction-aware: PEM-key redactions only fire on incoming tool responses; sk-/AKIA/ghp_/JWT/password patterns fire on every direction. Raw secret values never appear in this report — only a SHA-256 hash of the matched substring.';
+        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:720px;line-height:1.45;';
+        // Lead with the storage posture — that's the most reassurance-
+        // worthy detail for an auditor / security lead reading this page.
+        subtitle.innerHTML =
+            '<strong style="color:var(--text-primary);">No raw secret values are stored — only redactions and SHA-256 hashes.</strong> ' +
+            'Every credential / PII pattern caught by <code style="font-family:monospace;">redact_secrets()</code> is scrubbed from content before it lands in <code style="font-family:monospace;">threat_intel_records</code>, and the audit log itself records only a hash so the trail is safe to forward to a SIEM. ' +
+            'Direction-aware: PEM-key and OpenSSH-binary patterns fire only on incoming tool responses; sk-/AKIA/ghp_/JWT/password patterns fire on every direction.';
         titleWrap.appendChild(title);
         titleWrap.appendChild(subtitle);
         header.appendChild(titleWrap);
@@ -83,7 +88,7 @@ const RedactionsPage = {
         csvBtn.className = 'sv-btn-secondary';
         csvBtn.textContent = 'Export CSV';
         csvBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
-        csvBtn.title = 'Download the visible redaction events as CSV (hash only, never raw)';
+        csvBtn.title = 'Download the visible secret detections as CSV (hash only, never raw)';
         csvBtn.addEventListener('click', () => this._exportCsv());
         controls.appendChild(csvBtn);
 
@@ -179,22 +184,22 @@ const RedactionsPage = {
 
         const days = s.window_days ?? this._state.windowDays;
         summaryMount.appendChild(tile(
-            'Redactions',
+            'Detected',
             s.total ?? 0,
-            `in the last ${days} day${days === 1 ? '' : 's'}`,
+            `secrets caught in the last ${days} day${days === 1 ? '' : 's'} — all redacted before storage`,
             '#3057f5'
         ));
         summaryMount.appendChild(tile(
             'Distinct tools',
             s.distinct_tools ?? 0,
-            'sources scrubbed from',
+            'sources we scrubbed from',
             '#22c55e'
         ));
         const incomingCount = (s.by_direction || {}).incoming || 0;
         summaryMount.appendChild(tile(
-            'Incoming-only',
+            'From tool responses',
             incomingCount,
-            'caught in tool responses',
+            'incoming-direction catches',
             '#f59e0b'
         ));
 
@@ -208,7 +213,7 @@ const RedactionsPage = {
         if (!this._state.events.length) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:36px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border-default);border-radius:8px;';
-            empty.textContent = 'No redactions in this window. Nothing to scrub means nothing slipped through — or no scans ran yet.';
+            empty.textContent = 'No secret detections in this window. Nothing scrubbed means nothing slipped through — or no scans ran yet.';
             tableMount.appendChild(empty);
             return;
         }
@@ -314,7 +319,7 @@ const RedactionsPage = {
     _exportCsv() {
         const rows = this._state.events || [];
         if (rows.length === 0) {
-            if (window.Toast) Toast.show('No redactions in the selected window', 'info');
+            if (window.Toast) Toast.show('No secret detections in the selected window', 'info');
             return;
         }
         const headers = ['time', 'direction', 'pattern_id', 'secret_type', 'source_tool', 'source_tool_id', 'request_id', 'redaction_hash'];
@@ -338,7 +343,7 @@ const RedactionsPage = {
         const a = document.createElement('a');
         a.href = url;
         const stamp = new Date().toISOString().slice(0, 10);
-        a.download = `securevector-redactions-${stamp}.csv`;
+        a.download = `securevector-secret-detections-${stamp}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -372,7 +377,7 @@ const RedactionsPage = {
         const rows = this._state.events || [];
         const summary = this._state.summary || {};
         if (rows.length === 0) {
-            if (window.Toast) Toast.show('No redactions in the selected window', 'info');
+            if (window.Toast) Toast.show('No secret detections in the selected window', 'info');
             return;
         }
         const logoDataUrl = await this._fetchLogoDataUrl();
@@ -412,7 +417,7 @@ const RedactionsPage = {
             ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
             : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-            <title>SecureVector — Redactions Report (${esc(stamp)})</title>
+            <title>SecureVector — Secret Detections (${esc(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111;}
                 .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
@@ -429,18 +434,18 @@ const RedactionsPage = {
                 ${logoImg}
                 <div class="brand-text">
                     <div class="product">SecureVector · AI Threat Monitor</div>
-                    <h1>Redactions Report</h1>
+                    <h1>Secret Detections</h1>
                 </div>
             </div>
             <div class="meta">Generated ${esc(stamp)} · Window: trailing ${esc(summary.window_days ?? this._state.windowDays)} days · Direction filter: ${esc(this._state.direction || 'all')}</div>
-            <div class="headline"><strong>${summary.total ?? 0}</strong> redactions · <strong>${summary.distinct_tools ?? 0}</strong> distinct tools</div>
+            <div class="headline"><strong>${summary.total ?? 0}</strong> secrets detected and redacted · <strong>${summary.distinct_tools ?? 0}</strong> distinct tools · <strong>no raw secret values</strong> in this report</div>
             ${breakdown('By direction', summary.by_direction)}
             ${breakdown('By secret type', summary.by_secret_type)}
             <h3 style="margin-top:18px;">Full event log</h3>
             <table><thead><tr>
                 <th>Time</th><th>Direction</th><th>Pattern</th><th>Secret type</th><th>Source tool</th><th>Hash (SHA-256)</th>
             </tr></thead><tbody>${rowsHtml}</tbody></table>
-            <div class="note">Methodology — All redactions performed by <code>redact_secrets()</code> in <code>src/securevector/app/utils/redaction.py</code>. PEM private-key and OpenSSH-binary patterns apply only to <code>direction='incoming'</code> (tool responses, RAG content). Always-on patterns (sk-, AKIA, ghp_, JWT, kv-pair, password) apply to every direction. PUBLIC KEY blocks are not redacted (not secrets). No raw secret values appear in this report — the Hash column is SHA-256 of the matched substring, persisted that way in <code>redaction_events</code>.</div>
+            <div class="note">Methodology — Every detection in this report was redacted from content before persistence; <strong>no raw secret values ever land in <code>threat_intel_records</code>, the audit log, or this PDF</strong>. Detection performed by <code>redact_secrets()</code> in <code>src/securevector/app/utils/redaction.py</code>. PEM private-key and OpenSSH-binary patterns apply only to <code>direction='incoming'</code> (tool responses, RAG content). Always-on patterns (sk-, AKIA, ghp_, JWT, kv-pair, password) apply to every direction. PUBLIC KEY blocks are not redacted (not secrets). The Hash column is SHA-256 of the matched substring, persisted that way in <code>redaction_events</code> — auditors can prove a specific match by hash without the underlying secret ever leaving the device.</div>
             <script>setTimeout(()=>window.print(),200);<\/script>
             </body></html>`);
         win.document.close();
