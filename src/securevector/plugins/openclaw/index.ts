@@ -158,6 +158,9 @@ class SVClient {
       reason: verdict.reason,
       is_essential: verdict.is_essential,
       args_preview: redacted,
+      // Stamp the harness on every audit row so Tool Inventory's
+      // "MCP server · via <harness>" column attributes correctly.
+      runtime_kind: "openclaw",
     }, 3_000).catch(() => {});
   }
 

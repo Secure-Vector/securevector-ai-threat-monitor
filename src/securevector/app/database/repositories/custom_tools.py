@@ -723,6 +723,12 @@ class CustomToolsRepository:
                 SELECT
                     tool_id,
                     MAX(function_name) AS function_name,
+                    -- Comma-separated list of distinct runtimes so the UI can
+                    -- disambiguate which agent/harness emitted the call
+                    -- (e.g. claude-code, openclaw, langchain). For built-in
+                    -- tool names like "Bash" this is the only way to know
+                    -- which agent ran it.
+                    GROUP_CONCAT(DISTINCT runtime_kind) AS runtime_kinds,
                     COUNT(*) AS calls,
                     SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
                     SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
@@ -747,6 +753,7 @@ class CustomToolsRepository:
             SELECT
                 c.tool_id,
                 c.function_name,
+                c.runtime_kinds,
                 c.calls,
                 c.blocked,
                 c.allowed,

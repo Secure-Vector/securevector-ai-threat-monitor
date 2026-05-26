@@ -26,6 +26,7 @@ async def list_redactions(
     window_days: int = 7,
     direction: Optional[str] = None,
     secret_type: Optional[str] = None,
+    runtime_kind: Optional[str] = None,
     limit: int = 1000,
 ):
     """List recent redaction events (newest first) + a rollup summary.
@@ -65,6 +66,7 @@ async def list_redactions(
             window_days=window_days,
             direction=direction,
             secret_type=secret_type,
+            runtime_kind=runtime_kind,
             limit=limit,
         )
         return {"summary": summary, "events": events}

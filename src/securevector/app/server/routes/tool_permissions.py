@@ -702,6 +702,85 @@ _MCP_PREFIX = "mcp__"
 _MCP_SEP = "__"
 
 
+# Known agent-harness auth scopes for built-in tool names. Auth scope here is
+# SecureVector's classification (read / write / delete / admin), not the
+# harness's self-declared capability. Only used as a fallback when neither
+# custom_tools.risk nor tool_call_audit.risk has a value — historical audit
+# rows can have NULL risk because risk classification was a later addition.
+_BUILTIN_AUTH_SCOPE = {
+    "Bash":           "admin",
+    "Skill":          "admin",
+    "Agent":          "admin",
+    "Read":           "read",
+    "Grep":           "read",
+    "Glob":           "read",
+    "WebFetch":       "read",
+    "WebSearch":      "read",
+    "NotebookRead":   "read",
+    "Edit":           "write",
+    "Write":          "write",
+    "MultiEdit":      "write",
+    "NotebookEdit":   "write",
+    "TodoWrite":      "write",
+    "ExitPlanMode":   "admin",
+}
+
+# MCP tool-name prefix → inferred auth scope. Heuristic: most MCP tools follow
+# a verb-noun naming convention. Falls back to "—" (rendered as a dash) when
+# the prefix is unrecognised.
+_MCP_SCOPE_PREFIX = (
+    ("read",   ("read_", "get_", "list_", "search_", "find_", "query_", "browse_",
+                "browser_snapshot", "browser_take_screenshot", "browser_console",
+                "browser_network", "describe_", "show_", "fetch_", "load_")),
+    ("write",  ("write_", "create_", "post_", "put_", "update_", "edit_", "save_",
+                "append_", "insert_", "upsert_", "browser_click", "browser_type",
+                "browser_navigate", "browser_fill", "browser_press", "browser_drag",
+                "browser_select", "browser_hover", "browser_evaluate")),
+    ("delete", ("delete_", "remove_", "drop_", "destroy_", "browser_close")),
+    ("admin",  ("admin_", "manage_", "config_", "configure_", "auth", "authenticate")),
+)
+
+
+def _infer_mcp_scope(tool_name: str) -> Optional[str]:
+    if not tool_name:
+        return None
+    name = tool_name.lower()
+    for scope, prefixes in _MCP_SCOPE_PREFIX:
+        if any(name.startswith(p) for p in prefixes):
+            return scope
+    return None
+
+
+# Display labels for known runtimes — keep the UI free of repo-internal slugs.
+_RUNTIME_LABELS = {
+    "claude-code":  "Claude Code",
+    "claude_code":  "Claude Code",
+    "openclaw":     "OpenClaw",
+    "langchain":    "LangChain",
+    "langgraph":    "LangGraph",
+    "crewai":       "CrewAI",
+    "n8n":          "n8n",
+    "ollama":       "Ollama",
+    # Proxy fallback when --integration isn't set on the subprocess.
+    "proxy":        "Proxy (unattributed)",
+}
+
+
+def _format_harness(runtime_kinds: Optional[str]) -> Optional[str]:
+    """Format the comma-separated runtime_kinds list as a human label."""
+    if not runtime_kinds:
+        return None
+    seen = []
+    for raw in str(runtime_kinds).split(","):
+        slug = raw.strip()
+        if not slug:
+            continue
+        label = _RUNTIME_LABELS.get(slug, slug)
+        if label not in seen:
+            seen.append(label)
+    return " / ".join(seen) if seen else None
+
+
 def _split_server_and_tool(tool_id: str, function_name: Optional[str]) -> tuple[str, str]:
     """Return (server_label, tool_label) for a tool_id from tool_call_audit.
 
@@ -731,7 +810,12 @@ def _split_server_and_tool(tool_id: str, function_name: Optional[str]) -> tuple[
         if server and tool:
             return (server, tool)
 
-    return ("built-in", function_name or tool_id)
+    # tool_id is the canonical identifier; function_name is a Claude-Code-ism
+    # where the harness happens to set function_name == tool_id for built-ins
+    # like "Bash". Other harnesses (OpenClaw) use function_name as a session
+    # key ("agent:main:main"), which is NOT a tool name. Prefer tool_id —
+    # function_name is a last-resort fallback only when tool_id is empty.
+    return ("built-in", tool_id or function_name or "")
 
 
 @router.get("/tool-permissions/bill-of-tools")
@@ -788,32 +872,49 @@ async def get_bill_of_tools(window_days: int = 7):
             tool_id = r.get("tool_id") or ""
             server, tool = _split_server_and_tool(tool_id, r.get("function_name"))
 
-            # source: cloud-policy if any synced rule covers this tool,
-            # else local-custom if user registered it, else built-in.
+            # source classification (most-specific wins):
+            #   - cloud-policy : a synced policy covers this tool
+            #   - local-custom : user registered it locally
+            #   - built-in     : harness built-in (Bash, Read, Edit, …)
+            #   - mcp          : discovered MCP tool with no policy / custom row
             if r.get("synced_effect") is not None:
                 source = "cloud-policy"
             elif r.get("local_risk") is not None:
                 source = "local-custom"
-            else:
+            elif server == "built-in":
                 source = "built-in"
+            else:
+                source = "mcp"
 
-            # auth_scope precedence: explicit local-custom-tools.risk wins,
-            # else fall back to the audit row's recent_risk (which the engine
-            # set at decision time from the essential-registry classification),
-            # else 'unknown'. Labelled "SecureVector classification" in UI —
-            # this is OUR taxonomy, not the MCP server's self-declared scope.
+            # auth_scope precedence:
+            #   1. explicit custom_tools.risk (user-declared)
+            #   2. tool_call_audit.risk (engine recorded at decision time)
+            #   3. static map for known built-ins (Bash → admin, Read → read, …)
+            #   4. verb-prefix heuristic for MCP tool names
+            # Falls through to None (rendered as "—") when nothing applies.
             scope = r.get("local_risk") or r.get("recent_risk")
             if scope:
                 scope_origin = "local-custom-tools" if r.get("local_risk") else "audit-row"
+            elif server == "built-in" and tool in _BUILTIN_AUTH_SCOPE:
+                # Bash is always 'admin' regardless of whether a policy now
+                # covers it — derive from what the tool IS, not from source.
+                scope = _BUILTIN_AUTH_SCOPE[tool]
+                scope_origin = "builtin-map"
             else:
-                scope = "unknown"
-                scope_origin = "default"
+                inferred = _infer_mcp_scope(tool)
+                if inferred:
+                    scope = inferred
+                    scope_origin = "name-heuristic"
+                else:
+                    scope = None
+                    scope_origin = "unknown"
 
             rows.append({
                 "tool_id": tool_id,
                 "server": server,
                 "tool": tool,
                 "source": source,
+                "harness": _format_harness(r.get("runtime_kinds")),
                 "auth_scope": scope,
                 "auth_scope_origin": scope_origin,
                 "last_used": r.get("last_used"),

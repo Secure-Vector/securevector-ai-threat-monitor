@@ -279,9 +279,47 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
         result = await service.analyze(scan_text)
 
-        # Convert matched rules to response format
+        # Drop rule hits below the noise floor. Engine occasionally returns very
+        # low-confidence semantic matches (e.g. 0.008 on plain source code that
+        # happens to look "bulky" or "encoded") that pollute the threat log
+        # without informing the operator. 0.25 is a conservative cut — real
+        # detections from the regex/blocklist stages return >= 0.70, and the
+        # ML-stage threshold for "ALLOW" is < 0.45 in the engine.
+        _MIN_RULE_CONFIDENCE = 0.25
+
+        # Direction-aware rule suppression. The community rule pack ships
+        # rules that match LANGUAGE-KEYWORD shapes (`eval\(`, `subprocess`,
+        # `system\s*\(`, "export as csv") rather than secret VALUES. They are
+        # useful for catching an LLM generating dangerous code in an outgoing
+        # response, but they fire on every source file or markdown a Read
+        # tool returns to the agent as incoming context — making the threat
+        # log look like a flood of false positives. Suppress this specific
+        # list on direction='incoming'.
+        #
+        # NOTE: rules that match actual secret values (`ghp_...`, AWS keys,
+        # PEM blocks, `password=...`) are NOT in this list — they should
+        # still fire on tool responses where a real credential leaks.
+        _INCOMING_SUPPRESSED_RULE_IDS = {
+            "sv_community_output_005_encoded_content",
+            "sv_attack_006_command_execution",
+            "sv_llm_002_insecure_output",
+            "sv_community_031_bulk_data_extraction",
+        }
+        _incoming = (request.direction == "incoming")
+
+        def _is_suppressed_on_incoming(rule_dict) -> bool:
+            return (rule_dict.get("id") or "") in _INCOMING_SUPPRESSED_RULE_IDS
+
+        # Convert matched rules to response format (filtered)
         matched_rules = []
         for rule in result.matched_rules:
+            if float(rule.get("confidence", 1.0)) < _MIN_RULE_CONFIDENCE:
+                continue
+            if _incoming and _is_suppressed_on_incoming(rule):
+                # Skip keyword-shape rules that produce FPs on tool-fetched
+                # source code / markdown. Real-secret patterns are not in
+                # the suppression list — they still fire here.
+                continue
             matched_rules.append(
                 MatchedRule(
                     rule_id=rule.get("id", "unknown"),
@@ -293,6 +331,34 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     mitre_techniques=list(rule.get("mitre_techniques") or []),
                 )
             )
+
+        # Demote to non-threat when either:
+        #   (a) overall verdict confidence is below the floor — engine telling
+        #       you it isn't sure (catches high-risk / low-confidence noise),
+        #       OR
+        #   (b) every matched rule was filtered out by the per-rule floor or
+        #       the direction-aware output-rule guard — no rule survived to
+        #       justify a threat, so recording it as one is dishonest.
+        low_confidence = (
+            result.is_threat
+            and float(result.confidence or 0.0) < _MIN_RULE_CONFIDENCE
+        )
+        empty_after_filter = (
+            result.is_threat
+            and len(result.matched_rules or []) > 0
+            and not matched_rules
+        )
+        if low_confidence or empty_after_filter:
+            reason = "low-confidence" if low_confidence else "all rules filtered (direction guard)"
+            logger.debug(
+                f"Dropped threat — {reason}: confidence={result.confidence:.3f}, "
+                f"risk_score={result.risk_score}, engine_rules={len(result.matched_rules or [])} → "
+                f"surviving={len(matched_rules)}"
+            )
+            result.is_threat = False
+            result.threat_type = None
+            result.risk_score = 0.0
+            matched_rules = []
 
         processing_time_ms = result.processing_time_ms
 
@@ -425,6 +491,19 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         scan_meta = augmented_metadata or {}
         source_tool = scan_meta.get("tool_name") if isinstance(scan_meta, dict) else None
         source_tool_id = scan_meta.get("tool_id") if isinstance(scan_meta, dict) else None
+        # Both Guard plugins (claude-code, openclaw, …) stamp runtime_kind on
+        # the analyze metadata. Thread it through so the Secret Detections
+        # page can disambiguate per-plugin without joining anywhere else.
+        runtime_kind = scan_meta.get("runtime_kind") if isinstance(scan_meta, dict) else None
+        # OpenClaw's older plugins set `source: "openclaw-plugin"` but never
+        # populate `runtime_kind` — fall back to inferring from `source` so
+        # those events still attribute correctly.
+        if not runtime_kind:
+            src = request.source or ""
+            if "openclaw" in src:
+                runtime_kind = "openclaw"
+            elif "claude-code" in src:
+                runtime_kind = "claude-code"
         redactions_repo = RedactionsRepository(db)
         pending_events: list[dict] = []
 
@@ -456,6 +535,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 source_tool_id=source_tool_id,
                 request_id=request.request_id,
                 redaction_hash=ev["redaction_hash"],
+                runtime_kind=runtime_kind,
             )
 
         # Determine action_taken from metadata (always, for response)

@@ -24,6 +24,7 @@ from securevector.app.database.models import (
     MIGRATION_V30_SQL,
     MIGRATION_V31_SQL,
     MIGRATION_V34_SQL,
+    MIGRATION_V35_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         32: migrate_to_v32,
         33: migrate_to_v33,
         34: migrate_to_v34,
+        35: migrate_to_v35,
     }
 
     if version in migrations:
@@ -1439,6 +1441,19 @@ async def migrate_to_v34(db: DatabaseConnection) -> None:
     conn = await db.connect()
     await conn.executescript(MIGRATION_V34_SQL)
     logger.info("Applied migration v34: redaction_events table")
+
+
+async def migrate_to_v35(db: DatabaseConnection) -> None:
+    """v34 -> v35: runtime_kind column on redaction_events.
+
+    Lets the Secret Detections page disambiguate which Guard plugin caught
+    each secret (claude-code, openclaw, langchain, …). Both plugins already
+    populate metadata.runtime_kind on /analyze calls — we just thread it
+    through to the audit row.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V35_SQL)
+    logger.info("Applied migration v35: runtime_kind on redaction_events")
 
 
 # Future migration functions would be defined here:

@@ -15,9 +15,38 @@
 
 const RedactionsPage = {
     activeTab: 'redactions',
-    _state: { windowDays: 7, direction: '', secretType: '', summary: null, events: [] },
+    _state: { windowDays: 7, direction: '', secretType: '', runtimeKind: '', summary: null, events: [] },
+
+    _runtimeLabel(slug) {
+        if (!slug) return '—';
+        const map = {
+            'claude-code': 'Claude Code',
+            'claude_code': 'Claude Code',
+            'openclaw':    'OpenClaw',
+            'langchain':   'LangChain',
+            'langgraph':   'LangGraph',
+            'crewai':      'CrewAI',
+            'n8n':         'n8n',
+            'ollama':      'Ollama',
+            'proxy':       'Proxy (unattributed)',
+            'unknown':     'unknown',
+        };
+        return map[slug] || slug;
+    },
 
     async render(container) {
+        // Each page owns its container — sibling pages (e.g. Tool Inventory)
+        // do not clear it for us, so a stale render would otherwise stack
+        // below ours.
+        container.textContent = '';
+
+        if (window.Header) {
+            Header.setPageInfo(
+                'Secret Detections',
+                'Redactions audit log — credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.'
+            );
+        }
+
         const page = document.createElement('div');
         page.className = 'page-wrapper';
         container.appendChild(page);
@@ -26,18 +55,18 @@ const RedactionsPage = {
         header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;';
 
         const titleWrap = document.createElement('div');
-        const title = document.createElement('h2');
-        title.textContent = 'Secret Detections';
-        title.style.cssText = 'margin:0 0 4px;font-size:18px;';
         const subtitle = document.createElement('div');
-        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:720px;line-height:1.45;';
-        // Lead with the storage posture — that's the most reassurance-
-        // worthy detail for an auditor / security lead reading this page.
-        subtitle.innerHTML =
-            '<strong style="color:var(--text-primary);">No raw secret values are stored — only redactions and SHA-256 hashes.</strong> ' +
-            'Every credential / PII pattern caught by <code style="font-family:monospace;">redact_secrets()</code> is scrubbed from content before it lands in <code style="font-family:monospace;">threat_intel_records</code>, and the audit log itself records only a hash so the trail is safe to forward to a SIEM. ' +
-            'Direction-aware: PEM-key and OpenSSH-binary patterns fire only on incoming tool responses; sk-/AKIA/ghp_/JWT/password patterns fire on every direction.';
-        titleWrap.appendChild(title);
+        subtitle.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:780px;line-height:1.5;';
+        // Bulleted format — auditors skim this page for the storage posture
+        // and direction guarantees. Each bullet should answer ONE question.
+        subtitle.innerHTML = [
+            '<div style="margin-bottom:6px;color:var(--text-primary);font-weight:600;">No raw secret values are stored — only redactions and SHA-256 hashes.</div>',
+            '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
+            '<li>Every credential / PII match caught by <code style="font-family:monospace;">redact_secrets()</code> is scrubbed before it lands in <code style="font-family:monospace;">threat_intel_records</code>.</li>',
+            '<li>The audit log itself stores only a hash, so the trail is safe to forward to a SIEM.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Direction-aware:</span> PEM-key and OpenSSH-binary patterns fire <em>only on incoming tool responses</em>; sk- / AKIA / ghp_ / JWT / password patterns fire on every direction.</li>',
+            '</ul>',
+        ].join('');
         titleWrap.appendChild(subtitle);
         header.appendChild(titleWrap);
 
@@ -84,13 +113,36 @@ const RedactionsPage = {
         });
         controls.appendChild(this._labelled('Direction:', directionSelect));
 
+        // Harness filter — disambiguates Claude Code from OpenClaw etc.
+        // Options are populated from the live by_runtime breakdown after the
+        // first fetch (see _reload), so we only show runtimes that actually
+        // have events in the window.
+        const runtimeSelect = document.createElement('select');
+        runtimeSelect.id = 'redactions-runtime-select';
+        runtimeSelect.style.cssText = windowSelect.style.cssText;
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All harnesses';
+        runtimeSelect.appendChild(allOpt);
+        runtimeSelect.addEventListener('change', async () => {
+            this._state.runtimeKind = runtimeSelect.value || '';
+            await this._reload(tableMount, summaryMount, breakdownMount);
+        });
+        controls.appendChild(this._labelled('Harness:', runtimeSelect));
+
+        // Export buttons pinned to the far right of the control row via
+        // `margin-left: auto` — keeps them visually grouped and anchored
+        // even when filters wrap to a second line on narrow widths.
+        const exportGroup = document.createElement('div');
+        exportGroup.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;';
+
         const csvBtn = document.createElement('button');
         csvBtn.className = 'sv-btn-secondary';
         csvBtn.textContent = 'Export CSV';
         csvBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
         csvBtn.title = 'Download the visible secret detections as CSV (hash only, never raw)';
         csvBtn.addEventListener('click', () => this._exportCsv());
-        controls.appendChild(csvBtn);
+        exportGroup.appendChild(csvBtn);
 
         const pdfBtn = document.createElement('button');
         pdfBtn.className = 'sv-btn-secondary';
@@ -98,10 +150,17 @@ const RedactionsPage = {
         pdfBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
         pdfBtn.title = 'Open a print-ready view; use the browser print dialog to save as PDF';
         pdfBtn.addEventListener('click', () => this._exportPdf());
-        controls.appendChild(pdfBtn);
+        exportGroup.appendChild(pdfBtn);
 
-        header.appendChild(controls);
+        controls.appendChild(exportGroup);
+
+        // The control row lives on its own line below the subtitle so it can
+        // span the full page width — that's what makes margin-left:auto on
+        // the export group actually pin to the page's right edge instead of
+        // the title row's right edge.
         page.appendChild(header);
+        controls.style.cssText += 'width:100%;margin-bottom:12px;';
+        page.appendChild(controls);
 
         // Headline tile — large, prominent total count. Differentiates this
         // page from Tool Inventory (which leads with a wide table). On
@@ -153,9 +212,32 @@ const RedactionsPage = {
         const data = await API.getRedactions(this._state.windowDays, {
             direction: this._state.direction || null,
             secretType: this._state.secretType || null,
+            runtimeKind: this._state.runtimeKind || null,
         });
         this._state.summary = data.summary;
         this._state.events = data.events || [];
+
+        // Refresh the Harness filter options from the live by_runtime
+        // breakdown — we only show runtimes that have at least one event.
+        const runtimeSelect = document.getElementById('redactions-runtime-select');
+        if (runtimeSelect) {
+            const desired = this._state.runtimeKind || '';
+            runtimeSelect.textContent = '';
+            const all = document.createElement('option');
+            all.value = '';
+            all.textContent = 'All harnesses';
+            runtimeSelect.appendChild(all);
+            const runtimes = Object.keys(data.summary?.by_runtime || {});
+            runtimes.sort();
+            runtimes.forEach((slug) => {
+                const opt = document.createElement('option');
+                opt.value = slug === 'unknown' ? '' : slug;
+                opt.textContent = `${this._runtimeLabel(slug)} (${data.summary.by_runtime[slug]})`;
+                if (slug === desired) opt.selected = true;
+                runtimeSelect.appendChild(opt);
+            });
+            runtimeSelect.value = desired;
+        }
 
         // Headline tiles — big number cards above the table, so the page
         // visually leads with the event-count story (not yet-another table).
@@ -183,30 +265,40 @@ const RedactionsPage = {
         };
 
         const days = s.window_days ?? this._state.windowDays;
+        // Theme is cyan + red — Detected (the headline metric) takes cyan;
+        // From tool responses (the "credential made it across the LLM
+        // boundary" alert) takes red. Distinct tools is a neutral count, so
+        // we use a muted cyan tint to keep the trio in-palette.
         summaryMount.appendChild(tile(
             'Detected',
             s.total ?? 0,
             `secrets caught in the last ${days} day${days === 1 ? '' : 's'} — all redacted before storage`,
-            '#3057f5'
+            'var(--accent-primary)'
         ));
         summaryMount.appendChild(tile(
             'Distinct tools',
             s.distinct_tools ?? 0,
             'sources we scrubbed from',
-            '#22c55e'
+            'var(--success)'
         ));
         const incomingCount = (s.by_direction || {}).incoming || 0;
         summaryMount.appendChild(tile(
             'From tool responses',
             incomingCount,
             'incoming-direction catches',
-            '#f59e0b'
+            'var(--danger)'
         ));
 
-        // Breakdown bars (by direction + by secret type)
+        // Breakdown bars (by direction + by secret type + by harness)
         breakdownMount.textContent = '';
         breakdownMount.appendChild(this._buildBreakdownCard('By direction', data.summary?.by_direction || {}));
         breakdownMount.appendChild(this._buildBreakdownCard('By secret type', data.summary?.by_secret_type || {}));
+        // Map runtime slugs to friendly labels for the breakdown bars.
+        const runtimeRaw = data.summary?.by_runtime || {};
+        const runtimePretty = Object.fromEntries(
+            Object.entries(runtimeRaw).map(([k, v]) => [this._runtimeLabel(k), v])
+        );
+        breakdownMount.appendChild(this._buildBreakdownCard('By harness', runtimePretty));
 
         // Table
         tableMount.textContent = '';
@@ -223,7 +315,7 @@ const RedactionsPage = {
 
         const thead = document.createElement('thead');
         const trh = document.createElement('tr');
-        ['Time', 'Direction', 'Pattern', 'Secret type', 'Source tool', 'Request', 'Hash'].forEach((l) => {
+        ['Time', 'Direction', 'Harness', 'Pattern', 'Secret type', 'Source tool', 'Request', 'Hash'].forEach((l) => {
             const th = document.createElement('th');
             th.textContent = l;
             th.style.cssText = 'text-align:left;padding:8px 10px;border-bottom:2px solid var(--border-default);font-weight:600;color:var(--text-primary);';
@@ -246,14 +338,15 @@ const RedactionsPage = {
             tr.appendChild(cell(this._fmtTime(ev.redacted_at)));
 
             const dirBadge =
-                ev.direction === 'incoming' ? 'background:rgba(220,38,38,0.15);color:#dc2626'
-              : ev.direction === 'outgoing' ? 'background:rgba(96,165,250,0.15);color:#2563eb'
+                ev.direction === 'incoming' ? 'background:rgba(239,68,68,0.15);color:var(--danger)'
+              : ev.direction === 'outgoing' ? 'background:rgba(94,173,184,0.18);color:var(--accent-primary)'
               : 'background:rgba(148,163,184,0.15);color:var(--text-secondary)';
             tr.appendChild(cell(
                 `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;${dirBadge};">${ev.direction}</span>`,
                 { html: true }
             ));
 
+            tr.appendChild(cell(this._runtimeLabel(ev.runtime_kind)));
             tr.appendChild(cell(ev.pattern_id || '—', { mono: true }));
             tr.appendChild(cell(ev.secret_type || '—'));
             tr.appendChild(cell(ev.source_tool_id || ev.source_tool || '—', { mono: true }));
@@ -295,7 +388,7 @@ const RedactionsPage = {
             lbl.textContent = k;
             lbl.style.cssText = 'flex:0 0 140px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
             const bar = document.createElement('span');
-            bar.style.cssText = `flex:1;height:8px;background:linear-gradient(90deg, #3057f5 ${(v / max) * 100}%, var(--border-default) ${(v / max) * 100}%);border-radius:4px;`;
+            bar.style.cssText = `flex:1;height:8px;background:linear-gradient(90deg, var(--accent-primary) ${(v / max) * 100}%, var(--border-default) ${(v / max) * 100}%);border-radius:4px;`;
             const cnt = document.createElement('span');
             cnt.textContent = String(v);
             cnt.style.cssText = 'flex:0 0 36px;text-align:right;color:var(--text-primary);font-variant-numeric:tabular-nums;';
@@ -322,7 +415,7 @@ const RedactionsPage = {
             if (window.Toast) Toast.show('No secret detections in the selected window', 'info');
             return;
         }
-        const headers = ['time', 'direction', 'pattern_id', 'secret_type', 'source_tool', 'source_tool_id', 'request_id', 'redaction_hash'];
+        const headers = ['time', 'direction', 'harness', 'pattern_id', 'secret_type', 'source_tool', 'source_tool_id', 'request_id', 'redaction_hash'];
         const escape = (v) => {
             const s = String(v ?? '');
             return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -330,6 +423,7 @@ const RedactionsPage = {
         const body = rows.map((r) => [
             r.redacted_at || '',
             r.direction || '',
+            this._runtimeLabel(r.runtime_kind),
             r.pattern_id || '',
             r.secret_type || '',
             r.source_tool || '',
@@ -398,7 +492,7 @@ const RedactionsPage = {
             const items = entries.map(([k, v]) =>
                 `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">
                     <span style="flex:0 0 220px;">${esc(k)}</span>
-                    <span style="flex:1;height:6px;background:linear-gradient(90deg,#3057f5 ${(v / max) * 100}%, #e3e6ee ${(v / max) * 100}%);"></span>
+                    <span style="flex:1;height:6px;background:linear-gradient(90deg,#5eadb8 ${(v / max) * 100}%, #e3e6ee ${(v / max) * 100}%);"></span>
                     <span style="flex:0 0 40px;text-align:right;">${v}</span>
                  </div>`).join('');
             return `<div style="margin-bottom:12px;"><h3 style="font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.08em;color:#666;">${esc(title)}</h3>${items}</div>`;
@@ -407,6 +501,7 @@ const RedactionsPage = {
         const rowsHtml = rows.map((r) => `<tr>
             <td>${esc(r.redacted_at || '')}</td>
             <td>${esc(r.direction || '')}</td>
+            <td>${esc(this._runtimeLabel(r.runtime_kind))}</td>
             <td>${esc(r.pattern_id || '')}</td>
             <td>${esc(r.secret_type || '')}</td>
             <td>${esc(r.source_tool_id || r.source_tool || '')}</td>
@@ -422,7 +517,7 @@ const RedactionsPage = {
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111;}
                 .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
                 .brand-text h1{font-size:20px;margin:0 0 2px;letter-spacing:-0.01em;}
-                .brand-text .product{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#3057f5;font-weight:600;}
+                .brand-text .product{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5eadb8;font-weight:600;}
                 .meta{font-size:11px;color:#666;margin-bottom:14px;}
                 .headline{font-size:14px;margin:8px 0 16px;padding:10px 12px;background:#f4f4f7;border-radius:6px;}
                 table{width:100%;border-collapse:collapse;font-size:11px;margin-top:14px;}
@@ -441,9 +536,10 @@ const RedactionsPage = {
             <div class="headline"><strong>${summary.total ?? 0}</strong> secrets detected and redacted · <strong>${summary.distinct_tools ?? 0}</strong> distinct tools · <strong>no raw secret values</strong> in this report</div>
             ${breakdown('By direction', summary.by_direction)}
             ${breakdown('By secret type', summary.by_secret_type)}
+            ${breakdown('By harness', Object.fromEntries(Object.entries(summary.by_runtime || {}).map(([k, v]) => [this._runtimeLabel(k), v])))}
             <h3 style="margin-top:18px;">Full event log</h3>
             <table><thead><tr>
-                <th>Time</th><th>Direction</th><th>Pattern</th><th>Secret type</th><th>Source tool</th><th>Hash (SHA-256)</th>
+                <th>Time</th><th>Direction</th><th>Harness</th><th>Pattern</th><th>Secret type</th><th>Source tool</th><th>Hash (SHA-256)</th>
             </tr></thead><tbody>${rowsHtml}</tbody></table>
             <div class="note">Methodology — Every detection in this report was redacted from content before persistence; <strong>no raw secret values ever land in <code>threat_intel_records</code>, the audit log, or this PDF</strong>. Detection performed by <code>redact_secrets()</code> in <code>src/securevector/app/utils/redaction.py</code>. PEM private-key and OpenSSH-binary patterns apply only to <code>direction='incoming'</code> (tool responses, RAG content). Always-on patterns (sk-, AKIA, ghp_, JWT, kv-pair, password) apply to every direction. PUBLIC KEY blocks are not redacted (not secrets). The Hash column is SHA-256 of the matched substring, persisted that way in <code>redaction_events</code> — auditors can prove a specific match by hash without the underlying secret ever leaving the device.</div>
             <script>setTimeout(()=>window.print(),200);<\/script>

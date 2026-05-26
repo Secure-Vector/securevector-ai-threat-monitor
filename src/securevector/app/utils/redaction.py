@@ -40,22 +40,20 @@ SECRET_PATTERNS = [
     (r'(access[_-]?token[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]', ('generic-access-token', 'Generic access_token kv')),
     (r'(auth[_-]?token[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]', ('generic-auth-token', 'Generic auth_token kv')),
     (r'(bearer[:\s]+)[a-zA-Z0-9_\-\.]{20,}', r'\1[REDACTED]', ('bearer', 'Bearer token')),
-    # Passwords (simplified patterns to avoid ReDoS)
+    # Passwords with literal keyword prefix — high signal. Requires the
+    # actual word "password" / "passwd" / "pwd" followed by `:` or `=` and
+    # a non-whitespace value of plausible length.
     (r'(password[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
     (r'(passwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
     (r'(pwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
-    # Passwords in backticks - various patterns
-    (r'`([A-Z][a-z]{3,15}[0-9]{1,6})`', r'`[REDACTED]`', ('password-backtick', 'Password (backtick)')),
-    (r'`([A-Za-z0-9!@#$%^&*_]{8,30})`', r'`[REDACTED]`', ('password-backtick', 'Password (backtick)')),
-    (r'`([A-Z][a-z]+[A-Z][a-z]+[A-Za-z0-9!]*)`', r'`[REDACTED]`', ('passphrase-backtick', 'Passphrase (backtick)')),
-    # Passwords after bullet points
-    (r'([•\-\*]\s*)([A-Z][a-z]+[A-Z]?[a-z]*[0-9]*[!@#$%^&*]+[A-Za-z0-9!@#$%^&*]*)', r'\1[REDACTED]', ('password-bulleted', 'Password (bulleted)')),
-    (r'([•\-\*]\s*)([A-Z][a-z]+@[A-Za-z]+[0-9]+)', r'\1[REDACTED]', ('password-bulleted', 'Password (bulleted)')),
-    (r'([•\-\*]\s*)([A-Z][a-z]+[0-9]+[!@#$%^&*]+)', r'\1[REDACTED]', ('password-bulleted', 'Password (bulleted)')),
-    # Common password patterns anywhere
-    (r'\b([A-Z][a-z]{3,10}[!@#$%^&*][A-Za-z0-9!@#$%^&*]{2,15})\b', r'[REDACTED]', ('password-inline', 'Password (inline)')),
-    (r'\b([A-Z][a-z]{3,10}@[A-Za-z]+[0-9]{2,6})\b', r'[REDACTED]', ('password-inline', 'Password (inline)')),
-    (r'\b([A-Z][a-z]+[0-9]{2,6}[!@#$%^&*]{1,3})\b', r'[REDACTED]', ('password-inline', 'Password (inline)')),
+    # NOTE: Heuristic "password-backtick", "passphrase-backtick",
+    # "password-bulleted", and "password-inline" patterns were removed —
+    # they matched any CamelCase token or alphanumeric string in backticks,
+    # which is every code identifier in every README and tool response.
+    # The result was a flood of false positives on Claude Code Read calls.
+    # Real password leaks land via password-kv (which requires the literal
+    # keyword prefix). If we want to catch passwords without the prefix we
+    # need entropy-based detection, not regex shape-matching.
 ]
 
 

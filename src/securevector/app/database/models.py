@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 34
+CURRENT_SCHEMA_VERSION = 35
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -294,7 +294,8 @@ SCHEMA_DESCRIPTION = (
     "v28: lifetime events_sent counter on external_forwarders (per-destination health); "
     "v29: synced_tool_rules — cloud-pushed policy bundle rules layered over local Tool Permissions; "
     "v32: runtime_kind on tool_call_audit — identifies which Guard plugin runtime wrote the row; "
-    "v34: redaction_events — audit log of every redact_secrets() match (hash-only, never raw)"
+    "v34: redaction_events — audit log of every redact_secrets() match (hash-only, never raw); "
+    "v35: runtime_kind on redaction_events — identifies which Guard plugin caught the secret"
 )
 
 # Migration SQL for v34 — redaction_events table.
@@ -335,6 +336,20 @@ CREATE INDEX IF NOT EXISTS idx_redaction_events_pattern
 
 INSERT OR IGNORE INTO schema_version (version, applied_at, description)
 VALUES (34, CURRENT_TIMESTAMP, 'redaction_events — audit log of redact_secrets matches (hash-only)');
+"""
+
+# Migration SQL for v35 — runtime_kind on redaction_events.
+# Lets the Secret Detections page disambiguate which Guard plugin (claude-code,
+# openclaw, langchain, …) caught each secret. Sourced from the analyze
+# request's metadata.runtime_kind, which both plugins already populate.
+MIGRATION_V35_SQL = """
+ALTER TABLE redaction_events ADD COLUMN runtime_kind TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_redaction_events_runtime
+    ON redaction_events (runtime_kind, redacted_at);
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (35, CURRENT_TIMESTAMP, 'redaction_events.runtime_kind — per-row plugin attribution');
 """
 
 # Migration SQL for v29 — synced_tool_rules layer (active-mcp-and-policy-sync)

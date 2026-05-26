@@ -289,12 +289,16 @@ async function audit(event, baseUrl) {
     let rawScanText = '';
     try {
       const ti = event && (event.tool_input || event.toolInput);
-      rawScanText = redactForScan(extractScanText(toolName, ti));
+      // Send RAW text to /analyze — the server's redact_secrets() is the
+      // single source of truth for redaction AND owns the Secret
+      // Detections audit log. Pre-redacting on the client would erase the
+      // very matches the audit pipeline needs to record. Loopback-only
+      // (127.0.0.1) and the server hashes immediately, never persisting
+      // the raw value.
+      rawScanText = extractScanText(toolName, ti);
     } catch { /* swallow */ }
 
     if (rawScanText.length > 0) {
-      // Cap the POST body to THREAT_SCAN_TEXT_LIMIT (after redaction so
-      // the truncation applies to the redacted text, not raw secrets).
       const scanText = rawScanText.length > THREAT_SCAN_TEXT_LIMIT
         ? rawScanText.slice(0, THREAT_SCAN_TEXT_LIMIT)
         : rawScanText;
@@ -332,7 +336,9 @@ async function audit(event, baseUrl) {
     let rawResponseText = '';
     try {
       const tr = event && (event.tool_response || event.toolResponse);
-      rawResponseText = redactForScan(extractScanTextFromResponse(tr));
+      // Same posture as the outgoing path: send raw to /analyze, let the
+      // server-side redact_secrets() own redaction + audit logging.
+      rawResponseText = extractScanTextFromResponse(tr);
     } catch { /* swallow — fail-open */ }
 
     if (rawResponseText.length > 0) {

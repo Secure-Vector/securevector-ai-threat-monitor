@@ -464,12 +464,13 @@ const API = {
         }));
     },
 
-    async getRedactions(windowDays = 7, { direction = null, secretType = null, limit = 1000 } = {}) {
+    async getRedactions(windowDays = 7, { direction = null, secretType = null, runtimeKind = null, limit = 1000 } = {}) {
         const params = new URLSearchParams({ window_days: String(windowDays), limit: String(limit) });
         if (direction) params.set('direction', direction);
         if (secretType) params.set('secret_type', secretType);
+        if (runtimeKind) params.set('runtime_kind', runtimeKind);
         return this.request(`/api/redactions?${params}`).catch(() => ({
-            summary: { window_days: windowDays, total: 0, distinct_tools: 0, by_direction: {}, by_secret_type: {} },
+            summary: { window_days: windowDays, total: 0, distinct_tools: 0, by_direction: {}, by_secret_type: {}, by_runtime: {} },
             events: [],
         }));
     },

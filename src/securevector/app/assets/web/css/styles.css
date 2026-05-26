@@ -126,12 +126,53 @@ html, body {
 /* Sidebar */
 .sidebar {
     position: relative;
-    width: var(--sidebar-width);
+    /* clamp() defends against the JS resize handler ever writing an
+       out-of-bounds value — even direct localStorage tampering can't push
+       the rail outside [180px, 380px]. */
+    width: clamp(180px, var(--sidebar-width), 380px);
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-default);
     display: flex;
     flex-direction: column;
     transition: width var(--transition-normal);
+}
+
+/* Disable the width animation while the user is actively dragging the
+   resize handle — otherwise every pointer move queues a CSS transition
+   that fights the JS update and feels laggy. */
+.sidebar.resizing {
+    transition: none;
+}
+
+/* Draggable resize handle on the right edge of the sidebar. Sits in the
+   gutter overlapping the border so the user gets a visible cyan strip on
+   hover/drag. */
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 20;
+    background: transparent;
+    transition: background var(--transition-fast);
+}
+.sidebar-resize-handle:hover,
+.sidebar.resizing .sidebar-resize-handle {
+    background: var(--accent-primary);
+    opacity: 0.6;
+}
+.sidebar.collapsed .sidebar-resize-handle {
+    /* No point letting the user drag a fixed-width collapsed rail. */
+    display: none;
+}
+
+/* Hide nested sub-nav rows entirely when the sidebar is collapsed —
+   the parent icons remain clickable, the nested rows would otherwise
+   overflow the 64-px rail and look broken. */
+.sidebar.collapsed .nav-sub-items {
+    display: none !important;
 }
 
 .sidebar-header {

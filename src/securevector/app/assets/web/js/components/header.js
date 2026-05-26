@@ -52,7 +52,10 @@ const Header = {
 
         const headerSubtitleEl = document.createElement('div');
         headerSubtitleEl.id = 'header-page-subtitle';
-        headerSubtitleEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 620px;';
+        // Allow the subtitle to wrap to a second line on pages with longer
+        // descriptions (Tool Inventory's SBOM line, Secret Detections' storage
+        // posture). Cap at two lines so the header doesn't grow unbounded.
+        headerSubtitleEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 1px; max-width: 900px; line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;';
         titleGroup.appendChild(headerSubtitleEl);
 
         left.appendChild(titleGroup);
@@ -1633,8 +1636,13 @@ graph.add_edge("output_security", END)`,
         html.setAttribute('data-theme', newTheme);
         localStorage.setItem('theme', newTheme);
 
-        // Re-render to update icon
+        // Re-render to update the theme icon. render() rebuilds the title /
+        // subtitle elements empty — repopulate them so the header doesn't
+        // visually clear when the user toggles. (App.loadPage is the only
+        // other caller of render() and it always follows up with updateTitle,
+        // so this path is the one that needs the explicit restore.)
         this.render();
+        this.updateTitle();
     },
 
     async checkStatus() {
@@ -1664,6 +1672,8 @@ graph.add_edge("output_security", END)`,
         replay:            { title: 'Agent Activity',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
+        'bill-of-tools':   { title: 'Tool Inventory',      subtitle: 'Every (MCP server, tool) pair your agents called on this device — treated as a Software Bill of Materials (SBOM) for AI tools.' },
+        'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log — credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },

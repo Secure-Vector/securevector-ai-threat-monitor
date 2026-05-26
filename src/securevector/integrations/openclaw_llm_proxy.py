@@ -194,6 +194,7 @@ class LLMProxy:
         verbose: bool = False,
         provider: str = "openai",
         skip_url_validation: bool = False,
+        integration: Optional[str] = None,
     ):
         # Security: Validate URLs to prevent SSRF attacks
         if not skip_url_validation:
@@ -207,6 +208,11 @@ class LLMProxy:
         self.block_threats = block_threats
         self.verbose = verbose
         self.provider = provider
+        # Integration identifier — stamped as runtime_kind on every tool_call_audit
+        # POST so Tool Inventory can attribute proxy-mediated calls to the harness.
+        # Falls back to "proxy" when the integration isn't specified, so rows are
+        # still distinguishable from plugin-driven (claude-code / openclaw) rows.
+        self.integration = (integration or "proxy").lower()
         self.api_prefix = self.API_PREFIXES.get(provider, "/v1")
         self.stats = {"scanned": 0, "blocked": 0, "threats_detected": 0, "passed": 0}
         self._http_client: Optional[httpx.AsyncClient] = None
@@ -511,6 +517,10 @@ class LLMProxy:
                                 "target": self.target_url,
                                 "scan_type": "input",
                                 "action_taken": action_taken,
+                                # Same posture as the main scan path — without
+                                # this, redaction_events rows from cloud-direct
+                                # recording would land with runtime_kind=NULL.
+                                "runtime_kind": self.integration,
                             }
                         }
                         await client.post(self.analyze_url, json=scan_payload, timeout=3.0)
@@ -569,6 +579,10 @@ class LLMProxy:
             "scan_type": "output" if is_llm_response else "input",
             "action_taken": action_taken,
             "skip_cloud": skip_cloud,
+            # Lets analyze.py stamp redaction_events.runtime_kind so Secret
+            # Detections groups proxy traffic by integration (langchain /
+            # langgraph / n8n / …) instead of leaving them unattributed.
+            "runtime_kind": self.integration,
         }
         if context_text:
             scan_metadata["context_text"] = context_text
@@ -1051,6 +1065,9 @@ class LLMProxy:
                     "reason":        decision.reason,
                     "is_essential":  decision.is_essential,
                     "args_preview":  (tc.arguments or "")[:200],
+                    # Stamp the harness so Tool Inventory groups proxy traffic
+                    # by integration (langchain / langgraph / n8n / …).
+                    "runtime_kind":  self.integration,
                 }
                 client = await self.get_http_client()
                 await client.post(
@@ -1834,10 +1851,12 @@ class MultiProviderProxy:
         securevector_url: str = "http://127.0.0.1:8741",
         block_threats: bool = False,
         verbose: bool = False,
+        integration: Optional[str] = None,
     ):
         self.securevector_url = securevector_url
         self.block_threats = block_threats
         self.verbose = verbose
+        self.integration = (integration or "proxy").lower()
         self._proxies: dict[str, LLMProxy] = {}
 
     def get_proxy(self, provider: str) -> LLMProxy:
@@ -1854,6 +1873,7 @@ class MultiProviderProxy:
                 verbose=self.verbose,
                 provider=provider,
                 skip_url_validation=True,  # Already validated in PROVIDERS
+                integration=self.integration,
             )
             if self.verbose:
                 print(f"[multi-proxy] Created proxy for {provider} → {target_url}")
@@ -1997,6 +2017,16 @@ def main():
         action="store_true",
         help="Verbose logging"
     )
+    parser.add_argument(
+        "--integration",
+        default=None,
+        help=(
+            "Which agent framework / runtime is using this proxy "
+            "(langchain, langgraph, crewai, n8n, ollama, openclaw, …). "
+            "Stamped as runtime_kind on every tool_call_audit row so the "
+            "Tool Inventory page can attribute tool calls to the harness."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -2019,6 +2049,7 @@ def main():
             securevector_url=args.securevector_url,
             block_threats=args.block,
             verbose=args.verbose,
+            integration=args.integration,
         )
 
         providers = list(LLMProxy.PROVIDERS.keys())
@@ -2069,6 +2100,7 @@ def main():
                 block_threats=args.block,
                 verbose=args.verbose,
                 provider=args.provider,
+                integration=args.integration,
             )
         except ValueError as e:
             print(f"\n[ERROR] {e}")

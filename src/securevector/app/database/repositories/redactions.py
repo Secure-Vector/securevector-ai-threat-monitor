@@ -48,6 +48,7 @@ class RedactionsRepository:
         source_tool: Optional[str] = None,
         source_tool_id: Optional[str] = None,
         request_id: Optional[str] = None,
+        runtime_kind: Optional[str] = None,
     ) -> None:
         """Append one redaction event."""
         if direction not in ("outgoing", "incoming", "llm_response"):
@@ -60,8 +61,9 @@ class RedactionsRepository:
                 """
                 INSERT INTO redaction_events (
                     pattern_id, secret_type, direction,
-                    source_tool, source_tool_id, request_id, redaction_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    source_tool, source_tool_id, request_id, redaction_hash,
+                    runtime_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     pattern_id,
@@ -71,6 +73,7 @@ class RedactionsRepository:
                     source_tool_id,
                     request_id,
                     redaction_hash,
+                    runtime_kind,
                 ),
             )
         except Exception as e:  # noqa: BLE001
@@ -84,12 +87,13 @@ class RedactionsRepository:
         window_days: int = 7,
         direction: Optional[str] = None,
         secret_type: Optional[str] = None,
+        runtime_kind: Optional[str] = None,
         limit: int = 1000,
     ) -> list[dict]:
         """Return recent redaction events, newest first.
 
         Window is clamped to [1, 365] days. Optional ``direction`` /
-        ``secret_type`` filters narrow the result set.
+        ``secret_type`` / ``runtime_kind`` filters narrow the result set.
         """
         window_days = max(1, min(int(window_days), 365))
         cutoff = f"-{window_days} days"
@@ -102,11 +106,14 @@ class RedactionsRepository:
         if secret_type:
             where.append("secret_type = ?")
             params.append(secret_type)
+        if runtime_kind:
+            where.append("runtime_kind = ?")
+            params.append(runtime_kind)
         params.append(min(int(limit), 5000))
 
         sql = (
             "SELECT id, pattern_id, secret_type, direction, source_tool, "
-            "source_tool_id, request_id, redaction_hash, redacted_at "
+            "source_tool_id, request_id, redaction_hash, redacted_at, runtime_kind "
             "FROM redaction_events "
             f"WHERE {' AND '.join(where)} "
             "ORDER BY id DESC "
@@ -158,10 +165,22 @@ class RedactionsRepository:
         )
         by_secret_type = {r["secret_type"]: int(r["n"]) for r in (type_rows or [])}
 
+        runtime_rows = await self.db.fetch_all(
+            "SELECT runtime_kind, COUNT(*) AS n FROM redaction_events "
+            "WHERE redacted_at >= datetime('now', ?) "
+            "GROUP BY runtime_kind ORDER BY n DESC",
+            (cutoff,),
+        )
+        by_runtime = {
+            (r["runtime_kind"] or "unknown"): int(r["n"])
+            for r in (runtime_rows or [])
+        }
+
         return {
             "window_days": window_days,
             "total": total,
             "distinct_tools": distinct_tools,
             "by_direction": by_direction,
             "by_secret_type": by_secret_type,
+            "by_runtime": by_runtime,
         }

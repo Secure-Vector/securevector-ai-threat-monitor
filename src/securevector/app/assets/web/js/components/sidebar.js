@@ -50,6 +50,8 @@ const Sidebar = {
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             { id: 'guide-claude-code', label: 'Claude Code Plugin' },
+            { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
+            { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
             { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
             { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
             { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
@@ -63,6 +65,19 @@ const Sidebar = {
 
     collapsed: false,
 
+    // Min/max bounds for the resize handle. Stays narrower than the CSS
+    // default of 240px on the low end so power users can squeeze, and wide
+    // enough on the high end to avoid letting the rail eat the page.
+    SIDEBAR_MIN_PX: 180,
+    SIDEBAR_MAX_PX: 380,
+
+    _applySavedSidebarWidth() {
+        const saved = parseInt(localStorage.getItem('sidebar-width') || '', 10);
+        if (Number.isFinite(saved) && saved >= this.SIDEBAR_MIN_PX && saved <= this.SIDEBAR_MAX_PX) {
+            document.documentElement.style.setProperty('--sidebar-width', saved + 'px');
+        }
+    },
+
     render() {
         const container = document.getElementById('sidebar');
         if (!container) return;
@@ -70,6 +85,10 @@ const Sidebar = {
         // Check saved collapsed state
         this.collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
         if (this.collapsed) container.classList.add('collapsed');
+
+        // Restore the user's last sidebar width before rendering so the
+        // expanded rail comes up at the right size on first paint.
+        this._applySavedSidebarWidth();
 
         // Clear container
         container.textContent = '';
@@ -206,7 +225,7 @@ const Sidebar = {
             const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = ['skill-scanner', 'skill-permissions', 'siem-export', 'integrations'];
+            const sessionNewItems = ['siem-export', 'integrations'];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist
@@ -302,7 +321,7 @@ const Sidebar = {
                 // session-NEW list above; kept separate because sub-items
                 // render in a different branch and the keys aren't shared
                 // with the top-level item IDs.
-                const subNewItems = ['proxy-claude-code'];
+                const subNewItems = ['proxy-claude-code', 'bill-of-tools', 'redactions'];
 
                 item.subItems.forEach(subItem => {
                     const subNavItem = document.createElement('div');
@@ -365,6 +384,46 @@ const Sidebar = {
 
         collapseBtn.addEventListener('click', () => this.toggleCollapse());
         container.appendChild(collapseBtn);
+
+        // Drag-to-resize handle on the right edge of the sidebar. Disabled
+        // (display:none via CSS) while the rail is in collapsed state.
+        const resizeHandle = document.createElement('div');
+        resizeHandle.className = 'sidebar-resize-handle';
+        resizeHandle.title = 'Drag to resize';
+        resizeHandle.addEventListener('mousedown', (downEv) => {
+            if (this.collapsed) return;
+            downEv.preventDefault();
+            const startX = downEv.clientX;
+            const startWidth = container.getBoundingClientRect().width;
+            container.classList.add('resizing');
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'col-resize';
+
+            const onMove = (moveEv) => {
+                const next = Math.max(
+                    this.SIDEBAR_MIN_PX,
+                    Math.min(this.SIDEBAR_MAX_PX, startWidth + (moveEv.clientX - startX))
+                );
+                document.documentElement.style.setProperty('--sidebar-width', next + 'px');
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                container.classList.remove('resizing');
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+                const finalWidth = parseInt(
+                    getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'),
+                    10
+                );
+                if (Number.isFinite(finalWidth)) {
+                    localStorage.setItem('sidebar-width', String(finalWidth));
+                }
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        container.appendChild(resizeHandle);
 
         // Bottom section - proxy status, try it, uninstall, server status
         const bottomSection = document.createElement('div');
@@ -917,6 +976,14 @@ const Sidebar = {
             history: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
                 { tag: 'polyline', attrs: { points: '12 6 12 12 16 14' } },
+            ],
+            // Document with horizontal bar lines — read as "report" without
+            // colliding with the 'rules' icon (which also looks document-y).
+            report: [
+                { tag: 'path', attrs: { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' } },
+                { tag: 'polyline', attrs: { points: '14 2 14 8 20 8' } },
+                { tag: 'line', attrs: { x1: '8', y1: '13', x2: '14', y2: '13' } },
+                { tag: 'line', attrs: { x1: '8', y1: '17', x2: '16', y2: '17' } },
             ],
             scan: [
                 { tag: 'circle', attrs: { cx: '11', cy: '11', r: '8' } },
