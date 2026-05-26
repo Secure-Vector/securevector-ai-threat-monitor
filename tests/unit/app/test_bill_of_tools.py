@@ -66,9 +66,13 @@ def test_split_empty_tool_id_uses_function_name():
 
 
 def test_split_malformed_mcp_prefix():
-    # mcp__ with no separator after — fall back to built-in with function_name.
+    # mcp__ with no separator after — fall back to built-in. We prefer
+    # tool_id over function_name in the fallback because OpenClaw sends
+    # sessionKey-shaped strings (e.g. "agent:main:main") as function_name,
+    # which would pollute the column. The raw tool_id (here, the malformed
+    # "mcp__justaserver") at least reflects what the caller intended.
     assert _split_server_and_tool("mcp__justaserver", "justaserver") == (
-        "built-in", "justaserver",
+        "built-in", "mcp__justaserver",
     )
 
 
