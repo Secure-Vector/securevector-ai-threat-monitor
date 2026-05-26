@@ -308,7 +308,18 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         _incoming = (request.direction == "incoming")
 
         def _is_suppressed_on_incoming(rule_dict) -> bool:
-            return (rule_dict.get("id") or "") in _INCOMING_SUPPRESSED_RULE_IDS
+            rid = rule_dict.get("id") or ""
+            if rid in _INCOMING_SUPPRESSED_RULE_IDS:
+                return True
+            # All "evasion" rules detect SENDER attempts to bypass content
+            # filters — synonym substitution, payload splitting, leetspeak,
+            # zero-width characters. The shape signals (numbered "Step 1 /
+            # Step 2", synonyms in tech docs, hyphenated keywords) fire on
+            # legitimate tutorial READMEs and how-to docs. These rules
+            # belong on outgoing prompts, not incoming tool responses.
+            if "_evasion_" in rid:
+                return True
+            return False
 
         # Convert matched rules to response format (filtered)
         matched_rules = []
