@@ -5,11 +5,34 @@ POST /api/v1/analyze - Analyze text for threats
 """
 
 import logging
+import re
 import time
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+
+# Base64-encoded image blobs forwarded by the Claude Code plugin (e.g.
+# screenshots returned by a tool, image attachments in MCP responses) are
+# random-looking long [A-Za-z0-9+/=] strings. The community rule pack is
+# text-shaped and occasionally trips on substrings of these blobs — most
+# visibly `sv_community_output_001_credential_leak` firing on PNG bytes
+# that happen to contain the substring `password`. We don't want to skip
+# the audit altogether (the user wants visibility that the scan happened),
+# but we also can't let random image bytes mint false positives. The fix:
+# replace each base64 image payload with a fixed placeholder BEFORE the
+# engine runs. The surrounding JSON envelope (`{"type":"image", ...}`) is
+# preserved so any real text gets scanned normally. The four prefixes
+# below cover PNG / JPEG / GIF / WebP (which is RIFF...WEBP — `UklGR` is
+# the base64 of `RIFF`). 100-char minimum tail prevents matching the
+# magic prefix in normal prose ("the iVBORw0KGgo png-base64 prefix...").
+_IMAGE_BASE64_RE = re.compile(
+    r'(?:iVBORw0KGgo|/9j/|R0lGOD|UklGR)[A-Za-z0-9+/=]{100,}'
+)
+
+
+def _strip_image_base64(text: str) -> str:
+    return _IMAGE_BASE64_RE.sub('[IMAGE-BASE64-REDACTED]', text)
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
@@ -276,6 +299,13 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             end_idx = scan_text.find(_GUARD_END, start_idx)
             if end_idx != -1:
                 scan_text = (scan_text[:start_idx] + scan_text[end_idx + len(_GUARD_END):]).strip() or request.text
+
+        # Replace base64 image payloads with a placeholder before the engine
+        # runs. The request itself is still recorded (audit trail intact);
+        # the engine just doesn't see the random bytes that would otherwise
+        # mint false-positive rule matches on substrings like "password" or
+        # "ghp_" appearing by chance in PNG/JPEG/GIF/WebP base64.
+        scan_text = _strip_image_base64(scan_text)
 
         result = await service.analyze(scan_text)
 
