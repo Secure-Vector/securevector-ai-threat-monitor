@@ -147,7 +147,7 @@ const GuideClaudeCodePage = {
   "ok": true,
   "auto_installed": true,
   "enabled": true,
-  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1",
+  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0",
   "files": [".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/pre-tool-use.js",
             "hooks/post-tool-use.js", "hooks/user-prompt-submit.js", "hooks/stop-hook-probe.js",
             "hooks/statusline.js", "lib/normalize.js", "lib/client.js", "lib/redact.js",
@@ -224,7 +224,7 @@ if candidates:
         root.appendChild(h3('Replace your statusLine outright'));
         root.appendChild(code(`"statusLine": {
   "type": "command",
-  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js",
+  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js",
   "refreshInterval": 5
 }`));
         root.appendChild(p('Set NO_COLOR=1 to disable the cyan/red ANSI styling.'));
