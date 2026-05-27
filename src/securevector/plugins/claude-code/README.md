@@ -112,7 +112,7 @@ Example output: `SecureVector Guard · 2 threats detected · 5 tool calls (3 all
 ```json
 "statusLine": {
   "type": "command",
-  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js",
+  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js",
   "refreshInterval": 5
 }
 ```
@@ -122,7 +122,7 @@ Example output: `SecureVector Guard · 2 threats detected · 5 tool calls (3 all
 ```python
 import subprocess, sys
 sv = subprocess.run(
-    ["node", "/Users/me/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js"],
+    ["node", "/Users/me/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js"],
     input=sys.stdin.read(), capture_output=True, text=True, timeout=1
 ).stdout.strip()
 print(f"{your_existing_line}  {sv}" if sv else your_existing_line)
