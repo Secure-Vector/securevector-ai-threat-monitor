@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 33
+CURRENT_SCHEMA_VERSION = 35
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -293,8 +293,64 @@ SCHEMA_DESCRIPTION = (
     "v27: drop kind CHECK on external_forwarders — allow new kinds (e.g. 'file') via app-layer validation; "
     "v28: lifetime events_sent counter on external_forwarders (per-destination health); "
     "v29: synced_tool_rules — cloud-pushed policy bundle rules layered over local Tool Permissions; "
-    "v32: runtime_kind on tool_call_audit — identifies which Guard plugin runtime wrote the row"
+    "v32: runtime_kind on tool_call_audit — identifies which Guard plugin runtime wrote the row; "
+    "v34: redaction_events — audit log of every redact_secrets() match (hash-only, never raw); "
+    "v35: runtime_kind on redaction_events — identifies which Guard plugin caught the secret"
 )
+
+# Migration SQL for v34 — redaction_events table.
+# Audit log of every redaction performed by ``redact_secrets()``. One row per
+# match, surfaced in the local-app Redactions page (sibling to Threats /
+# Tool Activity / Bill of Tools under the Agent Activity umbrella).
+#
+# Security posture (matches the legal-review intent that drove the PEM
+# redaction itself):
+#   - ``redaction_hash`` is SHA-256 of the matched substring — the raw
+#     secret value is NEVER persisted on this table.
+#   - No FK to threat_intel_records. Audit events outlive threat rows so
+#     retention purges leave the redaction trail intact for compliance.
+#   - ``direction`` is stamped so auditors can prove which patterns fire
+#     on which scan modes (e.g. PEM redactions ONLY on direction='incoming'
+#     per the gating in redact_secrets()).
+MIGRATION_V34_SQL = """
+CREATE TABLE IF NOT EXISTS redaction_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_id      TEXT NOT NULL,
+    secret_type     TEXT NOT NULL,
+    direction       TEXT NOT NULL CHECK (direction IN ('outgoing','incoming','llm_response')),
+    source_tool     TEXT,
+    source_tool_id  TEXT,
+    request_id      TEXT,
+    redaction_hash  TEXT NOT NULL,
+    redacted_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_redaction_events_time
+    ON redaction_events (redacted_at);
+
+CREATE INDEX IF NOT EXISTS idx_redaction_events_direction
+    ON redaction_events (direction, redacted_at);
+
+CREATE INDEX IF NOT EXISTS idx_redaction_events_pattern
+    ON redaction_events (pattern_id, redacted_at);
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (34, CURRENT_TIMESTAMP, 'redaction_events — audit log of redact_secrets matches (hash-only)');
+"""
+
+# Migration SQL for v35 — runtime_kind on redaction_events.
+# Lets the Secret Detections page disambiguate which Guard plugin (claude-code,
+# openclaw, langchain, …) caught each secret. Sourced from the analyze
+# request's metadata.runtime_kind, which both plugins already populate.
+MIGRATION_V35_SQL = """
+ALTER TABLE redaction_events ADD COLUMN runtime_kind TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_redaction_events_runtime
+    ON redaction_events (runtime_kind, redacted_at);
+
+INSERT OR IGNORE INTO schema_version (version, applied_at, description)
+VALUES (35, CURRENT_TIMESTAMP, 'redaction_events.runtime_kind — per-row plugin attribution');
+"""
 
 # Migration SQL for v29 — synced_tool_rules layer (active-mcp-and-policy-sync)
 # Cloud-side policy bundles deserialised here; effective_action is computed

@@ -421,6 +421,8 @@ const ToolPermissionsPage = {
 
         if (this.activeTab === 'activity') {
             if (window.Header) Header.setPageInfo('Tool Activity', 'Log of every tool call made by your agents');
+        } else if (this.activeTab === 'bill') {
+            if (window.Header) Header.setPageInfo('Tool Inventory', 'Every (MCP server, tool) pair your agents called on this device — treated as a Software Bill of Materials (SBOM) for AI tools.');
         } else {
             if (window.Header) Header.setPageInfo('Tool Permissions', 'Control which tools your agent is allowed to call');
         }
@@ -460,6 +462,7 @@ const ToolPermissionsPage = {
         const defs = [
             { id: 'permissions', label: 'Tool Permissions' },
             { id: 'activity',    label: 'Tool Call History' },
+            { id: 'bill',        label: 'Tool Inventory' },
         ];
 
         defs.forEach(({ id, label }) => {
@@ -485,6 +488,7 @@ const ToolPermissionsPage = {
 
         if (this.activeTab === 'permissions') await this._renderPermissionsTab(content);
         else if (this.activeTab === 'activity') await this._renderActivityTab(content);
+        else if (this.activeTab === 'bill') await this._renderBillOfToolsTab(content);
     },
 
     async _renderPermissionsTab(content) {
@@ -641,6 +645,502 @@ const ToolPermissionsPage = {
         page.className = 'page-wrapper';
         content.appendChild(page);
         await this.renderAuditSection(page);
+    },
+
+    // ============================================================
+    // Bill of Tools — SBOM-style per-(server, tool) inventory.
+    // Sources: GET /api/tool-permissions/bill-of-tools?window_days=N
+    // ============================================================
+
+    _billState: { windowDays: 7, rows: [], sourceFilter: '', serverFilter: '' },
+
+    _formatBillTimestamp(iso) {
+        if (!iso) return '—';
+        try {
+            const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+            if (isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+        } catch { return iso; }
+    },
+
+    _billRowToFlat(row) {
+        // Used by both CSV and PDF exports so the columns stay in lockstep.
+        return {
+            server: row.server || '',
+            tool: row.tool || '',
+            harness: row.harness || '',
+            source: row.source || '',
+            auth_scope: row.auth_scope || '',
+            auth_scope_origin: row.auth_scope_origin || '',
+            last_used: row.last_used || '',
+            calls: row.calls ?? 0,
+            allowed: row.allowed ?? 0,
+            blocked: row.blocked ?? 0,
+            logged: row.logged ?? 0,
+            touched_secrets: row.touched_secrets ? 'yes' : 'no',
+            policy_name: row.policy_name || '',
+            policy_org: row.policy_org || '',
+        };
+    },
+
+    _exportBillCsv() {
+        const rows = this._billState.rows || [];
+        if (rows.length === 0) {
+            if (window.Toast) Toast.show('No tool activity in the selected window', 'info');
+            else alert('No tool activity in the selected window');
+            return;
+        }
+        const headers = [
+            'server', 'tool', 'harness', 'source', 'auth_scope', 'auth_scope_origin',
+            'last_used', 'calls', 'allowed', 'blocked', 'logged',
+            'touched_secrets', 'policy_name', 'policy_org',
+        ];
+        const escape = (v) => {
+            const s = String(v ?? '');
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csvBody = rows.map((r) => {
+            const f = this._billRowToFlat(r);
+            return headers.map((h) => escape(f[h])).join(',');
+        }).join('\n');
+        const csv = headers.join(',') + '\n' + csvBody;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.download = `securevector-bill-of-tools-${stamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    async _fetchBillLogoDataUrl() {
+        // Cache the SecureVector favicon as a base64 data URL so the print
+        // preview never races with image loading and the resulting PDF is
+        // self-contained. Falls back to null on any error — PDF still
+        // generates, just without the logo.
+        if (this._billLogoDataUrl !== undefined) return this._billLogoDataUrl;
+        try {
+            const resp = await fetch('/images/favicon.png');
+            if (!resp.ok) throw new Error('favicon fetch failed');
+            const blob = await resp.blob();
+            this._billLogoDataUrl = await new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = reject;
+                r.readAsDataURL(blob);
+            });
+        } catch {
+            this._billLogoDataUrl = null;
+        }
+        return this._billLogoDataUrl;
+    },
+
+    async _exportBillPdf() {
+        const rows = this._billState.rows || [];
+        if (rows.length === 0) {
+            if (window.Toast) Toast.show('No tool activity in the selected window', 'info');
+            else alert('No tool activity in the selected window');
+            return;
+        }
+        // Reuse the print-to-PDF pattern already used by Threats page —
+        // open a new window with structured HTML, let the user Save as PDF.
+        const stamp = new Date().toISOString();
+        const logoDataUrl = await this._fetchBillLogoDataUrl();
+        const win = window.open('', '_blank');
+        if (!win) {
+            if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
+            return;
+        }
+        const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+        const rowsHtml = rows.map((r) => {
+            const f = this._billRowToFlat(r);
+            const serverCell = f.harness
+                ? `${escapeHtml(f.server)}<div style="font-size:9px;color:#888;">via ${escapeHtml(f.harness)}</div>`
+                : escapeHtml(f.server);
+            return `<tr>
+                <td>${serverCell}</td>
+                <td>${escapeHtml(f.tool)}</td>
+                <td>${escapeHtml(f.source)}</td>
+                <td>${escapeHtml(f.auth_scope)}</td>
+                <td>${escapeHtml(f.last_used)}</td>
+                <td style="text-align:right">${f.calls}</td>
+                <td style="text-align:right">${f.blocked}</td>
+                <td>${escapeHtml(f.touched_secrets)}</td>
+                <td>${escapeHtml(f.policy_name)}</td>
+            </tr>`;
+        }).join('');
+        const logoImg = logoDataUrl
+            ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
+            : '';
+        win.document.write(`<!doctype html><html><head><meta charset="utf-8">
+            <title>SecureVector — Tool Inventory (${escapeHtml(stamp)})</title>
+            <style>
+                body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111}
+                .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
+                .brand-text h1{font-size:20px;margin:0 0 2px;letter-spacing:-0.01em;}
+                .brand-text .product{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:#5eadb8;font-weight:600;}
+                .meta{font-size:11px;color:#666;margin-bottom:14px}
+                table{width:100%;border-collapse:collapse;font-size:11px}
+                th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;vertical-align:top}
+                th{background:#f4f4f7;font-weight:600}
+                .note{font-size:10px;color:#888;margin-top:14px}
+            </style></head><body>
+            <div class="brand">
+                ${logoImg}
+                <div class="brand-text">
+                    <div class="product">SecureVector · AI Threat Monitor</div>
+                    <h1>Tool Inventory</h1>
+                </div>
+            </div>
+            <div class="meta">Generated ${escapeHtml(stamp)} · Window: trailing ${this._billState.windowDays} days · Rows: ${rows.length}</div>
+            <table>
+                <thead><tr>
+                    <th>MCP server</th><th>Tool</th><th>Source</th><th>Auth scope</th>
+                    <th>Last used</th><th>Calls</th><th>Blocked</th>
+                    <th>Touched secrets</th><th>Policy</th>
+                </tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="note">Auth scope is SecureVector's classification (read / write / delete / admin), not the MCP server's self-declared capability. "Touched secrets" reflects audit-row reasons mentioning credential/PII rule hits in the window — does not catch unflagged exfiltration through tools that legitimately accept secrets.</div>
+            <script>setTimeout(()=>window.print(),200);<\/script>
+            </body></html>`);
+        win.document.close();
+    },
+
+    async _renderBillOfToolsTab(content) {
+        const page = document.createElement('div');
+        page.className = 'page-wrapper';
+        content.appendChild(page);
+
+        // Title is in the Header; in the body we explain what the page is for
+        // and how to use the data — auditors and devs alike open this page
+        // cold, so a compact "what + how" framing earns its keep.
+        const intro = document.createElement('div');
+        intro.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:820px;line-height:1.5;margin-bottom:14px;';
+        intro.innerHTML = [
+            '<div style="margin-bottom:6px;color:var(--text-primary);font-weight:600;">Per-device Software Bill of Materials (SBOM) for AI tools — every (MCP server, tool) your agents called in the window.</div>',
+            '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Source</span> — is the tool covered by an org policy, registered locally, discovered via MCP, or a harness built-in?</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Auth scope</span> — SecureVector\'s classification (read / write / delete / admin), not the MCP server\'s self-declared capability.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Touched secrets</span> — any call in the window flagged by a credential / PII rule. Catches rule-fired hits; does not catch unflagged exfil through a tool that legitimately accepts secrets.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Policy</span> — which org-pushed policy currently governs this tool, if any. Empty means no cloud policy attached.</li>',
+            '</ul>',
+        ].join('');
+        page.appendChild(intro);
+
+        const controlBar = document.createElement('div');
+        controlBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;';
+
+        const left = document.createElement('div');
+        left.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+        const selectStyle = 'padding:5px 8px;border-radius:6px;border:1px solid var(--border-default);background:var(--bg-secondary);color:var(--text-primary);font-size:12px;';
+        const labelStyle = 'font-size:12px;color:var(--text-secondary);';
+        const mkLabel = (text) => { const l = document.createElement('label'); l.textContent = text; l.style.cssText = labelStyle; return l; };
+
+        const windowSelect = document.createElement('select');
+        windowSelect.style.cssText = selectStyle;
+        [
+            { v: 7,  l: '7 days' },
+            { v: 14, l: '14 days' },
+            { v: 30, l: '30 days' },
+            { v: 90, l: '90 days' },
+        ].forEach(({ v, l }) => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = l;
+            if (v === this._billState.windowDays) opt.selected = true;
+            windowSelect.appendChild(opt);
+        });
+        windowSelect.addEventListener('change', async () => {
+            this._billState.windowDays = parseInt(windowSelect.value, 10) || 7;
+            await this._loadAndRenderBillTable(tableMount, summaryMount);
+        });
+        left.appendChild(mkLabel('Window:'));
+        left.appendChild(windowSelect);
+
+        // Source filter — fixed set of values that match the four pill colors.
+        const sourceSelect = document.createElement('select');
+        sourceSelect.id = 'bill-source-filter';
+        sourceSelect.style.cssText = selectStyle;
+        [
+            { v: '',             l: 'All sources' },
+            { v: 'cloud-policy', l: 'cloud-policy' },
+            { v: 'local-custom', l: 'local-custom' },
+            { v: 'mcp',          l: 'mcp' },
+            { v: 'built-in',     l: 'built-in' },
+        ].forEach(({ v, l }) => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = l;
+            if (v === this._billState.sourceFilter) opt.selected = true;
+            sourceSelect.appendChild(opt);
+        });
+        sourceSelect.addEventListener('change', () => {
+            this._billState.sourceFilter = sourceSelect.value;
+            this._renderBillTable(tableMount, summaryMount);
+        });
+        left.appendChild(mkLabel('Source:'));
+        left.appendChild(sourceSelect);
+
+        // MCP server filter — populated dynamically from the loaded rows so
+        // we only list servers that actually have activity in the window.
+        const serverSelect = document.createElement('select');
+        serverSelect.id = 'bill-server-filter';
+        serverSelect.style.cssText = selectStyle;
+        // Populated in _loadAndRenderBillTable after the fetch.
+        serverSelect.addEventListener('change', () => {
+            this._billState.serverFilter = serverSelect.value;
+            this._renderBillTable(tableMount, summaryMount);
+        });
+        left.appendChild(mkLabel('MCP server:'));
+        left.appendChild(serverSelect);
+
+        const summaryMount = document.createElement('div');
+        summaryMount.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-left:6px;';
+        left.appendChild(summaryMount);
+        controlBar.appendChild(left);
+
+        const right = document.createElement('div');
+        // margin-left:auto pins this group to the far right of the flex row,
+        // even when the filter row above wraps on narrow viewports.
+        right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;';
+        const csvBtn = document.createElement('button');
+        csvBtn.className = 'sv-btn-secondary';
+        csvBtn.textContent = 'Export CSV';
+        csvBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
+        csvBtn.title = 'Download the visible inventory as CSV';
+        csvBtn.addEventListener('click', () => this._exportBillCsv());
+        right.appendChild(csvBtn);
+
+        const pdfBtn = document.createElement('button');
+        pdfBtn.className = 'sv-btn-secondary';
+        pdfBtn.textContent = 'Export PDF';
+        pdfBtn.style.cssText = 'padding:6px 12px;font-size:12px;';
+        pdfBtn.title = 'Open a print-ready view; use the browser print dialog to save as PDF';
+        pdfBtn.addEventListener('click', () => this._exportBillPdf());
+        right.appendChild(pdfBtn);
+
+        controlBar.appendChild(right);
+        page.appendChild(controlBar);
+
+        const tableMount = document.createElement('div');
+        page.appendChild(tableMount);
+
+        await this._loadAndRenderBillTable(tableMount, summaryMount);
+    },
+
+    async _loadAndRenderBillTable(mount, summaryMount) {
+        mount.textContent = '';
+        const loading = document.createElement('div');
+        loading.textContent = 'Loading…';
+        loading.style.cssText = 'padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;';
+        mount.appendChild(loading);
+
+        const data = await API.getBillOfTools(this._billState.windowDays);
+        this._billState.rows = (data.rows || []).map((r, i) => ({ ...r, id: r.tool_id || `row-${i}` }));
+
+        // Refresh the MCP server filter options from the live data — only
+        // list servers that actually have activity in the current window.
+        const serverSelect = document.getElementById('bill-server-filter');
+        if (serverSelect) {
+            const desired = this._billState.serverFilter || '';
+            const servers = [...new Set(this._billState.rows.map(r => r.server).filter(Boolean))].sort();
+            const counts = {};
+            this._billState.rows.forEach(r => { if (r.server) counts[r.server] = (counts[r.server] || 0) + (r.calls || 0); });
+            serverSelect.textContent = '';
+            const all = document.createElement('option');
+            all.value = ''; all.textContent = 'All servers';
+            serverSelect.appendChild(all);
+            servers.forEach((s) => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = `${s} (${counts[s] || 0})`;
+                if (s === desired) opt.selected = true;
+                serverSelect.appendChild(opt);
+            });
+            serverSelect.value = desired;
+            // If the previously-selected server is no longer in the window, drop it.
+            if (desired && !servers.includes(desired)) {
+                this._billState.serverFilter = '';
+                serverSelect.value = '';
+            }
+        }
+
+        this._renderBillTable(mount, summaryMount);
+    },
+
+    _renderBillTable(mount, summaryMount) {
+        mount.textContent = '';
+
+        const allRows = this._billState.rows || [];
+        const filtered = allRows.filter((r) => {
+            if (this._billState.sourceFilter && r.source !== this._billState.sourceFilter) return false;
+            if (this._billState.serverFilter && r.server !== this._billState.serverFilter) return false;
+            return true;
+        });
+
+        if (summaryMount) {
+            const filterLabel = (this._billState.sourceFilter || this._billState.serverFilter)
+                ? ` of ${allRows.length}`
+                : '';
+            summaryMount.textContent = `· ${filtered.length} tool${filtered.length === 1 ? '' : 's'}${filterLabel} active`;
+        }
+
+        if (!allRows.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:36px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border-default);border-radius:8px;';
+            empty.textContent = 'No tool calls recorded in this window. Run any agent integration, then come back.';
+            mount.appendChild(empty);
+            return;
+        }
+
+        if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:36px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border-default);border-radius:8px;';
+            empty.textContent = 'No tools match the active filters. Clear Source or MCP server to see more.';
+            mount.appendChild(empty);
+            return;
+        }
+
+        const self = this;
+        const sourceBadge = (source) => {
+            // Four visually distinct pills aligned to the theme tokens:
+            //   cloud-policy → cyan   (--accent-primary)  — strongest governance signal
+            //   local-custom → red    (--accent-secondary) — user-classified, asserting control
+            //   mcp          → green  (--success)         — discovered third-party tool
+            //   built-in     → grey   (--text-secondary)  — harness baseline, no opinion
+            // All low-alpha backgrounds so the colour reads but doesn't shout.
+            const palette =
+                source === 'cloud-policy' ? 'background:rgba(94,173,184,0.20);color:var(--accent-primary);border:1px solid rgba(94,173,184,0.35);'
+              : source === 'local-custom' ? 'background:rgba(192,101,94,0.18);color:var(--accent-secondary);border:1px solid rgba(192,101,94,0.35);'
+              : source === 'mcp'          ? 'background:rgba(16,185,129,0.15);color:var(--success);border:1px solid rgba(16,185,129,0.35);'
+              :                              'background:rgba(148,163,184,0.15);color:var(--text-secondary);border:1px solid rgba(148,163,184,0.30);';
+            const span = document.createElement('span');
+            span.style.cssText = `display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;${palette}`;
+            span.textContent = source || '—';
+            return span;
+        };
+
+        const billTable = new DataTable({
+            tableId: 'bill-of-tools-table',
+            data: filtered,
+            idField: 'id',
+            sortKey: 'last_used',
+            sortDir: 'desc',
+            pagination: { pageSize: 25 },
+            emptyText: 'No tool calls recorded in this window.',
+            columns: [
+                {
+                    key: 'server',
+                    label: 'MCP server',
+                    sortable: true,
+                    render: (_, r) => {
+                        const wrap = document.createElement('div');
+                        wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+                        const top = document.createElement('span');
+                        top.style.cssText = 'font-family:monospace;font-size:11px;color:var(--text-primary);';
+                        top.textContent = r.server || '—';
+                        wrap.appendChild(top);
+                        if (r.harness) {
+                            const sub = document.createElement('span');
+                            sub.style.cssText = 'font-size:10px;color:var(--text-secondary);';
+                            sub.textContent = `via ${r.harness}`;
+                            wrap.appendChild(sub);
+                        }
+                        return wrap;
+                    },
+                },
+                {
+                    key: 'tool',
+                    label: 'Tool',
+                    sortable: true,
+                    render: (v) => {
+                        const span = document.createElement('span');
+                        span.style.cssText = 'font-family:monospace;font-size:11px;';
+                        span.textContent = v || '—';
+                        return span;
+                    },
+                },
+                {
+                    key: 'source',
+                    label: 'Source',
+                    sortable: true,
+                    render: (v) => sourceBadge(v),
+                },
+                {
+                    key: 'auth_scope',
+                    label: 'Auth scope',
+                    sortable: true,
+                    render: (v) => {
+                        const span = document.createElement('span');
+                        span.style.cssText = 'font-family:monospace;font-size:11px;';
+                        span.textContent = v || '—';
+                        return span;
+                    },
+                },
+                {
+                    key: 'last_used',
+                    label: 'Last used',
+                    sortable: true,
+                    defaultDir: 'desc',
+                    render: (v) => self._formatBillTimestamp(v),
+                },
+                {
+                    key: 'calls',
+                    label: 'Calls',
+                    sortable: true,
+                    align: 'right',
+                    defaultDir: 'desc',
+                    render: (v) => String(v ?? 0),
+                },
+                {
+                    key: 'blocked',
+                    label: 'Blocked',
+                    sortable: true,
+                    align: 'right',
+                    defaultDir: 'desc',
+                    render: (v) => {
+                        const span = document.createElement('span');
+                        if ((v ?? 0) > 0) span.style.cssText = 'color:#dc2626;font-weight:600;';
+                        else span.style.cssText = 'color:var(--text-secondary);';
+                        span.textContent = String(v ?? 0);
+                        return span;
+                    },
+                },
+                {
+                    key: 'touched_secrets',
+                    label: 'Touched secrets',
+                    sortable: true,
+                    defaultDir: 'desc',
+                    render: (v) => {
+                        const span = document.createElement('span');
+                        if (v) {
+                            span.style.cssText = 'display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(220,38,38,0.15);color:#dc2626;font-size:10px;font-weight:600;';
+                            span.textContent = 'YES';
+                        } else {
+                            span.style.cssText = 'color:var(--text-secondary);font-size:11px;';
+                            span.textContent = 'no';
+                        }
+                        return span;
+                    },
+                },
+                {
+                    key: 'policy_name',
+                    label: 'Policy',
+                    sortable: true,
+                    render: (_, r) => r.policy_name
+                        ? (r.policy_org ? `${r.policy_name} · ${r.policy_org}` : r.policy_name)
+                        : '—',
+                },
+            ],
+        });
+        mount.appendChild(billTable.el);
     },
 
     async loadData(toggleInput, toolsContainer, cloudPill) {

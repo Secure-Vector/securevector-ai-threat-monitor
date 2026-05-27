@@ -223,12 +223,18 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
 
     print_logo()
 
+    # When started via `securevector-app --proxy --openclaw`, stamp every
+    # audit row with runtime_kind="openclaw". Otherwise fall back to None →
+    # the proxy defaults to "proxy" (renders as "Proxy (unattributed)").
+    integration_name = "openclaw" if openclaw else None
+
     if multi:
         # Multi-provider mode with path-based routing
         proxy = MultiProviderProxy(
             securevector_url=f"http://127.0.0.1:{securevector_port}",
             block_threats=block_threats,
             verbose=verbose,
+            integration=integration_name,
         )
 
         print(f"  SecureVector Multi-Provider LLM Proxy v{__version__}")
@@ -252,6 +258,7 @@ def run_llm_proxy(provider: str, proxy_port: int, securevector_port: int, verbos
             block_threats=block_threats,
             verbose=verbose,
             provider=provider,
+            integration=integration_name,
         )
 
         print(f"  SecureVector LLM Proxy v{__version__}")
@@ -381,13 +388,17 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         print(f"    Ollama:    base_url=\"http://{proxy_host}:{proxy_port}/ollama/v1\"")
         print(f"    Groq:      base_url=\"http://{proxy_host}:{proxy_port}/groq/v1\"")
 
+        # Compute once and reuse for both the proxy constructor and the
+        # `set_proxy_running_in_process` registry call.
+        integration_name = "openclaw" if openclaw else None
+
         proxy = MultiProviderProxy(
             securevector_url=f"http://127.0.0.1:{port}",
             block_threats=block_threats,
             verbose=verbose,
+            integration=integration_name,
         )
         # Signal multi-provider mode
-        integration_name = "openclaw" if openclaw else None
         set_proxy_running_in_process(True, "multi", integration=integration_name)
     else:
         target_url = LLMProxy.PROVIDERS.get(provider, "https://api.openai.com")
@@ -398,14 +409,16 @@ def run_web_with_llm_proxy(host: str, port: int, provider: str, proxy_port: int,
         print(f"\n  Configure your app with:")
         print(f"    OPENAI_BASE_URL=http://{proxy_host}:{proxy_port}/v1 python your_app.py")
 
+        integration_name = "openclaw" if openclaw else None
+
         proxy = LLMProxy(
             target_url=target_url,
             securevector_url=f"http://127.0.0.1:{port}",
             block_threats=block_threats,
             verbose=verbose,
             provider=provider,
+            integration=integration_name,
         )
-        integration_name = "openclaw" if openclaw else None
         set_proxy_running_in_process(True, provider, integration=integration_name)
 
     print(f"\n  Press Ctrl+C to stop\n")

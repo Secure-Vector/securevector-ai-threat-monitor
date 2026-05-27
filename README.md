@@ -28,7 +28,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge)](https://pepy.tech/project/securevector-ai-monitor)
+[![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads&color=orange)](https://pepy.tech/projects/securevector-ai-monitor)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
 [Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
@@ -47,23 +47,13 @@
 
 <br>
 
-> **What's new in v4.2.\*** *(latest: v4.2.1)*
-> - **Claude Code statusline** *(v4.2.1)* — one-line live summary of threats / allow-block balance / 7-day tokens, ~100 ms warm via local cache.
-> - **Claude Code plugin** — PreToolUse enforces tool rules, PostToolUse hash-chains every call, UserPromptSubmit catches prompt-injection. One-click install, loopback-only, fail-open.
-> - **UI Block enforces at runtime** — the Block button now denies at the hook, not just the proxy. Cloud rules beat local on conflict. Per-category bulk Allow-all / Block-all.
-> - **Claude Code token telemetry** — input / output / cache tokens per model + 7-day trend, read from session transcripts.
-> - **Lower threat noise** — `/analyze` scans only prose tool inputs (WebFetch / Skill / Task / Agent) and user prompts; shell + file edits still audited to the hash chain.
-> - **Rule-pack precision sweep** — 70+ regex patterns tightened to kill false positives on PII labels, credit-card runs, leetspeak no-space, and jailbreak alternation.
-
-> **What's new in v4.1.\*** *(latest: v4.1.3)*
-> - **MCP Policy & Tool Permission Sync** *(Cloud tier · opt-in)* — author MCP tool-permission rules in the cloud; every enrolled device pulls and enforces them. v4.1.3 hardens enforcement so cloud `deny` rules fire on non-registry tools too (e.g. `write_File` on an arbitrary filesystem MCP server), with case-insensitive name matching. Cloud is opt-in — local install still works standalone with no signup.
-> - **Agent Activity Timeline** — local-first per-agent feed merging threat scans, tool-call audits, and LLM cost. Filter by agent + range, click to expand, CSV export. Traces never leave the box.
-> - **Indirect Prompt Injection (IDPI) module** — `direction="incoming"` scan mode catches injections hidden in fetched RAG / HTML / email content. Ships with a 12-rule starter pack (zero-width unicode, hidden HTML comments, role overrides, tool-call hijack, exfil URLs, base64 decode-and-execute, credential exfil, `javascript:` markdown URIs, …).
-> - **Build-provenance attestations on every wheel** — SLSA Build Level 2+ via Sigstore Fulcio, anchored in Rekor. Verify with `gh attestation verify`. See [SECURITY.md](SECURITY.md#build-provenance--verifying-your-install).
-> - **Per-agent filter on Threat Monitor** — Threats page is sliceable by agent, joining Cost Tracking.
-> - **macOS desktop fix** — no more force-quit on Cmd+Q / window close; `--web` shutdown on Ctrl+C is twice as fast.
+> **What's new in v4.3.0**
+> - **Bidirectional tool-response scanning** — PostToolUse now scans the *response* coming back from MCP servers + WebFetch + Read + Grep, not just the agent's outbound prompt. The same IDPI / output-leakage / PII rule packs fire on `direction='incoming'`, catching injection payloads and credential leaks rooted in fetched content. New community rule `sv_community_output_003_pem_private_key_leak` flags PEM private-key blocks and OpenSSH binary carriers (MITRE T1552.004).
+> - **MCP Tool Inventory** *(Agent Activity → Tool Inventory)* — SBOM-style rolled-up table of every (server, tool) pair active on this device, with source / auth-scope / last-used / call-count / blocked-count / touched-secrets / governing-policy columns. Window selector (7 / 14 / 30 / 90 days). CSV + PDF export. Treats MCP as a supply-chain inventory problem.
+> - **Secret Detections** *(Agent Activity → Secret Detections)* — local audit log of every credential / PII pattern caught by `redact_secrets()`. Hash-only storage — no raw secret values ever land in `threat_intel_records` or the audit log, so the trail itself is safe to forward to a SIEM. Direction-aware: PEM-key + OpenSSH-binary patterns fire only on incoming tool responses. CSV + PDF export with SecureVector branding.
+> - **Redactor decoupled from the threat-engine gate** — `redact_secrets()` runs on every `/analyze` call regardless of `is_threat`. Engine and redactor are independent layers (patterns in surrounding language vs. raw secret shapes) — pre-v4.3 gating made the redactor's coverage strictly less than its own patterns claimed.
 >
-> Already in v4.0.0+: SIEM Forwarder, tool-call audit hash chain, per-device ID, OpenClaw Plugin, Skill Scanner, Tool Permissions, Cost Tracking & Budget Limits.
+> Already in v4.0.0–4.2.\*: Claude Code plugin (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · OpenClaw plugin · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
 
 ## How It Works
 
@@ -109,7 +99,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-v4.2.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-4.2.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/securevector_4.2.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/securevector-4.2.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-4.2.1-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-v4.3.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector_4.3.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector-4.3.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -523,17 +513,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.2.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-v4.2.1-Windows-Setup.exe) |
-| macOS | [SecureVector-4.2.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-4.2.1-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.2.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SecureVector-4.2.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.2.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/securevector_4.2.1_amd64.deb) |
-| Linux (RPM) | [securevector-4.2.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/securevector-4.2.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.3.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-v4.3.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.3.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.3.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.3.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector_4.3.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.3.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector-4.3.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.2.1/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 

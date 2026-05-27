@@ -51,7 +51,7 @@ A successful response looks like:
   "ok": true,
   "auto_installed": true,
   "enabled": true,
-  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1",
+  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0",
   "files": [".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/pre-tool-use.js",
             "hooks/post-tool-use.js", "hooks/user-prompt-submit.js", "hooks/stop-hook-probe.js",
             "hooks/statusline.js", "lib/normalize.js", "lib/client.js", "lib/redact.js",
@@ -87,7 +87,7 @@ curl -s http://127.0.0.1:8741/api/hooks/claude-code/status | python3 -m json.too
 # Expected:
 #   "installed": true
 #   "enabled": true
-#   "claude_install_path": ".../securevector-guard/4.2.1"
+#   "claude_install_path": ".../securevector-guard/4.3.0"
 #   "files_present": [..11 entries..]
 
 # 2. In your Claude Code session, run any Bash command. Then read the audit row:
@@ -125,7 +125,7 @@ if candidates:
 ```json
 "statusLine": {
   "type": "command",
-  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js",
+  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js",
   "refreshInterval": 5
 }
 ```

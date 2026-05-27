@@ -65,6 +65,33 @@ const THREAT_SCAN_TOOLS = new Set([
 ]);
 const THREAT_SCAN_TEXT_LIMIT = 8000; // bytes — well under /analyze's 100KB cap
 
+// Tools whose `tool_response` is content the agent will treat as context
+// for its next step — and therefore an Indirect Prompt Injection vector
+// AND a credential / PII / data-leakage surface. Scanned with
+// direction='incoming' so the IDPI rule pack fires and the engine
+// applies the tighter-threshold treatment appropriate for fetched
+// content the user has no agency over.
+//
+// What's in:
+//   - WebFetch       — page text we just pulled from the web
+//   - Read           — file the agent just read off disk
+//   - Grep           — matched lines from a search
+//   - Every `mcp__*` tool — MCP servers are third-party trust boundaries;
+//                          their responses are the supply-chain inventory
+//                          problem made operational.
+//
+// What's deliberately out (for v1):
+//   - Bash / shell stdout — high secret density but very high FP rate
+//     against random command output; revisit once the rule pack has a
+//     dedicated shell-output tier.
+//   - Write / Edit results — the response is just "ok", not content.
+const THREAT_SCAN_RESPONSE_TOOLS = new Set([
+  'WebFetch',
+  'Read',
+  'Grep',
+]);
+const THREAT_SCAN_RESPONSE_LIMIT = 16000; // bytes — bigger than input cap; tool responses are denser content.
+
 // `SECRET_PATTERNS` + `redactForScan` are imported from ../lib/redact.js
 // so post-tool-use and user-prompt-submit can never drift apart on the
 // secret surfaces they mask. The audit-preview variant below is a
@@ -128,6 +155,69 @@ function extractScanText(toolName, toolInput) {
       // closes for any unrecognised tool name.
       return '';
   }
+}
+
+/**
+ * Extract scannable text from a tool_response.
+ *
+ * Claude Code's PostToolUse event includes `tool_response` — the value the
+ * tool returned to the agent before its next reasoning step. That response
+ * is what the LLM will read as context, so it's the right surface for
+ * Indirect Prompt Injection detection and for catching credentials / PII
+ * a tool dumped into the agent's context window.
+ *
+ * Tool responses come in heterogeneous shapes:
+ *   - WebFetch / web tools: { content: "<page text>" } or a bare string
+ *   - Read: { content: "<file body>" } or { type: "text", text: "..." }
+ *   - Grep: { matches: [ "line 1", "line 2", ... ] } or a string
+ *   - MCP tools: { content: [ { type:"text", text:"..." } ] } per MCP spec
+ *   - Anything else: stringify and let the rule pack do its thing.
+ *
+ * The function is intentionally permissive — we'd rather scan a little
+ * extra structural JSON than miss a leaked key.
+ */
+function extractScanTextFromResponse(toolResponse) {
+  if (toolResponse == null) return '';
+  if (typeof toolResponse === 'string') return toolResponse;
+  if (typeof toolResponse !== 'object') return String(toolResponse);
+
+  const parts = [];
+
+  // MCP standard envelope: { content: [ { type:"text", text:"..." }, ... ] }
+  if (Array.isArray(toolResponse.content)) {
+    for (const item of toolResponse.content) {
+      if (item && typeof item === 'object' && typeof item.text === 'string') {
+        parts.push(item.text);
+      } else if (typeof item === 'string') {
+        parts.push(item);
+      }
+    }
+  } else if (typeof toolResponse.content === 'string') {
+    parts.push(toolResponse.content);
+  }
+
+  // Common text-bearing fields seen across Claude Code built-ins + MCP
+  // responses. Listed in priority order; first match wins. No de-dup —
+  // small over-scan is cheaper than missing a secret.
+  for (const key of ['text', 'output', 'body', 'result', 'message']) {
+    const v = toolResponse[key];
+    if (typeof v === 'string' && v.length > 0) parts.push(v);
+  }
+
+  // Grep-style: { matches: [...] }
+  if (Array.isArray(toolResponse.matches)) {
+    for (const m of toolResponse.matches) {
+      if (typeof m === 'string') parts.push(m);
+    }
+  }
+
+  // Fallback: if we didn't find anything text-shaped, stringify the whole
+  // thing so the rule pack still gets a chance to fire on whatever the
+  // tool returned (a fully unrecognised shape shouldn't be a free pass).
+  if (parts.length === 0) {
+    try { return JSON.stringify(toolResponse); } catch { return ''; }
+  }
+  return parts.join('\n');
 }
 
 function effectToAction(effect) {
@@ -199,12 +289,16 @@ async function audit(event, baseUrl) {
     let rawScanText = '';
     try {
       const ti = event && (event.tool_input || event.toolInput);
-      rawScanText = redactForScan(extractScanText(toolName, ti));
+      // Send RAW text to /analyze — the server's redact_secrets() is the
+      // single source of truth for redaction AND owns the Secret
+      // Detections audit log. Pre-redacting on the client would erase the
+      // very matches the audit pipeline needs to record. Loopback-only
+      // (127.0.0.1) and the server hashes immediately, never persisting
+      // the raw value.
+      rawScanText = extractScanText(toolName, ti);
     } catch { /* swallow */ }
 
     if (rawScanText.length > 0) {
-      // Cap the POST body to THREAT_SCAN_TEXT_LIMIT (after redaction so
-      // the truncation applies to the redacted text, not raw secrets).
       const scanText = rawScanText.length > THREAT_SCAN_TEXT_LIMIT
         ? rawScanText.slice(0, THREAT_SCAN_TEXT_LIMIT)
         : rawScanText;
@@ -216,6 +310,50 @@ async function audit(event, baseUrl) {
           runtime_kind: RUNTIME_KIND,
           tool_name: toolName,
           tool_id: toolId,
+        },
+      });
+    }
+  }
+
+  // ---- Tool-response scan (direction='incoming') -------------------------
+  //
+  // The agent will treat the tool's response as context for its next
+  // reasoning step — so the response is an Indirect Prompt Injection
+  // vector AND a credential / PII / data-leakage surface. We scan it
+  // with direction='incoming' so the IDPI rule pack fires alongside the
+  // raw-secret-shape and PII rules.
+  //
+  // Scanned for: WebFetch / Read / Grep (built-in) and EVERY MCP tool
+  // (any tool_name prefixed `mcp__`). MCP responses are third-party
+  // trust boundaries — the supply-chain inventory problem made
+  // operational. Excluded for v1: Bash stdout (too noisy until shell-
+  // output rules harden), Write / Edit / Skill (responses are ack-only
+  // or aren't fetched content).
+  //
+  // Fire-and-forget; never blocks the host CLI.
+  const isMcpTool = typeof toolName === 'string' && toolName.startsWith('mcp__');
+  if (THREAT_SCAN_RESPONSE_TOOLS.has(toolName) || isMcpTool) {
+    let rawResponseText = '';
+    try {
+      const tr = event && (event.tool_response || event.toolResponse);
+      // Same posture as the outgoing path: send raw to /analyze, let the
+      // server-side redact_secrets() own redaction + audit logging.
+      rawResponseText = extractScanTextFromResponse(tr);
+    } catch { /* swallow — fail-open */ }
+
+    if (rawResponseText.length > 0) {
+      const scanText = rawResponseText.length > THREAT_SCAN_RESPONSE_LIMIT
+        ? rawResponseText.slice(0, THREAT_SCAN_RESPONSE_LIMIT)
+        : rawResponseText;
+      postJsonAndForget(`${baseUrl}/analyze`, {
+        text: scanText,
+        source: 'claude-code-plugin',
+        direction: 'incoming',
+        metadata: {
+          runtime_kind: RUNTIME_KIND,
+          tool_name: toolName,
+          tool_id: toolId,
+          scan_target: 'tool_response',
         },
       });
     }
@@ -253,4 +391,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { redact, redactForScan, extractScanText, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, RUNTIME_KIND };
+module.exports = { redact, redactForScan, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, RUNTIME_KIND };

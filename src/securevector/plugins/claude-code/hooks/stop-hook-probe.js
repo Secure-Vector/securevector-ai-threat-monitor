@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Diagnostic Stop-hook probe — temporary, for v4.2.x.
+ * Diagnostic Stop-hook probe — temporary, targeted for removal in a future 4.3.x patch.
  *
  * Claude Code emits a `Stop` event when the agent finishes a turn.
  * OpenClaw's plugin SDK exposes a similar `llm_output` event whose

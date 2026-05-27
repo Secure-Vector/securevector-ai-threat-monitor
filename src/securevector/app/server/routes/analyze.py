@@ -5,15 +5,42 @@ POST /api/v1/analyze - Analyze text for threats
 """
 
 import logging
+import re
 import time
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+# Base64-encoded image blobs forwarded by the Claude Code plugin (e.g.
+# screenshots returned by a tool, image attachments in MCP responses) are
+# random-looking long [A-Za-z0-9+/=] strings. The community rule pack is
+# text-shaped and occasionally trips on substrings of these blobs — most
+# visibly `sv_community_output_001_credential_leak` firing on PNG bytes
+# that happen to contain the substring `password`. We don't want to skip
+# the audit altogether (the user wants visibility that the scan happened),
+# but we also can't let random image bytes mint false positives. The fix:
+# replace each base64 image payload with a fixed placeholder BEFORE the
+# engine runs. The surrounding JSON envelope (`{"type":"image", ...}`) is
+# preserved so any real text gets scanned normally. The four prefixes
+# below cover PNG / JPEG / GIF / WebP (which is RIFF...WEBP — `UklGR` is
+# the base64 of `RIFF`). 100-char minimum tail prevents matching the
+# magic prefix in normal prose ("the iVBORw0KGgo png-base64 prefix...").
+_IMAGE_BASE64_RE = re.compile(
+    r'(?:iVBORw0KGgo|/9j/|R0lGOD|UklGR)[A-Za-z0-9+/=]{100,}'
+)
+
+
+def _strip_image_base64(text: str) -> str:
+    return _IMAGE_BASE64_RE.sub('[IMAGE-BASE64-REDACTED]', text)
+
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
 from securevector.app.database.repositories.settings import SettingsRepository
+from securevector.app.database.repositories.redactions import (
+    RedactionsRepository,
+    hash_matched_substring,
+)
 from securevector.app.utils.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -273,11 +300,67 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             if end_idx != -1:
                 scan_text = (scan_text[:start_idx] + scan_text[end_idx + len(_GUARD_END):]).strip() or request.text
 
+        # Replace base64 image payloads with a placeholder before the engine
+        # runs. The request itself is still recorded (audit trail intact);
+        # the engine just doesn't see the random bytes that would otherwise
+        # mint false-positive rule matches on substrings like "password" or
+        # "ghp_" appearing by chance in PNG/JPEG/GIF/WebP base64.
+        scan_text = _strip_image_base64(scan_text)
+
         result = await service.analyze(scan_text)
 
-        # Convert matched rules to response format
+        # Drop rule hits below the noise floor. Engine occasionally returns very
+        # low-confidence semantic matches (e.g. 0.008 on plain source code that
+        # happens to look "bulky" or "encoded") that pollute the threat log
+        # without informing the operator. 0.25 is a conservative cut — real
+        # detections from the regex/blocklist stages return >= 0.70, and the
+        # ML-stage threshold for "ALLOW" is < 0.45 in the engine.
+        _MIN_RULE_CONFIDENCE = 0.25
+
+        # Direction-aware rule suppression. The community rule pack ships
+        # rules that match LANGUAGE-KEYWORD shapes (`eval\(`, `subprocess`,
+        # `system\s*\(`, "export as csv") rather than secret VALUES. They are
+        # useful for catching an LLM generating dangerous code in an outgoing
+        # response, but they fire on every source file or markdown a Read
+        # tool returns to the agent as incoming context — making the threat
+        # log look like a flood of false positives. Suppress this specific
+        # list on direction='incoming'.
+        #
+        # NOTE: rules that match actual secret values (`ghp_...`, AWS keys,
+        # PEM blocks, `password=...`) are NOT in this list — they should
+        # still fire on tool responses where a real credential leaks.
+        _INCOMING_SUPPRESSED_RULE_IDS = {
+            "sv_community_output_005_encoded_content",
+            "sv_attack_006_command_execution",
+            "sv_llm_002_insecure_output",
+            "sv_community_031_bulk_data_extraction",
+        }
+        _incoming = (request.direction == "incoming")
+
+        def _is_suppressed_on_incoming(rule_dict) -> bool:
+            rid = rule_dict.get("id") or ""
+            if rid in _INCOMING_SUPPRESSED_RULE_IDS:
+                return True
+            # All "evasion" rules detect SENDER attempts to bypass content
+            # filters — synonym substitution, payload splitting, leetspeak,
+            # zero-width characters. The shape signals (numbered "Step 1 /
+            # Step 2", synonyms in tech docs, hyphenated keywords) fire on
+            # legitimate tutorial READMEs and how-to docs. These rules
+            # belong on outgoing prompts, not incoming tool responses.
+            if "_evasion_" in rid:
+                return True
+            return False
+
+        # Convert matched rules to response format (filtered)
         matched_rules = []
         for rule in result.matched_rules:
+            if float(rule.get("confidence", 1.0)) < _MIN_RULE_CONFIDENCE:
+                continue
+            if _incoming and _is_suppressed_on_incoming(rule):
+                # Skip keyword-shape rules that produce FPs on tool-fetched
+                # source code / markdown. Real-secret patterns are not in
+                # the suppression list — they still fire here.
+                continue
             matched_rules.append(
                 MatchedRule(
                     rule_id=rule.get("id", "unknown"),
@@ -289,6 +372,34 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     mitre_techniques=list(rule.get("mitre_techniques") or []),
                 )
             )
+
+        # Demote to non-threat when either:
+        #   (a) overall verdict confidence is below the floor — engine telling
+        #       you it isn't sure (catches high-risk / low-confidence noise),
+        #       OR
+        #   (b) every matched rule was filtered out by the per-rule floor or
+        #       the direction-aware output-rule guard — no rule survived to
+        #       justify a threat, so recording it as one is dishonest.
+        low_confidence = (
+            result.is_threat
+            and float(result.confidence or 0.0) < _MIN_RULE_CONFIDENCE
+        )
+        empty_after_filter = (
+            result.is_threat
+            and len(result.matched_rules or []) > 0
+            and not matched_rules
+        )
+        if low_confidence or empty_after_filter:
+            reason = "low-confidence" if low_confidence else "all rules filtered (direction guard)"
+            logger.debug(
+                f"Dropped threat — {reason}: confidence={result.confidence:.3f}, "
+                f"risk_score={result.risk_score}, engine_rules={len(result.matched_rules or [])} → "
+                f"surviving={len(matched_rules)}"
+            )
+            result.is_threat = False
+            result.threat_type = None
+            result.risk_score = 0.0
+            matched_rules = []
 
         processing_time_ms = result.processing_time_ms
 
@@ -388,14 +499,84 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reasoning=f"LLM review failed: {str(e)}",
                 )
 
-        # Always run redaction to return redacted_text for output sanitization
+        # Always run redaction — regardless of whether the threat engine
+        # flagged the text. Rationale:
+        #   - The threat engine and the redactor are independent layers.
+        #     The engine catches injection/exfil PATTERNS; the redactor
+        #     catches raw secret SHAPES. A response containing a bare
+        #     ghp_<token> or AKIA<id> with no surrounding instruction
+        #     prose won't trip any threat rule, but the redactor will —
+        #     and we still want that secret scrubbed before the agent
+        #     ingests the content, and we still want an audit-log row.
+        #   - Gating redaction on is_threat (the pre-v4.3 behaviour) made
+        #     redactor coverage strictly less than what the redactor's
+        #     own patterns claim. End-to-end testing of the Redactions
+        #     page surfaced this on a bare GitHub PAT: the engine
+        #     returned is_threat=False and the redaction never ran.
+        #
+        # `direction` is forwarded so INCOMING_ONLY_PATTERNS (PEM private-
+        # key blocks + OpenSSH binary carrier) fire ONLY on fetched
+        # content (tool responses, RAG) — see redaction.py docstring.
+        #
+        # Every match is also recorded to the redaction_events audit log
+        # via the record_event callback. The callback receives the raw
+        # matched substring — we IMMEDIATELY hash it and discard, never
+        # persist the raw value (see RedactionsRepository docstring).
+        # This is what backs the local Redactions page.
         redacted_text_result = None
         redaction_count = 0
-        if final_is_threat:
-            redacted_text, redaction_count = redact_secrets(request.text)
-            if redaction_count > 0:
-                redacted_text_result = redacted_text
-                logger.info("Redacted")
+
+        # Resolve tool metadata from the scan metadata (PostToolUse fills
+        # tool_name + tool_id when this is a tool-response scan). Stays
+        # None for direct /analyze callers that don't set them.
+        scan_meta = augmented_metadata or {}
+        source_tool = scan_meta.get("tool_name") if isinstance(scan_meta, dict) else None
+        source_tool_id = scan_meta.get("tool_id") if isinstance(scan_meta, dict) else None
+        # Both Guard plugins (claude-code, openclaw, …) stamp runtime_kind on
+        # the analyze metadata. Thread it through so the Secret Detections
+        # page can disambiguate per-plugin without joining anywhere else.
+        runtime_kind = scan_meta.get("runtime_kind") if isinstance(scan_meta, dict) else None
+        # OpenClaw's older plugins set `source: "openclaw-plugin"` but never
+        # populate `runtime_kind` — fall back to inferring from `source` so
+        # those events still attribute correctly.
+        if not runtime_kind:
+            src = request.source or ""
+            if "openclaw" in src:
+                runtime_kind = "openclaw"
+            elif "claude-code" in src:
+                runtime_kind = "claude-code"
+        redactions_repo = RedactionsRepository(db)
+        pending_events: list[dict] = []
+
+        def _capture(match_meta: dict) -> None:
+            # Hash before queuing — the raw substring stops here.
+            pending_events.append({
+                "pattern_id": match_meta["pattern_id"],
+                "secret_type": match_meta["secret_type"],
+                "redaction_hash": hash_matched_substring(match_meta["matched"]),
+            })
+
+        redacted_text, redaction_count = redact_secrets(
+            request.text,
+            direction=direction,
+            record_event=_capture,
+        )
+        if redaction_count > 0:
+            redacted_text_result = redacted_text
+        # Persist the events outside the redactor (DB writes are async,
+        # the redactor itself is sync). Failures are swallowed inside
+        # RedactionsRepository.record — they must never derail a scan.
+        for ev in pending_events:
+            await redactions_repo.record(
+                pattern_id=ev["pattern_id"],
+                secret_type=ev["secret_type"],
+                direction=direction,
+                source_tool=source_tool,
+                source_tool_id=source_tool_id,
+                request_id=request.request_id,
+                redaction_hash=ev["redaction_hash"],
+                runtime_kind=runtime_kind,
+            )
 
         # Determine action_taken from metadata (always, for response)
         # Priority: blocked > redacted > logged

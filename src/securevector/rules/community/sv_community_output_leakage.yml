@@ -50,6 +50,40 @@ rules:
   - eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*
 
 - category: data_leakage
+  description: >-
+    PEM-formatted private-key block (SSH / RSA / EC / DSA / OpenSSH / generic
+    PRIVATE KEY). High-severity leak shape that AKIA / sk- / ghp_ patterns
+    don't catch — a tool response dumping ~/.ssh/id_rsa or a TLS key into the
+    agent's context is one of the cleanest credential leaks possible and
+    appeared as the canonical example in the v4.2.1 SBOM-for-MCP framing.
+  id: sv_community_output_003_pem_private_key_leak
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-05-24T00:00:00Z'
+    direction: output
+    tags:
+    - credential_leak
+    - private_key
+    - secret_exposure
+    - ssh
+    - tls
+    mitre_attack_ids:
+    - T1552.004  # Unsecured Credentials: Private Keys
+  name: PEM Private Key Leak Detection
+  severity: critical
+  tier: community
+  pattern_type: regex
+  patterns:
+  # All PEM-encoded private-key variants in one. Whitespace-flexible so a
+  # response that line-wraps with \r\n, leading spaces, or markdown
+  # fencing still matches.
+  - "-----BEGIN\\s+(?:RSA|DSA|EC|OPENSSH|ENCRYPTED|PGP)?\\s*PRIVATE\\s+KEY(?:\\s+BLOCK)?-----"
+  # OpenSSH key BLOB header — base64 line beginning with the magic
+  # "openssh-key-v1" carrier (less common but seen when keys are extracted
+  # from agent files without the full PEM envelope).
+  - "openssh-key-v1\\x00"
+
+- category: data_leakage
   description: Detects system prompt or instruction leakage in LLM outputs
   id: sv_community_output_002_prompt_leak
   metadata:

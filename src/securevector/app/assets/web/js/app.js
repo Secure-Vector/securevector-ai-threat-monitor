@@ -29,6 +29,8 @@ const App = {
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
         'mcp-policies':      McpPoliciesPage,
         'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'redactions':        RedactionsPage,
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,
@@ -74,7 +76,10 @@ const App = {
     },
 
     async showFirstLaunchWelcome() {
-        const hasSeenGeneric = localStorage.getItem('sv-welcome-seen');
+        // v2 — refreshed welcome now leads with "What's new" (OpenClaw plugin,
+        // Tool Inventory, Secret Detections, Reports on Dashboard). Bumping the
+        // storage key so existing users see the updated welcome once.
+        const hasSeenGeneric = localStorage.getItem('sv-welcome-seen-v2');
         const hasSeenOpenClaw = localStorage.getItem('sv-openclaw-welcome-seen');
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('no-welcome')) return;
@@ -238,7 +243,7 @@ const App = {
      * Show welcome modal on first launch
      */
     showWelcomeIfFirstLaunch() {
-        const hasSeenWelcome = localStorage.getItem('sv-welcome-seen');
+        const hasSeenWelcome = localStorage.getItem('sv-welcome-seen-v2');
         const urlParams = new URLSearchParams(window.location.search);
         if (hasSeenWelcome || urlParams.has('no-welcome')) return;
 
@@ -248,13 +253,16 @@ const App = {
 
         const modal = document.createElement('div');
         modal.className = 'modal welcome-modal';
-        modal.style.cssText = 'max-width: 700px;';
+        // Cap height to viewport so the integration / scanner action cards at
+        // the bottom stay reachable via scroll on shorter screens. Header stays
+        // pinned (flex-shrink:0); the content region scrolls.
+        modal.style.cssText = 'max-width: 700px; max-height: 90vh; display: flex; flex-direction: column;';
         modal.setAttribute('role', 'dialog');
         modal.setAttribute('aria-modal', 'true');
 
         // Dismiss helper — defined early so all handlers can reference it
         const dismissModal = () => {
-            localStorage.setItem('sv-welcome-seen', 'true');
+            localStorage.setItem('sv-welcome-seen-v2', 'true');
             overlay.classList.remove('active');
             setTimeout(() => overlay.remove(), 150);
         };
@@ -270,7 +278,7 @@ const App = {
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
-        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding-bottom: 16px; display: flex; align-items: center; justify-content: space-between;';
+        header.style.cssText = 'border-bottom: 1px solid var(--border-color); padding: 18px 20px 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;';
 
         const title = document.createElement('h2');
         title.style.cssText = 'margin: 0; display: flex; align-items: center; gap: 10px;';
@@ -296,10 +304,11 @@ const App = {
 
         modal.appendChild(header);
 
-        // Content
+        // Content (scrollable so bottom action cards stay reachable when
+        // the What's-new section pushes the modal past viewport height)
         const content = document.createElement('div');
         content.className = 'modal-content';
-        content.style.cssText = 'padding: 24px 20px;';
+        content.style.cssText = 'padding: 24px 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0;';
 
         // What is SecureVector — clear, readable intro
         const whatIs = document.createElement('div');
@@ -338,6 +347,96 @@ const App = {
         proxyBar.appendChild(featureList);
 
         content.appendChild(proxyBar);
+
+        // What's new in this release — lead with the OpenClaw plugin, follow
+        // with the new audit/observability surfaces (Tool Inventory, Secret
+        // Detections, Reports on Dashboard). Each item is clickable and routes
+        // to the relevant page so users can actually try the new thing.
+        const whatsNew = document.createElement('div');
+        whatsNew.style.cssText = 'margin-bottom: 20px;';
+        const whatsNewHead = document.createElement('div');
+        whatsNewHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+        const whatsNewLabel = document.createElement('span');
+        whatsNewLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent-primary);';
+        whatsNewLabel.textContent = "What's new";
+        const whatsNewRule = document.createElement('div');
+        whatsNewRule.style.cssText = 'flex:1;height:1px;background:var(--border-default);';
+        whatsNewHead.appendChild(whatsNewLabel);
+        whatsNewHead.appendChild(whatsNewRule);
+        whatsNew.appendChild(whatsNewHead);
+
+        const whatsNewList = document.createElement('div');
+        whatsNewList.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;';
+
+        const makeNewItem = (badge, title, desc, page, expandSection) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;background:var(--bg-secondary);border:1px solid var(--border-default);border-radius:8px;cursor:pointer;transition:border-color 0.15s,transform 0.05s;min-width:0;';
+            card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(94,173,184,0.35)');
+            card.addEventListener('mouseleave', () => card.style.borderColor = 'var(--border-default)');
+            card.addEventListener('mousedown', () => card.style.transform = 'scale(0.99)');
+            card.addEventListener('mouseup', () => card.style.transform = 'scale(1)');
+            card.addEventListener('click', () => navigateTo(page, expandSection));
+
+            const badgeEl = document.createElement('span');
+            badgeEl.style.cssText = 'align-self:flex-start;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(180,83,9,0.2);color:#d97706;letter-spacing:0.4px;line-height:1.4;text-transform:uppercase;';
+            badgeEl.textContent = badge;
+            card.appendChild(badgeEl);
+
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-size:13px;font-weight:700;color:var(--text-primary);line-height:1.3;';
+            titleEl.textContent = title;
+            card.appendChild(titleEl);
+
+            const descEl = document.createElement('div');
+            descEl.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;flex:1;';
+            descEl.textContent = desc;
+            card.appendChild(descEl);
+
+            const linkRow = document.createElement('div');
+            linkRow.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--accent-primary);margin-top:2px;';
+            linkRow.textContent = 'Open →';
+            card.appendChild(linkRow);
+
+            return card;
+        };
+
+        whatsNewList.appendChild(makeNewItem(
+            'PLUGIN',
+            'Claude Code plugin',
+            'Native PreToolUse / PostToolUse hooks audit every Claude Code tool call — no proxy, no env vars.',
+            'proxy-claude-code',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'PLUGIN',
+            'OpenClaw plugin',
+            'Native zero-latency integration with OpenClaw — full audit trail without env vars or proxy redirects.',
+            'proxy-openclaw',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'NEW',
+            'Tool Inventory',
+            'Per-device SBOM — every (MCP server, tool) your agents called, with source, auth scope, and policy attribution.',
+            'bill-of-tools',
+            'agent-activity'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'NEW',
+            'Secret Detections',
+            'Credentials and PII caught and scrubbed mid-flight. SHA-256 hashes only — no raw secret values stored.',
+            'redactions',
+            'agent-activity'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'NEW',
+            'Reports on Dashboard',
+            'One-click weekly CSV exports for Tool Inventory, Secret Detections, and Threats — right below your activity feed.',
+            'dashboard'
+        ));
+
+        whatsNew.appendChild(whatsNewList);
+        content.appendChild(whatsNew);
 
         // Two action paths — side by side
         const actions = document.createElement('div');

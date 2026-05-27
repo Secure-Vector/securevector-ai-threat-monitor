@@ -51,6 +51,16 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
+            'Tool Inventory', 'Per-device Software Bill of Materials (SBOM) for every MCP server + tool your agents touched',
+            'section-tool-inventory', () => this.buildToolInventoryContent()
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
+            'Secret Detections', 'Redactions audit log — credentials and PII scrubbed from agent traffic, hash-only storage',
+            'section-secret-detections', () => this.buildSecretDetectionsContent()
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
             'Skill Scanner', 'Static security analysis for skill directories',
             'section-skill-scanner', () => this.buildSkillScannerContent()
         ));
@@ -2013,6 +2023,134 @@ const GettingStartedPage = {
             }
         });
         frag.appendChild(openBtn);
+
+        return frag;
+    },
+
+    buildToolInventoryContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const para = (text) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            el.innerHTML = text;
+            return el;
+        };
+        const sectionHead = (text, mt = '14px') => {
+            const el = document.createElement('div');
+            el.style.cssText = `font-weight: 700; font-size: 13px; color: var(--text-primary); margin: ${mt} 0 8px 0;`;
+            el.textContent = text;
+            return el;
+        };
+        const bulletList = (items) => {
+            const ul = document.createElement('ul');
+            ul.style.cssText = 'margin: 0 0 12px 18px; padding: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
+            items.forEach((html) => { const li = document.createElement('li'); li.innerHTML = html; li.style.marginBottom = '4px'; ul.appendChild(li); });
+            return ul;
+        };
+
+        frag.appendChild(para(
+            '<strong style="color:var(--text-primary);">Tool Inventory</strong> is a per-device Software Bill of Materials (SBOM) for AI tools. ' +
+            'Every (MCP server, tool) pair your agents called on this device appears in a single rolled-up table, with attribution to the harness (Claude Code, OpenClaw, …) and the policy (if any) that governs it.'
+        ));
+
+        frag.appendChild(sectionHead('What it shows'));
+        frag.appendChild(bulletList([
+            '<strong>MCP server / Tool</strong> — every distinct (server, tool) called in the trailing window. Built-in tools (Bash, Read, etc.) show as <code>built-in</code> with the harness name underneath.',
+            '<strong>Source</strong> — coloured pill: <span style="color:var(--accent-primary);">cloud-policy</span> (org-pushed), <span style="color:var(--accent-secondary);">local-custom</span> (you registered it), <span style="color:var(--success);">mcp</span> (discovered third-party MCP), grey <code>built-in</code> (harness baseline).',
+            '<strong>Auth scope</strong> — SecureVector\'s classification (read / write / delete / admin), <em>not</em> the MCP server\'s self-declared capability.',
+            '<strong>Touched secrets</strong> — does any call in the window correlate with a credential/PII rule hit? Catches rule-fired matches; does not catch unflagged exfil through a tool that legitimately accepts secrets.',
+            '<strong>Policy</strong> — which org-pushed policy currently governs this tool (name + org). Empty means no cloud policy attached.',
+        ]));
+
+        frag.appendChild(sectionHead('How to use it'));
+        frag.appendChild(bulletList([
+            '<strong>Audit before incident</strong> — once a week, scan for <code>mcp</code>-sourced tools you don\'t recognise. New third-party MCP servers are the highest-blast-radius supply-chain risk.',
+            '<strong>Filter by source or MCP server</strong> — narrow to just the cloud-policy-covered tools to verify your org policy is taking effect, or filter to one MCP server to see exactly what it touched.',
+            '<strong>Spot privilege drift</strong> — sort by <code>auth_scope=admin</code> or <code>calls</code> descending to see which high-privilege tools are getting the most traffic.',
+            '<strong>Export for compliance</strong> — Export CSV (the raw rows) or Export PDF (a print-ready inventory document with logo + methodology footer) for SOC 2 / ISO 27001 evidence.',
+        ]));
+
+        frag.appendChild(sectionHead('Who benefits'));
+        frag.appendChild(bulletList([
+            '<strong>Security leads</strong> — weekly governance review: "what new tools showed up since last week?".',
+            '<strong>Auditors</strong> — point-in-time evidence of what the agent surface looked like during an audit window.',
+            '<strong>SOCs investigating an incident</strong> — quick rollup of which tools were touched in the lead-up.',
+        ]));
+
+        return frag;
+    },
+
+    buildSecretDetectionsContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+
+        const para = (text) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;';
+            el.innerHTML = text;
+            return el;
+        };
+        const sectionHead = (text, mt = '14px') => {
+            const el = document.createElement('div');
+            el.style.cssText = `font-weight: 700; font-size: 13px; color: var(--text-primary); margin: ${mt} 0 8px 0;`;
+            el.textContent = text;
+            return el;
+        };
+        const bulletList = (items) => {
+            const ul = document.createElement('ul');
+            ul.style.cssText = 'margin: 0 0 12px 18px; padding: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
+            items.forEach((html) => { const li = document.createElement('li'); li.innerHTML = html; li.style.marginBottom = '4px'; ul.appendChild(li); });
+            return ul;
+        };
+        const callout = (text) => {
+            const el = document.createElement('div');
+            el.style.cssText = 'margin: 10px 0 14px 0; font-size: 12px; color: var(--text-secondary); padding: 10px 12px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary); line-height: 1.5;';
+            el.innerHTML = text;
+            return el;
+        };
+
+        frag.appendChild(para(
+            '<strong style="color:var(--text-primary);">Secret Detections</strong> is the redactions audit log. Every credential or PII pattern caught by <code>redact_secrets()</code> in the /analyze pipeline is recorded here — with a SHA-256 hash, never the raw value. ' +
+            'A SIEM-safe trail of "what secret slipped, where it came from, and which agent caught it" without ever persisting the secret itself.'
+        ));
+
+        frag.appendChild(callout(
+            '<strong style="color:var(--text-primary);">Storage posture:</strong> No raw secret values are ever stored. The audit row carries only <code>sha256:&lt;hex&gt;</code> of the matched substring, plus the pattern_id, secret_type, source tool, direction, and harness. ' +
+            'Safe to forward to a SIEM, safe to share with auditors, safe to export.'
+        ));
+
+        frag.appendChild(sectionHead('What it shows'));
+        frag.appendChild(bulletList([
+            '<strong>Detected</strong> tile — total redaction events in the window.',
+            '<strong>Distinct tools</strong> tile — how many distinct (server, tool) pairs leaked at least once.',
+            '<strong>From tool responses</strong> tile — count of incoming-direction catches (the credential made it across the LLM boundary inside a tool reply — usually the highest-blast-radius case).',
+            '<strong>By direction / By secret type / By harness</strong> — breakdown cards summarising the same event set along three orthogonal axes.',
+            '<strong>Event log</strong> — every redaction row: time, direction, harness, pattern_id, secret_type, source tool, request id, and the SHA-256 hash.',
+        ]));
+
+        frag.appendChild(sectionHead('Direction-awareness'));
+        frag.appendChild(bulletList([
+            '<strong>outgoing</strong> — user → LLM. PEM-key / OpenSSH binary carriers <em>do not fire</em> on outgoing (a user pasting their own key into a prompt is not a leak).',
+            '<strong>incoming</strong> — tool response → LLM. <em>All patterns fire</em>, including PEM and OpenSSH — a third-party tool handing you a private key is always a leak.',
+            '<strong>llm_response</strong> — LLM → user. Catches secrets the model surfaced from its training data or context.',
+        ]));
+
+        frag.appendChild(sectionHead('How to use it'));
+        frag.appendChild(bulletList([
+            '<strong>Spot the leak surface</strong> — sort by Source tool to find which integration is the chronic leaker.',
+            '<strong>Filter by harness</strong> — Claude Code vs. OpenClaw vs. proxy traffic. Useful when one runtime is misbehaving.',
+            '<strong>Hash-only exports</strong> — CSV + PDF carry SHA-256 only. You can forward these to your SOC or auditor without sensitive data risk.',
+            '<strong>Verify a specific match</strong> — auditors can confirm a specific secret was caught by re-hashing the known value and matching it against the hash column.',
+        ]));
+
+        frag.appendChild(sectionHead('Who benefits'));
+        frag.appendChild(bulletList([
+            '<strong>Security leads</strong> — proof that the agent perimeter is catching credential leaks before they hit the LLM.',
+            '<strong>Compliance / privacy</strong> — evidence trail that PII redaction is enforced consistently, without ever logging the PII itself.',
+            '<strong>Devs debugging an integration</strong> — see exactly which patterns fire on a tool\'s output, so you can fix the data flow upstream.',
+        ]));
 
         return frag;
     },

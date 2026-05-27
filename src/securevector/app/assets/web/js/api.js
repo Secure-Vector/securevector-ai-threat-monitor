@@ -458,6 +458,23 @@ const API = {
         }));
     },
 
+    async getBillOfTools(windowDays = 7) {
+        return this.request(`/api/tool-permissions/bill-of-tools?window_days=${windowDays}`).catch(() => ({
+            window_days: windowDays, row_count: 0, rows: [],
+        }));
+    },
+
+    async getRedactions(windowDays = 7, { direction = null, secretType = null, runtimeKind = null, limit = 1000 } = {}) {
+        const params = new URLSearchParams({ window_days: String(windowDays), limit: String(limit) });
+        if (direction) params.set('direction', direction);
+        if (secretType) params.set('secret_type', secretType);
+        if (runtimeKind) params.set('runtime_kind', runtimeKind);
+        return this.request(`/api/redactions?${params}`).catch(() => ({
+            summary: { window_days: windowDays, total: 0, distinct_tools: 0, by_direction: {}, by_secret_type: {}, by_runtime: {} },
+            events: [],
+        }));
+    },
+
     async getDeviceId() {
         return this.request('/api/system/device-id').catch(() => ({ device_id: null }));
     },

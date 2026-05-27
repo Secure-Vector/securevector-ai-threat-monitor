@@ -13,6 +13,12 @@ const GlobalBanners = {
     // Code) so prior single-plugin dismissals shouldn't suppress it.
     KEY_PLUGINS_NUDGE: 'sv-plugins-nudge-dismissed',
     KEY_WHATS_NEW: 'sv-whats-new-acked',
+    // Session-only flag — once the plugin nudge auto-dismisses (20s) or the
+    // user closes it within a session, don't re-render it on subsequent
+    // navigations. Cleared on browser-session end so the next launch shows it
+    // again until the user permanently dismisses via the × button.
+    SESSION_KEY_PLUGINS_NUDGE_HIDDEN: 'sv-plugins-nudge-session-hidden',
+    PLUGIN_NUDGE_AUTO_DISMISS_MS: 20000,
 
     async render() {
         // Inject keyframes once
@@ -60,12 +66,13 @@ const GlobalBanners = {
         ]);
 
         const dismissed = localStorage.getItem(this.KEY_PLUGINS_NUDGE) === '1';
+        const sessionHidden = sessionStorage.getItem(this.SESSION_KEY_PLUGINS_NUDGE_HIDDEN) === '1';
         const ocActionable = !!(hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed);
         const ccActionable = !!(ccStatus && ccStatus.claude_code_detected && !ccStatus.enabled);
         const pluginNudgeRelevant = ocActionable || ccActionable;
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
 
-        if (pluginNudgeRelevant && !dismissed) {
+        if (pluginNudgeRelevant && !dismissed && !sessionHidden) {
             // At least one runtime has a plugin available + not yet installed.
             // The banner exposes both CTAs unconditionally; the one that isn't
             // actionable is shown in a "done" state instead of being hidden,
@@ -171,6 +178,21 @@ const GlobalBanners = {
         });
         banner.appendChild(dismissBtn);
 
+        // Auto-dismiss after 20s — keeps the banner from following the user
+        // across every page once they've had a chance to see it. Uses
+        // sessionStorage (not localStorage) so the next browser session shows
+        // it again; only the × button is a permanent dismissal.
+        const autoTimer = setTimeout(() => {
+            sessionStorage.setItem(this.SESSION_KEY_PLUGINS_NUDGE_HIDDEN, '1');
+            if (banner.isConnected) {
+                banner.remove();
+                this._collapseSlotIfEmpty();
+            }
+        }, this.PLUGIN_NUDGE_AUTO_DISMISS_MS);
+        // Cancel auto-dismiss if user mouses into the banner — they're
+        // engaging with it, don't yank it out from under them.
+        banner.addEventListener('mouseenter', () => clearTimeout(autoTimer), { once: true });
+
         return banner;
     },
 
@@ -251,12 +273,9 @@ const GlobalBanners = {
         card.className = 'sv-global-banner';
         card.style.cssText = 'position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 44px 10px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 10px;';
 
-        // Version tag is informational only — neutral color so it doesn't
-        // compete with interactive accent elements (CTAs, links).
-        const tag = document.createElement('span');
-        tag.style.cssText = 'flex-shrink: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: var(--text-muted); background: var(--bg-tertiary); border: 1px solid var(--border-default); padding: 3px 8px; border-radius: 4px; text-transform: uppercase;';
-        tag.textContent = `v${this.WHATS_NEW_VERSION}`;
-        card.appendChild(tag);
+        // Version pill removed — versioning belongs in release notes, not in
+        // every dashboard load. The WHATS_NEW_VERSION constant still gates the
+        // banner so a new release re-surfaces it via the acked-version check.
 
         const textCol = document.createElement('div');
         textCol.style.cssText = 'flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); line-height: 1.45;';

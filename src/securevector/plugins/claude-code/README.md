@@ -97,7 +97,7 @@ export SV_BASE_URL="http://localhost:9000"
 - **PreToolUse** (`hooks/pre-tool-use.js`) — blocks tool calls per the synced + local override rules; returns `permissionDecision: allow|deny|ask`.
 - **PostToolUse** (`hooks/post-tool-use.js`) — fire-and-forget audit POST to `/api/tool-permissions/call-audit` (tagged `runtime_kind=claude-code`). A second POST to `/analyze` runs only for tools whose `tool_input` is *prose the agent emitted in natural language* — WebFetch.prompt, Skill/Task/Agent prompts. Syntax-shaped tools (Bash, PowerShell, Write, Edit, MultiEdit, NotebookEdit) are intentionally NOT scanned at `/analyze`: the community rule pack was designed for LLM prose, and running it against shell command bodies or source-code edits produced high-volume false positives (URLs tripping credential-leak, `| python3 -m json.tool` tripping bulk-data-extraction, etc.). Tool calls for those tools still produce `/call-audit` rows — only the threat scan is skipped. Secrets are redacted via shared `lib/redact.js` before either POST.
 - **UserPromptSubmit** (`hooks/user-prompt-submit.js`) — forwards every incoming prompt to local `/analyze` for injection / jailbreak scanning by the rule engine; detection happens server-side, not in the hook. Prompts are first redacted (`lib/redact.js` patterns: sk-/pk- / GitHub PAT / AWS AKIA / JWT / labelled credential kv-pairs) and capped at 8 KB before POST. Fail-open, never blocks the prompt.
-- **Stop** (`hooks/stop-hook-probe.js`) — temporary v4.2.x diagnostic (targeted for removal in v4.3.x). Writes shape-only metadata (key list + `typeof`, **never payloads**) to `~/.securevector/cost-probes/`; probe files are written mode 0600, the directory itself is 0700, capped at 100 files. Used to determine empirically whether Claude Code's Stop-event payload carries token-usage data.
+- **Stop** (`hooks/stop-hook-probe.js`) — temporary diagnostic, targeted for removal in a future 4.3.x patch. Writes shape-only metadata (key list + `typeof`, **never payloads**) to `~/.securevector/cost-probes/`; probe files are written mode 0600, the directory itself is 0700, capped at 100 files. Used to determine empirically whether Claude Code's Stop-event payload carries token-usage data.
 
 All hooks fail-open: every error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All POSTs target loopback (`http://127.0.0.1:8741` by default).
 
@@ -112,7 +112,7 @@ Example output: `SecureVector Guard · 2 threats detected · 5 tool calls (3 all
 ```json
 "statusLine": {
   "type": "command",
-  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js",
+  "command": "node ~/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js",
   "refreshInterval": 5
 }
 ```
@@ -122,7 +122,7 @@ Example output: `SecureVector Guard · 2 threats detected · 5 tool calls (3 all
 ```python
 import subprocess, sys
 sv = subprocess.run(
-    ["node", "/Users/me/.claude/plugins/cache/securevector-local/securevector-guard/4.2.1/hooks/statusline.js"],
+    ["node", "/Users/me/.claude/plugins/cache/securevector-local/securevector-guard/4.3.0/hooks/statusline.js"],
     input=sys.stdin.read(), capture_output=True, text=True, timeout=1
 ).stdout.strip()
 print(f"{your_existing_line}  {sv}" if sv else your_existing_line)

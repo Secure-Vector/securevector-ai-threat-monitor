@@ -23,6 +23,8 @@ from securevector.app.database.models import (
     MIGRATION_V29_SQL,
     MIGRATION_V30_SQL,
     MIGRATION_V31_SQL,
+    MIGRATION_V34_SQL,
+    MIGRATION_V35_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,6 +179,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         31: migrate_to_v31,
         32: migrate_to_v32,
         33: migrate_to_v33,
+        34: migrate_to_v34,
+        35: migrate_to_v35,
     }
 
     if version in migrations:
@@ -1420,6 +1424,36 @@ async def migrate_to_v33(db: DatabaseConnection) -> None:
         "VALUES (33, CURRENT_TIMESTAMP, 'idx_tool_call_audit_tool_time per-tool query index')"
     )
     logger.info("Applied migration v33: tool_id × called_at composite index")
+
+
+async def migrate_to_v34(db: DatabaseConnection) -> None:
+    """v33 -> v34: redaction_events audit log.
+
+    Creates the table that backs the local-app Redactions page (sibling
+    to Tool Activity / Bill of Tools). One row per redaction performed
+    by ``redact_secrets()``; ``redaction_hash`` is SHA-256 of the matched
+    substring, never the raw secret. Indices on (redacted_at) + (direction,
+    redacted_at) + (pattern_id, redacted_at) keep the aggregation route's
+    per-window / per-direction / per-pattern queries sub-second.
+
+    Idempotent — all CREATE statements use IF NOT EXISTS.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V34_SQL)
+    logger.info("Applied migration v34: redaction_events table")
+
+
+async def migrate_to_v35(db: DatabaseConnection) -> None:
+    """v34 -> v35: runtime_kind column on redaction_events.
+
+    Lets the Secret Detections page disambiguate which Guard plugin caught
+    each secret (claude-code, openclaw, langchain, …). Both plugins already
+    populate metadata.runtime_kind on /analyze calls — we just thread it
+    through to the audit row.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V35_SQL)
+    logger.info("Applied migration v35: runtime_kind on redaction_events")
 
 
 # Future migration functions would be defined here:
