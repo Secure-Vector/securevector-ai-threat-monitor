@@ -563,7 +563,6 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         )
         if redaction_count > 0:
             redacted_text_result = redacted_text
-            logger.info("Redacted %d secret(s) from %s scan", redaction_count, direction)
         # Persist the events outside the redactor (DB writes are async,
         # the redactor itself is sync). Failures are swallowed inside
         # RedactionsRepository.record — they must never derail a scan.
