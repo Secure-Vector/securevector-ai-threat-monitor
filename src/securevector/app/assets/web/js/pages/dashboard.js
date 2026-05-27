@@ -441,7 +441,15 @@ const DashboardPage = {
             const blockMode = settings && settings.block_threats;
             const outputScan = settings && settings.scan_llm_responses;
             const skillScans = scanHistory ? (scanHistory.total || (scanHistory.records || []).length) : 0;
-            const todayCost = costData ? '$' + (costData.today_cost_usd || 0).toFixed(4) : '$0.0000';
+            // Format: $0.00 when zero or sub-cent (4-decimal precision feels
+            // performative on a dashboard); $0.0123 only when the amount is
+            // small but non-trivial. Two decimals once you've crossed $1.
+            const _formatCost = (n) => {
+                if (!n || n < 0.005) return '$0.00';
+                if (n < 1) return '$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+                return '$' + n.toFixed(2);
+            };
+            const todayCost = costData ? _formatCost(costData.today_cost_usd || 0) : '$0.00';
 
             const avgLatencyMs = this.data.avg_latency_ms;
             let latencyStr = '\u2014';
@@ -451,25 +459,26 @@ const DashboardPage = {
                     : Math.round(avgLatencyMs) + 'ms';
             }
 
-            // Compact status bar
+            // Compact status bar \u2014 just the live-state indicator. The counts
+            // it used to repeat (requests scanned / blocked / skills) live in
+            // the metric tiles directly below, so we don't double-print them.
             const statusBar = document.createElement('div');
-            statusBar.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 13px;';
+            statusBar.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px;';
             const statusDot = document.createElement('span');
             statusDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
             statusBar.appendChild(statusDot);
             const statusLabel = document.createElement('span');
             statusLabel.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-            statusLabel.textContent = 'Active';
+            statusLabel.textContent = 'Monitoring active';
             statusBar.appendChild(statusLabel);
             const statusSep = document.createElement('span');
             statusSep.style.cssText = 'color: var(--text-muted);';
-            statusSep.textContent = '\u2014';
+            statusSep.textContent = '\u00b7';
             statusBar.appendChild(statusSep);
-            const statusSummary = document.createElement('span');
-            statusSummary.style.cssText = 'color: var(--text-secondary);';
-            const blockedCount = this.data.blocked_count || 0;
-            statusSummary.textContent = `${this.data.total_threats.toLocaleString()} requests scanned, ${blockedCount} threat${blockedCount !== 1 ? 's' : ''} blocked, ${skillScans} skill${skillScans !== 1 ? 's' : ''} scanned`;
-            statusBar.appendChild(statusSummary);
+            const statusHint = document.createElement('span');
+            statusHint.style.cssText = 'color: var(--text-secondary);';
+            statusHint.textContent = 'Last 7 days';
+            statusBar.appendChild(statusHint);
             valueSection.appendChild(statusBar);
 
             // Value metrics grid
@@ -537,86 +546,10 @@ const DashboardPage = {
             container.appendChild(valueSection);
         } catch (e) { /* value section is non-critical */ }
 
-        // "What's New" feature discovery strip — shown until dismissed
-        if (!localStorage.getItem('sv-newfeatures-dismissed')) {
-            const strip = document.createElement('div');
-            strip.style.cssText = 'margin-bottom: 16px;';
-
-            const stripHeader = document.createElement('div');
-            stripHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;';
-
-            const stripTitle = document.createElement('div');
-            stripTitle.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;';
-            const pulseDot = document.createElement('span');
-            pulseDot.style.cssText = 'display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #f97316; flex-shrink: 0;';
-            stripTitle.appendChild(pulseDot);
-            stripTitle.appendChild(document.createTextNode("What's New"));
-            stripHeader.appendChild(stripTitle);
-
-            const dismissBtn = document.createElement('button');
-            dismissBtn.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: var(--radius-full); font-size: 11px; font-weight: 600; border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; transition: all 0.15s;';
-            dismissBtn.textContent = '✕ Dismiss';
-            dismissBtn.title = 'Dismiss';
-            dismissBtn.addEventListener('mouseenter', () => { dismissBtn.style.borderColor = '#ef4444'; dismissBtn.style.color = '#ef4444'; });
-            dismissBtn.addEventListener('mouseleave', () => { dismissBtn.style.borderColor = 'var(--border-default)'; dismissBtn.style.color = 'var(--text-secondary)'; });
-            dismissBtn.addEventListener('click', () => {
-                localStorage.setItem('sv-newfeatures-dismissed', '1');
-                strip.remove();
-            });
-            stripHeader.appendChild(dismissBtn);
-            strip.appendChild(stripHeader);
-
-            const featureCards = document.createElement('div');
-            featureCards.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 10px;';
-
-            const makeFeatureCard = (title, desc, page) => {
-                const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid rgba(94,173,184,0.22); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.15s;';
-                card.addEventListener('mouseenter', () => card.style.borderColor = 'rgba(94,173,184,0.5)');
-                card.addEventListener('mouseleave', () => card.style.borderColor = 'rgba(94,173,184,0.22)');
-
-                const badge = document.createElement('div');
-                badge.style.cssText = 'display: inline-block; font-size: 9px; font-weight: 700; background: rgba(249,115,22,0.12); color: #f97316; border-radius: 3px; padding: 1px 6px; margin-bottom: 8px; letter-spacing: 0.4px; text-transform: uppercase;';
-                badge.textContent = 'New';
-                card.appendChild(badge);
-
-                const cardTitle = document.createElement('div');
-                cardTitle.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 5px;';
-                cardTitle.textContent = title;
-                card.appendChild(cardTitle);
-
-                const cardDesc = document.createElement('div');
-                cardDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-                cardDesc.textContent = desc;
-                card.appendChild(cardDesc);
-
-                const link = document.createElement('span');
-                link.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--accent-primary);';
-                link.textContent = 'Set up →';
-                card.appendChild(link);
-
-                card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(page); });
-                return card;
-            };
-
-            featureCards.appendChild(makeFeatureCard(
-                'Tool Permissions',
-                'Control exactly which tools your agent is allowed to call. Block risky file, shell, or network operations before they run.',
-                'tool-permissions'
-            ));
-            featureCards.appendChild(makeFeatureCard(
-                'Cost Tracking',
-                'Track every dollar your agents spend per model and session. Set daily budgets to hard-stop runaway LLM costs.',
-                'cost-settings'
-            ));
-
-            strip.appendChild(featureCards);
-            container.appendChild(strip);
-        }
-
-        // 1. Security Controls — most actionable, show first
-        const securityControls = await this.renderSecurityControls();
-        container.appendChild(securityControls);
+        // Reports — surface immediately under the overview metrics so the
+        // weekly artifacts (Tool Inventory, Secret Detections, Threats) are
+        // one glance away.
+        this.renderReportsSection(container);
 
         // Charts row — threat trend + cost trend side by side
         const chartsRow = document.createElement('div');
@@ -632,10 +565,249 @@ const DashboardPage = {
 
         container.appendChild(chartsRow);
 
-        // 4. Recent activity
+        // Security Controls — moved adjacent to Recent Activity since they're
+        // the "see threats / shape your response" pair. Previously they sat
+        // between Reports and the charts which was a context break.
+        const securityControls = await this.renderSecurityControls();
+        container.appendChild(securityControls);
+
+        // Recent activity
         const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
         container.appendChild(activityCard);
+    },
+
+    renderReportsSection(container) {
+        const section = document.createElement('div');
+        section.style.cssText = 'margin-bottom:16px;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:baseline;gap:10px;margin-bottom:10px;';
+        const h = document.createElement('h2');
+        h.textContent = 'Reports';
+        h.style.cssText = 'margin:0;font-size:16px;color:var(--text-primary);';
+        const sub = document.createElement('span');
+        sub.textContent = 'Last 7 days — CSV here, or open the page for the rich PDF.';
+        sub.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+        header.appendChild(h);
+        header.appendChild(sub);
+        section.appendChild(header);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;';
+        section.appendChild(grid);
+
+        // Build the three cards with placeholder "—" stats, then patch them
+        // with live counts in the background. Render-then-fill avoids a
+        // blocking await inside renderContent (keeps the dashboard snappy).
+        const ti = this._reportCard({
+            title: 'Tool Inventory',
+            blurb: 'Per-device SBOM for AI tools — every (server, tool) your agents called.',
+            openPage: 'bill-of-tools',
+            onCsv: () => this._exportReportCsv('tool-inventory'),
+        });
+        const sd = this._reportCard({
+            title: 'Secret Detections',
+            blurb: 'Credentials and PII caught and scrubbed mid-flight.',
+            openPage: 'redactions',
+            onCsv: () => this._exportReportCsv('secret-detections'),
+        });
+        const th = this._reportCard({
+            title: 'Threats',
+            blurb: 'Full threat scan log — rule hits, severity, action taken.',
+            openPage: 'threats',
+            onCsv: () => {
+                if (window.App && App.loadPage) {
+                    App.loadPage('threats');
+                    if (window.Toast) Toast.show('Use Export CSV on the Threats page (filters apply).', 'info');
+                }
+            },
+        });
+        grid.appendChild(ti);
+        grid.appendChild(sd);
+        grid.appendChild(th);
+        container.appendChild(section);
+
+        // Fill live stats in the background — each card's stat slot is the
+        // first .sv-report-stats element inside it.
+        this._populateReportStats(ti, sd, th);
+    },
+
+    async _populateReportStats(toolInventoryCard, secretDetectionsCard, threatsCard) {
+        const setStats = (card, parts) => {
+            const slot = card.querySelector('.sv-report-stats');
+            if (!slot) return;
+            slot.textContent = '';
+            parts.forEach((p, i) => {
+                if (i > 0) {
+                    const sep = document.createElement('span');
+                    sep.style.cssText = 'color:var(--border-default);';
+                    sep.textContent = ' · ';
+                    slot.appendChild(sep);
+                }
+                const strong = document.createElement('strong');
+                strong.style.cssText = 'color:var(--text-primary);font-weight:700;';
+                strong.textContent = p.value;
+                slot.appendChild(strong);
+                slot.appendChild(document.createTextNode(' ' + p.label));
+            });
+        };
+
+        try {
+            const billPromise = (window.API && API.getBillOfTools) ? API.getBillOfTools(7) : Promise.resolve(null);
+            const redactPromise = (window.API && API.getRedactions) ? API.getRedactions(7) : Promise.resolve(null);
+            const [bill, redact] = await Promise.all([
+                billPromise.catch(() => null),
+                redactPromise.catch(() => null),
+            ]);
+
+            if (bill && Array.isArray(bill.rows)) {
+                const rows = bill.rows;
+                const totalCalls = rows.reduce((acc, r) => acc + (r.calls || 0), 0);
+                const distinctServers = new Set(rows.map(r => r.server).filter(Boolean)).size;
+                setStats(toolInventoryCard, [
+                    { value: totalCalls.toLocaleString(), label: 'calls' },
+                    { value: rows.length.toLocaleString(), label: 'tools' },
+                    { value: distinctServers.toLocaleString(), label: 'servers' },
+                ]);
+            }
+
+            if (redact && redact.summary) {
+                const total = redact.summary.total ?? 0;
+                const tools = redact.summary.distinct_tools ?? 0;
+                const incoming = (redact.summary.by_direction || {}).incoming ?? 0;
+                setStats(secretDetectionsCard, [
+                    { value: total.toLocaleString(), label: 'detected' },
+                    { value: tools.toLocaleString(), label: 'tools' },
+                    { value: incoming.toLocaleString(), label: 'incoming' },
+                ]);
+            }
+        } catch (_) { /* stats are non-critical */ }
+
+        // Threats — use the analytics already loaded for the rest of the
+        // dashboard. Falls back gracefully if data hasn't landed yet.
+        if (this.data) {
+            const total = this.data.total_threats || 0;
+            const blocked = this.data.blocked_count || 0;
+            const critical = this.data.critical_count || 0;
+            setStats(threatsCard, [
+                { value: total.toLocaleString(), label: 'scanned' },
+                { value: blocked.toLocaleString(), label: 'blocked' },
+                { value: critical.toLocaleString(), label: 'critical' },
+            ]);
+        }
+    },
+
+    _reportCard({ title, blurb, openPage, onCsv }) {
+        // Match the visual treatment of sibling Card.create({gradient:true})
+        // sections (bg-card + subtle gradient via accent-tinted border-top).
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-top:2px solid rgba(94,173,184,0.45);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0;';
+
+        const h = document.createElement('h3');
+        h.textContent = title;
+        h.style.cssText = 'margin:0;font-size:14px;font-weight:700;color:var(--text-primary);';
+        card.appendChild(h);
+
+        // Live stats line — populated by _populateReportStats. Renders a
+        // single em-dash while waiting so the layout doesn't jump.
+        const stats = document.createElement('div');
+        stats.className = 'sv-report-stats';
+        stats.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.4;min-height:17px;';
+        stats.textContent = '—';
+        card.appendChild(stats);
+
+        const sub = document.createElement('div');
+        sub.textContent = blurb;
+        sub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;flex:1;';
+        card.appendChild(sub);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:8px;';
+
+        const csvBtn = document.createElement('button');
+        csvBtn.className = 'sv-btn-secondary';
+        csvBtn.textContent = 'Export CSV';
+        csvBtn.style.cssText = 'padding:5px 10px;font-size:12px;';
+        csvBtn.addEventListener('click', onCsv);
+        actions.appendChild(csvBtn);
+
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'sv-btn-secondary';
+        viewBtn.textContent = 'View report →';
+        viewBtn.style.cssText = 'padding:5px 10px;font-size:12px;';
+        viewBtn.addEventListener('click', () => {
+            if (window.App && App.loadPage) App.loadPage(openPage);
+        });
+        actions.appendChild(viewBtn);
+
+        card.appendChild(actions);
+        return card;
+    },
+
+    async _exportReportCsv(kind) {
+        const days = 7;
+        const escape = (v) => {
+            const s = String(v ?? '');
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const triggerDownload = (filenameBase, headers, rows) => {
+            if (rows.length === 0) {
+                if (window.Toast) Toast.show('No data in the last 7 days', 'info');
+                return;
+            }
+            const csvBody = rows.map((r) => headers.map((h) => escape(r[h])).join(',')).join('\n');
+            const csv = headers.join(',') + '\n' + csvBody;
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const stamp = new Date().toISOString().slice(0, 10);
+            a.download = `securevector-${filenameBase}-${stamp}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        try {
+            if (kind === 'tool-inventory') {
+                const data = await API.getBillOfTools(days);
+                const rows = (data.rows || []).map((r) => ({
+                    server: r.server || '',
+                    tool: r.tool || '',
+                    harness: r.harness || '',
+                    source: r.source || '',
+                    auth_scope: r.auth_scope || '',
+                    last_used: r.last_used || '',
+                    calls: r.calls ?? 0,
+                    blocked: r.blocked ?? 0,
+                    touched_secrets: r.touched_secrets ? 'yes' : 'no',
+                    policy_name: r.policy_name || '',
+                    policy_org: r.policy_org || '',
+                }));
+                triggerDownload('tool-inventory',
+                    ['server','tool','harness','source','auth_scope','last_used','calls','blocked','touched_secrets','policy_name','policy_org'],
+                    rows);
+            } else if (kind === 'secret-detections') {
+                const data = await API.getRedactions(days);
+                const rows = (data.events || []).map((e) => ({
+                    time: e.redacted_at || '',
+                    direction: e.direction || '',
+                    harness: e.runtime_kind || '',
+                    pattern_id: e.pattern_id || '',
+                    secret_type: e.secret_type || '',
+                    source_tool: e.source_tool_id || e.source_tool || '',
+                    request_id: e.request_id || '',
+                    redaction_hash: e.redaction_hash || '',
+                }));
+                triggerDownload('secret-detections',
+                    ['time','direction','harness','pattern_id','secret_type','source_tool','request_id','redaction_hash'],
+                    rows);
+            }
+        } catch (e) {
+            if (window.Toast) Toast.show('Export failed: ' + (e?.message || e), 'error');
+        }
     },
 
     createStatCard(stat) {

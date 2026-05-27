@@ -90,7 +90,8 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
         # The "securevector-app" console script only exists in pip installs.
         executable = sys.executable if getattr(sys, "frozen", False) else "securevector-app"
         cmd = [executable, "--proxy", "--openclaw",
-               "--proxy-port", str(port), "--port", str(web_port)]
+               "--proxy-port", str(port), "--port", str(web_port),
+               "--integration", "openclaw"]
         if multi:
             cmd.append("--multi")
         else:
@@ -106,7 +107,12 @@ def auto_start_from_config(integration: str, mode: str, host: str, port: int, pr
                    "--securevector-url", f"http://127.0.0.1:{web_port}"]
         if multi:
             cmd.append("--multi")
-        else:
+        # Pass --integration so the proxy stamps runtime_kind on every audit
+        # row. Without this, Tool Inventory rows from langchain / n8n / ollama
+        # traffic land with an empty harness column.
+        if integration:
+            cmd.extend(["--integration", integration])
+        if not multi:
             cmd.extend(["--provider", effective_provider])
 
     try:
@@ -182,7 +188,7 @@ async def get_proxy_status():
 @router.post("/start")
 async def start_proxy(request: StartProxyRequest = None):
     """Start the LLM proxy that captures ALL LLM traffic."""
-    global _llm_proxy_process, _current_provider, _current_integration, _multi_mode
+    global _llm_proxy_process, _current_provider, _current_integration, _multi_mode, _started_with_openclaw
 
     provider = request.provider if request else "openai"
     multi = request.multi if request else False
@@ -214,6 +220,7 @@ async def start_proxy(request: StartProxyRequest = None):
                 "--openclaw",
                 "--proxy-port", str(proxy_port),
                 "--port", str(web_port),
+                "--integration", "openclaw",
             ]
             if multi:
                 cmd.append("--multi")
@@ -233,6 +240,10 @@ async def start_proxy(request: StartProxyRequest = None):
                 cmd.append("--multi")
             else:
                 cmd.extend(["--provider", provider])
+            # Stamp runtime_kind so Tool Inventory rows are attributable
+            # to the right harness (langchain / langgraph / n8n / etc.).
+            if integration:
+                cmd.extend(["--integration", integration])
 
         # Start LLM proxy
         _llm_proxy_process = subprocess.Popen(cmd)
@@ -241,9 +252,10 @@ async def start_proxy(request: StartProxyRequest = None):
         await asyncio.sleep(0.5)
 
         if _llm_proxy_process.poll() is None:
-            _current_provider = provider
+            _current_provider = "multi" if multi else provider
             _current_integration = integration
             _multi_mode = multi
+            _started_with_openclaw = (integration == "openclaw")
             mode_str = "multi-provider" if multi else provider
             integration_str = f" for {integration}" if integration else ""
             logger.info(f"LLM proxy started on port {proxy_port} ({mode_str}){integration_str}")
@@ -299,9 +311,14 @@ async def stop_proxy():
     # Only revert pi-ai files if started with --openclaw
     if _started_with_openclaw:
         try:
-            from securevector.app.main import revert_provider_proxy
-            revert_provider_proxy(_current_provider, quiet=True)
-            logger.info(f"Reverted pi-ai files for {_current_provider}")
+            from securevector.app.main import revert_provider_proxy, _PROVIDER_PATCH_MAP
+            if _multi_mode or _current_provider == "multi":
+                for provider_name in _PROVIDER_PATCH_MAP.keys():
+                    revert_provider_proxy(provider_name, quiet=True)
+                logger.info("Reverted pi-ai files for all providers (multi mode)")
+            else:
+                revert_provider_proxy(_current_provider, quiet=True)
+                logger.info(f"Reverted pi-ai files for {_current_provider}")
             result["reverted"] = True
         except Exception as e:
             logger.warning(f"Could not revert pi-ai files: {e}")

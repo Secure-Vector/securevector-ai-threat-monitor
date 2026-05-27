@@ -692,6 +692,251 @@ async def get_call_audit_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# MCP tool calls land in tool_call_audit in two possible shapes for tool_id:
+#   1. Raw runtime form ``mcp__<server>__<tool>`` (some hook paths).
+#   2. Normalised ``<server>:<tool>`` (the canonical form emitted by
+#      plugins/claude-code/lib/normalize.js line 87 — this is the form
+#      Claude Code's PostToolUse hook actually writes).
+# Anything else is a built-in (Bash, Edit, Write, …).
+_MCP_PREFIX = "mcp__"
+_MCP_SEP = "__"
+
+
+# Known agent-harness auth scopes for built-in tool names. Auth scope here is
+# SecureVector's classification (read / write / delete / admin), not the
+# harness's self-declared capability. Only used as a fallback when neither
+# custom_tools.risk nor tool_call_audit.risk has a value — historical audit
+# rows can have NULL risk because risk classification was a later addition.
+_BUILTIN_AUTH_SCOPE = {
+    "Bash":           "admin",
+    "Skill":          "admin",
+    "Agent":          "admin",
+    "Read":           "read",
+    "Grep":           "read",
+    "Glob":           "read",
+    "WebFetch":       "read",
+    "WebSearch":      "read",
+    "NotebookRead":   "read",
+    "Edit":           "write",
+    "Write":          "write",
+    "MultiEdit":      "write",
+    "NotebookEdit":   "write",
+    "TodoWrite":      "write",
+    "ExitPlanMode":   "admin",
+}
+
+# MCP tool-name prefix → inferred auth scope. Heuristic: most MCP tools follow
+# a verb-noun naming convention. Falls back to "—" (rendered as a dash) when
+# the prefix is unrecognised.
+_MCP_SCOPE_PREFIX = (
+    ("read",   ("read_", "get_", "list_", "search_", "find_", "query_", "browse_",
+                "browser_snapshot", "browser_take_screenshot", "browser_console",
+                "browser_network", "describe_", "show_", "fetch_", "load_")),
+    ("write",  ("write_", "create_", "post_", "put_", "update_", "edit_", "save_",
+                "append_", "insert_", "upsert_", "browser_click", "browser_type",
+                "browser_navigate", "browser_fill", "browser_press", "browser_drag",
+                "browser_select", "browser_hover", "browser_evaluate")),
+    ("delete", ("delete_", "remove_", "drop_", "destroy_", "browser_close")),
+    ("admin",  ("admin_", "manage_", "config_", "configure_", "auth", "authenticate")),
+)
+
+
+def _infer_mcp_scope(tool_name: str) -> Optional[str]:
+    if not tool_name:
+        return None
+    name = tool_name.lower()
+    for scope, prefixes in _MCP_SCOPE_PREFIX:
+        if any(name.startswith(p) for p in prefixes):
+            return scope
+    return None
+
+
+# Display labels for known runtimes — keep the UI free of repo-internal slugs.
+_RUNTIME_LABELS = {
+    "claude-code":  "Claude Code",
+    "claude_code":  "Claude Code",
+    "openclaw":     "OpenClaw",
+    "langchain":    "LangChain",
+    "langgraph":    "LangGraph",
+    "crewai":       "CrewAI",
+    "n8n":          "n8n",
+    "ollama":       "Ollama",
+    # Proxy fallback when --integration isn't set on the subprocess.
+    "proxy":        "Proxy (unattributed)",
+}
+
+
+def _format_harness(runtime_kinds: Optional[str]) -> Optional[str]:
+    """Format the comma-separated runtime_kinds list as a human label."""
+    if not runtime_kinds:
+        return None
+    seen = []
+    for raw in str(runtime_kinds).split(","):
+        slug = raw.strip()
+        if not slug:
+            continue
+        label = _RUNTIME_LABELS.get(slug, slug)
+        if label not in seen:
+            seen.append(label)
+    return " / ".join(seen) if seen else None
+
+
+def _split_server_and_tool(tool_id: str, function_name: Optional[str]) -> tuple[str, str]:
+    """Return (server_label, tool_label) for a tool_id from tool_call_audit.
+
+    Handles three encodings:
+      - ``mcp__filesystem__read_file`` (raw)         -> ("filesystem", "read_file")
+      - ``filesystem:read_file`` (normalised)        -> ("filesystem", "read_file")
+      - ``Bash`` (built-in)                          -> ("built-in", "Bash")
+    Unknown encodings fall back to the raw tool_id under "built-in".
+    """
+    if not tool_id:
+        return ("built-in", function_name or "")
+
+    # Form 1: raw MCP encoding ``mcp__<server>__<tool>``.
+    if tool_id.startswith(_MCP_PREFIX):
+        remainder = tool_id[len(_MCP_PREFIX):]
+        sep_idx = remainder.find(_MCP_SEP)
+        if sep_idx > 0:
+            server = remainder[:sep_idx]
+            tool = remainder[sep_idx + len(_MCP_SEP):]
+            if server and tool:
+                return (server, tool)
+
+    # Form 2: normalised ``<server>:<tool>`` (no built-in tool name contains
+    # ``:`` — see BUILTIN_TOOLS in normalize.js — so this is unambiguous).
+    if ":" in tool_id:
+        server, _, tool = tool_id.partition(":")
+        if server and tool:
+            return (server, tool)
+
+    # tool_id is the canonical identifier; function_name is a Claude-Code-ism
+    # where the harness happens to set function_name == tool_id for built-ins
+    # like "Bash". Other harnesses (OpenClaw) use function_name as a session
+    # key ("agent:main:main"), which is NOT a tool name. Prefer tool_id —
+    # function_name is a last-resort fallback only when tool_id is empty.
+    return ("built-in", tool_id or function_name or "")
+
+
+@router.get("/tool-permissions/bill-of-tools")
+async def get_bill_of_tools(window_days: int = 7):
+    """SBOM-style inventory of every (server, tool) active in the trailing window.
+
+    Returns one row per tool_id seen in tool_call_audit during the last
+    ``window_days`` days, joined with custom_tools (local risk classification)
+    and synced_tool_rules (cloud policy attribution). The result is the local
+    "MCP Bill of Tools" view — a single rolled-up table the user can export
+    as CSV or PDF.
+
+    Query params:
+      - window_days: trailing window in days (1–90, default 7).
+
+    Response shape:
+      {
+        "window_days": 7,
+        "row_count": N,
+        "rows": [
+          {
+            "tool_id":          "mcp__filesystem__read_file",
+            "server":           "filesystem",
+            "tool":             "read_file",
+            "source":           "cloud-policy" | "local-custom" | "built-in",
+            "auth_scope":       "read" | "write" | "delete" | "admin" | "unknown",
+            "auth_scope_origin": "local-custom-tools" | "audit-row" | "default",
+            "last_used":        "<iso>",
+            "calls":            42,
+            "blocked":          1,
+            "allowed":          40,
+            "logged":           1,
+            "touched_secrets":  false,
+            "policy_name":      "Filesystem guardrail" | null,
+            "policy_org":       "ACME Sec" | null
+          },
+          ...
+        ]
+      }
+
+    Limitation: ``touched_secrets`` is a LIKE-match against the audit row's
+    ``reason`` for credential/secret/token keywords — catches rule-fired
+    blocks/log_onlys, NOT unflagged exfiltration via a tool that legitimately
+    accepts secrets (e.g. a vault MCP server). Sufficient for the v1 governance
+    artifact; tighter cross-correlation with the rules engine is a follow-up.
+    """
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        raw_rows = await repo.get_bill_of_tools(window_days=window_days)
+
+        rows = []
+        for r in raw_rows:
+            tool_id = r.get("tool_id") or ""
+            server, tool = _split_server_and_tool(tool_id, r.get("function_name"))
+
+            # source classification (most-specific wins):
+            #   - cloud-policy : a synced policy covers this tool
+            #   - local-custom : user registered it locally
+            #   - built-in     : harness built-in (Bash, Read, Edit, …)
+            #   - mcp          : discovered MCP tool with no policy / custom row
+            if r.get("synced_effect") is not None:
+                source = "cloud-policy"
+            elif r.get("local_risk") is not None:
+                source = "local-custom"
+            elif server == "built-in":
+                source = "built-in"
+            else:
+                source = "mcp"
+
+            # auth_scope precedence:
+            #   1. explicit custom_tools.risk (user-declared)
+            #   2. tool_call_audit.risk (engine recorded at decision time)
+            #   3. static map for known built-ins (Bash → admin, Read → read, …)
+            #   4. verb-prefix heuristic for MCP tool names
+            # Falls through to None (rendered as "—") when nothing applies.
+            scope = r.get("local_risk") or r.get("recent_risk")
+            if scope:
+                scope_origin = "local-custom-tools" if r.get("local_risk") else "audit-row"
+            elif server == "built-in" and tool in _BUILTIN_AUTH_SCOPE:
+                # Bash is always 'admin' regardless of whether a policy now
+                # covers it — derive from what the tool IS, not from source.
+                scope = _BUILTIN_AUTH_SCOPE[tool]
+                scope_origin = "builtin-map"
+            else:
+                inferred = _infer_mcp_scope(tool)
+                if inferred:
+                    scope = inferred
+                    scope_origin = "name-heuristic"
+                else:
+                    scope = None
+                    scope_origin = "unknown"
+
+            rows.append({
+                "tool_id": tool_id,
+                "server": server,
+                "tool": tool,
+                "source": source,
+                "harness": _format_harness(r.get("runtime_kinds")),
+                "auth_scope": scope,
+                "auth_scope_origin": scope_origin,
+                "last_used": r.get("last_used"),
+                "calls": int(r.get("calls") or 0),
+                "blocked": int(r.get("blocked") or 0),
+                "allowed": int(r.get("allowed") or 0),
+                "logged": int(r.get("logged") or 0),
+                "touched_secrets": bool(r.get("touched_secrets")),
+                "policy_name": r.get("synced_policy_name"),
+                "policy_org": r.get("synced_org_name"),
+            })
+
+        return {
+            "window_days": max(1, min(int(window_days), 90)),
+            "row_count": len(rows),
+            "rows": rows,
+        }
+    except Exception as e:
+        logger.error(f"Failed to compute bill of tools: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class AuditDeleteRequest(BaseModel):
     ids: list[int] = Field(..., description="List of audit entry IDs to delete")
 

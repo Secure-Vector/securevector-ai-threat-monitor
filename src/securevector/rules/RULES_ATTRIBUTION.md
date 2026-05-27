@@ -116,6 +116,18 @@ This document provides detailed attribution and legal information for all securi
 - **Implementation**: SecureVector original
 - **License**: Apache License 2.0
 
+## 🎯 Third-Party Frameworks Referenced
+
+### MITRE ATT&CK®
+
+Several rules carry `metadata.mitre_attack_ids` entries (e.g. `sv_community_output_003_pem_private_key_leak` cites `T1552.004` — *Unsecured Credentials: Private Keys*). These are **nominative references to MITRE ATT&CK technique identifiers**, not reproductions of MITRE's copyrighted technique descriptions.
+
+- **MITRE ATT&CK®** is © The MITRE Corporation, licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).
+- The full attribution block lives in the project [`NOTICE`](../../../NOTICE) file at the repository root; this entry duplicates it here so per-rule auditors don't have to leave the rules directory to confirm compliance.
+- MITRE ATT&CK® and ATT&CK® are registered trademarks of The MITRE Corporation. Use of the marks in rule metadata is descriptive (technique-ID lookup), not endorsement.
+
+When adding a new rule that cites a MITRE technique, populate `metadata.mitre_attack_ids` with the canonical identifier (e.g. `T1552.004`) only. Do not copy MITRE's technique description text into rule fields — link to the upstream ATT&CK page from the rule's own `description` if you need to elaborate.
+
 ## 📚 Research References
 
 ### Academic Papers
