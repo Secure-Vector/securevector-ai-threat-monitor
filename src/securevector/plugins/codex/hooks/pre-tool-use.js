@@ -164,6 +164,23 @@ function buildAuditBody(toolName, toolId, toolInput, decision, reason) {
  *
  * @param {{decision: 'allow'|'deny'|'ask', reason?: string}} d
  */
+// Branded prefix shown to the host CLI on every deny reason. Codex's
+// TUI surfaces the raw `permissionDecisionReason` string ("feedback:
+// <reason>") with no indication of which hook produced it — without a
+// prefix, a developer using Codex sees "User-set local override" and
+// has no idea SecureVector Guard is the enforcer. Prefixing here makes
+// the source unambiguous in every deny banner.
+const REASON_PREFIX = 'SecureVector Guard';
+
+function _brand(reason) {
+  // Idempotent: don't double-prefix on reasons we already branded
+  // (e.g. when the user crafts a reason that already starts with our
+  // tag).
+  return reason.startsWith(REASON_PREFIX + ':')
+    ? reason
+    : `${REASON_PREFIX}: ${reason}`;
+}
+
 function toHookOutput(d) {
   if (d.decision === 'allow') {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse' } };
@@ -174,9 +191,11 @@ function toHookOutput(d) {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
-        permissionDecisionReason: reasonProvided
-          ? `${d.reason} (Codex doesn't support 'ask'; treating as deny)`
-          : "SecureVector policy requested user prompt; Codex doesn't support 'ask', treating as deny.",
+        permissionDecisionReason: _brand(
+          reasonProvided
+            ? `${d.reason} (Codex doesn't support 'ask'; treating as deny)`
+            : "Policy requested user prompt; Codex doesn't support 'ask', treating as deny.",
+        ),
       },
     };
   }
@@ -184,7 +203,7 @@ function toHookOutput(d) {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
-      permissionDecisionReason: reasonProvided ? d.reason : 'Blocked by SecureVector policy.',
+      permissionDecisionReason: _brand(reasonProvided ? d.reason : 'Blocked by policy.'),
     },
   };
 }

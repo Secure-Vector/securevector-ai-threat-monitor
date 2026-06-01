@@ -148,6 +148,17 @@ function buildAuditBody(toolName, toolId, toolInput, decision, reason) {
  *
  * @param {{decision: 'allow'|'deny'|'ask', reason?: string}} d
  */
+// Branded prefix on every deny / ask reason so the host CLI's deny
+// banner identifies SecureVector Guard as the enforcer. Without this,
+// users see e.g. "User-set local override" with no indication of which
+// hook produced it. Idempotent — won't double-prefix.
+const REASON_PREFIX = 'SecureVector Guard';
+function _brand(reason) {
+  return reason.startsWith(REASON_PREFIX + ':')
+    ? reason
+    : `${REASON_PREFIX}: ${reason}`;
+}
+
 function toHookOutput(d) {
   const out = {
     hookSpecificOutput: {
@@ -156,7 +167,11 @@ function toHookOutput(d) {
     },
   };
   if (typeof d.reason === 'string' && d.reason.length > 0) {
-    out.hookSpecificOutput.permissionDecisionReason = d.reason;
+    // Only brand on non-allow paths — Claude Code's allow path doesn't
+    // surface the reason to the user, so the prefix would just be
+    // noise in any inadvertent log line.
+    out.hookSpecificOutput.permissionDecisionReason =
+      d.decision === 'allow' ? d.reason : _brand(d.reason);
   }
   return out;
 }

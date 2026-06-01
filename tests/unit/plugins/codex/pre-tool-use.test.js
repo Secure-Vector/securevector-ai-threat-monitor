@@ -39,15 +39,35 @@ test('Codex toHookOutput: allow OMITS permissionDecision entirely', () => {
 });
 
 
-test('Codex toHookOutput: deny with reason carries permissionDecisionReason', () => {
+test('Codex toHookOutput: deny prefixes reason with "SecureVector Guard"', () => {
+  // Codex's TUI surfaces `permissionDecisionReason` verbatim as
+  // "feedback: <reason>" with no indication of which hook produced
+  // it. The branded prefix makes the source unambiguous in every
+  // deny banner.
   const out = toHookOutput({ decision: 'deny', reason: 'blocked by policy' });
   assert.deepEqual(out, {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
-      permissionDecisionReason: 'blocked by policy',
+      permissionDecisionReason: 'SecureVector Guard: blocked by policy',
     },
   });
+});
+
+
+test('Codex toHookOutput: brand prefix is idempotent', () => {
+  // If the upstream policy somehow already includes our brand prefix
+  // (manually-crafted rule, multi-layer enforcement chain, etc.) the
+  // prefix MUST NOT be applied twice — that'd produce a confusing
+  // "SecureVector Guard: SecureVector Guard: ..." banner.
+  const out = toHookOutput({
+    decision: 'deny',
+    reason: 'SecureVector Guard: nested policy',
+  });
+  assert.equal(
+    out.hookSpecificOutput.permissionDecisionReason,
+    'SecureVector Guard: nested policy',
+  );
 });
 
 
@@ -81,6 +101,11 @@ test('Codex toHookOutput: ask is converted to deny (Codex does not support ask)'
     out.hookSpecificOutput.permissionDecisionReason,
     /ask/i,
     'fallback should explain the ask→deny conversion so audit log readers know why'
+  );
+  assert.match(
+    out.hookSpecificOutput.permissionDecisionReason,
+    /^SecureVector Guard:/,
+    'branded prefix must apply on the ask→deny conversion too',
   );
 });
 
