@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Fetch wrapper used by the Guard plugin hooks.
  *

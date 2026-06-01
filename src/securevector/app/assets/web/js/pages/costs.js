@@ -431,7 +431,7 @@ const CostsPage = {
      * Codex session-tokens panel.
      *
      * Sources from `/api/hooks/codex/token-usage` which walks
-     * `~/.codex/sessions/*/*/*/rollout-*.jsonl` and sums each
+     * `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and sums each
      * rollout's `token_count` event_msg records. Mirrors the Claude
      * Code panel's layout — only the title, accent colour (coral),
      * footer attribution, and per-tile breakdown differ:

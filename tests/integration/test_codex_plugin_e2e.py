@@ -219,10 +219,35 @@ def _run_hook(
 
 
 def _hook_decision(stdout: str) -> Optional[str]:
+    """Return the hook's permissionDecision verbatim. For Codex's implicit
+    allow path the field is intentionally absent — caller should compare
+    via :func:`_hook_allowed` rather than expecting the literal "allow"."""
     if not stdout.strip():
         return None
     parsed = json.loads(stdout)
     return parsed.get("hookSpecificOutput", {}).get("permissionDecision")
+
+
+def _hook_allowed(stdout: str) -> bool:
+    """True iff the hook output expresses Codex's implicit allow contract:
+    a parseable `hookSpecificOutput` block whose `permissionDecision`
+    field is absent. Codex rejects bare `permissionDecision: "allow"`
+    with `unsupported permissionDecision:allow` (verified empirically
+    against `codex-rs/hooks/src/engine/output_parser.rs`), so the wire
+    shape for allow is the absence of the field — NOT the literal
+    string "allow". A missing `hookSpecificOutput` or stdout that fails
+    to parse is treated as not-allowed so a malformed hook can't slip
+    through as an unintended allow."""
+    if not stdout.strip():
+        return False
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError:
+        return False
+    hso = parsed.get("hookSpecificOutput")
+    if not isinstance(hso, dict):
+        return False
+    return "permissionDecision" not in hso
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,7 +278,8 @@ def test_pretooluse_allows_when_no_matching_rule(live_server):
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert _hook_decision(proc.stdout) == "allow"
+    # Codex's implicit-allow contract: permissionDecision is absent.
+    assert _hook_allowed(proc.stdout), proc.stdout
 
 
 def test_pretooluse_allows_when_synced_rule_says_allow(live_server):
@@ -266,7 +292,7 @@ def test_pretooluse_allows_when_synced_rule_says_allow(live_server):
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert _hook_decision(proc.stdout) == "allow"
+    assert _hook_allowed(proc.stdout), proc.stdout
 
 
 def test_pretooluse_fails_open_when_local_app_unreachable(live_server):
@@ -280,7 +306,7 @@ def test_pretooluse_fails_open_when_local_app_unreachable(live_server):
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert _hook_decision(proc.stdout) == "allow"
+    assert _hook_allowed(proc.stdout), proc.stdout
 
 
 def test_pretooluse_short_circuits_for_builtin_tools(live_server):
@@ -293,7 +319,7 @@ def test_pretooluse_short_circuits_for_builtin_tools(live_server):
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert _hook_decision(proc.stdout) == "allow"
+    assert _hook_allowed(proc.stdout), proc.stdout
 
 
 # ─────────────────────────────────────────────────────────────────────────────
