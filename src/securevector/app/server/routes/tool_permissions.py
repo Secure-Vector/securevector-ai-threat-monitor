@@ -120,11 +120,61 @@ CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
     ("TodoRead",      "read",   "Read the session todo list."),
 ]
 
-# Codex built-ins are name-equivalent to Claude Code's (both plugins
-# ship the same `BUILTIN_TOOLS` Set in normalize.js). Derive the list
-# rather than duplicating to keep them in lockstep — changes to the CC
-# table propagate automatically.
-CODEX_BUILTINS: list[tuple[str, str, str]] = list(CLAUDE_CODE_BUILTINS)
+# Canonical list of Codex HOOK-PAYLOAD tool names. CRITICAL distinction
+# from the model-layer `function_call.name` you see in session JSONL:
+# Codex's hook engine renames some tools before invoking PreToolUse /
+# PostToolUse. Defined in `codex-rs/core/src/tools/hook_names.rs`:
+#
+#   exec_command + shell_command   → "Bash"          (HookToolName::bash())
+#   apply_patch                    → "apply_patch"   (matcher aliases: Write, Edit)
+#   spawn_agent                    → "spawn_agent"   (matcher alias: Agent)
+#   everything else                → passthrough
+#
+# Empirically confirmed by capturing hook stdin: when the LLM emitted
+# `function_call.name = "exec_command"`, the hook received
+# `tool_name: "Bash"`. The previous iteration of this list contained
+# `exec_command` (wrong — never appears in hook stdin) and silently
+# fail-opened every Codex shell call. KEEP IN LOCKSTEP with the Codex
+# copy of `normalize.js` (`src/securevector/plugins/codex/lib/normalize.js`).
+#
+# Risk classification ("admin" / "write" / "read") drives the default
+# UI sort + future risk-budget views.
+CODEX_BUILTINS: list[tuple[str, str, str]] = [
+    # Shell + I/O — Codex's hook payload uses "Bash" for exec_command +
+    # shell_command. The single most load-bearing entry in this list;
+    # without it every Codex shell call fail-opens.
+    ("Bash",                    "admin", "Shell command (covers Codex's exec_command, shell_command, and file reads via cat / grep / ls / sed)."),
+    # File mutation — apply_patch is the canonical hook name; Write +
+    # Edit work as matcher aliases at the hook engine layer.
+    ("apply_patch",             "write", "Apply a diff to one or more files (Codex's Edit/Write/MultiEdit)."),
+    # Planning + UI
+    ("update_plan",             "write", "Update the session task list (Codex's TodoWrite)."),
+    ("view_image",              "read",  "Inspect an image at a URL or path."),
+    ("web_search",              "read",  "Run a web search."),
+    # User interaction
+    ("request_permissions",     "admin", "Request elevated permissions from the user."),
+    ("request_user_input",      "read",  "Ask the user a clarifying question."),
+    # MCP discovery + read
+    ("list_mcp_resources",      "read",  "List MCP resources exposed by configured servers."),
+    ("list_mcp_resource_templates", "read", "List MCP resource templates."),
+    ("read_mcp_resource",       "read",  "Read an MCP resource by URI."),
+    # Plugin lifecycle
+    ("list_available_plugins_to_install", "read", "List plugins available in configured marketplaces."),
+    ("request_plugin_install",  "admin", "Request installation of a Codex plugin."),
+    # Documentation
+    ("docs",                    "read",  "Query the documentation tool."),
+    # Multi-agent orchestration — Codex's "agent jobs" subsystem
+    ("spawn_agent",             "admin", "Spawn a subordinate agent."),
+    ("spawn_agents_on_csv",     "admin", "Spawn multiple agents from a CSV."),
+    ("wait_agent",              "read",  "Wait for a spawned agent."),
+    ("close_agent",             "admin", "Close a spawned agent."),
+    ("resume_agent",            "admin", "Resume a previously-spawned agent."),
+    ("list_agents",             "read",  "List active agents."),
+    ("send_input",              "admin", "Send input to a spawned agent."),
+    ("send_message",            "admin", "Send a message to a spawned agent."),
+    ("followup_task",           "admin", "Schedule a follow-up task on an agent."),
+    ("report_agent_job_result", "write", "Report the result of an agent job."),
+]
 
 
 def _build_tool_response_row(

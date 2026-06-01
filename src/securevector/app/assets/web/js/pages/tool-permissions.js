@@ -3289,6 +3289,16 @@ const ToolPermissionsPage = {
             tool.risk, tool.source,
         ].filter(Boolean).join(' ').toLowerCase();
         const titleParts = [tool.tool_id];
+        if (tool.description && tool.description.trim()) {
+            // Lead with the description so the hover tooltip answers
+            // "what does this tool do" — the tool_id + risk become
+            // secondary context after the answer the user actually
+            // wanted. Without this, the row's existing title was
+            // shadowing the per-button title we set on `nameEl`
+            // because the row title fires anywhere inside the row,
+            // including the action button and the gap.
+            titleParts.push(tool.description.trim());
+        }
         if (tool.mcp_server) titleParts.push('server: ' + tool.mcp_server);
         if (tool.risk) titleParts.push('risk: ' + tool.risk);
         row.title = titleParts.join(' · ');
@@ -3344,7 +3354,15 @@ const ToolPermissionsPage = {
         nameEl.type = 'button';
         nameEl.style.cssText = 'font-weight: 600; font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: transparent; border: 0; padding: 0; text-align: start; cursor: pointer; min-width: 0; max-width: 240px; font-family: inherit; line-height: 1.3;';
         nameEl.textContent = tool.name || tool.tool_id;
-        nameEl.setAttribute('aria-label', (tool.name || tool.tool_id) + ' — open details');
+        // Hover-tooltip carrying the tool's description so users can
+        // read "what does this tool do" without clicking through to
+        // the details panel. Falls back to "(no description)" so the
+        // affordance shape stays consistent across all rows; the
+        // existing aria-label trailing "— open details" survives so
+        // screen readers still announce the row's primary action.
+        const _desc = (tool.description && tool.description.trim()) || '(no description)';
+        nameEl.title = (tool.name || tool.tool_id) + ' — ' + _desc;
+        nameEl.setAttribute('aria-label', (tool.name || tool.tool_id) + ' — ' + _desc + ' — open details');
         nameEl.addEventListener('click', (e) => {
             e.stopPropagation();
             openDetail();

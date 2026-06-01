@@ -1,19 +1,21 @@
 /**
- * Tool-name normalisation for the Guard plugin.
+ * Tool-name normalisation for the Guard plugin (Codex variant).
  *
- * Tool calls inside the host CLI surface as `mcp__<server>__<tool>` for MCP
- * tools, or as PascalCase bare names like `Bash` / `Edit` for built-ins.
- * The local app's synced-rule table keys are either `<server>:<tool>`,
- * bare `<tool>`, or the built-in's bare name, so this helper produces the
- * candidate lookup keys the host's tool name maps to.
+ * Codex's tool surface is *completely different* from Claude Code's: there
+ * is no `Read`/`Edit`/`Write`/`Bash` etc. Every file read, file write, and
+ * shell command flows through a single `exec_command` tool. The LLM also
+ * emits `apply_patch` (diff-based file mutation), `update_plan` (todo
+ * list), `view_image`, `web_search`, and a handful of MCP/orchestration
+ * tools. The canonical list lives in `codex-rs/core/src/tools/handlers/`
+ * — every `name: "<tool>"` definition there.
  *
  * Examples
  *   mcp__server-slack__slack_post_message
  *     → ['server-slack:slack_post_message', 'slack_post_message']
- *   Bash
- *     → ['Bash']
- *   foo (unknown)
- *     → []
+ *   exec_command
+ *     → ['exec_command']
+ *   Bash (a Claude Code name, not a Codex tool)
+ *     → []  (unknown → fail-open allow)
  */
 
 'use strict';
@@ -21,56 +23,68 @@
 const PREFIX = 'mcp__';
 const SEP = '__';
 
-// Canonical list of Claude Code built-in tool names that callers may
-// want to govern with synced rules. Kept as a hard-coded allow-list so
-// an unknown tool name short-circuits to fail-open rather than getting
-// caught by a stray cloud rule with the same string.
+// Canonical list of Codex hook-payload tool names. CRITICAL distinction
+// from the model-layer function_call.name: Codex's hook engine
+// translates a few tool names before invoking PreToolUse / PostToolUse.
+// The mapping is defined in `codex-rs/core/src/tools/hook_names.rs`:
 //
-// Erring toward completeness is safe: an entry that Claude Code never
-// emits costs nothing (the hook event simply never carries that name);
-// a missing entry silently no-ops cloud rules targeting it, which is
-// the bug we're avoiding. Includes legacy names (Task, TodoRead,
-// NotebookRead) for forward/backward compatibility with older CC
-// versions.
+//   exec_command  + shell_command   → "Bash"          (HookToolName::bash())
+//   apply_patch                     → "apply_patch"   (canonical; matcher aliases: Write, Edit)
+//   spawn_agent                     → "spawn_agent"   (canonical; matcher alias: Agent)
+//   everything else                 → passthrough     (HookToolName::new(name))
+//
+// Empirical confirmation: instrumented the hook to log stdin and saw
+//   `tool_name: "Bash"`  carrying  `tool_input: {"command": "ls /tmp"}`
+// when the LLM emitted a `function_call` with name=exec_command.
+//
+// So this Set lists the HOOK-PAYLOAD names that show up on stdin —
+// what synced/local rules with `tool_id="..."` must match against.
+//
+// Erring toward completeness is safe: an entry Codex never emits in
+// a session costs nothing; a missing entry silently no-ops cloud
+// rules targeting it (the bug we're avoiding).
 //
 // NOTE: the Set is exported for test introspection only. Callers MUST
 // NOT mutate it at runtime — `normalize()` reads the live reference,
 // so a mutation would silently change enforcement for the rest of the
 // process.
 const BUILTIN_TOOLS = new Set([
-  // File operations
-  'Read',
-  'Edit',
-  'Write',
-  'MultiEdit',
-  'NotebookEdit',
-  'NotebookRead',
-  // Search / navigation
-  'Glob',
-  'Grep',
-  'LS',
-  'LSP',
-  // Shell
+  // Shell + I/O — hook payload sends "Bash" for `exec_command` +
+  // `shell_command` via HookToolName::bash(). This is the single most
+  // load-bearing entry in the set; without it, every Codex shell call
+  // (which is most calls) fails the candidate lookup and fail-opens.
   'Bash',
-  'PowerShell',
-  // Web
-  'WebFetch',
-  'WebSearch',
-  // Agents / planning
-  'Task',
-  'Agent',
-  'ExitPlanMode',
-  'EnterPlanMode',
-  // Worktrees
-  'EnterWorktree',
-  'ExitWorktree',
-  // Skills
-  'Skill',
-  // Background processes
-  'Monitor',
-  // Todos
-  'TodoWrite',
-  'TodoRead',
+  // File mutation — apply_patch is the canonical hook payload name.
+  // `Write` and `Edit` are matcher aliases at the hook engine layer,
+  // but the canonical name on stdin is `apply_patch`.
+  'apply_patch',
+  // Planning + UI
+  'update_plan',
+  'view_image',
+  'web_search',
+  // User interaction
+  'request_permissions',
+  'request_user_input',
+  // MCP discovery + read
+  'list_mcp_resources',
+  'list_mcp_resource_templates',
+  'read_mcp_resource',
+  // Plugin lifecycle
+  'list_available_plugins_to_install',
+  'request_plugin_install',
+  // Documentation lookup
+  'docs',
+  // Multi-agent orchestration (Codex's "agent jobs" subsystem)
+  'spawn_agent',
+  'spawn_agents_on_csv',
+  'wait_agent',
+  'close_agent',
+  'resume_agent',
+  'list_agents',
+  'send_input',
+  'send_message',
+  'followup_task',
+  'report_agent_job_result',
 ]);
 
 function normalize(toolName) {
