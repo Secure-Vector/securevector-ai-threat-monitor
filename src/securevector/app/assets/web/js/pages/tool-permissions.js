@@ -1653,6 +1653,7 @@ const ToolPermissionsPage = {
         const categoryLabels = {
             openclaw: 'OpenClaw',
             claude_code: 'Claude Code',
+            codex: 'Codex',
             communication: 'Communication',
             project_management: 'Project Management',
             code_devops: 'Code & DevOps',
@@ -1669,6 +1670,7 @@ const ToolPermissionsPage = {
         const categoryAccents = {
             openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
             claude_code: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+            codex: { color: '#C0655E', bg: 'rgba(192,101,94,0.12)' },
             communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -1684,6 +1686,7 @@ const ToolPermissionsPage = {
         const CATEGORY_ORDER = [
             'openclaw',
             'claude_code',    // Claude Code built-in tools (Bash / Edit / Read / etc.)
+            'codex',          // Codex built-in tools — same names as CC, distinct UI grouping
             'browser_automation',
             'communication',
             'project_management',

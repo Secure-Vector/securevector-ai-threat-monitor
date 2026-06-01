@@ -77,6 +77,14 @@ class EssentialToolResponse(BaseModel):
 # Each tuple is (name, risk, description). The category is uniformly
 # `"claude_code"`; default_permission is `"allow"` because built-ins
 # are default-allow in the host — cloud rules deny selectively.
+#
+# Codex shares the exact same built-in names (its plugin re-uses
+# normalize.js verbatim), so `CODEX_BUILTINS` below is derived from this
+# table and surfaced as parallel UI rows under category "codex".
+# A single rule `tool_id="Bash"` governs both runtimes — the duplicate
+# rows are intentional: they let the UI show *which* runtime the user is
+# governing without inventing a per-runtime tool_id namespace that would
+# break synced-rule lookups.
 CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
     # File operations
     ("Read",          "read",   "Read file contents."),
@@ -111,6 +119,12 @@ CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
     ("TodoWrite",     "write",  "Update the session todo list."),
     ("TodoRead",      "read",   "Read the session todo list."),
 ]
+
+# Codex built-ins are name-equivalent to Claude Code's (both plugins
+# ship the same `BUILTIN_TOOLS` Set in normalize.js). Derive the list
+# rather than duplicating to keep them in lockstep — changes to the CC
+# table propagate automatically.
+CODEX_BUILTINS: list[tuple[str, str, str]] = list(CLAUDE_CODE_BUILTINS)
 
 
 def _build_tool_response_row(
@@ -234,6 +248,30 @@ async def list_essential_tools():
                 "name": name,
                 "provider": "Claude Code",
                 "category": "claude_code",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
+        # Codex built-ins. Same tool_id namespace as CC (so a single
+        # synced/override rule covers both runtimes), but surfaced as a
+        # distinct UI row under category "codex" so users can see at a
+        # glance that the governance applies to their Codex sessions
+        # too. The Codex row is omitted only when the registry already
+        # claims the name — registry metadata is richer.
+        for name, risk, description in CODEX_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Codex",
+                "category": "codex",
                 "risk": risk,
                 "default_permission": "allow",
                 "description": description,
@@ -371,11 +409,15 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
     """Set or update an override for an essential tool."""
     try:
         # Validate tool_id exists either in the YAML registry OR in the
-        # Claude Code built-ins list — the Tool Permissions page renders
-        # both as governable rows, so a 404 on built-in IDs would make
-        # every "Block Bash" click silently fail with a toast error.
+        # built-ins list for one of the supported runtimes — the Tool
+        # Permissions page renders all of them as governable rows, so a
+        # 404 on built-in IDs would make every "Block Bash" click
+        # silently fail with a toast error. The CC + Codex built-in
+        # sets share names today, but accept the union to stay correct
+        # if either runtime adds a tool the other doesn't have.
         registry = _get_registry()
         builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
+        builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,

@@ -1,0 +1,29 @@
+{
+  "name": "securevector-guard",
+  "version": "4.4.0",
+  "description": "Real-time policy enforcement and tamper-evident audit for MCP tool calls invoked from an OpenAI Codex session. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Fails open if the local app is unreachable.",
+  "keywords": [
+    "security",
+    "audit",
+    "policy-enforcement",
+    "mcp",
+    "guardrails"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "SecureVector Guard",
+    "shortDescription": "Real-time policy enforcement and tamper-evident audit for Codex tool calls.",
+    "longDescription": "SecureVector Guard intercepts every PreToolUse, PostToolUse, and UserPromptSubmit event in your Codex session, forwards them to a local companion app on 127.0.0.1, and applies cloud-managed deny rules in real time. Tool calls are written to a SHA-256 hash-chained audit log on disk. Prompt-injection patterns and credential leaks are surfaced in a local dashboard. Fails open — Codex keeps working when SecureVector is down.",
+    "developerName": "SecureVector",
+    "category": "Security",
+    "capabilities": [
+      "hooks"
+    ],
+    "websiteUrl": "https://securevector.io",
+    "privacyPolicyUrl": "https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/develop/src/securevector/plugins/codex/PRIVACY.md",
+    "brandColor": "#5EADB8",
+    "defaultPrompt": [
+      "Show me my recent Codex tool calls in SecureVector."
+    ]
+  }
+}

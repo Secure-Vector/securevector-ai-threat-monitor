@@ -24,6 +24,7 @@ from securevector.app.database.repositories.synced_rules import SyncedRulesRepos
 from securevector.app.server.routes import tool_permissions as tp_routes
 from securevector.app.server.routes.tool_permissions import (
     CLAUDE_CODE_BUILTINS,
+    CODEX_BUILTINS,
     router as tp_router,
 )
 from tests.fixtures.synced_rules import seed_synced_rules
@@ -118,10 +119,14 @@ def test_essential_response_includes_24_builtins(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    by_id = {t["tool_id"]: t for t in body["tools"]}
+    # Key by (tool_id, category) — same tool_id may appear under both
+    # claude_code and codex now that both runtimes' built-ins are
+    # surfaced as parallel UI rows.
+    by_id_cat = {(t["tool_id"], t["category"]): t for t in body["tools"]}
     for name, risk, _desc in CLAUDE_CODE_BUILTINS:
-        assert name in by_id, f"built-in '{name}' missing from essential response"
-        row = by_id[name]
+        key = (name, "claude_code")
+        assert key in by_id_cat, f"built-in '{name}' missing from essential response"
+        row = by_id_cat[key]
         assert row["category"] == "claude_code", row
         assert row["risk"] == risk, row
         assert row["source"] == "builtin", row
@@ -137,7 +142,10 @@ def test_synced_deny_rule_flips_bash_to_deny_with_policy_attribution(client):
 
     resp = api.get("/api/tool-permissions/essential")
     assert resp.status_code == 200
-    bash = next(t for t in resp.json()["tools"] if t["tool_id"] == "Bash")
+    bash = next(
+        t for t in resp.json()["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "claude_code"
+    )
 
     assert bash["effective_action"] == "deny", bash
     assert bash["effective_source"] == "synced", bash
@@ -156,22 +164,63 @@ def test_builtins_appear_under_claude_code_category(client):
     )
 
 
+def test_builtins_appear_under_codex_category(client):
+    """Codex built-ins are surfaced as their own UI rows so the Tool
+    Permissions page lists Codex's governable tools alongside CC's."""
+    api, _ = client
+    body = api.get("/api/tool-permissions/essential").json()
+    codex_rows = [t for t in body["tools"] if t["category"] == "codex"]
+    assert len(codex_rows) == len(CODEX_BUILTINS), (
+        f"expected {len(CODEX_BUILTINS)} codex rows, got {len(codex_rows)}"
+    )
+    for row in codex_rows:
+        assert row["provider"] == "Codex", row
+        assert row["source"] == "builtin", row
+        assert row["default_permission"] == "allow", row
+
+
+def test_codex_and_cc_share_synced_rule_lookup(client):
+    """Critical: both the CC and Codex rows for the same built-in name
+    must read the SAME synced rule. Synced rules are keyed by tool_id
+    (no per-runtime namespace), so a single cloud rule should flip both
+    UI rows in lockstep — that's the whole reason we share tool_id."""
+    api, db_path = client
+    _seed_bash_deny(db_path)
+
+    body = api.get("/api/tool-permissions/essential").json()
+    cc_bash = next(
+        t for t in body["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "claude_code"
+    )
+    codex_bash = next(
+        t for t in body["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "codex"
+    )
+    for row in (cc_bash, codex_bash):
+        assert row["effective_action"] == "deny", row
+        assert row["effective_source"] == "synced", row
+        assert row["is_synced"] is True, row
+        assert row["synced_policy_name"] == "Test Bash Block", row
+
+
 def test_registry_tools_still_intact(client):
     """Adding built-ins must not displace registry tools.
 
     The exact category names aren't pinned — the YAML registry can rename
     categories without breaking this test. We just require that the
-    response carries non-claude_code rows AND no row's tool_id collides
+    response carries non-builtin rows AND no row's tool_id collides
     with a built-in (registry wins on collision per the loop's skip
-    rule).
+    rule). Built-in categories now span both CC and Codex.
     """
     api, _ = client
     body = api.get("/api/tool-permissions/essential").json()
-    non_builtin = [t for t in body["tools"] if t["category"] != "claude_code"]
+    builtin_categories = {"claude_code", "codex"}
+    non_builtin = [t for t in body["tools"] if t["category"] not in builtin_categories]
     assert len(non_builtin) >= 10, (
         f"expected ≥10 registry tools loaded alongside built-ins; got {len(non_builtin)}"
     )
     builtin_names = {n for (n, _r, _d) in CLAUDE_CODE_BUILTINS}
+    builtin_names.update(n for (n, _r, _d) in CODEX_BUILTINS)
     colliding = [t["tool_id"] for t in non_builtin if t["tool_id"] in builtin_names]
     assert not colliding, f"registry tool_ids collide with built-in names: {colliding}"
 
@@ -186,22 +235,34 @@ def test_override_endpoints_accept_builtin_tool_ids(client):
     put = api.put("/api/tool-permissions/overrides/Bash", json={"action": "block"})
     assert put.status_code == 200, put.text
 
-    # Confirm the override now drives effective_action.
+    # Confirm the override now drives effective_action — and flips BOTH
+    # the CC row and the Codex row, since they share the tool_id.
     body = api.get("/api/tool-permissions/essential").json()
-    bash = next(t for t in body["tools"] if t["tool_id"] == "Bash")
-    assert bash["effective_action"] == "block", bash
-    assert bash["effective_source"] == "local", bash
-    assert bash["has_override"] is True, bash
+    cc_bash = next(
+        t for t in body["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "claude_code"
+    )
+    codex_bash = next(
+        t for t in body["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "codex"
+    )
+    for row in (cc_bash, codex_bash):
+        assert row["effective_action"] == "block", row
+        assert row["effective_source"] == "local", row
+        assert row["has_override"] is True, row
 
     # Reset
     delete = api.delete("/api/tool-permissions/overrides/Bash")
     assert delete.status_code == 200, delete.text
 
     body = api.get("/api/tool-permissions/essential").json()
-    bash = next(t for t in body["tools"] if t["tool_id"] == "Bash")
-    assert bash["effective_action"] == "allow", bash  # back to built-in default
-    assert bash["effective_source"] == "default", bash
-    assert bash["has_override"] is False, bash
+    cc_bash = next(
+        t for t in body["tools"]
+        if t["tool_id"] == "Bash" and t["category"] == "claude_code"
+    )
+    assert cc_bash["effective_action"] == "allow", cc_bash  # back to built-in default
+    assert cc_bash["effective_source"] == "default", cc_bash
+    assert cc_bash["has_override"] is False, cc_bash
 
 
 def test_override_endpoint_still_rejects_unknown_ids(client):

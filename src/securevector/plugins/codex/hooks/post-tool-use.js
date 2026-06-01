@@ -3,7 +3,7 @@
  * PostToolUse hook handler for the SecureVector Guard plugin.
  *
  * Fire-and-forget audit: after every tool call, POST a `tool_call_audit`
- * row to the local app with `runtime_kind: "claude-code"`. The hook never
+ * row to the local app with `runtime_kind: "codex"`. The hook never
  * blocks the host CLI — `postJsonAndForget` returns synchronously and
  * swallows every error.
  *
@@ -32,7 +32,7 @@ const { SECRET_PATTERNS, redactForScan } = require('../lib/redact.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 200;
-const RUNTIME_KIND = 'claude-code';
+const RUNTIME_KIND = 'codex';
 
 // Tools whose `tool_input` is *prose the agent emitted in natural language*
 // and is therefore worth running through the LLM-text rule pack at
@@ -166,7 +166,7 @@ function extractScanText(toolName, toolInput) {
 /**
  * Extract scannable text from a tool_response.
  *
- * Claude Code's PostToolUse event includes `tool_response` — the value the
+ * Codex's PostToolUse event includes `tool_response` — the value the
  * tool returned to the agent before its next reasoning step. That response
  * is what the LLM will read as context, so it's the right surface for
  * Indirect Prompt Injection detection and for catching credentials / PII
@@ -314,7 +314,7 @@ async function audit(event, baseUrl) {
         : rawScanText;
       postJsonAndForget(`${baseUrl}/analyze`, {
         text: scanText,
-        source: 'claude-code-plugin',
+        source: 'codex-plugin',
         direction: 'outgoing',
         metadata: {
           runtime_kind: RUNTIME_KIND,
@@ -357,7 +357,7 @@ async function audit(event, baseUrl) {
         : rawResponseText;
       postJsonAndForget(`${baseUrl}/analyze`, {
         text: scanText,
-        source: 'claude-code-plugin',
+        source: 'codex-plugin',
         direction: 'incoming',
         metadata: {
           runtime_kind: RUNTIME_KIND,

@@ -463,7 +463,7 @@ test('audit POSTs response scan with direction=incoming for built-in WebFetch', 
   } finally { restore(); }
 });
 
-test('audit does NOT scan response for Bash / Write (excluded from v1)', async () => {
+test('audit DOES scan Bash response (issue #131 — printenv / cat .env exfil channel)', async () => {
   const analyzePosts = [];
   const restore = stubFetch(async (url, opts) => {
     if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
@@ -476,20 +476,23 @@ test('audit does NOT scan response for Bash / Write (excluded from v1)', async (
   try {
     await audit({
       tool_name: 'Bash',
-      tool_input: { command: 'ls -la' },
-      tool_response: 'total 16\ndrwxr-xr-x ...',
+      tool_input: { command: 'printenv' },
+      tool_response: { stdout: 'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nPATH=/usr/bin' },
     }, 'http://127.0.0.1:8741');
     await new Promise((r) => setImmediate(r));
     const incoming = analyzePosts.find(p => p.direction === 'incoming');
-    assert.equal(incoming, undefined, 'Bash response should NOT trigger an incoming scan in v1');
+    assert.ok(incoming, 'Bash response should trigger an incoming scan now that #131 lit up shell stdout');
+    assert.match(incoming.text, /AKIAIOSFODNN7EXAMPLE/, 'stdout content should be in the scan body');
   } finally { restore(); }
 });
 
-test('THREAT_SCAN_RESPONSE_TOOLS contains expected v1 set', () => {
+test('THREAT_SCAN_RESPONSE_TOOLS includes shell tools (issue #131)', () => {
   assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('WebFetch'));
   assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('Read'));
   assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('Grep'));
-  // Excluded for v1:
-  assert.ok(!THREAT_SCAN_RESPONSE_TOOLS.has('Bash'));
+  // Bash + PowerShell joined the set in v4.4.0 per issue #131.
+  assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('Bash'));
+  assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('PowerShell'));
+  // Still excluded: Write / Edit — responses are confirmations, not content.
   assert.ok(!THREAT_SCAN_RESPONSE_TOOLS.has('Write'));
 });
