@@ -66,9 +66,12 @@ PLUGIN_FILES = [
     "hooks/pre-tool-use.js",
     "hooks/post-tool-use.js",
     "hooks/user-prompt-submit.js",
+    "hooks/session-start.js",
+    "hooks/stop.js",
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
+    "LICENSE",
     "README.md",
     "PRIVACY.md",
 ]
