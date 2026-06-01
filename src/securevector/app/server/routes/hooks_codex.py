@@ -91,6 +91,13 @@ STAGING_DIR = SECUREVECTOR_DIR / "staging" / "codex-plugin"
 CODEX_HOME = Path.home() / ".codex"
 CODEX_CONFIG_TOML = CODEX_HOME / "config.toml"
 CODEX_PLUGIN_CACHE_ROOT = CODEX_HOME / "plugins" / "cache"
+# Codex persists every session as a JSONL rollout at
+# ``~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ISO>-<uuid>.jsonl``.
+# Token usage rides on ``event_msg`` records with payload
+# ``type: "token_count"`` — we read these directly so token visibility
+# works without an upstream hook-API surface for usage. Mirrors the
+# Claude Code transcript-on-disk approach in hooks_claude_code.py.
+CODEX_SESSIONS_DIR = CODEX_HOME / "sessions"
 
 # Hidden marketplace slug. Mirrors the CC plugin's convention: every
 # install is registered under a single per-machine marketplace so the
@@ -770,3 +777,314 @@ async def uninstall_plugin():
     except Exception:
         logger.exception("Auto-uninstall from Codex cache failed")
     return UninstallResponse(ok=True)
+
+
+# --- Token usage (parallel to hooks_claude_code.get_token_usage) -----------
+
+
+class CodexModelUsage(BaseModel):
+    """Per-model token usage from Codex session rollouts."""
+    model: str
+    turns: int
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    reasoning_output_tokens: int = 0  # Codex-specific; CC has no equivalent
+
+
+class CodexDailyTokenUsage(BaseModel):
+    """Per-day token usage rolled up from rollout timestamps. ``day`` is
+    ISO ``YYYY-MM-DD`` in the host's local tz (matches what CC reports)."""
+    day: str
+    turns: int
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    reasoning_output_tokens: int = 0
+
+
+class CodexTokenUsageResponse(BaseModel):
+    """Aggregate token usage across all Codex session rollouts.
+
+    Source: ``~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl`` — Codex
+    emits an ``event_msg`` with payload ``type: "token_count"`` after
+    every model response, carrying both ``last_token_usage`` (per-turn
+    delta) and ``total_token_usage`` (running session total).
+
+    We sum the per-turn deltas so per-day rollups are accurate (taking
+    a session's final ``total_token_usage`` would only let us bucket by
+    session-end day, not by the day each turn actually ran). The two
+    paths are arithmetically equivalent across a full session, but the
+    delta approach lets us split a long session across day boundaries.
+
+    Field mapping into the CC-style shape (so the UI's existing
+    rendering helpers Just Work):
+      Codex `input_tokens`         → input + cache_read combined
+      Codex `cached_input_tokens`  → cache_read_input_tokens
+      `input_tokens - cached_input_tokens` → input_tokens (uncached part)
+      Codex `output_tokens`        → output_tokens
+      Codex `reasoning_output_tokens` → reasoning_output_tokens (new field)
+    Codex has no cache-creation concept; ``cache_creation_input_tokens``
+    is always 0 so the UI's cache-write tile reads zero rather than
+    silently lying.
+
+    NOTE: As with Claude Code, we deliberately do NOT compute a dollar
+    cost — most Codex users are on plan-based subscriptions where a
+    list-price equivalent would mislead. Tokens are the honest view;
+    point users at their OpenAI console for billing.
+    """
+    sessions: int
+    turns_with_usage: int
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    reasoning_output_tokens: int
+    last_activity: Optional[str]
+    by_model: list[CodexModelUsage]
+    daily: list[CodexDailyTokenUsage]
+
+
+def _iso_to_local_day_codex(ts: str) -> Optional[str]:
+    """Parse a Codex ISO timestamp (always Z-suffixed) and return the
+    local-tz ``YYYY-MM-DD`` for daily bucketing. Returns None on parse
+    failure rather than crashing the route on a single malformed row."""
+    try:
+        # Python 3.10's fromisoformat needs the offset spelled out.
+        norm = ts.replace("Z", "+00:00") if ts.endswith("Z") else ts
+        dt = datetime.fromisoformat(norm)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
+
+def _aggregate_codex_session_usage(jsonl_path: Path):
+    """Sum the per-turn ``token_count`` events in one rollout.
+
+    Walks the JSONL once, tracking the most-recent ``turn_context``
+    model so token_count events that follow are attributed to the
+    right model. Returns the same 8-tuple shape as the CC aggregator
+    so the merge loop downstream is identical:
+
+      (turns, input, output, cache_create, cache_read, last_iso,
+       per_model, per_day)
+
+    Malformed lines are skipped quietly — Codex can be mid-flush when
+    the route reads, and refusing to crash on a single bad row is the
+    same robustness contract the CC reader holds.
+    """
+    import json
+
+    turns = 0
+    inp = out = cc = cr = reasoning = 0
+    last_iso: Optional[str] = None
+    per_model: dict[str, dict[str, int]] = {}
+    per_day: dict[str, dict[str, int]] = {}
+    current_model = "codex"  # fallback if no turn_context seen yet
+
+    try:
+        with jsonl_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                rec_type = rec.get("type")
+                payload = rec.get("payload") or {}
+                if rec_type == "turn_context":
+                    m = payload.get("model")
+                    if isinstance(m, str) and m:
+                        current_model = m
+                    continue
+                if rec_type != "event_msg" or payload.get("type") != "token_count":
+                    continue
+                info = payload.get("info") or {}
+                # `last_token_usage` is the per-turn delta. Summing across
+                # all rows in a session reconstructs `total_token_usage`
+                # exactly, but lets us bucket by per-row timestamp.
+                last = info.get("last_token_usage") or {}
+                if not isinstance(last, dict):
+                    continue
+                turns += 1
+                total_in = int(last.get("input_tokens") or 0)
+                cached_in = int(last.get("cached_input_tokens") or 0)
+                t_out = int(last.get("output_tokens") or 0)
+                t_reasoning = int(last.get("reasoning_output_tokens") or 0)
+                # Codex's input_tokens INCLUDES the cached portion; CC's
+                # input_tokens is the uncached portion only. Subtract so
+                # the shared UI tile semantics line up.
+                uncached_in = max(0, total_in - cached_in)
+                inp += uncached_in
+                cr += cached_in
+                out += t_out
+                reasoning += t_reasoning
+                # cc (cache_creation) stays 0 — Codex has no equivalent.
+
+                mu = per_model.setdefault(current_model, {
+                    "turns": 0, "input": 0, "output": 0,
+                    "cache_create": 0, "cache_read": 0, "reasoning": 0,
+                })
+                mu["turns"] += 1
+                mu["input"] += uncached_in
+                mu["output"] += t_out
+                mu["cache_read"] += cached_in
+                mu["reasoning"] += t_reasoning
+
+                ts = rec.get("timestamp")
+                if isinstance(ts, str):
+                    last_iso = ts
+                    day = _iso_to_local_day_codex(ts)
+                    if day is not None:
+                        du = per_day.setdefault(day, {
+                            "turns": 0, "input": 0, "output": 0,
+                            "cache_create": 0, "cache_read": 0, "reasoning": 0,
+                        })
+                        du["turns"] += 1
+                        du["input"] += uncached_in
+                        du["output"] += t_out
+                        du["cache_read"] += cached_in
+                        du["reasoning"] += t_reasoning
+    except OSError:
+        # File locked / unreadable — treat as empty rather than 500.
+        pass
+    return turns, inp, out, cc, cr, reasoning, last_iso, per_model, per_day
+
+
+def _compute_codex_token_usage_sync() -> CodexTokenUsageResponse:
+    """Blocking aggregation across every rollout under
+    ``~/.codex/sessions/``. Called from the async route via
+    ``asyncio.to_thread`` so we don't block the event loop on a directory
+    walk + many file reads."""
+    if not CODEX_SESSIONS_DIR.is_dir():
+        return CodexTokenUsageResponse(
+            sessions=0, turns_with_usage=0,
+            input_tokens=0, output_tokens=0,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+            reasoning_output_tokens=0,
+            last_activity=None,
+            by_model=[],
+            daily=[],
+        )
+
+    sessions = 0
+    total_turns = 0
+    total_inp = total_out = total_cc = total_cr = total_reasoning = 0
+    latest_iso: Optional[str] = None
+    model_totals: dict[str, dict[str, int]] = {}
+    day_totals: dict[str, dict[str, int]] = {}
+
+    # Codex's layout is sessions/YYYY/MM/DD/rollout-*.jsonl — walk
+    # recursively rather than hardcoding the depth so a future layout
+    # change (e.g. weekly buckets) doesn't silently drop data.
+    for jsonl in CODEX_SESSIONS_DIR.rglob("rollout-*.jsonl"):
+        if not jsonl.is_file():
+            continue
+        sessions += 1
+        t, i, o, cc, cr, reasoning, last, per_model, per_day = (
+            _aggregate_codex_session_usage(jsonl)
+        )
+        total_turns += t
+        total_inp += i
+        total_out += o
+        total_cc += cc
+        total_cr += cr
+        total_reasoning += reasoning
+        if last:
+            if latest_iso is None:
+                latest_iso = last
+            else:
+                try:
+                    a = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                    b = datetime.fromisoformat(latest_iso.replace("Z", "+00:00"))
+                    if a > b:
+                        latest_iso = last
+                except ValueError:
+                    pass
+        for model, mu in per_model.items():
+            agg = model_totals.setdefault(model, {
+                "turns": 0, "input": 0, "output": 0,
+                "cache_create": 0, "cache_read": 0, "reasoning": 0,
+            })
+            for k, v in mu.items():
+                agg[k] += v
+        for day, du in per_day.items():
+            agg = day_totals.setdefault(day, {
+                "turns": 0, "input": 0, "output": 0,
+                "cache_create": 0, "cache_read": 0, "reasoning": 0,
+            })
+            for k, v in du.items():
+                agg[k] += v
+
+    by_model: list[CodexModelUsage] = [
+        CodexModelUsage(
+            model=model,
+            turns=mu["turns"],
+            input_tokens=mu["input"],
+            output_tokens=mu["output"],
+            cache_creation_input_tokens=mu["cache_create"],
+            cache_read_input_tokens=mu["cache_read"],
+            reasoning_output_tokens=mu["reasoning"],
+        )
+        for model, mu in model_totals.items()
+    ]
+    by_model.sort(
+        key=lambda m: m.input_tokens + m.output_tokens
+                    + m.cache_creation_input_tokens + m.cache_read_input_tokens
+                    + m.reasoning_output_tokens,
+        reverse=True,
+    )
+
+    daily: list[CodexDailyTokenUsage] = sorted(
+        (
+            CodexDailyTokenUsage(
+                day=day,
+                turns=du["turns"],
+                input_tokens=du["input"],
+                output_tokens=du["output"],
+                cache_creation_input_tokens=du["cache_create"],
+                cache_read_input_tokens=du["cache_read"],
+                reasoning_output_tokens=du["reasoning"],
+            )
+            for day, du in day_totals.items()
+        ),
+        key=lambda d: d.day,
+    )[-30:]
+
+    return CodexTokenUsageResponse(
+        sessions=sessions,
+        turns_with_usage=total_turns,
+        input_tokens=total_inp,
+        output_tokens=total_out,
+        cache_creation_input_tokens=total_cc,
+        cache_read_input_tokens=total_cr,
+        reasoning_output_tokens=total_reasoning,
+        last_activity=latest_iso,
+        by_model=by_model,
+        daily=daily,
+    )
+
+
+@router.get("/token-usage", response_model=CodexTokenUsageResponse)
+async def get_codex_token_usage() -> CodexTokenUsageResponse:
+    """Aggregate token usage across all Codex session rollouts.
+
+    Walks ``~/.codex/sessions/*/*/*/rollout-*.jsonl`` and sums each
+    rollout's ``token_count`` events. Returns zeros when the sessions
+    directory is missing — fresh installs that haven't run any Codex
+    sessions land here legitimately.
+
+    Runs the directory walk + file reads on a worker thread via
+    ``asyncio.to_thread`` so a long session log doesn't block the
+    FastAPI event loop. Matches the Claude Code endpoint's contract;
+    the frontend renders both via the same code path with only the
+    title and accent colour differing.
+    """
+    import asyncio
+    return await asyncio.to_thread(_compute_codex_token_usage_sync)
