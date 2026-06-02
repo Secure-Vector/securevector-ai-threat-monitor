@@ -41,14 +41,19 @@ const Sidebar = {
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
             // Grouped by integration mechanism so users pick the right install
-            // path at a glance. "Plugins" = native hooks (no proxy, no env vars);
-            // "Proxy / SDK" = base-URL redirect through the local proxy. (Page
-            // ids keep their historical `proxy-` prefix to avoid breaking routes.)
+            // path at a glance. "Plugins" = native host hooks (no proxy, no env
+            // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
+            // the plugin but its page also exposes a block-mode proxy. "Proxy" =
+            // tools you point at the local proxy's base URL (frameworks like
+            // LangChain/LangGraph/CrewAI, plus Ollama and n8n) — the shared
+            // mechanism is the proxy, not an SDK, so the label stays "Proxy".
+            // (Page ids keep their historical `proxy-` prefix to avoid breaking
+            // routes.)
             { header: 'Plugins' },
             { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-codex', label: 'Codex' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
-            { header: 'Proxy / SDK' },
+            { header: 'Proxy' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
