@@ -79,11 +79,23 @@ export SV_BASE_URL="http://localhost:9000"
 
 ## Hooks registered
 
-- **PreToolUse** (`hooks/pre-tool-use.js`) — blocks tool calls per the synced + local override rules; returns `permissionDecision: allow|deny|ask`.
-- **PostToolUse** (`hooks/post-tool-use.js`) — fire-and-forget audit POST to `/api/tool-permissions/call-audit` (tagged `runtime_kind=codex`). A second POST to `/analyze` runs only for tools whose `tool_input` is prose the agent emitted in natural language (`WebFetch`, `Skill`, `Task`, `Agent`) — syntax-shaped tools (Bash-like commands, file writes, source-code edits) are intentionally NOT scanned at `/analyze` to keep the false-positive rate down. A tool-response scan POST runs for `WebFetch` / `Read` / `Grep` / any `mcp__*` tool to catch indirect prompt injection and credentials in fetched content. Secrets are redacted via shared `lib/redact.js` before either POST.
+- **SessionStart** (`hooks/session-start.js`) — fires once when a Codex CLI session opens. Probes the local SecureVector app for reachability (one-line stderr note if down) and writes a `__session_start__` audit row (action=log_only, runtime_kind=codex). Adds clean session boundaries to the SHA-256 hash-chained audit log.
+- **PreToolUse** (`hooks/pre-tool-use.js`) — blocks tool calls per the synced + local override rules; returns `permissionDecision: deny` (or empty for implicit allow per Codex's contract). Every deny reason is prefixed with `SecureVector Guard:` so the host CLI's deny banner identifies the enforcer.
+- **PostToolUse** (`hooks/post-tool-use.js`) — fire-and-forget audit POST to `/api/tool-permissions/call-audit` (tagged `runtime_kind=codex`). A second POST to `/analyze` runs only for tools whose `tool_input` is prose the agent emitted in natural language (`WebFetch`, `Skill`, `Task`, `Agent`) — syntax-shaped tools (Bash-like commands, file writes, source-code edits) are intentionally NOT scanned at `/analyze` to keep the false-positive rate down. A tool-response scan POST runs for `WebFetch` / `Read` / `Grep` / `Bash` / `PowerShell` / any `mcp__*` tool to catch indirect prompt injection and credentials in fetched content. Secrets are redacted via shared `lib/redact.js` before either POST.
 - **UserPromptSubmit** (`hooks/user-prompt-submit.js`) — forwards every incoming prompt to local `/analyze` for injection / jailbreak scanning. Prompts are first redacted (`lib/redact.js` patterns: sk-/pk- / GitHub PAT / AWS AKIA / JWT / labelled credential kv-pairs) and capped at 8 KB before POST.
+- **Stop** (`hooks/stop.js`) — fires at Codex turn / session boundaries. Writes a `__session_end__` audit row (action=log_only) so forensic timelines have clean boundaries. Note: Codex's `Stop` may fire per-turn rather than only at session close — treat these rows as turn-boundary markers; filter by adjacency to the matching `__session_start__` row to reconstruct true sessions.
 
 All hooks fail-open: every error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Codex session. All POSTs target loopback (`http://127.0.0.1:8741` by default).
+
+### Hook trust review on upgrade
+
+Codex's hook engine hashes each hook's registration entry in `hooks.json` and stores the result in `~/.codex/config.toml` under `[hooks.state]` after you accept the trust prompt. **When the plugin upgrades and adds, removes, or changes a hook registration, those hashes no longer match — Codex marks the affected hooks as `Modified` and silently skips them** until you re-accept trust. To re-trust:
+
+1. Start a fresh Codex session (`codex` in a new terminal).
+2. On startup, Codex shows a "Review hooks" prompt listing the changed entries.
+3. Select **"Trust all and continue"** to accept the new hashes.
+
+This is expected Codex security behaviour, not a SecureVector bug — any change to which scripts the plugin asks Codex to spawn must be re-authorized. v4.4.0 added `SessionStart` and `Stop` registrations on top of the v4.3.0 `PreToolUse` / `PostToolUse` / `UserPromptSubmit` set, so every existing user upgrading from v4.3.0 → v4.4.0 will see the trust prompt once.
 
 ## Statusline
 
