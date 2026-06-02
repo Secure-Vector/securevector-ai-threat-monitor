@@ -7,12 +7,22 @@
 </div>
 
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
-- **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy, not just on a proxy.
+- **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
 - **Monitor by default, opt-in block mode** — drop-in observability with no breakage risk; flip block mode when ready.
 - **Token + cost tracking** — per-agent, per-model spend in real time.
-- **Works with** Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
+- **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
 - **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
+
+**Three native agent plugins — zero proxy, allow / deny / ask enforced inline:**
+
+| Plugin | Runtime | Hooks | Audit `runtime_kind` |
+|---|---|---|---|
+| **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `claude-code` |
+| **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `codex` |
+| **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
+
+All three plugins share the same enforcement core: one synced cloud rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
 
 **For teams (Cloud · opt-in):**
 
@@ -169,7 +179,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
+Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
 
 </td>
 <td valign="top">
@@ -190,7 +200,7 @@ Scan agent skills and tool packages before installing. Static analysis across 10
 </td>
 <td valign="top">
 
-Per-agent, per-model token and USD spend in real time. Daily budget limits with auto-stop. Claude Code plugin reads session transcripts locally to surface input / output / cache tokens with a 7-day trend chart.
+Per-agent, per-model token and USD spend in real time. Daily budget limits with auto-stop. Both the Claude Code plugin and the OpenAI Codex plugin read session transcripts locally (CC: `~/.claude/projects/*.jsonl`; Codex: `~/.codex/sessions/*/*/*/rollout-*.jsonl`) to surface input / output / cache tokens with a 7-day trend chart per runtime — no cloud round-trip, no token data leaves your machine.
 
 </td>
 </tr>
