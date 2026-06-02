@@ -41,4 +41,38 @@ function redactForScan(text) {
   return out;
 }
 
-module.exports = { SECRET_PATTERNS, redactForScan };
+/**
+ * Does `text` contain at least one credential / leak SHAPE worth
+ * scanning?
+ *
+ * Reuses the exact same `SECRET_PATTERNS` the redactor masks against, so
+ * the "is this worth sending to /analyze" decision can never drift from
+ * the "what do we mask" decision — one list, one source of truth.
+ *
+ * This is the gate for the high-volume, syntax-shaped command-output
+ * scan path (Bash / PowerShell `tool_response`). A multi-KB `strings
+ * <binary>` dump, a `grep` over source, a `sqlite3 .dump` — none of these
+ * contain a credential shape, so `hasCredentialMarkers` returns false and
+ * the blob is NOT shipped to /analyze. A `printenv` / `cat .env` output
+ * that DOES carry an `AKIA…` / `ghp_…` / PEM block returns true and is
+ * still scanned, preserving the output-leakage value of the feature.
+ *
+ * `RegExp.prototype.test` on a /g regex advances `lastIndex`, which would
+ * make repeated calls in-process flaky. We reset `lastIndex` to 0 before
+ * each test to stay stateless.
+ *
+ * Returns false for non-string / empty input (fail-open: nothing to gate).
+ */
+function hasCredentialMarkers(text) {
+  if (typeof text !== 'string' || text.length === 0) return false;
+  for (const pat of SECRET_PATTERNS) {
+    pat.lastIndex = 0;
+    if (pat.test(text)) {
+      pat.lastIndex = 0; // leave the shared regex object clean for redactForScan
+      return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { SECRET_PATTERNS, redactForScan, hasCredentialMarkers };

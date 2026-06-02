@@ -14,6 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   redact,
+  hasCredentialMarkers,
   extractScanText,
   extractScanTextFromResponse,
   effectToAction,
@@ -21,7 +22,14 @@ const {
   audit,
   RUNTIME_KIND,
   THREAT_SCAN_RESPONSE_TOOLS,
+  THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS,
 } = require('../../../../src/securevector/plugins/claude-code/hooks/post-tool-use.js');
+
+// Fake secrets are assembled from fragments at runtime so the literal
+// secret-shaped strings never appear in checked-in source (GitHub secret
+// scanning / IDE scanners match by literal regex). The joined string is
+// the exact byte stream the gate sees at test time.
+const _f = (...parts) => parts.join('');
 
 
 function stubFetch(stub) {
@@ -495,4 +503,132 @@ test('THREAT_SCAN_RESPONSE_TOOLS includes shell tools (issue #131)', () => {
   assert.ok(THREAT_SCAN_RESPONSE_TOOLS.has('PowerShell'));
   // Still excluded: Write / Edit — responses are confirmations, not content.
   assert.ok(!THREAT_SCAN_RESPONSE_TOOLS.has('Write'));
+});
+
+
+// --- response-scan marker gate (false-positive fix) ---------------------
+//
+// Command-output tools (Bash / PowerShell) are marker-gated: their
+// tool_response is sent to /analyze ONLY when it carries a credential
+// shape. This stops benign developer-tool output (`strings` dumps, `grep`,
+// `sqlite3`, KB of identifiers) from flooding the Threats UI with false
+// positives, while preserving credential-exfil detection.
+
+test('THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS gates exactly the command-output tools', () => {
+  // Bash + PowerShell are gated; context-facing tools never are.
+  assert.ok(THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('Bash'));
+  assert.ok(THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('PowerShell'));
+  assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('WebFetch'));
+  assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('Read'));
+  assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('Grep'));
+});
+
+test('hasCredentialMarkers: true for credential shapes, false for plain identifiers', () => {
+  assert.equal(hasCredentialMarkers(_f('gh', 'p_', 'abcdefghijklmnopqrst12345')), true);
+  assert.equal(hasCredentialMarkers(_f('AKIA', 'IOSFODNN7EXAMPLE')), true);
+  // A big blob of identifiers — what `strings <binary>` / `grep` emits.
+  const blob = Array.from({ length: 400 }, (_, i) => `_sym_${i}_handler_init_ptr`).join('\n');
+  assert.equal(hasCredentialMarkers(blob), false);
+  assert.equal(hasCredentialMarkers(''), false);
+  assert.equal(hasCredentialMarkers(null), false);
+});
+
+test('GATE: benign Bash strings-dump response is NOT sent to /analyze', async () => {
+  // A multi-KB `strings <binary>` dump: hundreds of plain C-symbol-shaped
+  // identifiers, no credential anywhere. This is the false-positive source.
+  const stringsDump = Array.from({ length: 600 }, (_, i) =>
+    `_OBJC_CLASS_$_SVThing${i} __mh_execute_header dyld_stub_binder _objc_msgSend`
+  ).join('\n');
+  let analyzeFired = false;
+  let auditFired = false;
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) analyzeFired = true;
+    if (opts && opts.method === 'POST' && url.endsWith('/call-audit')) auditFired = true;
+    if (opts && opts.method === 'POST') return new Response('{}');
+    return new Response(JSON.stringify({ synced: [], total: 0 }));
+  });
+  try {
+    await audit({
+      tool_name: 'Bash',
+      tool_input: { command: 'strings /usr/lib/libSystem.dylib' },
+      tool_response: { stdout: stringsDump },
+    }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(analyzeFired, false, 'benign strings-dump must NOT trigger /analyze');
+    assert.equal(auditFired, true, 'audit row must still land (always-on chain)');
+  } finally { restore(); }
+});
+
+test('GATE: Bash response WITH a credential shape (ghp_ token) IS sent to /analyze', async () => {
+  // Same Bash path, but the stdout actually leaks a GitHub PAT — the gate
+  // must let this through so the output-leakage feature still works.
+  const leaked = _f('GITHUB_TOKEN=', 'gh', 'p_', '1234567890abcdefghijklmnopqrstuv0000', '\nPATH=/usr/bin');
+  const analyzePosts = [];
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
+      analyzePosts.push(JSON.parse(opts.body));
+      return new Response('{}');
+    }
+    if (opts && opts.method === 'POST') return new Response('{}');
+    return new Response(JSON.stringify({ synced: [], total: 0 }));
+  });
+  try {
+    await audit({
+      tool_name: 'Bash',
+      tool_input: { command: 'printenv' },
+      tool_response: { stdout: leaked },
+    }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    const incoming = analyzePosts.find(p => p.direction === 'incoming');
+    assert.ok(incoming, 'credential-bearing Bash stdout SHOULD trigger an incoming scan');
+    assert.equal(incoming.metadata.scan_target, 'tool_response');
+    assert.match(incoming.text, /ghp_/, 'raw stdout (incl. the token shape) goes to /analyze for server-side redaction');
+  } finally { restore(); }
+});
+
+test('GATE: Bash response with a PEM private key block IS sent to /analyze', async () => {
+  const pem = _f('-----BEGIN ', 'RSA ', 'PRIVATE KEY', '-----\n',
+    'MIIEowIBAAKCAQEAasdfghjklqwertyuiopzxcvbnm0123456789\n', '-----END ', 'RSA ', 'PRIVATE KEY', '-----');
+  const analyzePosts = [];
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
+      analyzePosts.push(JSON.parse(opts.body));
+      return new Response('{}');
+    }
+    if (opts && opts.method === 'POST') return new Response('{}');
+    return new Response(JSON.stringify({ synced: [], total: 0 }));
+  });
+  try {
+    await audit({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat ~/.ssh/id_rsa' },
+      tool_response: { stdout: pem },
+    }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.ok(analyzePosts.find(p => p.direction === 'incoming'), 'PEM-bearing Bash stdout SHOULD be scanned');
+  } finally { restore(); }
+});
+
+test('GATE: context-facing tools (Grep) bypass the gate — scanned even with plain identifiers', async () => {
+  // A Grep response is fetched content the agent treats as instructions —
+  // an Indirect Prompt Injection surface — so it is scanned UNCONDITIONALLY,
+  // marker or not. The gate applies only to command-output tools.
+  const analyzePosts = [];
+  const restore = stubFetch(async (url, opts) => {
+    if (opts && opts.method === 'POST' && url.endsWith('/analyze')) {
+      analyzePosts.push(JSON.parse(opts.body));
+      return new Response('{}');
+    }
+    if (opts && opts.method === 'POST') return new Response('{}');
+    return new Response(JSON.stringify({ synced: [], total: 0 }));
+  });
+  try {
+    await audit({
+      tool_name: 'Grep',
+      tool_input: { pattern: 'TODO' },
+      tool_response: { matches: ['src/a.js:12: // TODO refactor', 'src/b.js:88: // TODO test'] },
+    }, 'http://127.0.0.1:8741');
+    await new Promise(r => setTimeout(r, 5));
+    assert.ok(analyzePosts.find(p => p.direction === 'incoming'), 'Grep response must scan regardless of markers (IDPI surface)');
+  } finally { restore(); }
 });

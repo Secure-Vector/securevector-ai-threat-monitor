@@ -29,7 +29,7 @@
 
 const { normalize } = require('../lib/normalize.js');
 const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
-const { SECRET_PATTERNS, redactForScan } = require('../lib/redact.js');
+const { SECRET_PATTERNS, redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 200;
@@ -98,6 +98,32 @@ const THREAT_SCAN_RESPONSE_TOOLS = new Set([
   'PowerShell',
 ]);
 const THREAT_SCAN_RESPONSE_LIMIT = 16000; // bytes — bigger than input cap; tool responses are denser content.
+
+// Tools whose `tool_response` is command output (shell stdout/stderr) —
+// syntax-shaped, high-volume, mostly benign developer noise. `strings
+// <binary>` dumps, `grep`/`ripgrep` over source, `sqlite3 .dump`, package
+// listings, build logs: tens of KB of plain identifiers with no secret in
+// sight. Shipping these whole to /analyze trips the credential / leakage
+// rules and floods the Threats UI with false positives.
+//
+// So the response scan for these tools is OPT-IN, matching the project
+// principle the OUTGOING Bash path already follows (THREAT_SCAN_TOOLS
+// excludes Bash entirely): we scan the response ONLY when it actually
+// carries a credential SHAPE (`hasCredentialMarkers` — same SECRET_PATTERNS
+// the redactor masks against: AKIA…, ghp_…, sk-…, JWT eyJ…, PEM blocks,
+// `password=` / `api_key:` kv-pairs, etc.). A `printenv` / `cat .env` that
+// leaks `AWS_ACCESS_KEY_ID=AKIA…` still gets scanned — the output-leakage
+// value of the feature is preserved — but a benign `strings`-dump blob is
+// skipped.
+//
+// Context-facing tools (WebFetch / Read / Grep / every MCP tool) are NOT
+// in this set: their responses are fetched content the agent will treat as
+// instructions, so they remain scanned UNCONDITIONALLY for Indirect Prompt
+// Injection regardless of whether a credential shape is present.
+const THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS = new Set([
+  'Bash',
+  'PowerShell',
+]);
 
 // `SECRET_PATTERNS` + `redactForScan` are imported from ../lib/redact.js
 // so post-tool-use and user-prompt-submit can never drift apart on the
@@ -337,9 +363,15 @@ async function audit(event, baseUrl) {
   // Scanned for: WebFetch / Read / Grep (built-in) and EVERY MCP tool
   // (any tool_name prefixed `mcp__`). MCP responses are third-party
   // trust boundaries — the supply-chain inventory problem made
-  // operational. Excluded for v1: Bash stdout (too noisy until shell-
-  // output rules harden), Write / Edit / Skill (responses are ack-only
+  // operational. Excluded: Write / Edit / Skill (responses are ack-only
   // or aren't fetched content).
+  //
+  // Command-output tools (Bash / PowerShell) are MARKER-GATED: their
+  // stdout/stderr is scanned only when it carries a credential shape (see
+  // THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS). This stops benign
+  // developer-tool output (`strings` dumps, `grep`, `sqlite3`, tens of KB
+  // of identifiers) from flooding the Threats UI with false positives,
+  // while still catching `printenv` / `cat .env` credential exfil.
   //
   // Fire-and-forget; never blocks the host CLI.
   const isMcpTool = typeof toolName === 'string' && toolName.startsWith('mcp__');
@@ -352,7 +384,14 @@ async function audit(event, baseUrl) {
       rawResponseText = extractScanTextFromResponse(tr);
     } catch { /* swallow — fail-open */ }
 
-    if (rawResponseText.length > 0) {
+    // Marker gate for syntax-shaped command output: only scan when a
+    // credential shape is actually present. Context-facing tools
+    // (WebFetch / Read / Grep / MCP) bypass the gate — they're scanned
+    // unconditionally for Indirect Prompt Injection.
+    const markerGated = THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has(toolName);
+    const passesGate = !markerGated || hasCredentialMarkers(rawResponseText);
+
+    if (rawResponseText.length > 0 && passesGate) {
       const scanText = rawResponseText.length > THREAT_SCAN_RESPONSE_LIMIT
         ? rawResponseText.slice(0, THREAT_SCAN_RESPONSE_LIMIT)
         : rawResponseText;
@@ -402,4 +441,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { redact, redactForScan, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, RUNTIME_KIND };
+module.exports = { redact, redactForScan, hasCredentialMarkers, extractScanText, extractScanTextFromResponse, effectToAction, pickMatch, audit, THREAT_SCAN_TOOLS, THREAT_SCAN_RESPONSE_TOOLS, THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS, RUNTIME_KIND };
