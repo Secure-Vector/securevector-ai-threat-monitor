@@ -570,7 +570,7 @@ const ToolPermissionsPage = {
 
         const toggleDesc = document.createElement('span');
         toggleDesc.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4; max-width: 320px;';
-        toggleDesc.textContent = 'When ON, the proxy actively intercepts tool calls and enforces your block/allow rules. When OFF, all tool calls pass through unblocked (monitor only).';
+        toggleDesc.textContent = 'When ON, enforces your block/allow rules across the proxy and every installed agent plugin (Claude Code, Codex, OpenClaw). When OFF, all tool calls pass through unblocked (monitor only).';
         toggleTextCol.appendChild(toggleDesc);
 
         toggleWrap.appendChild(toggleTextCol);

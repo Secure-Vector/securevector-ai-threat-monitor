@@ -20,6 +20,7 @@ from securevector.app.database.repositories.tool_permissions import (
 from securevector.app.database.repositories.custom_tools import (
     CustomToolsRepository,
 )
+from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.core.tool_permissions.engine import (
     load_essential_registry,
     get_risk_score,
@@ -384,6 +385,28 @@ async def get_synced_overrides():
         )
 
         db = get_database()
+
+        # Global enforcement kill-switch. When the Tool Permissions page's
+        # "Enforcement" toggle is OFF the user expects nothing to be
+        # blocked anywhere — proxy AND plugin hooks. The proxy already
+        # short-circuits on its own settings check, but agent plugins
+        # (CC / Codex / OpenClaw) consult this endpoint as their only
+        # decision oracle. Returning an empty synced list here makes
+        # every plugin's `decideFromOverrides` fail-open to allow,
+        # which matches the toggle's stated "monitor only" semantics.
+        # PostToolUse audit POSTs are unaffected so the user still sees
+        # every call in Tool Activity — just no blocks.
+        try:
+            settings_repo = SettingsRepository(db)
+            app_settings = await settings_repo.get()
+            if not app_settings.tool_permissions_enabled:
+                return {"synced": [], "total": 0}
+        except Exception as e:
+            logger.warning(
+                "Settings fetch failed in /synced-overrides; "
+                "defaulting to enforcement-on: %s", e,
+            )
+
         synced_repo = SyncedRulesRepository(db)
         rows = await synced_repo.list_all()
 
