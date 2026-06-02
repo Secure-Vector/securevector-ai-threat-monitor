@@ -1152,6 +1152,16 @@ def _compute_codex_token_usage_sync() -> CodexTokenUsageResponse:
     )
 
 
+# Short-TTL in-process cache for the token-usage aggregation. The walk over
+# ``~/.codex/sessions/*/*/*/rollout-*.jsonl`` is disk-bound and the dashboard
+# re-requests it on every navigation; without a cache that re-walks the tree
+# each time (the sibling Claude Code endpoint can take ~1.7s). 60s keeps the
+# chart fresh enough while collapsing repeated loads to one walk. Cleared
+# implicitly by process restart; no manual invalidation needed.
+_TOKEN_USAGE_TTL_SECONDS = 60.0
+_token_usage_cache: dict = {"ts": 0.0, "value": None}
+
+
 @router.get("/token-usage", response_model=CodexTokenUsageResponse)
 async def get_codex_token_usage() -> CodexTokenUsageResponse:
     """Aggregate token usage across all Codex session rollouts.
@@ -1163,9 +1173,21 @@ async def get_codex_token_usage() -> CodexTokenUsageResponse:
 
     Runs the directory walk + file reads on a worker thread via
     ``asyncio.to_thread`` so a long session log doesn't block the
-    FastAPI event loop. Matches the Claude Code endpoint's contract;
+    FastAPI event loop, and memoises the result for
+    ``_TOKEN_USAGE_TTL_SECONDS`` so repeated dashboard loads don't
+    re-walk the tree. Matches the Claude Code endpoint's contract;
     the frontend renders both via the same code path with only the
     title and accent colour differing.
     """
     import asyncio
-    return await asyncio.to_thread(_compute_codex_token_usage_sync)
+    import time
+
+    now = time.monotonic()
+    cached = _token_usage_cache["value"]
+    if cached is not None and (now - _token_usage_cache["ts"]) < _TOKEN_USAGE_TTL_SECONDS:
+        return cached
+
+    result = await asyncio.to_thread(_compute_codex_token_usage_sync)
+    _token_usage_cache["ts"] = time.monotonic()
+    _token_usage_cache["value"] = result
+    return result

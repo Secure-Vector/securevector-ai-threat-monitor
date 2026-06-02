@@ -1112,6 +1112,15 @@ def _compute_token_usage_sync() -> TokenUsageResponse:
     )
 
 
+# Short-TTL in-process cache for the token-usage aggregation. Walking
+# ``~/.claude/projects/*/*.jsonl`` is the slowest dashboard data source
+# (~1.7s with many transcripts) and the dashboard re-requests it on every
+# navigation. 60s keeps the chart fresh while collapsing repeated loads to a
+# single walk. Cleared implicitly on process restart; no manual invalidation.
+_TOKEN_USAGE_TTL_SECONDS = 60.0
+_token_usage_cache: dict = {"ts": 0.0, "value": None}
+
+
 @router.get("/token-usage", response_model=TokenUsageResponse)
 async def get_token_usage() -> TokenUsageResponse:
     """Aggregate token usage across all Claude Code session transcripts.
@@ -1129,7 +1138,18 @@ async def get_token_usage() -> TokenUsageResponse:
 
     The actual filesystem walk + per-line parse runs in a thread pool
     via ``asyncio.to_thread`` so a user with hundreds of jsonl files
-    doesn't stall the event loop for every other request. Aggregation
-    is pure CPU once the I/O is done — fine to keep in one helper.
+    doesn't stall the event loop, and the result is memoised for
+    ``_TOKEN_USAGE_TTL_SECONDS`` so repeated dashboard loads don't
+    re-walk the transcript tree.
     """
-    return await asyncio.to_thread(_compute_token_usage_sync)
+    import time
+
+    now = time.monotonic()
+    cached = _token_usage_cache["value"]
+    if cached is not None and (now - _token_usage_cache["ts"]) < _TOKEN_USAGE_TTL_SECONDS:
+        return cached
+
+    result = await asyncio.to_thread(_compute_token_usage_sync)
+    _token_usage_cache["ts"] = time.monotonic()
+    _token_usage_cache["value"] = result
+    return result

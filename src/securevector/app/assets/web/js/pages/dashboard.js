@@ -568,7 +568,7 @@ const DashboardPage = {
         // the whole charts row AND everything rendered below it (security
         // controls, recent activity). Fire-and-forget so the page is
         // interactive immediately; the chart fills in when its data arrives.
-        costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Loading…</div>';
+        costBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(costTrendCard);
         this.renderCostTrendChart(costBody, costTrendCard).catch(() => {
             costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
