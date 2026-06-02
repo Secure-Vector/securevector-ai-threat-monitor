@@ -506,7 +506,7 @@ const CostsPage = {
         grid.appendChild(tile('Input', fmt(usage.input_tokens), 'uncached'));
         grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
         grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated'));
-        grid.appendChild(tile('Reasoning', fmt(usage.reasoning_output_tokens || 0), 'output, hidden'));
+        grid.appendChild(tile('Reasoning', fmt(usage.reasoning_output_tokens || 0), 'hidden reasoning output'));
         panel.appendChild(grid);
 
         // Cost row — "Not applicable" only. Same rationale as CC.

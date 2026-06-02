@@ -1264,8 +1264,8 @@ const DashboardPage = {
         tooltip.style.cssText = [
             'position:absolute', 'pointer-events:none', 'opacity:0',
             'transition:opacity 0.08s', 'z-index:5', 'white-space:nowrap',
-            'background:var(--bg-elevated, #1e1e1e)', 'color:var(--text-primary, #fff)',
-            'border:1px solid var(--border-default, #444)', 'border-radius:6px',
+            'background:var(--bg-card)', 'color:var(--text-primary)',
+            'border:1px solid var(--border-default)', 'border-radius:6px',
             'padding:4px 8px', 'font-size:11px', 'font-weight:600',
             'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
         ].join(';');
@@ -1413,9 +1413,11 @@ const DashboardPage = {
         };
 
         // One bucket-aligned token array per runtime. Colors match each
-        // plugin's accent used elsewhere (Codex coral, Claude Code purple).
+        // plugin's canonical accent used elsewhere in the app (Codex coral
+        // #C0655E — sidebar banner, costs panel, tool-permissions; Claude Code
+        // cyan #06b6d4). Keep these in sync with those surfaces.
         const RUNTIMES = [
-            { key: 'codex', label: 'Codex', color: '#e8835a', url: '/api/hooks/codex/token-usage' },
+            { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
             { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
         ];
 

@@ -926,7 +926,7 @@ def chat_with_protection(user_input):
                 span.textContent = 'Installed, not enabled · enable in Claude Code then /reload-plugins';
             } else if (state === 'staged') {
                 span.style.color = 'var(--warning)';
-                span.textContent = 'Staged · auto-install was skipped — click Install Plugin to register, or use the optional fallback below';
+                span.textContent = 'Staged · click Install Plugin to register';
             } else if (state === 'not-staged') {
                 statusPill.style.color = 'var(--text-secondary)';
                 span.style.fontWeight = '400';
@@ -1310,7 +1310,7 @@ def chat_with_protection(user_input):
                 span.textContent = 'Installed, not enabled · enable in ~/.codex/config.toml';
             } else if (state === 'staged') {
                 span.style.color = 'var(--warning)';
-                span.textContent = 'Staged · auto-install was skipped — click Install Plugin to register, or use the optional fallback below';
+                span.textContent = 'Staged · click Install Plugin to register';
             } else if (state === 'not-staged') {
                 statusPill.style.color = 'var(--text-secondary)';
                 span.style.fontWeight = '400';

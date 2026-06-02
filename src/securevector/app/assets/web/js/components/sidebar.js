@@ -40,9 +40,15 @@ const Sidebar = {
         // one regulated buyers ask about first.
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            // Grouped by integration mechanism so users pick the right install
+            // path at a glance. "Plugins" = native hooks (no proxy, no env vars);
+            // "Proxy / SDK" = base-URL redirect through the local proxy. (Page
+            // ids keep their historical `proxy-` prefix to avoid breaking routes.)
+            { header: 'Plugins' },
             { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-codex', label: 'Codex' },
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            { header: 'Proxy / SDK' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
@@ -325,6 +331,16 @@ const Sidebar = {
                 const subNewItems = ['proxy-codex', 'bill-of-tools', 'redactions'];
 
                 item.subItems.forEach(subItem => {
+                    // Non-clickable section header (groups the integration list
+                    // by mechanism). Rendered as a small muted uppercase label.
+                    if (subItem.header) {
+                        const hdr = document.createElement('div');
+                        hdr.textContent = subItem.header;
+                        hdr.style.cssText = 'padding: 8px 12px 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); opacity: 0.7; pointer-events: none;';
+                        subNav.appendChild(hdr);
+                        return;
+                    }
+
                     const subNavItem = document.createElement('div');
                     subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
