@@ -102,7 +102,11 @@ def _build_client(monkeypatch, engine_result):
         async def get(self):
             return settings
 
-    monkeypatch.setattr(analyze_mod, "get_database", lambda: object())
+    # `object` is itself the zero-arg callable returning a fresh sentinel —
+    # `get_database()` only needs to return *something* truthy for the repos
+    # we stub below. Pass it directly rather than wrapping in a lambda
+    # (CodeQL py/unnecessary-lambda).
+    monkeypatch.setattr(analyze_mod, "get_database", object)
     monkeypatch.setattr(analyze_mod, "SettingsRepository", _SettingsRepo)
     monkeypatch.setattr(analyze_mod, "ThreatIntelRepository", _SpyThreatIntelRepo)
     monkeypatch.setattr(analyze_mod, "RedactionsRepository", _NoopRedactionsRepo)
