@@ -847,6 +847,7 @@ def _infer_mcp_scope(tool_name: str) -> Optional[str]:
 _RUNTIME_LABELS = {
     "claude-code":  "Claude Code",
     "claude_code":  "Claude Code",
+    "codex":        "Codex",
     "openclaw":     "OpenClaw",
     "langchain":    "LangChain",
     "langgraph":    "LangGraph",
