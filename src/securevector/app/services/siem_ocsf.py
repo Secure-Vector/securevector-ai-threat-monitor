@@ -257,6 +257,18 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
         # Withheld at the `minimal` tier because that tier
         # intentionally strips everything beyond the SOC-correlation
         # essentials.
+        #
+        # ASYMMETRY CONTRACT (intentional, not a bug): the 1007 tool-audit
+        # encoder (`encode_tool_audit_event`) emits runtime_kind
+        # UNCONDITIONALLY — at every tier including minimal — because the
+        # audit row's whole value is per-agent attribution of which
+        # runtime made a tool call. Here, on the 2001 scan finding,
+        # runtime_kind is gated behind standard+. A SOC correlating a
+        # minimal-tier scan finding with its audit event will therefore
+        # find runtime_kind on the audit side but NOT on the scan side;
+        # that is by design (scan minimal = SOC-correlation essentials
+        # only), not a dropped field. See the matching note in
+        # `encode_tool_audit_event`.
         if payload.get("runtime_kind"):
             unmapped["runtime_kind"] = str(payload["runtime_kind"])
 
@@ -347,6 +359,17 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
     # `unmapped` (not a first-class OCSF field) and stays a
     # nullable string for forward-compat with rows that pre-date
     # the column.
+    #
+    # ASYMMETRY CONTRACT (intentional, not a bug): this is emitted
+    # UNCONDITIONALLY — at every redaction tier, including minimal —
+    # whereas the 2001 scan encoder (`encode_scan_event`) WITHHOLDS
+    # runtime_kind at the minimal tier. Per-agent attribution is the
+    # core purpose of an audit row, so it survives even minimal
+    # redaction; a scan finding's minimal tier is pared to
+    # SOC-correlation essentials only. Net effect: a SOC correlating a
+    # minimal-tier scan event with its audit event sees runtime_kind on
+    # the audit side but not the scan side — expected, not a regression.
+    # See the matching note in `encode_scan_event`.
     if payload.get("runtime_kind"):
         unmapped["runtime_kind"] = str(payload["runtime_kind"])
 

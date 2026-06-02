@@ -356,21 +356,34 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         #     PEM blocks, and `api_key:`/`password=`/`bearer ` followed by a
         #     value. A hit on any of these is a real, high-signal leak.
         #   - LOOSE heuristic shapes — a bulleted/numbered line whose token
-        #     merely contains a letter+digit+symbol, or the bare
-        #     `Word##!sym` "looks-like-a-password" shape. These fire on
-        #     everyday text (code review prose, config snippets, changelogs)
-        #     and produce the false-positive flood.
+        #     merely contains a letter+digit+symbol. These fire on everyday
+        #     text (code review prose, config snippets, changelogs) and
+        #     produce the false-positive flood.
         #
         # We can't read a confidence the engine never emits, so we judge
         # signal by the matched REGEX itself: if a rule's ONLY surviving
         # matched patterns are loose heuristic shapes (no structured-secret
         # pattern hit), the match is low-signal and is dropped. A genuine
         # secret leak hits a structured pattern and survives untouched.
+        #
+        # IMPORTANT — these fragments MUST be live substrings of the CURRENT
+        # `sv_community_output_001_credential_leak` patterns, or the filter
+        # silently goes dead (always returns False) and the FP flood comes
+        # back. They are distinctive substrings of the bulleted/numbered
+        # entropy-token heuristic, which is the only LOOSE-shape arm still
+        # present in the YAML (the bare `Word##!sym` arm was removed when
+        # the rule was tightened). Picked the symbol-lookahead and the
+        # token-body class because both appear ONLY in that loose arm and in
+        # no structured-secret pattern (verified against the whole rule
+        # pack), so a structured hit is never mistaken for low-signal:
+        #   - `(?=[^\s]*[!@#$%^&*])` — the special-char lookahead.
+        #   - `[^\s/:.@_]{8,}`       — the bulleted-token body class.
         _LOOSE_HEURISTIC_PATTERN_FRAGMENTS = (
-            # Bulleted/numbered line + entropy-token lookahead heuristic.
-            r"(?=[^\s]*[A-Za-z])(?=[^\s]*[0-9])(?=[^\s]*[!@#$%^&*_#])",
-            # Bare "Word digits symbol" password-shape heuristic.
-            r"[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_]",
+            # Special-char lookahead from the bulleted-token heuristic.
+            r"(?=[^\s]*[!@#$%^&*])",
+            # Token body of the bulleted-token heuristic (excludes path/URL
+            # delimiters + underscore — see the rule's own comment).
+            r"[^\s/:.@_]{8,}",
         )
 
         def _is_loose_heuristic_pattern(pattern: str) -> bool:

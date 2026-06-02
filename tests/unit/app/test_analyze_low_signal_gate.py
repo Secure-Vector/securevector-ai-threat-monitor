@@ -30,14 +30,23 @@ from securevector.app.server.routes import analyze as analyze_mod
 from securevector.app.database.repositories.settings import AppSettings
 
 
-# --- The two loose heuristic regex fragments straight from the credential
-#     leak rule. A match whose only matched_patterns are these must NOT be
-#     recorded. The structured patterns (ghp_/AKIA/sk-/JWT/api_key:…) must be.
+# --- Loose heuristic regex patterns straight from the CURRENT credential
+#     leak rule (`sv_community_output_001_credential_leak`). A match whose
+#     only matched_patterns are loose shapes must NOT be recorded; the
+#     structured patterns (ghp_/AKIA/sk-/JWT/api_key:…) must be.
+#
+# These mirror the verbatim YAML so the realigned
+# `_LOOSE_HEURISTIC_PATTERN_FRAGMENTS` in analyze.py (the special-char
+# lookahead + the `[^\s/:.@_]{8,}` token body) are genuine substrings of
+# them — keeping the low-signal filter LIVE. If the YAML bulleted pattern
+# changes, update both it and these constants together.
 _LOOSE_BULLET_PATTERN = (
     r"(?:^|\n)\s{0,4}(?:[•\-\*]|\d+[\.)\]])\s*`?"
-    r"(?=[^\s]*[A-Za-z])(?=[^\s]*[0-9])(?=[^\s]*[!@#$%^&*_#])[^\s/:.@]{8,}`?"
+    r"(?=[^\s]*[A-Za-z])(?=[^\s]*[0-9])(?=[^\s]*[!@#$%^&*])[^\s/:.@_]{8,}`?"
 )
-_LOOSE_PASSWORD_SHAPE_PATTERN = r"[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{1,15}"
+# A second loose-shape stand-in carrying only the token-body fragment, used
+# to prove a multi-pattern heuristic-only hit is still classified low-signal.
+_LOOSE_TOKEN_BODY_PATTERN = r"`?[^\s/:.@_]{8,}`?"
 _STRUCTURED_GHP_PATTERN = r"ghp_[a-zA-Z0-9]{36}"
 
 
@@ -141,7 +150,7 @@ def test_low_signal_heuristic_only_match_is_not_recorded(monkeypatch):
                 "source": "community",
                 "matched_patterns": [
                     _LOOSE_BULLET_PATTERN,
-                    _LOOSE_PASSWORD_SHAPE_PATTERN,
+                    _LOOSE_TOKEN_BODY_PATTERN,
                 ],
             }
         ],
@@ -209,7 +218,7 @@ def test_mixed_match_keeps_structured_pattern(monkeypatch):
                 "severity": "critical",
                 "source": "community",
                 "matched_patterns": [
-                    _LOOSE_PASSWORD_SHAPE_PATTERN,
+                    _LOOSE_TOKEN_BODY_PATTERN,
                     _STRUCTURED_GHP_PATTERN,
                 ],
             }

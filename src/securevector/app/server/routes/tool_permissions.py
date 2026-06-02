@@ -362,6 +362,18 @@ async def get_overrides():
 async def get_synced_overrides():
     """Effective tool-permission decisions, in proxy-friendly shape.
 
+    ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
+    the set of rules that are CURRENTLY ENFORCED, which is gated on the
+    global enforcement kill-switch (`settings.tool_permissions_enabled`).
+    When enforcement is OFF it returns `{"synced": [], "total": 0}` even
+    though synced rules and local overrides may still be configured in
+    their tables. A UI consumer MUST NOT read an empty result as "no rules
+    configured" — it can equally mean "enforcement is disabled, so nothing
+    is being enforced right now." To list the configured rules regardless
+    of enforcement state, query the underlying sources instead:
+    `/tool-permissions/essential` (effective per-tool view incl. synced +
+    overrides) and `/tool-permissions/overrides` (raw local overrides).
+
     Despite the historical name, this endpoint now merges TWO sources:
       1. Cloud-pushed synced rules (from `synced_rules` table)
       2. Local user overrides set via the Tool Permissions UI's
