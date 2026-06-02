@@ -280,3 +280,66 @@ def test_backup_no_op_when_no_existing_config(tmp_path, monkeypatch):
     assert not backup.exists(), (
         "no original file → no backup; empty backup would be misleading"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Hook trust drift — v4.4.1 regression fix
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_strip_removes_hook_trust_entries():
+    """Real-world failure mode v4.4.0 shipped with: bumping the plugin
+    from 3 hooks to 5 hooks (added SessionStart + Stop) changed the
+    hooks.json fingerprint but Codex retained the old 3 trust hashes.
+    Codex's behaviour: silently skip ALL hooks from the file until the
+    user re-trusts. The UI shows Block but tool calls fly through.
+
+    Reinstalling must strip our trust entries so Codex re-prompts the
+    user on next session — guaranteeing the new hook set gets blessed
+    together with the old ones."""
+    text = (
+        '[plugins."securevector-guard@securevector-local"]\n'
+        "enabled = true\n"
+        "\n"
+        '[hooks.state]\n'
+        "\n"
+        '[hooks.state."securevector-guard@securevector-local:hooks/hooks.json:pre_tool_use:0:0"]\n'
+        'trusted_hash = "sha256:abc123"\n'
+        "\n"
+        '[hooks.state."securevector-guard@securevector-local:hooks/hooks.json:post_tool_use:0:0"]\n'
+        'trusted_hash = "sha256:def456"\n'
+        "\n"
+        '[hooks.state."some-other-plugin@market:hooks/hooks.json:pre_tool_use:0:0"]\n'
+        'trusted_hash = "sha256:ghi789"\n'
+        "\n"
+        "[marketplaces.something-else]\n"
+        'source = "/tmp/x"\n'
+    )
+    cleaned = hooks_codex._strip_our_sections(text)
+    # Our trust entries are gone:
+    assert "securevector-guard@securevector-local:hooks/hooks.json:pre_tool_use" not in cleaned
+    assert "securevector-guard@securevector-local:hooks/hooks.json:post_tool_use" not in cleaned
+    assert "abc123" not in cleaned
+    assert "def456" not in cleaned
+    # Other plugins' trust entries survive — we only touch our own.
+    assert "some-other-plugin@market" in cleaned
+    assert "ghi789" in cleaned
+    # Unrelated section also survives.
+    assert "[marketplaces.something-else]" in cleaned
+
+
+def test_strip_leaves_hook_state_marker_alone_when_no_entries_for_us():
+    """A bare `[hooks.state]` parent header with no children of ours
+    must NOT be stripped — it may belong to (or be shared with) other
+    plugins' trust entries. Only entries whose key starts with our
+    INSTALL_KEY are ours to drop."""
+    text = (
+        '[hooks.state]\n'
+        "\n"
+        '[hooks.state."some-other-plugin@market:hooks/hooks.json:pre_tool_use:0:0"]\n'
+        'trusted_hash = "sha256:zzz"\n'
+    )
+    cleaned = hooks_codex._strip_our_sections(text)
+    assert "[hooks.state]" in cleaned
+    assert "some-other-plugin@market" in cleaned
+    assert "zzz" in cleaned

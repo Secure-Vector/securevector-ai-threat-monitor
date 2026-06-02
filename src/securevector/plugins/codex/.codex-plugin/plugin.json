@@ -26,22 +26,10 @@
       "Show me my recent Codex tool calls in SecureVector."
     ],
     "screenshots": [
-      {
-        "url": "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/dashboard.png",
-        "caption": "Dashboard — live tool calls, threats, and per-runtime activity"
-      },
-      {
-        "url": "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-permissions-light.png",
-        "caption": "Tool Permissions — block exec_command, apply_patch, or any Codex tool with one click"
-      },
-      {
-        "url": "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-activity-detail.png",
-        "caption": "Tool Activity — every Codex call recorded into a SHA-256 hash-chained audit log"
-      },
-      {
-        "url": "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/costs-light.png",
-        "caption": "Cost Tracking — per-harness session token panels sourced from Codex's local rollouts"
-      }
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/dashboard.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-permissions-light.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-activity-detail.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/costs-light.png"
     ]
   }
 }

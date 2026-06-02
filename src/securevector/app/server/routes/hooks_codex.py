@@ -229,6 +229,20 @@ _OUR_SECTION_HEADERS = (
     f'[plugins."{INSTALL_KEY}"]',
 )
 
+# Codex caches per-hook trust under
+# `[hooks.state."<plugin>@<marketplace>:hooks/hooks.json:<event>:<i>:<j>"]`.
+# When the plugin's hooks.json changes (e.g. v4.4 added SessionStart +
+# Stop hooks), Codex sees the new registrations as untrusted AND silently
+# skips ALL hooks from the file until the user re-trusts the plugin.
+# That manifests as enforcement silently disappearing after upgrade —
+# the user sees their Block in the UI, but tool calls fly through.
+#
+# To defend against this, every install / reinstall strips our trust
+# entries from config.toml so Codex re-prompts on next session start.
+# The user re-trusts once and every event (including the freshly added
+# ones) gets blessed in the same prompt.
+_HOOK_STATE_PREFIX = f'[hooks.state."{INSTALL_KEY}:'
+
 # Matches a real TOML section header line: optional leading whitespace,
 # `[...]` content (rejects table-array `[[...]]` since none of ours use
 # it), optional trailing whitespace + optional `#` comment. Anchored to
@@ -288,7 +302,11 @@ def _strip_our_sections(text: str) -> str:
             i += 1
             continue
         stripped = line.strip()
-        if stripped in _OUR_SECTION_HEADERS:
+        is_ours = (
+            stripped in _OUR_SECTION_HEADERS
+            or stripped.startswith(_HOOK_STATE_PREFIX)
+        )
+        if is_ours:
             # Drop this section: header + body until the next REAL
             # section header. Body lines that toggle multi-line state
             # are honoured so we don't break out mid-string.
