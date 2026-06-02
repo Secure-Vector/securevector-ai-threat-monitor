@@ -282,6 +282,41 @@ def test_backup_no_op_when_no_existing_config(tmp_path, monkeypatch):
     )
 
 
+def test_uninstall_removes_pristine_backup(tmp_path, monkeypatch):
+    """Uninstall must delete the one-shot `.before-securevector` backup so
+    a future fresh install re-captures a true pristine snapshot. Leaving
+    it behind would make `_backup_config_toml_once` no-op on reinstall and
+    keep a stale, pre-intermediate-state backup around."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("# user config\n")
+    backup = cfg.with_suffix(cfg.suffix + ".before-securevector")
+    backup.write_text("# pristine snapshot\n")
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+    # Point the plugin cache root somewhere empty so the cache-wipe step
+    # is a harmless no-op and we isolate the backup-cleanup behaviour.
+    monkeypatch.setattr(
+        hooks_codex, "CODEX_PLUGIN_CACHE_ROOT", tmp_path / "cache"
+    )
+
+    touched = hooks_codex._auto_uninstall_from_codex_cache()
+
+    assert not backup.exists(), "uninstall must remove the pristine backup"
+    assert touched, "removing the backup counts as a change"
+
+
+def test_uninstall_tolerates_missing_backup(tmp_path, monkeypatch):
+    """Uninstall is best-effort — a missing backup (e.g. config.toml never
+    existed, so the snapshot was never written) must not raise."""
+    cfg = tmp_path / "config.toml"
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+    monkeypatch.setattr(
+        hooks_codex, "CODEX_PLUGIN_CACHE_ROOT", tmp_path / "cache"
+    )
+
+    # Must not raise even though neither config.toml nor its backup exist.
+    hooks_codex._auto_uninstall_from_codex_cache()
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Hook trust drift — v4.4.1 regression fix
 # ─────────────────────────────────────────────────────────────────────────

@@ -47,10 +47,21 @@ async function getJson(url, opts = {}) {
   }
 }
 
+const POST_TIMEOUT_MS = 2000;
+
 /**
  * POST a JSON body to a URL. Returns immediately (does not await the
  * response). Swallows every error path (sync throws, async rejections,
  * non-2xx responses) so the caller can rely on this never propagating.
+ *
+ * A bounded `AbortController` timeout (POST_TIMEOUT_MS) caps how long a
+ * hung / slow connection can keep the fetch pending. These hooks run as
+ * short-lived `node` processes the host CLI spawns and waits on; without
+ * the bound a stuck socket keeps the event loop alive until the OS TCP
+ * timeout (~2min), stalling prompt submission. The timeout is generous
+ * (2s — long enough to flush the body on loopback) rather than the 100ms
+ * GET timeout, which could abort before the body sends and drop the
+ * audit/scan row. The timer is cleared in `.finally`.
  *
  * @param {string} url
  * @param {object} body
@@ -58,15 +69,21 @@ async function getJson(url, opts = {}) {
  */
 function postJsonAndForget(url, body) {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
     const p = fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     // p may be a thenable; attach a no-op catch so any rejection is
-    // handled and not flagged as an unhandled promise rejection.
+    // handled and not flagged as an unhandled promise rejection, and a
+    // `.finally` to clear the abort timer either way.
     if (p && typeof p.catch === 'function') {
-      p.catch(() => {});
+      p.catch(() => {}).finally(() => clearTimeout(timer));
+    } else {
+      clearTimeout(timer);
     }
   } catch {
     // swallow synchronous throws too

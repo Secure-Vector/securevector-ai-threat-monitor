@@ -663,6 +663,29 @@ def _auto_uninstall_from_codex_cache() -> bool:
     except Exception:
         logger.exception("Skipping config.toml strip during uninstall")
 
+    # 3. Remove the one-shot pristine backup written by
+    #    `_backup_config_toml_once`. If we leave it behind, a later
+    #    uninstall + reinstall would NOT re-capture a snapshot (the
+    #    helper no-ops when the backup already exists), so the stale
+    #    backup would predate the intermediate state and no longer
+    #    represent a truly pristine config. Deleting it on uninstall lets
+    #    a future fresh install re-capture an accurate snapshot.
+    #    Best-effort — a missing backup (e.g. config.toml never existed)
+    #    is fine.
+    backup = CODEX_CONFIG_TOML.with_suffix(
+        CODEX_CONFIG_TOML.suffix + ".before-securevector"
+    )
+    try:
+        if backup.exists():
+            backup.unlink()
+            logger.info("Removed pre-SecureVector config.toml backup at %s", backup)
+            touched = True
+    except OSError as e:
+        logger.warning(
+            "Could not remove config.toml backup at %s (continuing): %s",
+            backup, e,
+        )
+
     if touched:
         logger.info("Auto-uninstalled %s from Codex config", PLUGIN_NAME)
     return touched

@@ -109,3 +109,7 @@ Codex's statusline (`status_line` config field and `/statusline` slash command) 
 ## License
 
 Apache 2.0. Source at <https://github.com/Secure-Vector/securevector-ai-threat-monitor> under `src/securevector/plugins/codex/`.
+
+## Disclaimer
+
+Built by SecureVector. Not affiliated with, endorsed by, or sponsored by OpenAI. "OpenAI" and "Codex" are product names referenced descriptively to identify the target runtime — see OpenAI's [Brand guidelines](https://openai.com/brand/) for the boundaries of nominative use.

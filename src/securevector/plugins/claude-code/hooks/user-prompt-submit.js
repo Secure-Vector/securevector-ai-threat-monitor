@@ -28,6 +28,7 @@
 'use strict';
 
 const { redactForScan } = require('../lib/redact.js');
+const { postJsonAndForget } = require('../lib/client.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const RUNTIME_KIND = 'claude-code';
@@ -50,21 +51,6 @@ async function readAllStdin() {
   let buf = '';
   for await (const chunk of process.stdin) buf += chunk;
   return buf;
-}
-
-/**
- * Fire-and-forget POST. We deliberately don't `await` the fetch so a
- * slow / down /analyze backend never blocks prompt submission. Errors
- * are swallowed — fail-open is the only correct posture here.
- */
-function postJsonAndForget(url, body) {
-  try {
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).catch(() => { /* swallow */ });
-  } catch { /* swallow */ }
 }
 
 async function main() {

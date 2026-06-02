@@ -68,9 +68,20 @@ async function main() {
   // Reachability probe — fail-quiet to stderr. The probe runs with the
   // default 100ms client-side timeout in lib/client.js, so a slow / down
   // local app never delays session startup beyond that bound.
+  //
+  // Reachability is keyed on the SHAPE of the response, not on whether it
+  // carries any rules. The `/synced-overrides` endpoint ALWAYS includes a
+  // `synced` key (e.g. `{synced:[],total:0}` when enforcement is off or no
+  // rules are synced — a perfectly healthy app). getJson's fail-open path
+  // returns a bare `{}` (no `synced` key) on network error / timeout /
+  // non-2xx / malformed body. So the presence of the `synced` key is the
+  // reliable "app responded" signal, and its absence is the only thing we
+  // warn on. This avoids falsely warning on a healthy-but-empty app.
   try {
     const overrides = await getJson(`${baseUrl}/api/tool-permissions/synced-overrides`);
-    if (!overrides || typeof overrides !== 'object' || Object.keys(overrides).length === 0) {
+    const reachable = overrides && typeof overrides === 'object'
+      && Object.prototype.hasOwnProperty.call(overrides, 'synced');
+    if (!reachable) {
       process.stderr.write(
         'SecureVector Guard: local app at ' + baseUrl + ' did not respond; '
         + 'enforcement will fail-open this session. Start the SecureVector app to '
