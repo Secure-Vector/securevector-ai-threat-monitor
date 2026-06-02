@@ -15,8 +15,17 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)[:\s]*['\"]?[a-zA-Z0-9_\-]{20,}
-  - (?:password|passwd|pwd)\s*(?:[:=]|\bis\b)[:\s]*['\"]?[^\s'"]{8,64}['\"]?
+  # Credential keyword + high-entropy VALUE. The value must follow an explicit
+  # assignment/colon, contain BOTH a letter and a digit, and be 16+ chars from
+  # the base62+`-` charset. Underscore is deliberately EXCLUDED from the value
+  # so ordinary snake_case identifiers (`access_token_refresh_handler`,
+  # `api_key_validation_middleware`) don't qualify as a credential value — they
+  # are pervasive in source/binary `strings` dumps and were the dominant FP.
+  - "(?:api[_-]?key|api[_-]?secret|access[_-]?token|auth[_-]?token)\\s*[:=]\\s*['\\\"]?(?=[A-Za-z0-9\\-]*[A-Za-z])(?=[A-Za-z0-9\\-]*[0-9])[A-Za-z0-9\\-]{16,}['\\\"]?"
+  # Password keyword + value. Requires an explicit `:`/`=` (the old `\bis\b`
+  # arm matched prose like "password is required") and the value must carry a
+  # digit or special char, so a bare lowercase English word doesn't qualify.
+  - "(?:password|passwd|pwd)\\s*[:=]\\s*['\\\"]?(?=\\S*[0-9!@#$%^&*])\\S{8,64}['\\\"]?"
   - (?:Password|password)\d{2,}
   - \b(?:qwerty|letmein|123456|passw0rd|p@ssword)\d*\b
   # Bulleted/numbered list with a high-entropy token (letters+digits+special).
@@ -35,8 +44,15 @@ rules:
   # Lookaheads use `[^\s]*` (not `.*`) so they're scoped to the immediate
   # non-whitespace token after the bullet. Combined with the line-start
   # anchor, this ensures the rule only fires on real list items.
-  - "(?:^|\\n)\\s{0,4}(?:[•\\-\\*]|\\d+[\\.)\\]])\\s*`?(?=[^\\s]*[A-Za-z])(?=[^\\s]*[0-9])(?=[^\\s]*[!@#$%^&*_#])[^\\s/:.@]{8,}`?"
-  - "[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_][A-Za-z0-9!@#$%^&*_]{1,15}"
+  #
+  # Underscore `_` is NOT a qualifying "special char" (removed from the
+  # lookahead class) and is EXCLUDED from the token body. Underscore is
+  # pervasive in code identifiers (`Sha256_block`, `Model123_foo`,
+  # `responses2_websocket`); treating it as credential-shaped flooded the
+  # threat log on `strings`/`grep`/source dumps. A real credential at a
+  # bullet still needs a true special char (!@#$%^&*) plus a letter and a
+  # digit in the immediate token.
+  - "(?:^|\\n)\\s{0,4}(?:[•\\-\\*]|\\d+[\\.)\\]])\\s*`?(?=[^\\s]*[A-Za-z])(?=[^\\s]*[0-9])(?=[^\\s]*[!@#$%^&*])[^\\s/:.@_]{8,}`?"
   - sk-[a-zA-Z0-9]{32,}
   - sk_(?:test|live)_[a-zA-Z0-9]{20,}
   - rk_(?:test|live)_[a-zA-Z0-9]{20,}
@@ -45,7 +61,11 @@ rules:
   - gho_[a-zA-Z0-9]{36}
   - github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}
   - xox[baprs]-[a-zA-Z0-9\-]{10,}
-  - (?:bearer|token)[:\s]+[a-zA-Z0-9_\-\.]{20,}
+  # bearer/token keyword + high-entropy VALUE. The value must contain BOTH a
+  # letter and a digit and be 20+ chars of base62 (no `_`/`-`/`.`), so a bare
+  # identifier run after the word "token" (`token apply_patch_tool_type...`,
+  # `token configuration_option...`) — common in source/docs — does not fire.
+  - "(?:bearer|token)\\s*[:=]?\\s+['\\\"]?(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{20,}['\\\"]?"
   - AKIA[A-Z0-9]{16}
   - eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*
 

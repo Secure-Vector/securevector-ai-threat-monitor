@@ -337,6 +337,57 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         }
         _incoming = (request.direction == "incoming")
 
+        # Low-signal heuristic-shape filter.
+        #
+        # ROOT-CAUSE NOTE: the local engine (`analysis_service.analyze`) does
+        # not carry a per-rule confidence into each matched-rule dict, and
+        # hardcodes the verdict `confidence` to a flat 0.8 for ANY regex hit
+        # (see analysis_service.py). That means the `_MIN_RULE_CONFIDENCE`
+        # checks below — both the per-rule `rule.get("confidence", 1.0)` line
+        # and the overall `result.confidence < floor` check — can never fire
+        # for a local match: there is no sub-floor confidence to catch. The
+        # consequence was a flood of `data_leakage` / "Output Credential
+        # Leakage Detection" rows minted at confidence 0.8 from purely
+        # SHAPE-based heuristics that match ordinary prose.
+        #
+        # The credential-leak rule mixes two kinds of pattern:
+        #   - STRUCTURED secret patterns — `ghp_…`, `gho_…`, `sk-…`,
+        #     `sk_test_…`, `AKIA…`, `xox…`, `github_pat_…`, JWT (`eyJ….eyJ…`),
+        #     PEM blocks, and `api_key:`/`password=`/`bearer ` followed by a
+        #     value. A hit on any of these is a real, high-signal leak.
+        #   - LOOSE heuristic shapes — a bulleted/numbered line whose token
+        #     merely contains a letter+digit+symbol, or the bare
+        #     `Word##!sym` "looks-like-a-password" shape. These fire on
+        #     everyday text (code review prose, config snippets, changelogs)
+        #     and produce the false-positive flood.
+        #
+        # We can't read a confidence the engine never emits, so we judge
+        # signal by the matched REGEX itself: if a rule's ONLY surviving
+        # matched patterns are loose heuristic shapes (no structured-secret
+        # pattern hit), the match is low-signal and is dropped. A genuine
+        # secret leak hits a structured pattern and survives untouched.
+        _LOOSE_HEURISTIC_PATTERN_FRAGMENTS = (
+            # Bulleted/numbered line + entropy-token lookahead heuristic.
+            r"(?=[^\s]*[A-Za-z])(?=[^\s]*[0-9])(?=[^\s]*[!@#$%^&*_#])",
+            # Bare "Word digits symbol" password-shape heuristic.
+            r"[A-Za-z]{2,15}[0-9]{1,6}[!@#$%^&*_]",
+        )
+
+        def _is_loose_heuristic_pattern(pattern: str) -> bool:
+            return any(frag in pattern for frag in _LOOSE_HEURISTIC_PATTERN_FRAGMENTS)
+
+        def _is_low_signal_heuristic_only(rule_dict) -> bool:
+            """True when every matched pattern is a loose shape heuristic.
+
+            Returns False (i.e. keep) the moment a structured-secret pattern
+            is present, so real credential leaks are never suppressed.
+            """
+            patterns = rule_dict.get("matched_patterns") or []
+            if not patterns:
+                # No pattern detail to judge — keep, fail-safe toward recording.
+                return False
+            return all(_is_loose_heuristic_pattern(p) for p in patterns)
+
         def _is_suppressed_on_incoming(rule_dict) -> bool:
             rid = rule_dict.get("id") or ""
             if rid in _INCOMING_SUPPRESSED_RULE_IDS:
@@ -355,6 +406,12 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         matched_rules = []
         for rule in result.matched_rules:
             if float(rule.get("confidence", 1.0)) < _MIN_RULE_CONFIDENCE:
+                continue
+            if _is_low_signal_heuristic_only(rule):
+                # Rule fired ONLY on loose shape heuristics (bulleted-token /
+                # Word##!sym) — no structured-secret pattern matched. This is
+                # the source of the 0.8-confidence `data_leakage` flood; drop
+                # it. A real secret leak hits a structured pattern and is kept.
                 continue
             if _incoming and _is_suppressed_on_incoming(rule):
                 # Skip keyword-shape rules that produce FPs on tool-fetched
