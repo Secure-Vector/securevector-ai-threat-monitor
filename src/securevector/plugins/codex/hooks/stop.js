@@ -10,8 +10,13 @@
  * what happened inside one session vs the next.
  *
  * Fire-and-forget: never awaited, never propagates errors. Codex's
- * Stop hook contract accepts an empty hookSpecificOutput which is the
- * implicit "I'm done, proceed" signal.
+ * Stop hook output schema (`stop.command.output`) is `additionalProperties:
+ * false` and — unlike PreToolUse / SessionStart — defines NO
+ * `hookSpecificOutput` field. Its only allowed keys are `continue`,
+ * `decision`, `reason`, `stopReason`, `suppressOutput`, `systemMessage`,
+ * all optional. Emitting `{hookSpecificOutput: {...}}` is rejected with
+ * "hook returned invalid stop hook JSON output". An empty object `{}`
+ * is the valid implicit "I'm done, proceed" signal.
  *
  * Zero npm deps. Native Node 18+.
  */
@@ -65,7 +70,7 @@ async function main() {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));
   } catch { /* swallow */ }
 
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'Stop' } }));
+  process.stdout.write(JSON.stringify({}));
 }
 
 if (require.main === module) {

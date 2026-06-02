@@ -470,7 +470,12 @@ def test_stop_writes_session_end_audit_row(live_server):
     assert new_row["tool_id"] == "__session_end__", new_row
     assert new_row["action"] == "log_only", new_row
 
+    # Codex's `stop.command.output` schema is `additionalProperties: false`
+    # and defines NO `hookSpecificOutput` field (unlike PreToolUse /
+    # SessionStart). Emitting one is rejected at runtime with "hook
+    # returned invalid stop hook JSON output". The valid proceed signal
+    # is an empty object — assert we emit exactly that and never leak a
+    # hookSpecificOutput key back in.
     parsed = json.loads(proc.stdout) if proc.stdout.strip() else {}
-    hso = parsed.get("hookSpecificOutput", {})
-    assert hso.get("hookEventName") == "Stop", parsed
-    assert "permissionDecision" not in hso, parsed
+    assert "hookSpecificOutput" not in parsed, parsed
+    assert parsed == {}, parsed
