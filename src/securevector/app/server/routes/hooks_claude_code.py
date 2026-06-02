@@ -235,6 +235,38 @@ def _read_staged_plugin_version() -> str:
     return "0.0.0"
 
 
+def _backup_once(path: Path) -> None:
+    """Write a one-shot pristine snapshot of ``path`` to
+    ``<path>.before-securevector`` BEFORE we mutate the file for the
+    first time. Lets the user fully revert to a pre-SecureVector
+    state by restoring the backup.
+
+    ONE-SHOT semantics (verified by `tests/unit/app/test_hooks_claude_code.py`):
+    if the backup file already exists we DON'T overwrite it — a
+    reinstall / upgrade would otherwise replace the pristine snapshot
+    with a current mid-installed one, defeating the recovery purpose.
+    No-op when the original file doesn't exist (empty backup would be
+    misleading). Best-effort — never raises; install proceeds even if
+    the backup write fails (disk full, permission, etc.) because the
+    mutation itself is crash-safe via tempfile + os.replace in
+    `_atomic_write_json`. ``shutil.copy2`` preserves the source's mode
+    bits so the backup carries the same access posture as the
+    original (avoids any "backup is world-readable" leak surface).
+
+    Mirror of `_backup_config_toml_once` in `hooks_codex.py`.
+    """
+    if not path.is_file():
+        return
+    backup = path.with_suffix(path.suffix + ".before-securevector")
+    if backup.exists():
+        return
+    try:
+        shutil.copy2(path, backup)
+        logger.info("Wrote one-shot backup of pre-SecureVector %s to %s", path.name, backup)
+    except OSError as e:
+        logger.warning("Could not write backup at %s (continuing): %s", backup, e)
+
+
 def _atomic_write_json(path: Path, data: dict) -> None:
     """Write JSON atomically with symlink + traversal guard.
 
@@ -476,6 +508,9 @@ def _auto_install_to_claude_cache(version: str) -> Optional[Path]:
             "installLocation": str(STAGING_DIR),
             "lastUpdated": now_iso,
         }
+        # One-shot pristine snapshot before the FIRST mutation of
+        # known_marketplaces.json. No-op on reinstall.
+        _backup_once(CLAUDE_KNOWN_MARKETPLACES_JSON)
         _atomic_write_json(CLAUDE_KNOWN_MARKETPLACES_JSON, markets)
         rollback_marketplaces_json = True
 
@@ -501,6 +536,9 @@ def _auto_install_to_claude_cache(version: str) -> Optional[Path]:
                 "lastUpdated": now_iso,
             }
         ]
+        # One-shot pristine snapshot before the FIRST mutation of
+        # installed_plugins.json. No-op on reinstall.
+        _backup_once(CLAUDE_INSTALLED_PLUGINS_JSON)
         _atomic_write_json(CLAUDE_INSTALLED_PLUGINS_JSON, data)
         rollback_installed_plugins_json = True
         logger.info(
@@ -640,6 +678,11 @@ def _enable_in_claude_settings() -> bool:
     if ep.get(INSTALL_KEY) is True:
         return True  # already enabled — nothing to write
     ep[INSTALL_KEY] = True
+    # One-shot pristine snapshot before the FIRST mutation of
+    # settings.json. No-op on reinstall / already-installed-other-
+    # plugins because the backup file already exists from the first
+    # touch.
+    _backup_once(CLAUDE_SETTINGS_JSON)
     _atomic_write_json(CLAUDE_SETTINGS_JSON, data)
     logger.info(
         "Enabled %s in %s (enabledPlugins[%s]=true)",

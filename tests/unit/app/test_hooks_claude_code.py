@@ -118,3 +118,54 @@ def test_uninstall_is_idempotent(client):
     assert r2.status_code == 200
     assert r1.json()["ok"] is True
     assert r2.json()["ok"] is True
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# _backup_once — one-shot pristine-state snapshot
+#   (parity with hooks_codex._backup_config_toml_once)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_backup_once_writes_pristine_snapshot(tmp_path):
+    """First mutation must drop a `<file>.before-securevector` snapshot
+    so the user can fully revert their CC config to the pre-SecureVector
+    state. Three CC files (installed_plugins.json + known_marketplaces.json
+    + settings.json) all run through this same helper."""
+    f = tmp_path / "installed_plugins.json"
+    f.write_text('{"plugins": {"some-other-plugin": []}}\n')
+
+    hooks_claude_code._backup_once(f)
+
+    backup = f.with_suffix(f.suffix + ".before-securevector")
+    assert backup.exists()
+    assert backup.read_text() == f.read_text()
+
+
+def test_backup_once_does_not_clobber_existing_backup(tmp_path):
+    """Reinstalls / upgrades must NOT overwrite the pristine backup with
+    a current mid-installed snapshot — that would defeat the recovery
+    purpose. The backup is one-shot per file."""
+    f = tmp_path / "settings.json"
+    f.write_text('{"enabledPlugins": {}}\n')
+    backup = f.with_suffix(f.suffix + ".before-securevector")
+    backup.write_text('{"enabledPlugins": {}}\n')
+
+    # Simulate a reinstall — file has been mutated since first install.
+    f.write_text('{"enabledPlugins": {"securevector-guard@securevector-local": true}}\n')
+
+    hooks_claude_code._backup_once(f)
+
+    assert backup.read_text() == '{"enabledPlugins": {}}\n', (
+        "must preserve the pristine snapshot across reinstalls"
+    )
+
+
+def test_backup_once_no_op_when_source_missing(tmp_path):
+    """No prior file → no backup. An empty backup would be misleading
+    (suggests something was there to restore)."""
+    f = tmp_path / "missing.json"
+
+    hooks_claude_code._backup_once(f)  # must not raise
+
+    backup = f.with_suffix(f.suffix + ".before-securevector")
+    assert not backup.exists()
