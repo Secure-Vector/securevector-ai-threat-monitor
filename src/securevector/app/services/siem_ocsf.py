@@ -250,6 +250,15 @@ def encode_scan_event(payload: dict[str, Any], *, redaction: str = "standard") -
             unmapped["matched_rule_ids"] = [str(r) for r in rule_ids]
         if payload.get("worst_rule_severity"):
             unmapped["worst_rule_severity"] = str(payload["worst_rule_severity"])
+        # runtime_kind is set on every scan POST by the plugin
+        # (claude-code-plugin / codex-plugin / openclaw). Without it
+        # in the SIEM event the SOC can't pivot "show me all Codex
+        # threats" — they'd see undifferentiated 2001 findings.
+        # Withheld at the `minimal` tier because that tier
+        # intentionally strips everything beyond the SOC-correlation
+        # essentials.
+        if payload.get("runtime_kind"):
+            unmapped["runtime_kind"] = str(payload["runtime_kind"])
 
     # Full tier — raw prompt text lands in OCSF's `raw_data` slot (that's
     # what the schema field is for), LLM output + matched patterns go in
@@ -328,6 +337,18 @@ def encode_tool_audit_event(payload: dict[str, Any], *, redaction: str = "standa
         "prev_hash": payload.get("prev_hash"),
         "row_hash": str(payload.get("row_hash") or ""),
     }
+    # runtime_kind pivots the SIEM dashboard's per-agent views
+    # ("show me all Codex activity vs Claude Code activity"). The
+    # local audit table carries this column on every row; before
+    # this addition the SIEM-forwarded OCSF event dropped it, so
+    # SOC consumers couldn't distinguish a Claude Code Bash call
+    # from a Codex exec_command call from an OpenClaw shell call —
+    # all three landed as identical 1007 events. Goes under
+    # `unmapped` (not a first-class OCSF field) and stays a
+    # nullable string for forward-compat with rows that pre-date
+    # the column.
+    if payload.get("runtime_kind"):
+        unmapped["runtime_kind"] = str(payload["runtime_kind"])
 
     # Device / actor / MITRE — same promotion as the scan encoder so
     # dashboards can reuse pivots across both classes.
