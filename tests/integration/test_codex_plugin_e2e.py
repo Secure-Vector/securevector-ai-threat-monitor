@@ -50,6 +50,8 @@ REPO = Path(__file__).resolve().parents[2]
 PLUGIN_DIR = REPO / "src" / "securevector" / "plugins" / "codex"
 PRE_HOOK = PLUGIN_DIR / "hooks" / "pre-tool-use.js"
 POST_HOOK = PLUGIN_DIR / "hooks" / "post-tool-use.js"
+SESSION_START_HOOK = PLUGIN_DIR / "hooks" / "session-start.js"
+STOP_HOOK = PLUGIN_DIR / "hooks" / "stop.js"
 
 
 def _free_port() -> int:
@@ -373,3 +375,102 @@ def test_posttooluse_writes_audit_row_with_runtime_kind_codex(live_server):
     assert new_row["runtime_kind"] == "codex", new_row
     assert new_row["tool_id"] == "server-x:t1", new_row
     assert new_row["function_name"] == "mcp__server-x__t1", new_row
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Session lifecycle hooks (SessionStart / Stop) — added in v4.4.0
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_session_start_writes_audit_row_with_session_sentinel(live_server):
+    """SessionStart hook fires once at Codex session open. Writes a
+    `__session_start__` audit row tagged action=log_only,
+    runtime_kind=codex, with a branded SecureVector Guard reason —
+    forensic timelines pivot on this sentinel to find clean session
+    boundaries. Locked decision: action MUST be `log_only` (the
+    call-audit endpoint validates against ^(block|allow|log_only)$);
+    lifecycle semantics live in `function_name`, not `action`."""
+    if not SESSION_START_HOOK.is_file():
+        pytest.skip(f"session-start.js not present at {SESSION_START_HOOK}")
+
+    before = _audit_rows_for(live_server["db_path"])
+
+    proc = _run_hook(
+        SESSION_START_HOOK,
+        {"session_id": "test-session-abc-123"},
+        live_server["base_url"],
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    # session-start.js fires the audit POST as fire-and-forget; poll.
+    deadline = time.time() + 3.0
+    rows: list = []
+    while time.time() < deadline:
+        rows = _audit_rows_for(live_server["db_path"])
+        if len(rows) > len(before):
+            break
+        time.sleep(0.05)
+
+    assert len(rows) > len(before), (
+        f"session_start audit row never landed (before={len(before)}, after={len(rows)})"
+    )
+    new_row = rows[0]
+    assert new_row["runtime_kind"] == "codex", new_row
+    assert new_row["function_name"] == "__session_start__", new_row
+    assert new_row["tool_id"] == "__session_start__", new_row
+    # action MUST be a value the backend accepts; log_only is the
+    # semantically-nearest "informational, no enforcement" sentinel.
+    assert new_row["action"] == "log_only", new_row
+
+    # Stdout must be Codex's implicit-allow shape for SessionStart —
+    # `hookSpecificOutput` present with no `permissionDecision` /
+    # `additionalContext` keys. additionalContext is deliberately
+    # omitted so SecureVector text doesn't leak into the model's
+    # context window every session.
+    parsed = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    hso = parsed.get("hookSpecificOutput", {})
+    assert hso.get("hookEventName") == "SessionStart", parsed
+    assert "permissionDecision" not in hso, parsed
+    assert "additionalContext" not in hso, parsed
+
+
+def test_stop_writes_session_end_audit_row(live_server):
+    """Stop hook fires at Codex turn/session boundaries. Writes a
+    `__session_end__` audit row with action=log_only and the branded
+    reason. Note: Codex's Stop may fire per-turn rather than only at
+    session close — this test pins the per-fire behaviour; clients
+    reconstruct true sessions by adjacency to the matching
+    `__session_start__` row, not by counting Stop fires."""
+    if not STOP_HOOK.is_file():
+        pytest.skip(f"stop.js not present at {STOP_HOOK}")
+
+    before = _audit_rows_for(live_server["db_path"])
+
+    proc = _run_hook(
+        STOP_HOOK,
+        {"session_id": "test-session-abc-123"},
+        live_server["base_url"],
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    deadline = time.time() + 3.0
+    rows: list = []
+    while time.time() < deadline:
+        rows = _audit_rows_for(live_server["db_path"])
+        if len(rows) > len(before):
+            break
+        time.sleep(0.05)
+
+    assert len(rows) > len(before), (
+        f"session_end audit row never landed (before={len(before)}, after={len(rows)})"
+    )
+    new_row = rows[0]
+    assert new_row["runtime_kind"] == "codex", new_row
+    assert new_row["function_name"] == "__session_end__", new_row
+    assert new_row["tool_id"] == "__session_end__", new_row
+    assert new_row["action"] == "log_only", new_row
+
+    parsed = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    hso = parsed.get("hookSpecificOutput", {})
+    assert hso.get("hookEventName") == "Stop", parsed
+    assert "permissionDecision" not in hso, parsed
