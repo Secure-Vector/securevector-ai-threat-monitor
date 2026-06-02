@@ -218,3 +218,65 @@ def test_section_header_detector_rejects_array_value_lines():
     assert hooks_codex._is_section_header("[[some.array]]") is False
     # Multi-line array continuation (just the `]`) is not a header:
     assert hooks_codex._is_section_header("]") is False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# _backup_config_toml_once — one-shot pristine-state snapshot
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_backup_writes_pristine_snapshot_on_first_install(tmp_path, monkeypatch):
+    """First install writes `<config>.before-securevector` next to the
+    user's existing config.toml with the pre-mutation content. Lets
+    the user restore the original file if they ever want to fully
+    revert. Only fires when the file exists."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("# user's pristine codex config\n[some-other]\nvalue = 1\n")
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+
+    hooks_codex._backup_config_toml_once()
+
+    backup = cfg.with_suffix(cfg.suffix + ".before-securevector")
+    assert backup.exists(), "backup file should be created on first install"
+    assert backup.read_text() == cfg.read_text(), (
+        "backup must contain the pre-mutation content byte-for-byte"
+    )
+
+
+def test_backup_does_not_clobber_existing_backup_on_reinstall(tmp_path, monkeypatch):
+    """The backup is one-shot — captures the *pristine* (pre-SecureVector)
+    state. Subsequent reinstalls / upgrades must NOT overwrite the
+    backup with a current mid-installed snapshot (which would defeat
+    the recovery purpose)."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("# original pristine\n")
+    backup = cfg.with_suffix(cfg.suffix + ".before-securevector")
+    backup.write_text("# original pristine\n")
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+
+    # Simulate a reinstall — file content has changed since the first
+    # install (e.g. SecureVector marketplace sections appended).
+    cfg.write_text("# original pristine\n[marketplaces.securevector-local]\nx=1\n")
+
+    hooks_codex._backup_config_toml_once()
+
+    # Backup should still hold the ORIGINAL pristine snapshot — NOT
+    # the current mid-installed content.
+    assert backup.read_text() == "# original pristine\n", (
+        "reinstall must not overwrite the existing pristine backup"
+    )
+
+
+def test_backup_no_op_when_no_existing_config(tmp_path, monkeypatch):
+    """First-time install on a machine with no prior Codex config must
+    not crash and must not create a stray empty backup file."""
+    cfg = tmp_path / "config.toml"
+    # Note: cfg does NOT exist
+    monkeypatch.setattr(hooks_codex, "CODEX_CONFIG_TOML", cfg)
+
+    hooks_codex._backup_config_toml_once()  # must not raise
+
+    backup = cfg.with_suffix(cfg.suffix + ".before-securevector")
+    assert not backup.exists(), (
+        "no original file → no backup; empty backup would be misleading"
+    )

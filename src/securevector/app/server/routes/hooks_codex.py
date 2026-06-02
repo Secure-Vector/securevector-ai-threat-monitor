@@ -408,12 +408,49 @@ def _read_codex_config_toml() -> str:
         return ""
 
 
+def _backup_config_toml_once() -> None:
+    """Write a one-shot pristine snapshot of the user's config.toml to
+    ``~/.codex/config.toml.before-securevector`` BEFORE we mutate the
+    file for the first time.
+
+    Recovery affordance — if the user later wants to fully uninstall +
+    revert to a state untouched by SecureVector, the backup is on disk
+    next to the file they need to restore. We only write it ONCE (the
+    first time we'd mutate) so subsequent reinstalls / upgrades don't
+    overwrite the original pre-SecureVector content with a current
+    mid-installed snapshot. Best-effort — never raises (a missing
+    backup must not block the install path; the install is itself
+    crash-safe via tempfile + os.replace in `_atomic_write_text`).
+    """
+    if not CODEX_CONFIG_TOML.is_file():
+        return  # no original to back up
+    backup = CODEX_CONFIG_TOML.with_suffix(
+        CODEX_CONFIG_TOML.suffix + ".before-securevector"
+    )
+    if backup.exists():
+        return  # already preserved on first install — don't clobber
+    try:
+        shutil.copy2(CODEX_CONFIG_TOML, backup)
+        logger.info(
+            "Wrote one-shot backup of pre-SecureVector config.toml to %s",
+            backup,
+        )
+    except OSError as e:
+        logger.warning(
+            "Could not write config.toml backup at %s (continuing): %s",
+            backup, e,
+        )
+
+
 def _register_in_config_toml(staging_dir: Path) -> None:
     """Add (or replace) our marketplace + plugin sections in config.toml.
 
     Idempotent: re-running while sections are already present strips the
     old block and appends a fresh one with the current timestamp.
     """
+    # One-shot pristine snapshot before the FIRST mutation. Safe to
+    # call on every install — it's a no-op after the first time.
+    _backup_config_toml_once()
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
