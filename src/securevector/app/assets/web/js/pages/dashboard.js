@@ -560,8 +560,19 @@ const DashboardPage = {
         chartsRow.appendChild(trendCard);
 
         const costTrendCard = Card.create({ title: 'Provider Cost — Last 7 Days', gradient: true });
-        await this.renderCostTrendChart(costTrendCard.querySelector('.card-body'), costTrendCard);
+        const costBody = costTrendCard.querySelector('.card-body');
+        // Show a lightweight placeholder and populate this chart WITHOUT
+        // awaiting it. When there's no provider cost we fall back to the
+        // token-usage chart, whose endpoints walk on-disk agent session logs
+        // (~1.7s for Claude Code transcripts). Awaiting here previously blocked
+        // the whole charts row AND everything rendered below it (security
+        // controls, recent activity). Fire-and-forget so the page is
+        // interactive immediately; the chart fills in when its data arrives.
+        costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Loading…</div>';
         chartsRow.appendChild(costTrendCard);
+        this.renderCostTrendChart(costBody, costTrendCard).catch(() => {
+            costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
+        });
 
         container.appendChild(chartsRow);
 
@@ -1087,6 +1098,9 @@ const DashboardPage = {
         const height = opts.height || 140;
         const yFormat = opts.yFormat || (n => Math.round(n).toLocaleString());
         if (series.length === 0 || labels.length === 0) return;
+        // Clear any prior content (e.g. the async "Loading…" placeholder the
+        // cost/token card shows while its on-disk data is fetched).
+        container.textContent = '';
 
         const n = labels.length;
         // Compute the per-series max separately, then the global max for
