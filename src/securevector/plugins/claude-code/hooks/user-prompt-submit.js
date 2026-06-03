@@ -65,8 +65,15 @@ async function main() {
   const prompt = typeof event.prompt === 'string' ? event.prompt : '';
   if (prompt.length === 0) return;
 
-  const redacted = redactForScan(prompt);
-  const text = redacted.length > SCAN_TEXT_LIMIT ? redacted.slice(0, SCAN_TEXT_LIMIT) : redacted;
+  // Send RAW text to /analyze — the server's redact_secrets() is the
+  // single source of truth for redaction AND owns the Secret Detections
+  // audit log. Pre-redacting on the client would erase the credential
+  // shape (e.g. `sk_live_…` → `sk_live_****`) before any pattern can
+  // match, which is the root cause of issue #131's prompt-path coverage
+  // gap. Same posture as post-tool-use.js. The endpoint is loopback
+  // (127.0.0.1) and the server hashes immediately, never persisting
+  // the raw value.
+  const text = prompt.length > SCAN_TEXT_LIMIT ? prompt.slice(0, SCAN_TEXT_LIMIT) : prompt;
   if (text.length === 0) return;
 
   const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
