@@ -115,14 +115,20 @@ def test_credential_leak_matches_canonical_credential_dump():
         "sv_community_output_leakage.yml",
         "sv_community_output_001_credential_leak",
     )
-    # numbered list with high-entropy mixed-char tokens — the canonical
-    # "agent leaked these to chat" shape this rule was designed for
+    # numbered list with a real vendor token + an AWS key — the canonical
+    # "agent leaked these to chat" shape this rule was designed for.
+    # Tokens are runtime-assembled so GitHub secret scanning doesn't flag
+    # the test file.
+    sk_key = "sk_" + "live_" + ("Ab12Cd34" * 3)  # sk_live_ + 24 base62
+    akia = "AKIA" + "B2C3D4E5F6G7H8I9"
     assert _any_pattern_matches(
         patterns,
-        "Here are the keys:\n1. sk_test_AbCd123!ZxYw\n2. AKIA-EXAMPLE-7890",
+        f"Here are the keys:\n1. {sk_key}\n2. {akia}",
     )
+    # A bulleted high-entropy token carrying a TRUE special char (! not _)
+    # plus a letter and a digit — the bulleted-token heuristic.
     assert _any_pattern_matches(
-        patterns, "- AbCd1234!XyZw9876_secret"
+        patterns, "- AbCd1234!XyZw9876secret"
     )
 
 
@@ -153,11 +159,13 @@ def test_credential_leak_lookaheads_scoped_to_immediate_token():
         "scoped-lookahead must prevent a bulleted brief from matching "
         "via a regex-syntax token elsewhere in the text"
     )
-    # Positive control — canonical credential dump with the token AT the
-    # bullet position must still match.
+    # Positive control — canonical credential dump with a real vendor token
+    # AT the bullet position must still match (sk_test_ + 24 base62 chars,
+    # runtime-assembled to dodge secret scanning).
+    sk_key = "sk_" + "test_" + ("Ab12Cd34" * 3)
     assert _any_pattern_matches(
         patterns,
-        "1. sk_test_AbCd123!XyZw secret values follow",
+        f"1. {sk_key} secret values follow",
     ), "canonical bulleted credential must still match"
 
 
@@ -200,6 +208,105 @@ def test_credential_leak_still_catches_jwt_via_dedicated_pattern():
         "JWT must still be caught by the dedicated eyJ... pattern even "
         "though it contains '.' and is excluded from the bulleted-token "
         "pattern"
+    )
+
+
+# --------------------------------------------- credential_leak: strings-dump FPs
+
+# Real incident: a `strings` dump of the codex Rust binary (and similar
+# `grep`/source blobs) flooded the threat log. These contain tens of
+# thousands of snake_case code identifiers. The over-broad heuristic
+# patterns — especially the bare `word123_word` shape and any keyword
+# followed by an underscore-bearing identifier run — fired on them. The
+# tightened patterns require a credential KEYWORD in close proximity to a
+# high-entropy VALUE (mixed case/digits, no pure snake_case), and underscore
+# alone no longer qualifies a token as credential-shaped.
+
+
+# A representative excerpt of the codex `strings` dump that flooded the log.
+_STRINGS_DUMP = (
+    "HookStateTomltrusted_hashPreToolUsePermissionRequestPostToolUse "
+    "secret_env_varsecret_fileprefix x-oai-attestation"
+    "responses_websockets=2026-02-06 tokensxhighmigration_markdown "
+    "apply_patch_tool_type WelsEncoderEncodeExt iSliceCount kIndexSpaceSize "
+    "WasmCodePointer responses2_websocket Sha256_block Model123_foo "
+    "access_token_refresh_handler_internal auth_token_field_validator "
+    "api_key_middleware_factory ModelProviderAuthInforefresh_interval_ms "
+    "[REDACTED]"
+)
+
+
+def test_credential_leak_does_not_match_strings_dump():
+    """The codex binary `strings` dump must produce NO credential_leak match."""
+    patterns = _load_patterns(
+        "sv_community_output_leakage.yml",
+        "sv_community_output_001_credential_leak",
+    )
+    matched = [p.pattern for p in patterns if p.search(_STRINGS_DUMP)]
+    assert not matched, (
+        f"strings/source dump must not trip credential_leak; matched: {matched!r}"
+    )
+
+
+def test_credential_leak_does_not_match_bare_code_identifiers():
+    """
+    Bare `word123_word` shapes (the deleted pattern #2) and keyword-then-
+    snake_case-identifier runs are everywhere in code/binaries and are
+    almost never credentials. None may match.
+    """
+    patterns = _load_patterns(
+        "sv_community_output_leakage.yml",
+        "sv_community_output_001_credential_leak",
+    )
+    for ident in (
+        "responses2_websocket",
+        "Sha256_block",
+        "Model123_foo",
+        "access_token_refresh_handler_internal",
+        "auth_token configuration_option_enabled_flag",
+        "token apply_patch_tool_type_handler_v2",
+        "api_key_validation_middleware_factory",
+        "- responses2_websocket",
+        "1. Sha256_block_digest",
+        "password is required to continue",  # prose, no value
+        "the token is used to authenticate requests",  # prose
+    ):
+        assert not _any_pattern_matches(patterns, ident), (
+            f"bare code identifier / prose must not match credential_leak: {ident!r}"
+        )
+
+
+def test_credential_leak_still_matches_genuine_secrets():
+    """
+    Genuine secrets MUST still fire. Tokens are runtime-assembled (string
+    joins) so GitHub secret scanning doesn't flag this test file.
+    """
+    patterns = _load_patterns(
+        "sv_community_output_leakage.yml",
+        "sv_community_output_001_credential_leak",
+    )
+    sk_key = "sk-" + ("a1B2c3D4" * 4)              # sk- + 32 base62
+    ghp = "ghp_" + ("a1B2c3D4" * 4) + "a1B2"        # ghp_ + 36
+    akia = "AKIA" + "B2C3D4E5F6G7H8I9"              # AKIA + 16
+    api_kv = "api_key: " + '"AKfakeLongValue1234567890abcd"'
+    pwd = "password = P@ssw0rd123Long"
+    bearer = "bearer abc123DEF456ghi789jkl012"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123sig"
+    for secret in (sk_key, ghp, akia, api_kv, pwd, bearer, jwt):
+        assert _any_pattern_matches(patterns, secret), (
+            f"genuine secret must still match credential_leak: {secret!r}"
+        )
+
+
+def test_credential_leak_pem_block_caught_by_dedicated_rule():
+    """A PEM private-key block is caught by the dedicated PEM rule."""
+    patterns = _load_patterns(
+        "sv_community_output_leakage.yml",
+        "sv_community_output_003_pem_private_key_leak",
+    )
+    pem = "-----BEGIN" + " RSA PRIVATE KEY-----"
+    assert _any_pattern_matches(patterns, pem), (
+        "PEM private-key header must still match the dedicated PEM rule"
     )
 
 

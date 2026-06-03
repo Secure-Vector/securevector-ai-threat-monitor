@@ -40,8 +40,20 @@ const Sidebar = {
         // one regulated buyers ask about first.
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            // Grouped by integration mechanism so users pick the right install
+            // path at a glance. "Plugins" = native host hooks (no proxy, no env
+            // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
+            // the plugin but its page also exposes a block-mode proxy. "Proxy" =
+            // tools you point at the local proxy's base URL (frameworks like
+            // LangChain/LangGraph/CrewAI, plus Ollama and n8n) — the shared
+            // mechanism is the proxy, not an SDK, so the label stays "Proxy".
+            // (Page ids keep their historical `proxy-` prefix to avoid breaking
+            // routes.)
+            { header: 'Plugins' },
             { id: 'proxy-claude-code', label: 'Claude Code' },
+            { id: 'proxy-codex', label: 'Codex' },
+            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
+            { header: 'Proxy' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
@@ -321,9 +333,19 @@ const Sidebar = {
                 // session-NEW list above; kept separate because sub-items
                 // render in a different branch and the keys aren't shared
                 // with the top-level item IDs.
-                const subNewItems = ['proxy-claude-code', 'bill-of-tools', 'redactions'];
+                const subNewItems = ['proxy-codex', 'bill-of-tools', 'redactions'];
 
                 item.subItems.forEach(subItem => {
+                    // Non-clickable section header (groups the integration list
+                    // by mechanism). Rendered as a small muted uppercase label.
+                    if (subItem.header) {
+                        const hdr = document.createElement('div');
+                        hdr.textContent = subItem.header;
+                        hdr.style.cssText = 'padding: 8px 12px 2px; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); opacity: 0.7; pointer-events: none;';
+                        subNav.appendChild(hdr);
+                        return;
+                    }
+
                     const subNavItem = document.createElement('div');
                     subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
@@ -495,6 +517,41 @@ const Sidebar = {
         ccPluginBanner.addEventListener('click', () => this.navigate('proxy-claude-code'));
         bottomSection.appendChild(ccPluginBanner);
 
+        // Codex plugin indicator — same compact pattern as the CC banner.
+        // Visible only when the plugin is staged (or auto-installed in
+        // ~/.codex) so it doesn't shout when nothing is in flight.
+        //
+        // Coral accent (#C0655E) intentionally diverges from the Codex
+        // plugin manifest's brandColor (cyan #5EADB8): cyan collides
+        // with this same sidebar's integration-proxy banner border
+        // (also #5EADB8 / rgba(94,173,184,*)). Two cyan single-line
+        // banners stacked together are visually indistinguishable.
+        // Coral picks a distinct fourth hue so the bottom-section now
+        // reads: CC purple · Codex coral · proxy cyan · SIEM green.
+        // Padding + margin match the CC banner exactly (`8px 12px 0`)
+        // so the four banners stack as equal-rhythm rows; hover alpha
+        // matches CC's `0.06`.
+        const codexPluginBanner = document.createElement('button');
+        codexPluginBanner.type = 'button';
+        codexPluginBanner.id = 'codex-plugin-active-banner';
+        codexPluginBanner.className = 'proxy-banner-pulse';
+        codexPluginBanner.setAttribute('aria-label', 'Open Codex plugin settings');
+        codexPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(192,101,94,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        codexPluginBanner.addEventListener('mouseenter', () => { codexPluginBanner.style.background = 'rgba(192,101,94,0.06)'; });
+        codexPluginBanner.addEventListener('mouseleave', () => { codexPluginBanner.style.background = 'transparent'; });
+        const codexDot = document.createElement('span');
+        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #C0655E; flex-shrink: 0;';
+        codexDot.setAttribute('aria-hidden', 'true');
+        codexPluginBanner.appendChild(codexDot);
+        const codexText = document.createElement('span');
+        codexText.id = 'codex-plugin-banner-text';
+        codexText.setAttribute('aria-live', 'polite');
+        codexText.setAttribute('aria-atomic', 'true');
+        codexText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        codexPluginBanner.appendChild(codexText);
+        codexPluginBanner.addEventListener('click', () => this.navigate('proxy-codex'));
+        bottomSection.appendChild(codexPluginBanner);
+
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
         // when the master toggle is enabled AND at least one destination
@@ -517,10 +574,11 @@ const Sidebar = {
         siemBanner.addEventListener('click', () => this.navigate('siem-export'));
         bottomSection.appendChild(siemBanner);
 
-        // Check all three indicators on init; each polls its own interval.
+        // Check all four indicators on init; each polls its own interval.
         this.checkProxyStatus();
         this.checkSiemStatus();
         this.checkClaudeCodePluginStatus();
+        this.checkCodexPluginStatus();
 
         // Resume polling when the document becomes visible again. The
         // poll loops self-terminate when visibilityState !== 'visible'
@@ -537,6 +595,7 @@ const Sidebar = {
                     this.checkProxyStatus();
                     this.checkSiemStatus();
                     this.checkClaudeCodePluginStatus();
+                    this.checkCodexPluginStatus();
                 }
             });
         }
@@ -898,6 +957,40 @@ const Sidebar = {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
             setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
+        }
+    },
+
+    async checkCodexPluginStatus() {
+        // Sidebar "Codex plugin" indicator. Mirrors the CC poller — same
+        // three states (Active / Installed, not enabled / Staged), same
+        // cadence (2s while hidden, 10s once visible). The Codex /status
+        // route uses `codex_install_path` instead of `claude_install_path`
+        // and `enabled` reflects the [plugins."..."] section in
+        // ~/.codex/config.toml.
+        const banner = document.getElementById('codex-plugin-active-banner');
+        const textEl = document.getElementById('codex-plugin-banner-text');
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/codex/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Codex plugin · Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Codex plugin · Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Codex plugin · Staged';
+            }
+        } catch (_) { /* ignore */ }
+        if (document.visibilityState === 'visible'
+            && document.getElementById('codex-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            setTimeout(() => this.checkCodexPluginStatus(), delay);
         }
     },
 

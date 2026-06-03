@@ -1204,8 +1204,12 @@ def _handle_plugin_command(args) -> None:
             result = asyncio.run(mod.install_plugin(None))
         else:
             result = asyncio.run(mod.uninstall_plugin())
+    elif name == "codex":
+        from securevector.app.server.routes import hooks_codex as mod
+        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        result = asyncio.run(handler())
     else:
-        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw.", file=sys.stderr)
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex.", file=sys.stderr)
         sys.exit(1)
 
     # Response models are Pydantic — serialise consistently.

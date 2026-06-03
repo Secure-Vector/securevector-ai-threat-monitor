@@ -277,6 +277,12 @@ def chat_with_protection(user_input):
             description: 'Anthropic CLI host — real-time policy enforcement + tamper-evident audit for MCP tool calls',
             isClaudeCode: true,
             defaultProvider: 'anthropic'
+        },
+        'proxy-codex': {
+            name: 'Codex',
+            description: 'OpenAI Codex CLI host — real-time policy enforcement + tamper-evident audit for MCP tool calls',
+            isCodex: true,
+            defaultProvider: 'openai'
         }
     },
 
@@ -300,6 +306,9 @@ def chat_with_protection(user_input):
         } else if (integration.isClaudeCode) {
             // Claude Code: Plugin card only (host-native plugin, no proxy/block-mode)
             container.appendChild(this.createClaudeCodePluginCard());
+        } else if (integration.isCodex) {
+            // Codex: Plugin card only (host-native plugin, no proxy/block-mode)
+            container.appendChild(this.createCodexPluginCard());
         } else if (integration.isOpenClaw) {
             // OpenClaw: Plugin card + separate block mode card
             container.appendChild(this.createOpenClawPluginCard());
@@ -823,6 +832,14 @@ def chat_with_protection(user_input):
 
         const statusPill = document.createElement('span');
         statusPill.id = 'claude-code-plugin-status';
+        // Announce status transitions to screen readers — install /
+        // reinstall / uninstall mutate textContent and an SR with no
+        // live region attached would miss the change. role="status"
+        // (≡ aria-live="polite" + aria-atomic="true") is the right
+        // implicit-role mapping per WAI-ARIA 1.2.
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
         statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
         statusPill.textContent = 'Checking...';
 
@@ -881,7 +898,7 @@ def chat_with_protection(user_input):
         const renderCommands = (commands) => {
             // Wipe and rebuild — install is idempotent, so the staging dir
             // in command[0] may change between runs (rare but possible).
-            while (commandsWrap.childNodes.length > 1) commandsWrap.removeChild(commandsWrap.lastChild);
+            while (commandsWrap.childNodes.length > 2) commandsWrap.removeChild(commandsWrap.lastChild);
             for (const cmd of commands || []) commandsWrap.appendChild(buildCommandBlock(cmd));
             commandsWrap.style.display = (commands && commands.length) ? '' : 'none';
         };
@@ -909,7 +926,7 @@ def chat_with_protection(user_input):
                 span.textContent = 'Installed, not enabled · enable in Claude Code then /reload-plugins';
             } else if (state === 'staged') {
                 span.style.color = 'var(--warning)';
-                span.textContent = 'Staged · auto-install was skipped — click Install Plugin to register, or use the optional fallback below';
+                span.textContent = 'Staged · click Install Plugin to register';
             } else if (state === 'not-staged') {
                 statusPill.style.color = 'var(--text-secondary)';
                 span.style.fontWeight = '400';
@@ -1164,6 +1181,359 @@ def chat_with_protection(user_input):
             }
         });
         guideBody.appendChild(inAppLink);
+
+        guide.appendChild(guideBody);
+        content.appendChild(guide);
+
+        card.appendChild(content);
+        return card;
+    },
+
+    createCodexPluginCard() {
+        // SecureVector Guard for Codex — mirrors createClaudeCodePluginCard
+        // but adapted for Codex's TOML config + `~/.codex/` layout. Install
+        // flow stages the plugin tree under
+        // ~/.securevector/staging/codex-plugin/ and (if Codex is present)
+        // copies it into ~/.codex/plugins/cache/... and registers two
+        // TOML sections in ~/.codex/config.toml. Falls back to two
+        // paste-in commands (`codex plugin marketplace add` + `codex
+        // plugin add ...@securevector-local`) when ~/.codex is missing.
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for Codex';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for MCP tool calls';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-codex-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-codex-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'codex-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'codex-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const commandsWrap = document.createElement('div');
+        commandsWrap.id = 'codex-plugin-commands';
+        commandsWrap.style.cssText = 'display: none; margin-bottom: 16px;';
+        const commandsHeading = document.createElement('div');
+        commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px;';
+        commandsHeading.textContent = 'Optional · troubleshooting fallback';
+        commandsWrap.appendChild(commandsHeading);
+        const commandsSubhead = document.createElement('div');
+        commandsSubhead.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
+        commandsSubhead.textContent = 'Only needed if auto-install couldn’t register the plugin with Codex (e.g., the host has never been launched on this machine, or ~/.codex is read-only). Otherwise click Install Plugin above and restart your Codex session.';
+        commandsWrap.appendChild(commandsSubhead);
+        content.appendChild(commandsWrap);
+
+        const buildCommandBlock = (text) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+            const pre = document.createElement('code');
+            pre.style.cssText = 'flex: 1; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto;';
+            pre.textContent = text;
+            const copyBtn = document.createElement('button');
+            copyBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-default); color: var(--text-primary); cursor: pointer; font-size: 12px;';
+            copyBtn.textContent = 'Copy';
+            copyBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyBtn.textContent = 'Copied';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+                } catch {
+                    copyBtn.textContent = 'Copy failed';
+                }
+            };
+            wrap.appendChild(pre);
+            wrap.appendChild(copyBtn);
+            return wrap;
+        };
+
+        const renderCommands = (commands) => {
+            while (commandsWrap.childNodes.length > 2) commandsWrap.removeChild(commandsWrap.lastChild);
+            for (const cmd of commands || []) commandsWrap.appendChild(buildCommandBlock(cmd));
+            commandsWrap.style.display = (commands && commands.length) ? '' : 'none';
+        };
+
+        const setStatusPill = (state, opts = {}) => {
+            // Unified vocabulary with sidebar banner:
+            //   Active                 — auto-installed AND enabled
+            //   Installed, not enabled — auto-installed but disabled in config.toml
+            //   Staged                 — files on disk, legacy paste-in path
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                // Codex loads plugins at session start (no `/reload-plugins`
+                // equivalent). The first-install trust-prompt explanation
+                // lives in the green result toast (showResult) so it only
+                // surfaces once; the pill stays terse for the steady state.
+                span.textContent = 'Active · restart your Codex session';
+            } else if (state === 'installed-disabled') {
+                span.style.color = 'var(--warning)';
+                // Exact TOML snippet to flip moved into the Setup Guide
+                // disclosure so the pill stays scannable.
+                span.textContent = 'Installed, not enabled · enable in ~/.codex/config.toml';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--warning)';
+                span.textContent = 'Staged · click Install Plugin to register';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/codex/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed && result.enabled) {
+                        showResult('success', `Installed and enabled. ${result.next_step || ''}`.trim());
+                        renderCommands([]);
+                        setStatusPill('installed');
+                    } else if (result.auto_installed) {
+                        showResult('warning', result.next_step || 'Installed but not enabled.');
+                        renderCommands([]);
+                        setStatusPill('installed-disabled');
+                    } else {
+                        showResult('success', `Plugin staged at ${result.staging_dir} (${result.files.length} files).`);
+                        renderCommands(result.commands);
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/codex/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed. Restart your Codex session to drop it from the active runtime.');
+                    renderCommands([]);
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. Codex /status uses `codex_install_path`
+        // and `codex_detected` field names (different from CC's
+        // `claude_install_path` / `claude_code_detected`).
+        const commandsForStaging = (stagingDir) => [
+            `codex plugin marketplace add ${stagingDir}`,
+            'codex plugin add securevector-guard@securevector-local',
+        ];
+
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/codex/status');
+                const status = await res.json();
+                if (status.installed && status.auto_installed && status.enabled) {
+                    setStatusPill('installed');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed && status.auto_installed) {
+                    setStatusPill('installed-disabled');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    renderCommands(commandsForStaging(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    renderCommands(commandsForStaging(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v4.4)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'MCP Tool Permissions', desc: 'Allow / deny / ask, cloud-pushed rules' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=codex' },
+            { name: 'Fail-Open', desc: 'Calls pass when SecureVector is unreachable' },
+            { name: 'MCP Tools', desc: 'mcp__server__tool naming, fully governed' },
+            { name: 'Prompt-Injection Detection', desc: 'Scans every prompt for injection / jailbreak' },
+            { name: 'Tool-Response Scanning', desc: 'Bash stdout / file reads / fetched content checked for leaks' },
+        ];
+        features.forEach(f => {
+            const item = document.createElement('div');
+            item.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const check = document.createElement('span');
+            check.style.cssText = 'color: var(--success); font-size: 14px; flex-shrink: 0;';
+            check.textContent = '✓';
+            item.appendChild(check);
+            const textDiv = document.createElement('div');
+            const nameSpan = document.createElement('div');
+            nameSpan.style.cssText = 'font-weight: 600; font-size: 12px;';
+            nameSpan.textContent = f.name;
+            textDiv.appendChild(nameSpan);
+            const descSpan = document.createElement('div');
+            descSpan.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+            descSpan.textContent = f.desc;
+            textDiv.appendChild(descSpan);
+            item.appendChild(textDiv);
+            featuresGrid.appendChild(item);
+        });
+        content.appendChild(featuresGrid);
+
+        // Setup Guide disclosure — same shape as the CC card, adapted
+        // for Codex's install + trust + restart flow.
+        const guide = document.createElement('details');
+        guide.style.cssText = 'margin-top: 18px; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px;';
+        const guideSummary = document.createElement('summary');
+        guideSummary.style.cssText = 'cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-primary); list-style: revert;';
+        guideSummary.textContent = 'Setup Guide & Troubleshooting';
+        guide.appendChild(guideSummary);
+
+        const guideBody = document.createElement('div');
+        guideBody.style.cssText = 'margin-top: 12px; font-size: 12px; line-height: 1.6; color: var(--text-primary);';
+
+        const gSection = (title) => {
+            const h = document.createElement('div');
+            h.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--text-primary); margin: 14px 0 6px 0; letter-spacing: 0.3px;';
+            h.textContent = title;
+            return h;
+        };
+        const gPara = (text) => {
+            const p = document.createElement('div');
+            p.style.cssText = 'color: var(--text-secondary); margin: 4px 0;';
+            p.textContent = text;
+            return p;
+        };
+        const gCode = (text) => {
+            const c = document.createElement('code');
+            c.style.cssText = 'display: block; padding: 8px 10px; margin: 4px 0; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; font-family: monospace; font-size: 11px; user-select: all; overflow-x: auto;';
+            c.textContent = text;
+            return c;
+        };
+        const gItem = (label, text) => {
+            const i = document.createElement('div');
+            i.style.cssText = 'color: var(--text-secondary); margin: 6px 0; padding-left: 14px; text-indent: -14px;';
+            const strong = document.createElement('strong');
+            strong.style.cssText = 'color: var(--text-primary); font-weight: 600;';
+            strong.textContent = label + ' — ';
+            i.appendChild(strong);
+            i.appendChild(document.createTextNode(text));
+            return i;
+        };
+
+        guideBody.appendChild(gSection('Install'));
+        guideBody.appendChild(gPara('Click "Install Plugin" above. Then restart your Codex session — Codex will prompt you to trust SecureVector Guard hooks the first time the plugin loads. Accept the trust prompt and the plugin starts auditing tool calls.'));
+        guideBody.appendChild(gPara('Run any MCP tool from Codex and check Tool Activity in the sidebar — every call lands as an audit row tagged runtime_kind=codex.'));
+
+        guideBody.appendChild(gSection('Verify'));
+        guideBody.appendChild(gCode('curl -fsS http://127.0.0.1:8741/health'));
+        guideBody.appendChild(gCode('codex plugin list'));
+        guideBody.appendChild(gPara('Should report securevector-guard@securevector-local · installed, enabled.'));
+
+        guideBody.appendChild(gSection('Uninstall'));
+        guideBody.appendChild(gPara('Click "Uninstall" above (recommended — strips the ~/.codex/config.toml sections automatically). Then restart your Codex session.'));
+
+        guideBody.appendChild(gSection('Troubleshooting'));
+        guideBody.appendChild(gItem("Hooks don't fire after install", 'restart your Codex session — Codex loads plugins at session start, not live.'));
+        guideBody.appendChild(gItem('First-run "Trust hooks?" prompt every session', 'confirm the trust dialog was accepted (Codex caches the trust hash in ~/.codex/config.toml — declined trust replays the prompt).'));
+        guideBody.appendChild(gItem('Status pill says "Installed, not enabled"', 'open ~/.codex/config.toml and confirm this block is present:'));
+        guideBody.appendChild(gCode('[plugins."securevector-guard@securevector-local"]\nenabled = true'));
+        guideBody.appendChild(gItem('Every call shows action=allow even with a synced rule', 'open Settings → Cloud and confirm the device is paired; check /api/tool-permissions/synced-overrides returns non-empty.'));
+        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently — restart with securevector-app --web on 127.0.0.1:8741.'));
 
         guide.appendChild(guideBody);
         content.appendChild(guide);

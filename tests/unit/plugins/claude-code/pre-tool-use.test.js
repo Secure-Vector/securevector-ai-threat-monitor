@@ -249,21 +249,41 @@ test('toHookOutput wraps allow in hookSpecificOutput (no reason field for allow)
 });
 
 
-test('toHookOutput wraps deny with permissionDecisionReason', () => {
+test('toHookOutput wraps deny with branded permissionDecisionReason', () => {
+  // The reason is prefixed with "SecureVector Guard:" so the host
+  // CLI's deny banner identifies the enforcer.
   assert.deepEqual(toHookOutput({ decision: 'deny', reason: 'blocked by policy' }), {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
-      permissionDecisionReason: 'blocked by policy',
+      permissionDecisionReason: 'SecureVector Guard: blocked by policy',
     },
   });
 });
 
 
-test('toHookOutput wraps ask with reason', () => {
+test('toHookOutput wraps ask with branded reason', () => {
+  // Ask also gets branded — same rationale as deny.
   const out = toHookOutput({ decision: 'ask', reason: 'needs confirmation' });
   assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
-  assert.equal(out.hookSpecificOutput.permissionDecisionReason, 'needs confirmation');
+  assert.equal(
+    out.hookSpecificOutput.permissionDecisionReason,
+    'SecureVector Guard: needs confirmation',
+  );
+});
+
+
+test('toHookOutput brand prefix is idempotent', () => {
+  // If a reason already starts with our brand prefix, don't apply it
+  // twice — produces a confusing nested banner otherwise.
+  const out = toHookOutput({
+    decision: 'deny',
+    reason: 'SecureVector Guard: existing',
+  });
+  assert.equal(
+    out.hookSpecificOutput.permissionDecisionReason,
+    'SecureVector Guard: existing',
+  );
 });
 
 

@@ -19,6 +19,7 @@ const App = {
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
+        'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         settings: SettingsPage,
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
@@ -405,6 +406,13 @@ const App = {
             'Claude Code plugin',
             'Native PreToolUse / PostToolUse hooks audit every Claude Code tool call — no proxy, no env vars.',
             'proxy-claude-code',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'PLUGIN',
+            'Codex plugin',
+            'Native hooks for OpenAI Codex CLI — same PreToolUse / PostToolUse contract, same tamper-evident audit, runtime_kind=codex.',
+            'proxy-codex',
             'integrations'
         ));
         whatsNewList.appendChild(makeNewItem(
