@@ -9,6 +9,8 @@ include rules/RULES_ATTRIBUTION.md
 include rules/LICENSE_NOTICE.md
 recursive-include src/securevector/plugins/claude-code *
 recursive-include src/securevector/plugins/claude-code/.claude-plugin *
+recursive-include src/securevector/plugins/codex *
+recursive-include src/securevector/plugins/codex/.codex-plugin *
 global-exclude __pycache__
 global-exclude *.py[co]
 global-exclude *.pyo
