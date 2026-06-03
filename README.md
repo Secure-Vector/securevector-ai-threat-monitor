@@ -22,14 +22,7 @@
 | **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `codex` |
 | **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
 
-All three plugins share the same enforcement core: one synced cloud rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
-
-**For teams (Cloud · opt-in):**
-
-- Author MCP tool-permission policies once; every enrolled device pulls and enforces them.
-- Cloud-pushed `deny` rules cover non-registry tools too (e.g. `write_File` on any filesystem MCP server).
-- Per-org versioning, audit attribution, device slicing.
-- Local always works standalone — cloud is strictly additive.
+All three plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
 
 <div align="center">
 
@@ -221,22 +214,12 @@ Live dashboard showing every LLM request, tool call, token count, and threat eve
 </td>
 </tr>
 <tr>
-<th align="left" colspan="2">Fleet Management <em>(Cloud · opt-in)</em></th>
-</tr>
-<tr>
-<td valign="top" colspan="2">
-
-Author MCP tool-permission policies once in your SecureVector cloud account; every enrolled device pulls and enforces them on the next sync. Cloud-pushed `deny` rules fire on non-registry tools too (any filesystem / GitHub / Slack / generic MCP server) with case-insensitive name matching. Per-org policy versioning, audit attribution stamped onto every blocked / allowed row, and per-device-ID filtering so dashboards can answer "which laptop blocked what." The local install always works standalone with no signup; cloud is strictly additive.
-
-</td>
-</tr>
-<tr>
 <th align="left" colspan="2">100% Local by Default</th>
 </tr>
 <tr>
 <td valign="top" colspan="2">
 
-Runs entirely on your machine. No accounts required. No cloud. No data leaves your infrastructure unless you configure a SIEM destination or opt into Cloud Fleet Management above. Open source under Apache 2.0.
+Runs entirely on your machine. No accounts required. No data leaves your infrastructure unless you configure a SIEM destination. Open source under Apache 2.0.
 
 </td>
 </tr>
