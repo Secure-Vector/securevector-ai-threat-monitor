@@ -701,6 +701,10 @@ pytest tests/ -v
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
 
+## Cloud (optional, opt-in)
+
+A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. Strictly additive — the local install above works standalone without it. Details: [securevector.io](https://securevector.io).
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
