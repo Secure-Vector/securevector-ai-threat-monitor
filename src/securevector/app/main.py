@@ -1339,16 +1339,16 @@ Examples:
     parser.add_argument(
         "--install-plugin",
         type=str,
-        choices=["claude-code", "openclaw"],
+        choices=["claude-code", "openclaw", "codex"],
         metavar="NAME",
-        help="Install a SecureVector Guard plugin (claude-code or openclaw) and exit",
+        help="Install a SecureVector Guard plugin (claude-code, openclaw, or codex) and exit",
     )
     parser.add_argument(
         "--uninstall-plugin",
         type=str,
-        choices=["claude-code", "openclaw"],
+        choices=["claude-code", "openclaw", "codex"],
         metavar="NAME",
-        help="Uninstall a SecureVector Guard plugin (claude-code or openclaw) and exit",
+        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, or codex) and exit",
     )
 
     args = parser.parse_args()
