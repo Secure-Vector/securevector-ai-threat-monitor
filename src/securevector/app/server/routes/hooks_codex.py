@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from . import _hooks_common
@@ -803,6 +803,23 @@ async def install_plugin():
         "Staged %d Codex plugin file(s) for %s at %s (sv_url=%s)",
         len(files_written), PLUGIN_NAME, STAGING_DIR, sv_url,
     )
+
+    # Defense-in-depth: if staging copied zero files, the bundled plugin
+    # tree is missing from the installed package (e.g. wheel built without
+    # the plugin's non-Python assets — see setup.py:package_data and
+    # MANIFEST.in). Failing loudly here prevents the downstream version
+    # reader from falling back to "0.0.0" and producing an empty install
+    # at the wrong cache path.
+    if not files_written:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Codex plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
+                "The bundled plugin assets are missing from the installed package — "
+                "verify setup.py:package_data and MANIFEST.in include "
+                "plugins/codex/**/* and plugins/codex/.codex-plugin/*."
+            ),
+        )
 
     # Auto-install into ~/.codex if Codex is present.
     version = _read_staged_plugin_version()

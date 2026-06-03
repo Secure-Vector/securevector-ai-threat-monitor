@@ -130,6 +130,10 @@ setup(
             # explicitly so plugin.json (the file Claude Code reads to discover
             # the plugin) actually ships in the wheel.
             "plugins/claude-code/.claude-plugin/*",
+            "plugins/codex/**/*",
+            # Same dot-dir gotcha as above — list .codex-plugin/ explicitly
+            # so plugin.json (the file Codex reads on plugin add) ships.
+            "plugins/codex/.codex-plugin/*",
         ],
         "": ["NOTICE"],
     },
