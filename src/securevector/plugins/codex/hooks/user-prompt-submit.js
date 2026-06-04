@@ -3,7 +3,7 @@
 /**
  * UserPromptSubmit hook for SecureVector Guard.
  *
- * Claude Code fires this hook BEFORE the user's prompt reaches the
+ * Codex fires this hook BEFORE the user's prompt reaches the
  * model. The payload is JSON on stdin shaped roughly:
  *   { "prompt": "...", "session_id": "...", ... }
  *
@@ -31,7 +31,7 @@ const { redactForScan } = require('../lib/redact.js');
 const { postJsonAndForget } = require('../lib/client.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
-const RUNTIME_KIND = 'claude-code';
+const RUNTIME_KIND = 'codex';
 const SCAN_TEXT_LIMIT = 8000; // bytes, matches PostToolUse cap
 const SESSION_ID_MAX = 128;
 
@@ -79,7 +79,7 @@ async function main() {
   const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
   postJsonAndForget(`${baseUrl}/analyze`, {
     text,
-    source: 'claude-code-plugin',
+    source: 'codex-plugin',
     // Direction is `outgoing` — convention is: outgoing = content the
     // user / agent emits (prompts, tool inputs); incoming = content
     // arriving from a tool (tool responses). User prompts ARE outgoing

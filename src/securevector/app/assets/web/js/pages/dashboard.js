@@ -560,8 +560,19 @@ const DashboardPage = {
         chartsRow.appendChild(trendCard);
 
         const costTrendCard = Card.create({ title: 'Provider Cost — Last 7 Days', gradient: true });
-        await this.renderCostTrendChart(costTrendCard.querySelector('.card-body'));
+        const costBody = costTrendCard.querySelector('.card-body');
+        // Show a lightweight placeholder and populate this chart WITHOUT
+        // awaiting it. When there's no provider cost we fall back to the
+        // token-usage chart, whose endpoints walk on-disk agent session logs
+        // (~1.7s for Claude Code transcripts). Awaiting here previously blocked
+        // the whole charts row AND everything rendered below it (security
+        // controls, recent activity). Fire-and-forget so the page is
+        // interactive immediately; the chart fills in when its data arrives.
+        costBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(costTrendCard);
+        this.renderCostTrendChart(costBody, costTrendCard).catch(() => {
+            costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
+        });
 
         container.appendChild(chartsRow);
 
@@ -1087,6 +1098,9 @@ const DashboardPage = {
         const height = opts.height || 140;
         const yFormat = opts.yFormat || (n => Math.round(n).toLocaleString());
         if (series.length === 0 || labels.length === 0) return;
+        // Clear any prior content (e.g. the async "Loading…" placeholder the
+        // cost/token card shows while its on-disk data is fetched).
+        container.textContent = '';
 
         const n = labels.length;
         // Compute the per-series max separately, then the global max for
@@ -1215,13 +1229,61 @@ const DashboardPage = {
                 dot.setAttribute('fill', 'var(--bg-card)');
                 dot.setAttribute('stroke', s.color);
                 dot.setAttribute('stroke-width', '2');
-                const fmt = s.format || yFormat;
-                const titleEl = document.createElementNS(svgNS, 'title');
-                titleEl.textContent = `${labels[i]} · ${s.label}: ${fmt(v)}`;
-                dot.appendChild(titleEl);
                 svg.appendChild(dot);
+
+                // Invisible, generously-sized hit target over each point so
+                // the value tooltip is easy to trigger — the visible dot is
+                // only r≈3 and the SVG scales with preserveAspectRatio=none,
+                // which distorts tiny hover zones. A transparent r=14 circle
+                // gives a forgiving target and drives a styled HTML tooltip
+                // (faster + better-looking than the native SVG <title>).
+                const fmt = s.format || yFormat;
+                const hit = document.createElementNS(svgNS, 'circle');
+                hit.setAttribute('cx', xAt(i));
+                hit.setAttribute('cy', yAt(v));
+                hit.setAttribute('r', '14');
+                hit.setAttribute('fill', 'transparent');
+                hit.style.cursor = 'pointer';
+                const label = `${labels[i]} · ${s.label}: ${fmt(v)}`;
+                // Native title as an accessible / no-JS fallback.
+                const titleEl = document.createElementNS(svgNS, 'title');
+                titleEl.textContent = label;
+                hit.appendChild(titleEl);
+                const show = (ev) => {
+                    tooltip.textContent = label;
+                    tooltip.style.opacity = '1';
+                    const rect = container.getBoundingClientRect();
+                    let x = ev.clientX - rect.left + 12;
+                    let y = ev.clientY - rect.top - 10;
+                    // Keep the tooltip inside the card horizontally.
+                    const maxX = rect.width - tooltip.offsetWidth - 6;
+                    if (x > maxX) x = ev.clientX - rect.left - tooltip.offsetWidth - 12;
+                    tooltip.style.left = Math.max(0, x) + 'px';
+                    tooltip.style.top = Math.max(0, y) + 'px';
+                };
+                hit.addEventListener('mouseenter', show);
+                hit.addEventListener('mousemove', show);
+                hit.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+                // Enlarge the visible dot on hover for feedback.
+                hit.addEventListener('mouseenter', () => dot.setAttribute('r', '5'));
+                hit.addEventListener('mouseleave', () => dot.setAttribute('r', i === data.length - 1 ? '4' : '3'));
+                svg.appendChild(hit);
             });
         });
+
+        // Host the SVG in a positioned wrapper so the HTML tooltip can be
+        // absolutely placed relative to the chart.
+        container.style.position = container.style.position || 'relative';
+        const tooltip = document.createElement('div');
+        tooltip.style.cssText = [
+            'position:absolute', 'pointer-events:none', 'opacity:0',
+            'transition:opacity 0.08s', 'z-index:5', 'white-space:nowrap',
+            'background:var(--bg-card)', 'color:var(--text-primary)',
+            'border:1px solid var(--border-default)', 'border-radius:6px',
+            'padding:4px 8px', 'font-size:11px', 'font-weight:600',
+            'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
+        ].join(';');
+        container.appendChild(tooltip);
 
         container.appendChild(svg);
 
@@ -1277,7 +1339,7 @@ const DashboardPage = {
         });
     },
 
-    async renderCostTrendChart(container) {
+    async renderCostTrendChart(container, card) {
         const days = 7;
         const buckets = [];
         const now = new Date();
@@ -1302,17 +1364,113 @@ const DashboardPage = {
             });
         } catch (e) {}
 
+        // Plugin runtimes (Claude Code / Codex / OpenClaw) never produce
+        // provider-cost records — token cost lives in the LLM API/SDK
+        // layer that the tool-call hooks can't see, so the dollar chart is
+        // a flat $0 line for plugin-only users. When there's genuinely no
+        // spend in the window, fall back to a combined token-usage chart
+        // (summed across the plugins that expose token telemetry — Codex +
+        // Claude Code; OpenClaw has no token endpoint and contributes 0)
+        // so the widget shows something honest and useful instead of $0.
+        const weeklyCostUSD = buckets.reduce((sum, b) => sum + (b.cost || 0), 0);
+        if (weeklyCostUSD > 0) {
+            this._renderTimelineChart(container, {
+                labels: buckets.map(b => b.label),
+                series: [
+                    {
+                        label: 'Daily spend (USD)',
+                        color: '#10b981',
+                        data: buckets.map(b => b.cost),
+                        format: n => '$' + (n || 0).toFixed(2),
+                    },
+                ],
+                yFormat: n => '$' + (n || 0).toFixed(2),
+            });
+            return;
+        }
+
+        await this._renderTokenTrendChart(container, card, buckets);
+    },
+
+    /**
+     * Token-usage fallback for the dashboard cost widget. Renders one
+     * series PER plugin runtime that exposes token telemetry (Codex +
+     * Claude Code) over the same 7-day buckets the cost chart uses, then
+     * retitles the card to "Token Usage — Last 7 Days". OpenClaw has no
+     * token-usage endpoint, so it contributes no series.
+     *
+     * Both endpoints return `daily: [{day: "YYYY-MM-DD" (local tz), ...}]`.
+     * Per-day total = input + output + cache-create + cache-read
+     * (+ reasoning for Codex). Each fetch is independently fail-safe — a
+     * missing/unreachable endpoint just yields a flat-zero series, and a
+     * runtime with no activity in the window is omitted entirely so the
+     * legend only lists plugins the user actually ran.
+     */
+    async _renderTokenTrendChart(container, card, buckets) {
+        const dayTotal = row => (
+            (row.input_tokens || 0) +
+            (row.output_tokens || 0) +
+            (row.cache_creation_input_tokens || 0) +
+            (row.cache_read_input_tokens || 0) +
+            (row.reasoning_output_tokens || 0)
+        );
+
+        const fetchDaily = async (url) => {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) return [];
+                const data = await resp.json();
+                return Array.isArray(data.daily) ? data.daily : [];
+            } catch (e) {
+                return [];
+            }
+        };
+
+        // One bucket-aligned token array per runtime. Colors match each
+        // plugin's canonical accent used elsewhere in the app (Codex coral
+        // #C0655E — sidebar banner, costs panel, tool-permissions; Claude Code
+        // cyan #06b6d4). Keep these in sync with those surfaces.
+        const RUNTIMES = [
+            { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
+            { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
+        ];
+
+        const dailyByRuntime = await Promise.all(RUNTIMES.map(r => fetchDaily(r.url)));
+
+        if (card) {
+            const titleEl = card.querySelector('.card-title');
+            if (titleEl) titleEl.textContent = 'Token Usage — Last 7 Days';
+        }
+
+        const fmtTokens = n => {
+            n = n || 0;
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return Math.round(n).toLocaleString();
+        };
+
+        const series = RUNTIMES.map((r, i) => {
+            const byDay = new Map((dailyByRuntime[i] || []).map(row => [row.day, dayTotal(row)]));
+            const data = buckets.map(b => byDay.get(b.dateStr) || 0);
+            return {
+                label: r.label,
+                color: r.color,
+                data,
+                format: fmtTokens,
+                _total: data.reduce((s, n) => s + n, 0),
+            };
+        // Omit runtimes with zero activity in the window so the legend
+        // only shows plugins the user actually ran. If BOTH are empty,
+        // keep them so the chart renders an honest empty state rather
+        // than a blank card.
+        });
+        const active = series.filter(s => s._total > 0);
+        const shown = active.length > 0 ? active : series;
+
         this._renderTimelineChart(container, {
             labels: buckets.map(b => b.label),
-            series: [
-                {
-                    label: 'Daily spend (USD)',
-                    color: '#10b981',
-                    data: buckets.map(b => b.cost),
-                    format: n => '$' + (n || 0).toFixed(2),
-                },
-            ],
-            yFormat: n => '$' + (n || 0).toFixed(2),
+            series: shown.map(s => ({ label: s.label, color: s.color, data: s.data, format: s.format })),
+            yFormat: fmtTokens,
         });
     },
 

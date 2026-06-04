@@ -20,6 +20,7 @@ from securevector.app.database.repositories.tool_permissions import (
 from securevector.app.database.repositories.custom_tools import (
     CustomToolsRepository,
 )
+from securevector.app.database.repositories.settings import SettingsRepository
 from securevector.core.tool_permissions.engine import (
     load_essential_registry,
     get_risk_score,
@@ -77,6 +78,14 @@ class EssentialToolResponse(BaseModel):
 # Each tuple is (name, risk, description). The category is uniformly
 # `"claude_code"`; default_permission is `"allow"` because built-ins
 # are default-allow in the host — cloud rules deny selectively.
+#
+# Codex shares the exact same built-in names (its plugin re-uses
+# normalize.js verbatim), so `CODEX_BUILTINS` below is derived from this
+# table and surfaced as parallel UI rows under category "codex".
+# A single rule `tool_id="Bash"` governs both runtimes — the duplicate
+# rows are intentional: they let the UI show *which* runtime the user is
+# governing without inventing a per-runtime tool_id namespace that would
+# break synced-rule lookups.
 CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
     # File operations
     ("Read",          "read",   "Read file contents."),
@@ -110,6 +119,62 @@ CLAUDE_CODE_BUILTINS: list[tuple[str, str, str]] = [
     # Todos
     ("TodoWrite",     "write",  "Update the session todo list."),
     ("TodoRead",      "read",   "Read the session todo list."),
+]
+
+# Canonical list of Codex HOOK-PAYLOAD tool names. CRITICAL distinction
+# from the model-layer `function_call.name` you see in session JSONL:
+# Codex's hook engine renames some tools before invoking PreToolUse /
+# PostToolUse. Defined in `codex-rs/core/src/tools/hook_names.rs`:
+#
+#   exec_command + shell_command   → "Bash"          (HookToolName::bash())
+#   apply_patch                    → "apply_patch"   (matcher aliases: Write, Edit)
+#   spawn_agent                    → "spawn_agent"   (matcher alias: Agent)
+#   everything else                → passthrough
+#
+# Empirically confirmed by capturing hook stdin: when the LLM emitted
+# `function_call.name = "exec_command"`, the hook received
+# `tool_name: "Bash"`. The previous iteration of this list contained
+# `exec_command` (wrong — never appears in hook stdin) and silently
+# fail-opened every Codex shell call. KEEP IN LOCKSTEP with the Codex
+# copy of `normalize.js` (`src/securevector/plugins/codex/lib/normalize.js`).
+#
+# Risk classification ("admin" / "write" / "read") drives the default
+# UI sort + future risk-budget views.
+CODEX_BUILTINS: list[tuple[str, str, str]] = [
+    # Shell + I/O — Codex's hook payload uses "Bash" for exec_command +
+    # shell_command. The single most load-bearing entry in this list;
+    # without it every Codex shell call fail-opens.
+    ("Bash",                    "admin", "Shell command (covers Codex's exec_command, shell_command, and file reads via cat / grep / ls / sed)."),
+    # File mutation — apply_patch is the canonical hook name; Write +
+    # Edit work as matcher aliases at the hook engine layer.
+    ("apply_patch",             "write", "Apply a diff to one or more files (Codex's Edit/Write/MultiEdit)."),
+    # Planning + UI
+    ("update_plan",             "write", "Update the session task list (Codex's TodoWrite)."),
+    ("view_image",              "read",  "Inspect an image at a URL or path."),
+    ("web_search",              "read",  "Run a web search."),
+    # User interaction
+    ("request_permissions",     "admin", "Request elevated permissions from the user."),
+    ("request_user_input",      "read",  "Ask the user a clarifying question."),
+    # MCP discovery + read
+    ("list_mcp_resources",      "read",  "List MCP resources exposed by configured servers."),
+    ("list_mcp_resource_templates", "read", "List MCP resource templates."),
+    ("read_mcp_resource",       "read",  "Read an MCP resource by URI."),
+    # Plugin lifecycle
+    ("list_available_plugins_to_install", "read", "List plugins available in configured marketplaces."),
+    ("request_plugin_install",  "admin", "Request installation of a Codex plugin."),
+    # Documentation
+    ("docs",                    "read",  "Query the documentation tool."),
+    # Multi-agent orchestration — Codex's "agent jobs" subsystem
+    ("spawn_agent",             "admin", "Spawn a subordinate agent."),
+    ("spawn_agents_on_csv",     "admin", "Spawn multiple agents from a CSV."),
+    ("wait_agent",              "read",  "Wait for a spawned agent."),
+    ("close_agent",             "admin", "Close a spawned agent."),
+    ("resume_agent",            "admin", "Resume a previously-spawned agent."),
+    ("list_agents",             "read",  "List active agents."),
+    ("send_input",              "admin", "Send input to a spawned agent."),
+    ("send_message",            "admin", "Send a message to a spawned agent."),
+    ("followup_task",           "admin", "Schedule a follow-up task on an agent."),
+    ("report_agent_job_result", "write", "Report the result of an agent job."),
 ]
 
 
@@ -245,6 +310,30 @@ async def list_essential_tools():
                 name, builtin_meta, overrides_map, synced_map, matches_last_resort,
             ))
 
+        # Codex built-ins. Same tool_id namespace as CC (so a single
+        # synced/override rule covers both runtimes), but surfaced as a
+        # distinct UI row under category "codex" so users can see at a
+        # glance that the governance applies to their Codex sessions
+        # too. The Codex row is omitted only when the registry already
+        # claims the name — registry metadata is richer.
+        for name, risk, description in CODEX_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Codex",
+                "category": "codex",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
         # Sort by category, then by name
         tools.sort(key=lambda t: (t["category"], t["name"]))
 
@@ -273,6 +362,18 @@ async def get_overrides():
 async def get_synced_overrides():
     """Effective tool-permission decisions, in proxy-friendly shape.
 
+    ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
+    the set of rules that are CURRENTLY ENFORCED, which is gated on the
+    global enforcement kill-switch (`settings.tool_permissions_enabled`).
+    When enforcement is OFF it returns `{"synced": [], "total": 0}` even
+    though synced rules and local overrides may still be configured in
+    their tables. A UI consumer MUST NOT read an empty result as "no rules
+    configured" — it can equally mean "enforcement is disabled, so nothing
+    is being enforced right now." To list the configured rules regardless
+    of enforcement state, query the underlying sources instead:
+    `/tool-permissions/essential` (effective per-tool view incl. synced +
+    overrides) and `/tool-permissions/overrides` (raw local overrides).
+
     Despite the historical name, this endpoint now merges TWO sources:
       1. Cloud-pushed synced rules (from `synced_rules` table)
       2. Local user overrides set via the Tool Permissions UI's
@@ -296,6 +397,28 @@ async def get_synced_overrides():
         )
 
         db = get_database()
+
+        # Global enforcement kill-switch. When the Tool Permissions page's
+        # "Enforcement" toggle is OFF the user expects nothing to be
+        # blocked anywhere — proxy AND plugin hooks. The proxy already
+        # short-circuits on its own settings check, but agent plugins
+        # (CC / Codex / OpenClaw) consult this endpoint as their only
+        # decision oracle. Returning an empty synced list here makes
+        # every plugin's `decideFromOverrides` fail-open to allow,
+        # which matches the toggle's stated "monitor only" semantics.
+        # PostToolUse audit POSTs are unaffected so the user still sees
+        # every call in Tool Activity — just no blocks.
+        try:
+            settings_repo = SettingsRepository(db)
+            app_settings = await settings_repo.get()
+            if not app_settings.tool_permissions_enabled:
+                return {"synced": [], "total": 0}
+        except Exception as e:
+            logger.warning(
+                "Settings fetch failed in /synced-overrides; "
+                "defaulting to enforcement-on: %s", e,
+            )
+
         synced_repo = SyncedRulesRepository(db)
         rows = await synced_repo.list_all()
 
@@ -371,11 +494,15 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
     """Set or update an override for an essential tool."""
     try:
         # Validate tool_id exists either in the YAML registry OR in the
-        # Claude Code built-ins list — the Tool Permissions page renders
-        # both as governable rows, so a 404 on built-in IDs would make
-        # every "Block Bash" click silently fail with a toast error.
+        # built-ins list for one of the supported runtimes — the Tool
+        # Permissions page renders all of them as governable rows, so a
+        # 404 on built-in IDs would make every "Block Bash" click
+        # silently fail with a toast error. The CC + Codex built-in
+        # sets share names today, but accept the union to stay correct
+        # if either runtime adds a tool the other doesn't have.
         registry = _get_registry()
         builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
+        builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,
@@ -755,6 +882,7 @@ def _infer_mcp_scope(tool_name: str) -> Optional[str]:
 _RUNTIME_LABELS = {
     "claude-code":  "Claude Code",
     "claude_code":  "Claude Code",
+    "codex":        "Codex",
     "openclaw":     "OpenClaw",
     "langchain":    "LangChain",
     "langgraph":    "LangGraph",

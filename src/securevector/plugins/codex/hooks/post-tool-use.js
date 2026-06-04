@@ -4,7 +4,7 @@
  * PostToolUse hook handler for the SecureVector Guard plugin.
  *
  * Fire-and-forget audit: after every tool call, POST a `tool_call_audit`
- * row to the local app with `runtime_kind: "claude-code"`. The hook never
+ * row to the local app with `runtime_kind: "codex"`. The hook never
  * blocks the host CLI — `postJsonAndForget` returns synchronously and
  * swallows every error.
  *
@@ -33,7 +33,7 @@ const { SECRET_PATTERNS, redactForScan, hasCredentialMarkers } = require('../lib
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ARGS_PREVIEW_LIMIT = 200;
-const RUNTIME_KIND = 'claude-code';
+const RUNTIME_KIND = 'codex';
 
 // Tools whose `tool_input` is *prose the agent emitted in natural language*
 // and is therefore worth running through the LLM-text rule pack at
@@ -44,25 +44,29 @@ const RUNTIME_KIND = 'claude-code';
 // positives (URLs trip credential-leak; `| python3 -m json.tool` trips
 // bulk-data-extraction; etc.).
 //
-// What we keep:
-//   - WebFetch — agent supplies a natural-language prompt about a URL
-//   - Skill / Task / Agent — agent supplies a prompt / description /
-//     instructions field that is, by design, prose
+// Codex-native tool names (canonical hook-payload names — see
+// ../lib/normalize.js BUILTIN_TOOLS for the source of truth).
 //
-// What we DROP (was scanned in v4.2.0, removed in v4.2.1+):
-//   - Bash / PowerShell — command bodies are shell syntax, not prose
-//   - Write — file content is whatever the file is (often source code)
-//   - Edit / MultiEdit / NotebookEdit — new_string / new_source is
-//     source-code syntax (or notebook cell code)
+// What we keep:
+//   - web_search   — agent supplies a natural-language query string
+//   - spawn_agent  — agent supplies a prompt / description / instructions
+//                    field for a child agent; canonical injection vector
+//   - send_input / send_message — message bodies sent to other agents
+//
+// What we DROP from the CC pattern (these CC tool names don't exist in
+// Codex's surface, so leaving them in the set is dead code):
+//   - WebFetch / Skill / Task / Agent — Claude-Code-only tool names
+//   - Bash command bodies are shell syntax, not prose
+//   - apply_patch payload is a unified-diff blob, not prose
 //
 // Tool calls themselves still produce a /call-audit row regardless of
 // whether they're in this set — that's the always-on audit chain. This
 // set ONLY gates the /analyze threat-scan POST.
 const THREAT_SCAN_TOOLS = new Set([
-  'WebFetch',
-  'Skill',
-  'Task',
-  'Agent',
+  'web_search',
+  'spawn_agent',
+  'send_input',
+  'send_message',
 ]);
 const THREAT_SCAN_TEXT_LIMIT = 8000; // bytes — well under /analyze's 100KB cap
 
@@ -73,29 +77,32 @@ const THREAT_SCAN_TEXT_LIMIT = 8000; // bytes — well under /analyze's 100KB ca
 // applies the tighter-threshold treatment appropriate for fetched
 // content the user has no agency over.
 //
-// What's in:
-//   - WebFetch       — page text we just pulled from the web
-//   - Read           — file the agent just read off disk
-//   - Grep           — matched lines from a search
+// Codex-native tool names:
+//   - web_search          — search result snippets/URLs the agent reads
+//                          back as context
+//   - read_mcp_resource   — content from MCP servers; third-party trust
+//                          boundary, exactly the supply-chain risk
+//   - docs                — documentation lookup; arbitrary external text
 //   - Every `mcp__*` tool — MCP servers are third-party trust boundaries;
 //                          their responses are the supply-chain inventory
 //                          problem made operational.
 //
-// Bash IS now in — `printenv`, `cat .env`, `cat ~/.aws/credentials`,
+// Bash IS in — `printenv`, `cat .env`, `cat ~/.aws/credentials`,
 // `git config --get user.password` are the highest-volume credential
-// exfil channel. Per issue #131 we light it up; the rule pack's
-// `_INCOMING_SUPPRESSED_RULE_IDS` server-side already drops the noisy
-// prose-tier rules for direction='incoming', so the FP rate that
-// originally kept Bash excluded is mitigated.
+// exfil channel. The hook engine remaps `exec_command` / `shell_command`
+// to `Bash` on the wire (see ../lib/normalize.js comment) so this entry
+// is what fires for Codex shell calls. Per issue #131 we light it up;
+// the rule pack's `_INCOMING_SUPPRESSED_RULE_IDS` server-side already
+// drops the noisy prose-tier rules for direction='incoming', so the FP
+// rate that originally kept shell out is mitigated.
 //
-// Still deliberately out: Write / Edit results — the response is
-// "ok" / a confirmation, not content. Nothing to scan.
+// Still deliberately out: apply_patch results — the response is the
+// patched file or "ok" confirmation, not fetched external content.
 const THREAT_SCAN_RESPONSE_TOOLS = new Set([
-  'WebFetch',
-  'Read',
-  'Grep',
   'Bash',
-  'PowerShell',
+  'web_search',
+  'read_mcp_resource',
+  'docs',
 ]);
 const THREAT_SCAN_RESPONSE_LIMIT = 16000; // bytes — bigger than input cap; tool responses are denser content.
 
@@ -116,13 +123,14 @@ const THREAT_SCAN_RESPONSE_LIMIT = 16000; // bytes — bigger than input cap; to
 // value of the feature is preserved — but a benign `strings`-dump blob is
 // skipped.
 //
-// Context-facing tools (WebFetch / Read / Grep / every MCP tool) are NOT
-// in this set: their responses are fetched content the agent will treat as
-// instructions, so they remain scanned UNCONDITIONALLY for Indirect Prompt
-// Injection regardless of whether a credential shape is present.
+// Context-facing tools (web_search / read_mcp_resource / docs / every MCP
+// tool) are NOT in this set: their responses are fetched content the agent
+// will treat as instructions, so they remain scanned UNCONDITIONALLY for
+// Indirect Prompt Injection regardless of whether a credential shape is
+// present. `PowerShell` is not a Codex tool name — only `Bash` (via the
+// hook engine's exec_command/shell_command → Bash remap).
 const THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS = new Set([
   'Bash',
-  'PowerShell',
 ]);
 
 // `SECRET_PATTERNS` + `redactForScan` are imported from ../lib/redact.js
@@ -160,32 +168,34 @@ function extractScanText(toolName, toolInput) {
   if (typeof toolInput !== 'object') return '';
 
   switch (toolName) {
-    case 'WebFetch': {
-      // The agent-supplied prompt is the injection vector; the URL is
-      // metadata (and a path-shaped string that trips data_leakage).
+    case 'web_search': {
+      // The agent-supplied query is the injection vector. Codex's
+      // web_search tool schema: { query: string, ...filters }. The
+      // query is natural-language prose, exactly the rule-pack target.
       const parts = [];
-      if (typeof toolInput.prompt === 'string') parts.push(toolInput.prompt);
+      if (typeof toolInput.query === 'string') parts.push(toolInput.query);
       return parts.join('\n');
     }
-    case 'Skill':
-    case 'Task':
-    case 'Agent': {
-      // Any natural-language field — concatenated. Tool schemas vary
-      // (Task has `prompt`/`description`; Skill has `args`; Agent has
-      // `prompt`). Falls back to '' if none of the known fields exist.
+    case 'spawn_agent':
+    case 'send_input':
+    case 'send_message': {
+      // Any natural-language field — concatenated. Codex spawn_agent
+      // takes `prompt` + `name` + `description`; send_input/send_message
+      // take `text` / `message` / `input`. Falls back to '' if none of
+      // the known fields exist.
       const parts = [];
-      for (const k of ['prompt', 'description', 'instructions', 'message', 'args', 'input']) {
+      for (const k of ['prompt', 'text', 'message', 'description', 'instructions', 'input']) {
         const v = toolInput[k];
         if (typeof v === 'string' && v.length > 0) parts.push(v);
       }
       return parts.join('\n');
     }
     default:
-      // Syntax-shaped tools (Bash, PowerShell, Write, Edit, MultiEdit,
-      // NotebookEdit) intentionally return '' here — they're not in
-      // THREAT_SCAN_TOOLS, so this branch is unreachable for them in
-      // the normal audit() flow. The empty-string fallback also fail-
-      // closes for any unrecognised tool name.
+      // Syntax-shaped tools (Bash command bodies, apply_patch diffs,
+      // update_plan JSON, view_image paths) intentionally return ''
+      // here — they're not in THREAT_SCAN_TOOLS, so this branch is
+      // unreachable for them in the normal audit() flow. The empty-
+      // string fallback also fail-closes for any unrecognised tool name.
       return '';
   }
 }
@@ -193,7 +203,7 @@ function extractScanText(toolName, toolInput) {
 /**
  * Extract scannable text from a tool_response.
  *
- * Claude Code's PostToolUse event includes `tool_response` — the value the
+ * Codex's PostToolUse event includes `tool_response` — the value the
  * tool returned to the agent before its next reasoning step. That response
  * is what the LLM will read as context, so it's the right surface for
  * Indirect Prompt Injection detection and for catching credentials / PII
@@ -341,7 +351,7 @@ async function audit(event, baseUrl) {
         : rawScanText;
       postJsonAndForget(`${baseUrl}/analyze`, {
         text: scanText,
-        source: 'claude-code-plugin',
+        source: 'codex-plugin',
         direction: 'outgoing',
         metadata: {
           runtime_kind: RUNTIME_KIND,
@@ -397,7 +407,7 @@ async function audit(event, baseUrl) {
         : rawResponseText;
       postJsonAndForget(`${baseUrl}/analyze`, {
         text: scanText,
-        source: 'claude-code-plugin',
+        source: 'codex-plugin',
         direction: 'incoming',
         metadata: {
           runtime_kind: RUNTIME_KIND,

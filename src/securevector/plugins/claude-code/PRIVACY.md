@@ -1,7 +1,7 @@
 # Privacy Policy — SecureVector Guard (Claude Code plugin)
 
 **Last updated:** 2026-05-27
-**Applies to:** plugin v4.3.x
+**Applies to:** plugin v4.4.x
 
 The SecureVector Guard plugin runs entirely on your machine. It reads a small set of Claude Code hook events and posts them over **loopback HTTP** to a companion app you installed locally. The plugin itself makes no network calls to SecureVector, to Anthropic, or to any third party.
 
@@ -14,7 +14,7 @@ The plugin registers four Claude Code hook events plus an optional `statusLine` 
 | Surface | What it reads | Where it sends it |
 |---|---|---|
 | `PreToolUse` hook | Tool name and `tool_input` arguments | Local app `/api/tool-permissions/call-audit` over loopback |
-| `PostToolUse` hook | Tool name, input arguments, and — for `WebFetch` / `Read` / `Grep` / any `mcp__*` tool — up to 16 KB of the tool response | Local app `/api/tool-permissions/call-audit` over loopback. Additionally, `/analyze` is hit over loopback for prose-input tools (`WebFetch`, `Skill`, `Task`, `Agent`) and for tool-response scans on `WebFetch` / `Read` / `Grep` / `mcp__*` |
+| `PostToolUse` hook | Tool name, input arguments, and — for `WebFetch` / `Read` / `Grep` / `Bash` / `PowerShell` / any `mcp__*` tool — up to 16 KB of the tool response (including `stdout` and `stderr` for shell tools) | Local app `/api/tool-permissions/call-audit` over loopback. Additionally, `/analyze` is hit over loopback for prose-input tools (`WebFetch`, `Skill`, `Task`, `Agent`) and for tool-response scans on `WebFetch` / `Read` / `Grep` / `Bash` / `PowerShell` / `mcp__*`. Shell-output scanning catches credentials leaked via commands like `printenv` / `cat .env` / `cat ~/.aws/credentials` — those bytes leave the plugin process toward the local app on loopback for rule matching, then are persisted with secret values redacted and replaced by SHA-256 hashes. |
 | `UserPromptSubmit` hook | Text of your prompt to Claude Code | Local app `/analyze` over loopback |
 | `Stop` hook | Shape-only metadata (payload length and top-level key names — no prompt or response content) | Disk file at `~/.securevector/cost-probes/cc-stop-*.json`, mode 0600, capped at 100 entries. Diagnostic probe; targeted for removal in a future 4.3.x patch release. Until removed, only shape metadata is written — never the Stop event payload itself. |
 | `statusLine` command (host-wired in `~/.claude/settings.json`) | Polls the local app for token counts and live findings at the interval set in `statusLine.refreshInterval` (default 5 s) | Local app `/api/tool-permissions/call-audit/stats`, `/api/replay/timeline`, and `/api/hooks/claude-code/token-usage` over loopback |
@@ -52,7 +52,7 @@ Redaction is **best-effort pattern matching, not a cryptographic guarantee.** Th
 Size limits enforced by the plugin before any POST:
 
 - `/api/tool-permissions/call-audit` — the `args_preview` field is truncated to 200 characters.
-- `/analyze` — the `text` field is capped at 8 KB (8 000 bytes) for prompt and prose-input scans, and at 16 KB for tool-response scans.
+- `/analyze` — the `text` field is capped at 8 KB (8 000 bytes) for prompt and prose-input scans, and at 16 KB for tool-response scans (including `stdout` / `stderr` from `Bash` / `PowerShell`).
 
 ## What the plugin never collects
 

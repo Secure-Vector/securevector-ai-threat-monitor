@@ -41,7 +41,7 @@ const EFFECT_TO_DECISION = Object.freeze({
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ALLOW = Object.freeze({ decision: 'allow' });
 const ARGS_PREVIEW_LIMIT = 200;
-const RUNTIME_KIND = 'claude-code';
+const RUNTIME_KIND = 'codex';
 
 
 /**
@@ -139,42 +139,74 @@ function buildAuditBody(toolName, toolId, toolInput, decision, reason) {
 
 
 /**
- * Wrap an internal decision in Claude Code's PreToolUse output format.
+ * Wrap an internal decision in Codex's PreToolUse output format.
+ *
+ * Codex's PreToolUse contract is stricter than Claude Code's
+ * (verified empirically against the
+ * `codex-rs/hooks/src/engine/output_parser.rs` validator):
+ *
+ *   - "allow" is only valid when paired with `updatedInput` (input
+ *     rewriting). Emitting bare `permissionDecision: "allow"` fails
+ *     with `unsupported permissionDecision:allow`. To express an
+ *     implicit allow we omit `permissionDecision` entirely — Codex
+ *     treats the absence as proceed.
+ *   - "ask" is unsupported. We convert to "deny" with a clarifying
+ *     reason so a policy that says "prompt the user" blocks instead
+ *     of silently allowing (safer side of the precedence chain).
+ *   - "deny" requires a non-empty `permissionDecisionReason`. We
+ *     fall back to a generic reason when the policy didn't supply
+ *     one, otherwise Codex would mark the response invalid.
+ *
+ * Wire shape:
  *
  *   { hookSpecificOutput: { hookEventName: "PreToolUse",
- *                           permissionDecision: "...",
- *                           permissionDecisionReason: "..."? } }
- *
- * See: https://code.claude.com/docs/en/hooks#pretooluse-hook-decision-control
+ *                           permissionDecision?: "deny",
+ *                           permissionDecisionReason?: "..." } }
  *
  * @param {{decision: 'allow'|'deny'|'ask', reason?: string}} d
  */
-// Branded prefix on every deny / ask reason so the host CLI's deny
-// banner identifies SecureVector Guard as the enforcer. Without this,
-// users see e.g. "User-set local override" with no indication of which
-// hook produced it. Idempotent — won't double-prefix.
+// Branded prefix shown to the host CLI on every deny reason. Codex's
+// TUI surfaces the raw `permissionDecisionReason` string ("feedback:
+// <reason>") with no indication of which hook produced it — without a
+// prefix, a developer using Codex sees "User-set local override" and
+// has no idea SecureVector Guard is the enforcer. Prefixing here makes
+// the source unambiguous in every deny banner.
 const REASON_PREFIX = 'SecureVector Guard';
+
 function _brand(reason) {
+  // Idempotent: don't double-prefix on reasons we already branded
+  // (e.g. when the user crafts a reason that already starts with our
+  // tag).
   return reason.startsWith(REASON_PREFIX + ':')
     ? reason
     : `${REASON_PREFIX}: ${reason}`;
 }
 
 function toHookOutput(d) {
-  const out = {
+  if (d.decision === 'allow') {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse' } };
+  }
+  const reasonProvided = typeof d.reason === 'string' && d.reason.length > 0;
+  if (d.decision === 'ask') {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: _brand(
+          reasonProvided
+            ? `${d.reason} (Codex doesn't support 'ask'; treating as deny)`
+            : "Policy requested user prompt; Codex doesn't support 'ask', treating as deny.",
+        ),
+      },
+    };
+  }
+  return {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
-      permissionDecision: d.decision,
+      permissionDecision: 'deny',
+      permissionDecisionReason: _brand(reasonProvided ? d.reason : 'Blocked by policy.'),
     },
   };
-  if (typeof d.reason === 'string' && d.reason.length > 0) {
-    // Only brand on non-allow paths — Claude Code's allow path doesn't
-    // surface the reason to the user, so the prefix would just be
-    // noise in any inadvertent log line.
-    out.hookSpecificOutput.permissionDecisionReason =
-      d.decision === 'allow' ? d.reason : _brand(d.reason);
-  }
-  return out;
 }
 
 

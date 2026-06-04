@@ -7,19 +7,22 @@
 </div>
 
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
-- **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy, not just on a proxy.
+- **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
 - **Monitor by default, opt-in block mode** — drop-in observability with no breakage risk; flip block mode when ready.
 - **Token + cost tracking** — per-agent, per-model spend in real time.
-- **Works with** Claude Code, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
+- **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
 - **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
 
-**For teams (Cloud · opt-in):**
+**Three native agent plugins — zero proxy, allow / deny / ask enforced inline:**
 
-- Author MCP tool-permission policies once; every enrolled device pulls and enforces them.
-- Cloud-pushed `deny` rules cover non-registry tools too (e.g. `write_File` on any filesystem MCP server).
-- Per-org versioning, audit attribution, device slicing.
-- Local always works standalone — cloud is strictly additive.
+| Plugin | Runtime | Hooks | Audit `runtime_kind` |
+|---|---|---|---|
+| **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `claude-code` |
+| **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `codex` |
+| **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
+
+All three plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
 
 <div align="center">
 
@@ -47,13 +50,13 @@
 
 <br>
 
-> **What's new in v4.3.0**
-> - **Bidirectional tool-response scanning** — PostToolUse now scans the *response* coming back from MCP servers + WebFetch + Read + Grep, not just the agent's outbound prompt. The same IDPI / output-leakage / PII rule packs fire on `direction='incoming'`, catching injection payloads and credential leaks rooted in fetched content. New community rule `sv_community_output_003_pem_private_key_leak` flags PEM private-key blocks and OpenSSH binary carriers (MITRE T1552.004).
-> - **MCP Tool Inventory** *(Agent Activity → Tool Inventory)* — SBOM-style rolled-up table of every (server, tool) pair active on this device, with source / auth-scope / last-used / call-count / blocked-count / touched-secrets / governing-policy columns. Window selector (7 / 14 / 30 / 90 days). CSV + PDF export. Treats MCP as a supply-chain inventory problem.
-> - **Secret Detections** *(Agent Activity → Secret Detections)* — local audit log of every credential / PII pattern caught by `redact_secrets()`. Hash-only storage — no raw secret values ever land in `threat_intel_records` or the audit log, so the trail itself is safe to forward to a SIEM. Direction-aware: PEM-key + OpenSSH-binary patterns fire only on incoming tool responses. CSV + PDF export with SecureVector branding.
-> - **Redactor decoupled from the threat-engine gate** — `redact_secrets()` runs on every `/analyze` call regardless of `is_threat`. Engine and redactor are independent layers (patterns in surrounding language vs. raw secret shapes) — pre-v4.3 gating made the redactor's coverage strictly less than its own patterns claimed.
+> **What's new in v4.4.0**
+> - **OpenAI Codex plugin** *(SecureVector Guard for Codex)* — second active-guard plugin, ships alongside the Claude Code plugin. Same PreToolUse / PostToolUse / UserPromptSubmit hook contract, same tamper-evident audit chain with `runtime_kind=codex`, same fail-open posture. Auto-installs into `~/.codex/plugins/cache/securevector-local/securevector-guard/4.4.0/` when Codex is present; falls back to two paste-in commands otherwise.
+> - **Bash + PowerShell tool-response scanning** — PostToolUse now scans `stdout` and `stderr` from shell commands. Closes the `printenv` / `cat .env` / `cat ~/.aws/credentials` / `git config --get user.password` credential-exfil channel. Issue #131.
+> - **Direction-tag fix** — user-prompt scans now post with `direction='outgoing'` (was inverted in v4.3.0), so the SOC dashboard's `direction=outgoing` filter correctly surfaces credentials pasted into prompts alongside tool-input leaks. Tool-response scans stay `direction='incoming'`. Issue #131.
+> - **Expanded redactor coverage** — `lib/redact.js` now masks Stripe `sk_live_…` / `sk_test_…`, OpenAI `sk-proj-…`, AWS secret access keys, PEM private-key blocks (any flavour), and a broadened labelled-credential k/v set. Bumps the 10-event credential-leak corpus from 6/10 to 10/10 caught client-side before any POST.
 >
-> Already in v4.0.0–4.2.\*: Claude Code plugin (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · OpenClaw plugin · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
+> Already in v4.0.0–4.3.\*: Claude Code plugin (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · OpenClaw plugin · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · MCP Tool Inventory · Secret Detections audit log · bidirectional tool-response scanning · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
 
 ## How It Works
 
@@ -99,7 +102,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-v4.3.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector_4.3.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector-4.3.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-v4.4.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-4.4.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/securevector_4.4.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/securevector-4.4.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-4.4.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -169,7 +172,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
+Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
 
 </td>
 <td valign="top">
@@ -190,7 +193,7 @@ Scan agent skills and tool packages before installing. Static analysis across 10
 </td>
 <td valign="top">
 
-Per-agent, per-model token and USD spend in real time. Daily budget limits with auto-stop. Claude Code plugin reads session transcripts locally to surface input / output / cache tokens with a 7-day trend chart.
+Per-agent, per-model token and USD spend in real time. Daily budget limits with auto-stop. Both the Claude Code plugin and the OpenAI Codex plugin read session transcripts locally (CC: `~/.claude/projects/*.jsonl`; Codex: `~/.codex/sessions/*/*/*/rollout-*.jsonl`) to surface input / output / cache tokens with a 7-day trend chart per runtime — no cloud round-trip, no token data leaves your machine.
 
 </td>
 </tr>
@@ -211,22 +214,12 @@ Live dashboard showing every LLM request, tool call, token count, and threat eve
 </td>
 </tr>
 <tr>
-<th align="left" colspan="2">Fleet Management <em>(Cloud · opt-in)</em></th>
-</tr>
-<tr>
-<td valign="top" colspan="2">
-
-Author MCP tool-permission policies once in your SecureVector cloud account; every enrolled device pulls and enforces them on the next sync. Cloud-pushed `deny` rules fire on non-registry tools too (any filesystem / GitHub / Slack / generic MCP server) with case-insensitive name matching. Per-org policy versioning, audit attribution stamped onto every blocked / allowed row, and per-device-ID filtering so dashboards can answer "which laptop blocked what." The local install always works standalone with no signup; cloud is strictly additive.
-
-</td>
-</tr>
-<tr>
 <th align="left" colspan="2">100% Local by Default</th>
 </tr>
 <tr>
 <td valign="top" colspan="2">
 
-Runs entirely on your machine. No accounts required. No cloud. No data leaves your infrastructure unless you configure a SIEM destination or opt into Cloud Fleet Management above. Open source under Apache 2.0.
+Runs entirely on your machine. No accounts required. No data leaves your infrastructure unless you configure a SIEM destination. Open source under Apache 2.0.
 
 </td>
 </tr>
@@ -513,17 +506,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.3.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-v4.3.0-Windows-Setup.exe) |
-| macOS | [SecureVector-4.3.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.3.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SecureVector-4.3.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.3.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector_4.3.0_amd64.deb) |
-| Linux (RPM) | [securevector-4.3.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/securevector-4.3.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.4.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-v4.4.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.4.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-4.4.0-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.4.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SecureVector-4.4.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.4.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/securevector_4.4.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.4.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/securevector-4.4.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.3.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.4.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 
@@ -707,6 +700,10 @@ pytest tests/ -v
 ```
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
+
+## Cloud (optional, opt-in)
+
+A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. Strictly additive — the local install above works standalone without it. Details: [securevector.io](https://securevector.io).
 
 ## License
 
