@@ -844,22 +844,26 @@ const AgentMapPage = {
             !this.kinds[ObsTabs.isExternalTool(n.tool_id) ? 'external' : 'builtin'];
         const matched = new Set();
         (this._edgeEls || []).forEach(ed => {
-            if (kindHidden(ed.t)) { // edge to a hidden tool → hide the edge
-                ed.lines.forEach(l => { l.style.opacity = '0'; l.style.pointerEvents = 'none'; });
+            const base = ed.lines[0], flow = ed.lines[1];
+            if (kindHidden(ed.t)) { // edge to a hidden tool → fully hide it
+                // Use display:none, NOT opacity:0 — blocked edges run the svPulse
+                // opacity animation, which overrides inline opacity and would
+                // leave a pulsing "dotted line" to the now-hidden tool node.
+                [base, flow].forEach(l => { l.style.display = 'none'; l.style.pointerEvents = 'none'; });
                 return;
             }
+            base.style.display = ''; base.style.pointerEvents = '';
             let m;
             if (f === 'all') m = true;
             else if (f === 'blocked') m = ed.e.outcome === 'blocked';
             else if (f === 'secret') m = !!(ed.t.cloud_managed || ed.t.touched_secrets);
             else m = ed.s.id === f; // agent node id
             const dim = !(f === 'all' || m);
-            // When dimming a non-matching edge, keep only a faint static base and
-            // KILL the travelling dashes (lines[1]) — otherwise an animated
-            // "dotted line" lingers to a ghost node, which reads as a leftover.
-            ed.lines[0].style.opacity = dim ? '0.07' : '';
-            ed.lines[1].style.opacity = dim ? '0' : '';
-            ed.lines.forEach(l => { l.style.pointerEvents = ''; });
+            // Dim a non-matching edge to a faint static base, and KILL its
+            // travelling dashes via display:none (opacity:0 is defeated by the
+            // blocked-edge pulse animation, leaving a ghost dotted line).
+            base.style.opacity = dim ? '0.07' : '';
+            flow.style.display = dim ? 'none' : '';
             if (m) { matched.add(ed.s.id); matched.add(ed.t.id); }
         });
         Object.values(this._nodeEls || {}).forEach(({ g, node }) => {
