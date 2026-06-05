@@ -958,8 +958,17 @@ const AgentMapPage = {
 
     // ---------------- drill-downs ----------------
 
-    _openTool() {
-        if (window.App && typeof App.loadPage === 'function') App.loadPage('tool-activity');
+    _openTool(node) {
+        // Tool-node click → Agent Runs, with the matching tool-kind filter
+        // pre-selected: a gear (external MCP) node opens Runs showing only
+        // External MCP spans; a built-in dot opens Runs showing only built-in.
+        const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
+        if (window.AgentRunsPage) {
+            AgentRunsPage._pendingKinds = ext
+                ? { builtin: false, external: true }
+                : { builtin: true, external: false };
+        }
+        if (window.App && typeof App.loadPage === 'function') App.loadPage('agent-runs');
     },
 
     _openAgent(node) {

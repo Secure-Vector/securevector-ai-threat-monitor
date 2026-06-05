@@ -34,7 +34,7 @@ const AgentTimelinePage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Timeline', 'Every enforced tool call, newest first — built-in vs external MCP, with its verdict');
+            Header.setPageInfo('Timeline', 'Every enforced tool call, newest first — built-in vs external MCP, with the tool permission applied');
         }
         this._injectStyle();
 

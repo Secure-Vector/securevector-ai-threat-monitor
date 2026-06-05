@@ -28,18 +28,21 @@ const AgentRunsPage = {
     kinds: { builtin: true, external: true }, // checkbox filter for the waterfall steps
     runs: [],
     selected: null,
-    runtimeFilter: null,   // active "only this runtime" filter (from a Map node click)
-    _pendingRuntime: null, // one-shot filter handed off by the Map; consumed on render
+    runtimeFilter: null,   // active "only this runtime" filter (from a Map agent-node click)
+    _pendingRuntime: null, // one-shot runtime filter handed off by the Map; consumed on render
+    _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
 
     async render(container) {
         container.textContent = '';
-        // Consume a one-shot runtime filter from a Map agent-node click. A plain
-        // tab navigation leaves _pendingRuntime null → no filter (avoids a stale
-        // filter sticking around when the user opens Runs directly).
+        // Consume one-shot filters handed off by a Map node click. A plain tab
+        // navigation leaves them null → no change (avoids a stale filter sticking
+        // around when the user opens Runs directly). Agent node → runtime filter;
+        // tool node → tool-kind filter (gear=external, dot=built-in).
         this.runtimeFilter = this._pendingRuntime || null;
         this._pendingRuntime = null;
+        if (this._pendingKinds) { this.kinds = this._pendingKinds; this._pendingKinds = null; }
         if (window.Header) {
-            Header.setPageInfo('Agent Runs', 'Per-run trace — every tool call, turn by turn, with its enforcement verdict. Click a step to expand its details.');
+            Header.setPageInfo('Agent Runs', 'Per-run trace — every tool call, turn by turn, with the tool permission applied to it. Click a step to expand its details.');
         }
         this._injectStyle();
 
@@ -219,7 +222,7 @@ const AgentRunsPage = {
             { label: 'function', get: s => s.function_name },
             { label: 'kind', get: s => ObsTabs.isExternalTool(s.tool_id) ? 'external' : 'built-in' },
             { label: 'action', get: s => s.action },
-            { label: 'verdict', get: s => s.verdict },
+            { label: 'tool_permission', get: s => s.verdict },
             { label: 'risk', get: s => s.risk },
             { label: 'called_at', get: s => s.called_at },
             { label: 'reason', get: s => s.reason },
@@ -405,7 +408,7 @@ const AgentRunsPage = {
             kv('Tool', s.tool_id) +
             kv('Function', s.function_name) +
             kv('Kind', external ? 'External MCP / plugin' : 'Built-in harness tool') +
-            kv('Verdict', s.verdict || (s.outcome || '').toUpperCase()) +
+            kv('Tool permission', s.verdict || (s.outcome || '').toUpperCase()) +
             kv('Risk', s.risk) +
             kv('Time', this._fmtTime(s.called_at)) +
             kv('Reason', s.reason) +
