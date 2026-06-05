@@ -68,7 +68,7 @@ const AgentMapPage = {
 
         const body = document.createElement('div');
         body.id = 'agent-map-body';
-        body.style.cssText = 'position:relative;width:100%;height:620px;border:1px solid var(--border,#1e293b);border-radius:12px;overflow:hidden;background:radial-gradient(130% 130% at 25% 0%, rgba(13,148,136,.06), transparent 55%), var(--bg-card,#0b1220);';
+        body.style.cssText = 'position:relative;width:100%;height:620px;border:1px solid var(--border-default,#30363d);border-radius:12px;overflow:hidden;background:radial-gradient(130% 130% at 25% 0%, rgba(13,148,136,.05), transparent 55%), var(--bg-card,#161b22);';
         container.appendChild(body);
 
         this._buildToolbar(toolbar);
@@ -87,6 +87,7 @@ const AgentMapPage = {
             /* A bright dot travelling along the solid line — the "water flow". */
             .sv-edge-flow { stroke-dasharray: 1.5 16; stroke-linecap: round; animation: svFlow linear infinite; pointer-events: none; }
             .sv-edge-blocked { animation: svFlow linear infinite, svPulse 1.2s ease-in-out infinite; }
+            @media (prefers-reduced-motion: reduce) { .sv-edge-flow, .sv-edge-blocked { animation: none !important; } }
             .sv-node { cursor: grab; }
             .sv-node:active { cursor: grabbing; }
             /* Calm nodes wear a quiet theme-aware outline; elevated risk overrides inline. */
@@ -188,7 +189,7 @@ const AgentMapPage = {
     async loadData() {
         const body = document.getElementById('agent-map-body');
         if (body) {
-            body.innerHTML = '<div class="loading" style="padding:40px;text-align:center;color:#94a3b8;">Loading agent map…</div>';
+            body.innerHTML = '<div class="loading" style="padding:40px;text-align:center;color:var(--text-secondary,#b1bac4);">Loading agent map…</div>';
         }
         this.data = await API.getAgentToolGraph({ window_days: this.windowDays });
         this._assignAgentColors();
@@ -217,7 +218,7 @@ const AgentMapPage = {
         const edges = this.data.edges || [];
         if (!nodes.length) {
             const empty = document.createElement('div');
-            empty.style.cssText = 'padding:64px 24px;text-align:center;color:#94a3b8;';
+            empty.style.cssText = 'padding:64px 24px;text-align:center;color:var(--text-secondary,#b1bac4);';
             empty.innerHTML = '<div style="font-size:15px;margin-bottom:6px;">No tool activity in this window.</div>' +
                 '<div style="font-size:13px;">Install a SecureVector Guard plugin and run an agent — every tool call shows up here.</div>';
             body.appendChild(empty);
@@ -317,7 +318,7 @@ const AgentMapPage = {
                 const lock = document.createElementNS(SVG_NS, 'path');
                 lock.setAttribute('d', LOCK_PATH);
                 lock.setAttribute('fill', '#f59e0b');
-                lock.setAttribute('stroke', 'var(--bg-card, #161b22)'); // halo for legibility
+                lock.style.stroke = 'var(--bg-card, #161b22)'; // halo (CSS var works in .style, not in a presentation attr)
                 lock.setAttribute('stroke-width', '2.5');
                 lock.setAttribute('paint-order', 'stroke');
                 lock.setAttribute('pointer-events', 'none');
@@ -642,7 +643,7 @@ const AgentMapPage = {
             ['secret', 'Secret / cloud only'],
             ...agents.map(a => [a.id, `Agent: ${a.label}`]),
         ];
-        sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+        sel.innerHTML = opts.map(([v, t]) => `<option value="${this._esc(v)}">${this._esc(t)}</option>`).join('');
         sel.value = opts.some(o => o[0] === cur) ? cur : 'all';
         this.focus = sel.value;
     },
@@ -672,6 +673,14 @@ const AgentMapPage = {
         tip.className = 'sv-tooltip';
         body.appendChild(tip);
         this._tip = tip;
+    },
+
+    // Escape agent-controlled strings (tool/agent names) before they hit
+    // innerHTML — a hostile tool/MCP name must not execute (XSS). The values
+    // originate from untrusted agent activity, not the trusted local user.
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     },
 
     /** Per-counterpart call breakdown: tools → by agent, agents → by tool. */
@@ -706,11 +715,11 @@ const AgentMapPage = {
         const sub = isTool ? 'called by agent' : 'calls by tool';
         const secret = (node.cloud_managed || node.touched_secrets) ? ` ${ICON.lock('#f59e0b', 12)}` : '';
         const head =
-            `<div class="sv-tt-title"><span class="sv-tt-dot" style="background:${this._nodeFill(node)}"></span>${node.label}${secret}</div>` +
+            `<div class="sv-tt-title"><span class="sv-tt-dot" style="background:${this._nodeFill(node)}"></span>${this._esc(node.label)}${secret}</div>` +
             `<div class="sv-tt-sub">${isTool ? 'Tool / MCP' : 'Agent'} · ${b.total} call(s)` +
             `${b.blocked ? ` · <span class="sv-tt-blk">${b.blocked} blocked</span>` : ''} · ${sub}</div>`;
         const rows = b.rows.map(r =>
-            `<div class="sv-tt-row"><span><span class="sv-tt-dot" style="background:${r.color}"></span> ${r.label}</span>` +
+            `<div class="sv-tt-row"><span><span class="sv-tt-dot" style="background:${r.color}"></span> ${this._esc(r.label)}</span>` +
             `<b>${r.calls}${r.blocked ? ` <span class="sv-tt-blk">${ICON.ban('#ef4444', 11)}${r.blocked}</span>` : ''}</b></div>`).join('');
         this._tip.innerHTML = head + (rows || '<div class="sv-tt-sub">no connections</div>');
         this._tip.classList.add('show');

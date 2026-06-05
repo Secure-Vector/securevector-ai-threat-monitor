@@ -137,7 +137,7 @@ const AgentRunsPage = {
             const color = RUNTIME_COLOR[r.runtime_kind] || '#64748b';
             card.innerHTML =
                 `<div class="ar-run-top"><span class="ar-run-dot" style="background:${color}"></span>` +
-                `<span class="ar-run-rt">${r.runtime_kind}</span>` +
+                `<span class="ar-run-rt">${this._esc(r.runtime_kind)}</span>` +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green}" title="risk: ${r.risk}"></span></div>` +
                 `<div class="ar-run-meta"><span><span class="ar-num">${r.spans}</span> spans</span>` +
                 (r.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span> blocked</span>` : '') +
@@ -154,6 +154,7 @@ const AgentRunsPage = {
         const detail = document.getElementById('ar-detail');
         if (detail) detail.innerHTML = '<div class="ar-empty">Loading trace…</div>';
         const trace = await API.getTrace(traceId);
+        if (this.selected !== traceId) return; // a newer run was clicked mid-fetch
         if (!trace) { this._detailEmpty('Trace unavailable.', ''); return; }
         this.renderWaterfall(trace);
     },
@@ -167,7 +168,7 @@ const AgentRunsPage = {
         const head = document.createElement('div');
         head.className = 'ar-det-head';
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
-            `<span class="ar-det-title">${trace.runtime_kind}</span>`;
+            `<span class="ar-det-title">${this._esc(trace.runtime_kind)}</span>`;
         detail.appendChild(head);
 
         const sub = document.createElement('div');
@@ -177,9 +178,10 @@ const AgentRunsPage = {
             `run ${String(trace.trace_id).slice(0, 12)}…`;
         detail.appendChild(sub);
 
-        if (!trace.spans.length) { this._detailEmpty('No spans in this run.', ''); return; }
+        const spans = trace.spans || [];
+        if (!spans.length) { this._detailEmpty('No spans in this run.', ''); return; }
 
-        trace.spans.forEach(s => {
+        spans.forEach(s => {
             const o = OUTCOME[s.outcome] || OUTCOME.allow;
             const span = document.createElement('div');
             span.className = 'ar-span';
