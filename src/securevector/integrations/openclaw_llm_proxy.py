@@ -1600,6 +1600,15 @@ class LLMProxy:
         settings = await self.check_settings()
         will_block = settings.get("block_threats", False)
 
+        # Session id for tool-permission attribution on the buffered-stream path
+        # (mirrors the non-streaming path's self._derive_session_id(body_dict)).
+        # Parsed from the request body; None if there's nothing to anchor on.
+        try:
+            _req_body = json.loads(body) if body else None
+        except Exception:
+            _req_body = None
+        session_id = self._derive_session_id(_req_body) if _req_body else None
+
         print("[llm-proxy] 🛡️ Buffering stream for output scan...")
 
         async with client.stream(method, url, headers=headers, content=body) as response:
