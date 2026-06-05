@@ -13,6 +13,7 @@ const App = {
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,
+        'agent-timeline': AgentTimelinePage,
         rules: RulesPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },

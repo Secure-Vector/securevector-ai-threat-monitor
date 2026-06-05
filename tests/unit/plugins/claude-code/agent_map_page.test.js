@@ -105,8 +105,11 @@ test('agent-map preserves pinned (user-dragged) nodes across relayout', () => {
 test('agent-map is wired into the API client, sidebar, router, and index', () => {
   assert.match(read('js/api.js'), /getAgentToolGraph/);
   assert.match(read('js/api.js'), /\/api\/graph\/agent-tool/);
-  // sidebar nav entry under Agent Activity
-  assert.match(read('js/components/sidebar.js'), /id: 'agent-map'/);
+  // The "Agent Runs" rail entry lands on the Map (the hero tab) and lists the
+  // other two views as aliases so the entry stays highlighted while the
+  // Runs/Timeline tab is active.
+  assert.match(read('js/components/sidebar.js'), /id: 'agent-map',\s*label: 'Agent Runs'/);
+  assert.match(read('js/components/sidebar.js'), /aliases:\s*\[[^\]]*'agent-runs'[^\]]*'agent-timeline'[^\]]*\]/);
   // App.pages route → AgentMapPage (the spa_routes symmetry requirement)
   assert.match(read('js/app.js'), /'agent-map':\s*AgentMapPage/);
   // script tag present and loaded before app.js

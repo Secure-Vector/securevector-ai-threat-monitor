@@ -873,15 +873,36 @@ def chat_with_protection(user_input):
         const slBlock = document.createElement('div');
         slBlock.style.cssText = 'margin-bottom: 16px; padding: 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
 
-        const slHeading = document.createElement('div');
-        slHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px; color: var(--text-primary);';
-        slHeading.textContent = '📊 Add the status line (optional)';
+        // Collapsible: the status line is optional + display-only, so the
+        // block is collapsed by default and expands on click — keeps it
+        // discoverable without crowding the install flow.
+        const slHeading = document.createElement('button');
+        slHeading.type = 'button';
+        slHeading.setAttribute('aria-expanded', 'false');
+        slHeading.style.cssText = 'display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-primary); text-align: left;';
+        const slCaret = document.createElement('span');
+        slCaret.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+        slCaret.style.cssText = 'display: inline-flex; transition: transform .12s; color: var(--text-secondary);';
+        const slTitleText = document.createElement('span');
+        slTitleText.textContent = 'Add the status line (optional)';
+        slHeading.appendChild(slCaret);
+        slHeading.appendChild(slTitleText);
         slBlock.appendChild(slHeading);
+
+        const slBody = document.createElement('div');
+        slBody.style.cssText = 'display: none; margin-top: 10px;';
+
+        slHeading.onclick = () => {
+            const open = slBody.style.display === 'none';
+            slBody.style.display = open ? 'block' : 'none';
+            slCaret.style.transform = open ? 'rotate(90deg)' : '';
+            slHeading.setAttribute('aria-expanded', open ? 'true' : 'false');
+        };
 
         const slDesc = document.createElement('div');
         slDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
         slDesc.textContent = 'Shows live threat counts and the allow/block tool-call balance in your Claude Code status bar. Add this block to the top level of ~/.claude/settings.json:';
-        slBlock.appendChild(slDesc);
+        slBody.appendChild(slDesc);
 
         const slCodeRow = document.createElement('div');
         slCodeRow.style.cssText = 'display: flex; align-items: flex-start; gap: 8px;';
@@ -897,13 +918,14 @@ def chat_with_protection(user_input):
         };
         slCodeRow.appendChild(slPre);
         slCodeRow.appendChild(slCopyBtn);
-        slBlock.appendChild(slCodeRow);
+        slBody.appendChild(slCodeRow);
 
         const slFootnote = document.createElement('div');
         slFootnote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 8px; line-height: 1.45;';
         slFootnote.textContent = 'Already have a custom statusLine? Keep it — call statusline.js from your own script and append its output instead (see the Claude Code guide). Skipping this changes nothing about enforcement or audit; the status line is display-only.';
-        slBlock.appendChild(slFootnote);
+        slBody.appendChild(slFootnote);
 
+        slBlock.appendChild(slBody);
         content.appendChild(slBlock);
 
         // Two paste-in command blocks (revealed after install). These are

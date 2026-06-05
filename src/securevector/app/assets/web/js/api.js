@@ -152,6 +152,30 @@ const API = {
         return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
     },
 
+    // active-agent-observability — Timeline. Flat, newest-first feed of every
+    // enforced tool call (across all runs). Reuses the existing call-audit log.
+    async getCallAudit(params = {}) {
+        const q = new URLSearchParams();
+        q.set('limit', params.limit || 200);
+        if (params.offset) q.set('offset', params.offset);
+        if (params.action) q.set('action', params.action);
+        const qs = q.toString();
+        return this.request(`/api/tool-permissions/call-audit${qs ? '?' + qs : ''}`).catch(() => ({
+            entries: [], total: 0,
+        }));
+    },
+
+    // active-agent-observability — Timeline overview chart. Per-day verdict
+    // counts aggregated server-side over the FULL window, so the chart never
+    // under-counts blocks the way the paged feed (200 rows) would.
+    async getCallAuditActivity(params = {}) {
+        const q = new URLSearchParams();
+        q.set('window_days', params.windowDays || 7);
+        return this.request(`/api/tool-permissions/call-audit/activity?${q.toString()}`).catch(() => ({
+            window_days: params.windowDays || 7, buckets: [],
+        }));
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);
@@ -398,10 +422,13 @@ const API = {
         }));
     },
 
-    async setToolOverride(toolId, action) {
+    async setToolOverride(toolId, action, runtimeKind = null) {
+        const body = { action };
+        // null/undefined → omit (global, all runtimes); a slug scopes the rule.
+        if (runtimeKind) body.runtime_kind = runtimeKind;
         return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
             method: 'PUT',
-            body: JSON.stringify({ action }),
+            body: JSON.stringify(body),
         });
     },
 

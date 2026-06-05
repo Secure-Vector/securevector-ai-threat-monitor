@@ -50,7 +50,7 @@ async def test_v33_creates_tool_id_called_at_index(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_advances_to_36(tmp_path):
+async def test_schema_version_advances_to_37(tmp_path):
     # v34 — added redaction_events audit log (backs the local Secret
     # Detections page sibling to Tool Inventory).
     # v35 — added redaction_events.runtime_kind for per-row plugin
@@ -59,12 +59,14 @@ async def test_schema_version_advances_to_36(tmp_path):
     # v36 — added agent-run trace keys (trace_id/session_id/turn_index/
     # parent_span_id) on tool_call_audit for the Agent Run Trace + Agent
     # Map views (story #141).
+    # v37 — added per-runtime scope (runtime_kind) on tool_essential_overrides
+    # so a local Block/Allow can target one agent runtime.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 36
+    assert CURRENT_SCHEMA_VERSION == 37
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 36
+    assert row["v"] == 37
 
 
 # --- Cleanup_old_audit_records --------------------------------------------

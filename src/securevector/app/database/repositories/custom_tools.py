@@ -5,6 +5,7 @@ Users can register their own agent tools (e.g. research, transcribe)
 and control permissions through the same block/allow system as essential tools.
 """
 
+import asyncio
 import hashlib
 import logging
 from typing import Optional
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Sentinel prev_hash for the first row in the chain.
 _AUDIT_GENESIS_HASH = "GENESIS"
+
+# Serializes the audit hash-chain's read-tail → insert critical section.
+# The app is single-process, so one process-wide asyncio lock makes seq +
+# prev_hash assignment atomic and prevents two concurrent writes from forking
+# the chain on the same seq (the "seq gap" the verifier would flag).
+_AUDIT_WRITE_LOCK = asyncio.Lock()
 
 
 async def _siem_enqueue_tool_audit(
@@ -366,96 +373,100 @@ class CustomToolsRepository:
         """
         conn = await self.db.connect()
 
-        # Atomically: read tail of chain → compute new row_hash → insert.
-        # SQLite's default isolation level gives us a single-writer transaction here.
-        async with conn.execute(
-            "SELECT seq, row_hash FROM tool_call_audit ORDER BY seq DESC LIMIT 1"
-        ) as cursor:
-            tail = await cursor.fetchone()
-
-        if tail is None:
-            next_seq = 1
-            prev_hash = _AUDIT_GENESIS_HASH
-        else:
-            next_seq = int(tail["seq"] or 0) + 1
-            prev_hash = tail["row_hash"] or _AUDIT_GENESIS_HASH
-
-        # Resolve called_at deterministically so row_hash is reproducible on reads.
-        # SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC.
-        async with conn.execute("SELECT CURRENT_TIMESTAMP AS ts") as cursor:
-            ts_row = await cursor.fetchone()
-        called_at = str(ts_row["ts"])
-
-        resolved_tool_id = tool_id or function_name
-        essential_int = 1 if is_essential else 0
-
-        row_hash = _compute_audit_row_hash(
-            prev_hash=prev_hash,
-            seq=next_seq,
-            tool_id=resolved_tool_id,
-            function_name=function_name,
-            action=action,
-            risk=risk,
-            reason=reason,
-            is_essential=essential_int,
-            args_preview=args_preview,
-            called_at=called_at,
-        )
-
-        # Stable per-device identifier stamped on every row. Derived
-        # from the OS machine ID (survives reinstalls), SHA-256-hashed.
-        # Not part of the canonical hash-chain serialization — see
-        # migration v21's comment block for why this is metadata, not
-        # material.
-        from securevector.app.utils.device_id import get_device_id
-        device_id = get_device_id()
-
-        # Agent-run grouping keys (story #141). Derived from the runtime
-        # session_id; metadata only, NOT in the canonical hash above. See
-        # app/utils/trace_id.py for the run-boundary rule. A row without a
-        # session_id gets trace_id=None and renders as an orphan single-span
-        # run; turn_index is its 0-based position within the run.
-        from securevector.app.utils.trace_id import derive_trace_id
-        trace_id = derive_trace_id(runtime_kind, session_id)
-        turn_index: Optional[int] = None
-        if trace_id is not None:
+        # Serialize read-tail → compute → insert. seq + prev_hash derive from the
+        # current tail, so two concurrent writes must NOT interleave between the
+        # SELECT and the INSERT, or both pick the same seq and FORK the chain
+        # (the "seq gap" the verifier flags). aiosqlite serializes the INSERTs
+        # but not this read-modify-write, so hold a process-wide lock across it.
+        async with _AUDIT_WRITE_LOCK:
             async with conn.execute(
-                "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ?",
-                (trace_id,),
+                "SELECT seq, row_hash FROM tool_call_audit ORDER BY seq DESC LIMIT 1"
             ) as cursor:
-                count_row = await cursor.fetchone()
-            turn_index = int(count_row["n"] or 0)
-        parent_span_id: Optional[str] = None  # reserved for future nested spans
+                tail = await cursor.fetchone()
 
-        await conn.execute(
-            """
-            INSERT INTO tool_call_audit
-                (tool_id, function_name, action, risk, reason, is_essential,
-                 args_preview, called_at, seq, prev_hash, row_hash, device_id,
-                 runtime_kind, session_id, trace_id, turn_index, parent_span_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                resolved_tool_id,
-                function_name,
-                action,
-                risk,
-                reason,
-                essential_int,
-                args_preview,
-                called_at,
-                next_seq,
-                prev_hash,
-                row_hash,
-                device_id,
-                runtime_kind,
-                session_id,
-                trace_id,
-                turn_index,
-                parent_span_id,
-            ),
-        )
-        await conn.commit()
+            if tail is None:
+                next_seq = 1
+                prev_hash = _AUDIT_GENESIS_HASH
+            else:
+                next_seq = int(tail["seq"] or 0) + 1
+                prev_hash = tail["row_hash"] or _AUDIT_GENESIS_HASH
+
+            # Resolve called_at deterministically so row_hash is reproducible on reads.
+            # SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC.
+            async with conn.execute("SELECT CURRENT_TIMESTAMP AS ts") as cursor:
+                ts_row = await cursor.fetchone()
+            called_at = str(ts_row["ts"])
+
+            resolved_tool_id = tool_id or function_name
+            essential_int = 1 if is_essential else 0
+
+            row_hash = _compute_audit_row_hash(
+                prev_hash=prev_hash,
+                seq=next_seq,
+                tool_id=resolved_tool_id,
+                function_name=function_name,
+                action=action,
+                risk=risk,
+                reason=reason,
+                is_essential=essential_int,
+                args_preview=args_preview,
+                called_at=called_at,
+            )
+
+            # Stable per-device identifier stamped on every row. Derived
+            # from the OS machine ID (survives reinstalls), SHA-256-hashed.
+            # Not part of the canonical hash-chain serialization — see
+            # migration v21's comment block for why this is metadata, not
+            # material.
+            from securevector.app.utils.device_id import get_device_id
+            device_id = get_device_id()
+
+            # Agent-run grouping keys (story #141). Derived from the runtime
+            # session_id; metadata only, NOT in the canonical hash above. See
+            # app/utils/trace_id.py for the run-boundary rule. A row without a
+            # session_id gets trace_id=None and renders as an orphan single-span
+            # run; turn_index is its 0-based position within the run.
+            from securevector.app.utils.trace_id import derive_trace_id
+            trace_id = derive_trace_id(runtime_kind, session_id)
+            turn_index: Optional[int] = None
+            if trace_id is not None:
+                async with conn.execute(
+                    "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ?",
+                    (trace_id,),
+                ) as cursor:
+                    count_row = await cursor.fetchone()
+                turn_index = int(count_row["n"] or 0)
+            parent_span_id: Optional[str] = None  # reserved for future nested spans
+
+            await conn.execute(
+                """
+                INSERT INTO tool_call_audit
+                    (tool_id, function_name, action, risk, reason, is_essential,
+                     args_preview, called_at, seq, prev_hash, row_hash, device_id,
+                     runtime_kind, session_id, trace_id, turn_index, parent_span_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    resolved_tool_id,
+                    function_name,
+                    action,
+                    risk,
+                    reason,
+                    essential_int,
+                    args_preview,
+                    called_at,
+                    next_seq,
+                    prev_hash,
+                    row_hash,
+                    device_id,
+                    runtime_kind,
+                    session_id,
+                    trace_id,
+                    turn_index,
+                    parent_span_id,
+                ),
+            )
+            await conn.commit()
 
         # SIEM fan-out — push the audit row (with its chain witness) to
         # every enabled forwarder so the customer's SIEM can re-verify the
@@ -833,7 +844,7 @@ class CustomToolsRepository:
                     SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
                     SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
                     MAX(called_at) AS last_used,
-                    MAX(risk) AS recent_risk,
+                    CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
                     MAX(CASE
                         WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
                           OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
@@ -871,6 +882,50 @@ class CustomToolsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    async def get_audit_activity(self, window_days: int = 7) -> list[dict]:
+        """Per-day verdict counts over the FULL trailing window.
+
+        Backs the Timeline overview chart. Aggregated server-side in SQL so the
+        chart reflects every enforced call in the window — not just the latest
+        page the feed list happens to fetch. (The feed is paged at 200 rows;
+        driving the chart off that page silently under-counted blocks whenever
+        volume exceeded 200 — the chart said "Blocked 0" while the Map, which
+        aggregates the full window, said "7 blocked". This method closes that
+        gap so both views agree.)
+
+        One row per (bucket, action, risk-bucket): ``called_at`` is the bucket
+        timestamp (hourly for a 24h window, otherwise daily) as a full
+        ``YYYY-MM-DD HH:MM:SS`` string the client can parse, ``n`` the count.
+        ``risk`` is lower-cased so the client can apply the same high-risk test
+        it uses on individual rows.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        # Hourly resolution for the 24h window so it doesn't collapse to one
+        # point; daily otherwise.
+        bucket_fmt = "%Y-%m-%d %H:00:00" if window_days <= 1 else "%Y-%m-%d 00:00:00"
+        # Bucket in a subquery first, then GROUP BY the projected column. If we
+        # grouped in the same SELECT, SQLite binds ``GROUP BY called_at`` to the
+        # raw table column (which exists) rather than the strftime alias, so no
+        # collapse happens and every row comes back with n=1.
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT called_at, action, risk, COUNT(*) AS n
+            FROM (
+                SELECT
+                    strftime('{bucket_fmt}', called_at) AS called_at,
+                    COALESCE(action, 'allow') AS action,
+                    LOWER(COALESCE(risk, '')) AS risk
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+            )
+            GROUP BY called_at, action, risk
+            ORDER BY called_at
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_trace_runs(self, window_days: int = 7, limit: int = 50) -> list[dict]:
         """List agent runs (traces) in the window, newest first.
 
@@ -895,7 +950,7 @@ class CustomToolsRepository:
                 SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
                 MIN(called_at) AS started_at,
                 MAX(called_at) AS ended_at,
-                MAX(risk) AS recent_risk,
+                CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
                 GROUP_CONCAT(DISTINCT function_name) AS tools
             FROM tool_call_audit
             WHERE called_at >= datetime('now', ?) AND trace_id IS NOT NULL
@@ -910,9 +965,13 @@ class CustomToolsRepository:
     async def get_trace_spans(self, trace_id: str) -> list[dict]:
         """Return the ordered spans (tool-call audit rows) for one run.
 
-        Ordered by turn_index then seq so the waterfall reads top-to-bottom in
-        execution order. Each span is one enforced tool call carrying its
-        allow/block/log_only verdict, risk, reason, and timestamp.
+        Ordered by ``seq`` — the globally-monotonic, uniquely-assigned hash-chain
+        sequence — so the waterfall always reads top-to-bottom in true execution
+        order. (``seq`` is the reliable order key; the stored ``turn_index`` is a
+        best-effort write-time counter and the route renumbers it for display, so
+        a concurrent-write collision can never surface as duplicate turn numbers.)
+        Each span is one enforced tool call carrying its allow/block/log_only
+        verdict, risk, reason, and timestamp.
         """
         rows = await self.db.fetch_all(
             """
@@ -921,7 +980,7 @@ class CustomToolsRepository:
                 risk, reason, called_at, runtime_kind, args_preview
             FROM tool_call_audit
             WHERE trace_id = ?
-            ORDER BY turn_index ASC, seq ASC
+            ORDER BY seq ASC
             """,
             (trace_id,),
         )

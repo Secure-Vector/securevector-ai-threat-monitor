@@ -45,7 +45,7 @@ test('agent-runs is wired into the API client, router, index, and the Map|Runs t
   // reached via the shared ObsTabs toggle (one sidebar entry, two views)
   assert.match(read('js/app.js'), /'agent-runs':\s*AgentRunsPage/);
   assert.match(read('js/components/obs-tabs.js'), /'agent-runs'/);
-  assert.match(read('js/pages/agent-runs.js'), /ObsTabs\.render\(container, 'runs'\)/);
+  assert.match(read('js/pages/agent-runs.js'), /ObsTabs\.render\(header, 'runs'\)/);
   const html = read('index.html');
   assert.match(html, /pages\/agent-runs\.js/);
   assert.match(html, /components\/obs-tabs\.js/);

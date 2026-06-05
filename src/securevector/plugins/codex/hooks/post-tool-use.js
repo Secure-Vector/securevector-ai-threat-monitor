@@ -297,7 +297,7 @@ async function audit(event, baseUrl) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return; // unknown tool name — skip audit (fail-open)
 
-  const overrides = await fetchSyncedOverrides(baseUrl);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
   const match = pickMatch(candidates, overrides);
 
   const toolId = match ? match.tool_id : candidates[0];

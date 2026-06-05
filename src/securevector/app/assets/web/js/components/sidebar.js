@@ -14,8 +14,11 @@ const Sidebar = {
         // visibility under the agent-observability story instead of being
         // buried under Configure.
         { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
-            { id: 'agent-map',      label: 'Agent Map' },
-            { id: 'replay',         label: 'Timeline' },
+            // One destination, three lenses (Map / Runs / Timeline tabs via ObsTabs).
+            // Lands on the Map — the hero topology view — and `aliases` keep this
+            // item highlighted while the user switches to the Runs/Timeline tab
+            // (those are separate page ids).
+            { id: 'agent-map',      label: 'Agent Runs', aliases: ['agent-runs', 'agent-timeline'] },
             { id: 'tool-activity',  label: 'Tool Activity' },
             { id: 'bill-of-tools',  label: 'Tool Inventory' },
             { id: 'redactions',     label: 'Secret Detections' },
@@ -348,8 +351,11 @@ const Sidebar = {
                     }
 
                     const subNavItem = document.createElement('div');
-                    subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
+                    const subActive = subItem.id === this.currentPage ||
+                        (subItem.aliases && subItem.aliases.includes(this.currentPage));
+                    subNavItem.className = 'nav-item nav-sub-item' + (subActive ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
+                    if (subItem.aliases) subNavItem.dataset.aliases = subItem.aliases.join(',');
                     subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px;';
 
                     const subLabel = document.createElement('span');
@@ -1188,7 +1194,8 @@ const Sidebar = {
         this.currentPage = page;
         document.querySelectorAll('.nav-item').forEach(item => {
             const isSubItem = item.classList.contains('nav-sub-item');
-            const matchesPage = item.dataset.page === page;
+            const matchesPage = item.dataset.page === page ||
+                (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
                 item.classList.toggle('active', matchesPage);
             } else {

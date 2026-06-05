@@ -90,6 +90,30 @@ async def test_trace_spans_ordered_with_verdicts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_risk_not_lost_when_high_and_low_risk_coexist(tmp_path):
+    """Regression: a high-risk action must surface as amber even when a
+    lexicographically-larger but lower-severity action ('read' > 'admin')
+    coexists in the same run. The old MAX(risk) returned 'read' → green."""
+    db = await _build_db(tmp_path)
+    repo = CustomToolsRepository(db)
+    await _seed_run(repo, "claude-code", "s1", [
+        ("srv:admin_tool", "allow", None),   # high-risk action below
+        ("srv:reader", "allow", None),
+    ])
+    # stamp the risk levels directly (log_tool_call_audit takes risk kwarg)
+    await repo.log_tool_call_audit("srv:admin2", "admin2", "allow", risk="admin", runtime_kind="claude-code", session_id="s2")
+    await repo.log_tool_call_audit("srv:read2", "read2", "allow", risk="read", runtime_kind="claude-code", session_id="s2")
+
+    runs = {r["session_id"]: r for r in await repo.get_trace_runs(window_days=7)}
+    run = runs["s2"]
+    assert run["blocked"] == 0
+    # the fix: recent_risk reflects the high-risk action, not the lexicographic max
+    assert _run_risk(run["blocked"], run["recent_risk"]) == "amber"
+
+    await db.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_orphan_rows_excluded_from_runs(tmp_path):
     """Rows without a session id (NULL trace_id) are not listed as runs."""
     db = await _build_db(tmp_path)

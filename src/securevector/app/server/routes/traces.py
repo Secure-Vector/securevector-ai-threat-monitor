@@ -89,13 +89,16 @@ async def get_trace(trace_id: str):
 
     spans = []
     blocked = 0
-    for r in rows:
+    # Renumber turn_index sequentially at read time (rows arrive in reliable
+    # `seq` order). The stored turn_index is best-effort and can collide under
+    # concurrent writes; the display index never does.
+    for i, r in enumerate(rows):
         action = r.get("action") or "allow"
         outcome, verdict, color = _VERDICT.get(action, _VERDICT["allow"])
         if action == "block":
             blocked += 1
         spans.append({
-            "turn_index": r.get("turn_index"),
+            "turn_index": i,
             "span_kind": "tool_call",
             "tool_id": r.get("tool_id"),
             "function_name": r.get("function_name"),

@@ -45,6 +45,10 @@ class OverrideRequest(BaseModel):
     """Request to set an override."""
 
     action: str = Field(..., pattern="^(block|allow)$")
+    # Optional per-runtime scope. None / "all" = governs every runtime (the
+    # historical behaviour); a runtime slug ("claude-code", "codex", …) limits
+    # the rule to that runtime so it doesn't leak to the others.
+    runtime_kind: Optional[str] = None
 
 
 class OverrideResponse(BaseModel):
@@ -371,7 +375,7 @@ async def get_overrides():
 
 
 @router.get("/tool-permissions/synced-overrides")
-async def get_synced_overrides():
+async def get_synced_overrides(runtime: Optional[str] = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -476,11 +480,20 @@ async def get_synced_overrides():
                 "returning synced-only: %s", e,
             )
         ACTION_TO_EFFECT = {"block": "deny", "allow": "allow"}
+        # Per-runtime scope: when a caller (a Guard hook) passes its own
+        # ?runtime=, drop local rows scoped to a DIFFERENT runtime so e.g. a
+        # Codex-only Block never reaches the Claude Code hook. A NULL/empty
+        # runtime_kind = governs all runtimes (historical behaviour). When no
+        # runtime is supplied (e.g. the UI listing rules), return everything.
+        req_runtime = (runtime or "").strip() or None
         for lr in local_rows:
             action = lr.get("action")
             effect = ACTION_TO_EFFECT.get(action)
             if effect is None:
                 continue
+            rule_runtime = (lr.get("runtime_kind") or "").strip() or None
+            if req_runtime and rule_runtime and rule_runtime != req_runtime:
+                continue  # rule is scoped to another runtime — not enforced here
             merged.append({
                 "tool_id": lr["tool_id"],
                 "effect": effect,
@@ -493,6 +506,7 @@ async def get_synced_overrides():
                 "org_name": "Local",
                 "reason": "User-set local override",
                 "source": "local",
+                "runtime_kind": rule_runtime,  # None = all runtimes
             })
         return {"synced": merged, "total": len(merged)}
 
@@ -521,9 +535,14 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
                 detail=f"Unknown essential tool: {tool_id}",
             )
 
+        # Normalise scope: "all"/""/None all mean "every runtime" (stored NULL).
+        scope = (request.runtime_kind or "").strip().lower() or None
+        if scope == "all":
+            scope = None
+
         db = get_database()
         repo = ToolPermissionsRepository(db)
-        result = await repo.upsert_override(tool_id, request.action)
+        result = await repo.upsert_override(tool_id, request.action, scope)
 
         return result
 
@@ -772,6 +791,27 @@ async def get_call_audit(
 
     except Exception as e:
         logger.error(f"Failed to fetch call audit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/call-audit/activity")
+async def get_call_audit_activity(window_days: int = 7):
+    """Per-day verdict counts over the full window — backs the Timeline chart.
+
+    Aggregated server-side so the overview chart reflects EVERY enforced call
+    in the window, not just the latest 200-row page the feed list fetches.
+    Without this the chart silently under-counted blocks past the page cap.
+
+    Returns: ``{"window_days": N, "buckets": [{called_at, action, risk, n}]}``.
+    """
+    try:
+        window_days = max(1, min(int(window_days), 90))
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        buckets = await repo.get_audit_activity(window_days=window_days)
+        return {"window_days": window_days, "buckets": buckets}
+    except Exception as e:
+        logger.error(f"Failed to fetch call audit activity: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

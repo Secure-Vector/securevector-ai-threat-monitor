@@ -146,7 +146,10 @@ class SVClient {
       .replace(/password["']?\s*[:=]\s*["'][^"']+["']/gi, 'password: "[REDACTED]"');
     this.post("/api/tool-permissions/call-audit", {
       tool_id: toolName,
-      function_name: sessionKey,
+      // The tool's own name — drives the tool node label on the Agent Map.
+      // (Was mistakenly the sessionKey, which made the Map render the run's
+      // session key instead of e.g. "memory_search".)
+      function_name: toolName,
       action: verdict.action,
       risk: verdict.risk,
       reason: verdict.reason,
@@ -155,6 +158,9 @@ class SVClient {
       // Stamp the harness on every audit row so Tool Inventory's
       // "MCP server · via <harness>" column attributes correctly.
       runtime_kind: "openclaw",
+      // The run's session key — lets the backend derive the trace_id that
+      // groups this call into an OpenClaw run on the Agent Runs tab.
+      session_id: sessionKey,
     }, 3_000).catch(() => {});
   }
 

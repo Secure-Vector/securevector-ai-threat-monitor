@@ -20,7 +20,8 @@ class ToolPermissionsRepository:
         self.db = db
 
     _OVERRIDE_COLUMNS = (
-        "tool_id, action, rate_limit_max_calls, rate_limit_window_seconds, updated_at"
+        "tool_id, action, rate_limit_max_calls, rate_limit_window_seconds, "
+        "runtime_kind, updated_at"
     )
 
     async def get_all_overrides(self) -> list[dict]:
@@ -49,12 +50,17 @@ class ToolPermissionsRepository:
         )
         return dict(row) if row else None
 
-    async def upsert_override(self, tool_id: str, action: str) -> dict:
+    async def upsert_override(
+        self, tool_id: str, action: str, runtime_kind: Optional[str] = None
+    ) -> dict:
         """Create or update an override.
 
         Args:
             tool_id: Essential tool ID.
             action: "block" or "allow".
+            runtime_kind: Which agent runtime this rule targets — e.g.
+                "claude-code" / "codex". None = applies to ALL runtimes
+                (the historical, global behaviour).
 
         Returns:
             The upserted override dict.
@@ -62,14 +68,14 @@ class ToolPermissionsRepository:
         now = datetime.utcnow().isoformat()
         await self.db.execute(
             """
-            INSERT INTO tool_essential_overrides (tool_id, action, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(tool_id) DO UPDATE SET action = ?, updated_at = ?
+            INSERT INTO tool_essential_overrides (tool_id, action, runtime_kind, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(tool_id) DO UPDATE SET action = ?, runtime_kind = ?, updated_at = ?
             """,
-            (tool_id, action, now, action, now),
+            (tool_id, action, runtime_kind, now, action, runtime_kind, now),
         )
-        logger.info(f"Upserted tool override: {tool_id} -> {action}")
-        return {"tool_id": tool_id, "action": action, "updated_at": now}
+        logger.info(f"Upserted tool override: {tool_id} -> {action} (runtime={runtime_kind or 'all'})")
+        return {"tool_id": tool_id, "action": action, "runtime_kind": runtime_kind, "updated_at": now}
 
     async def delete_override(self, tool_id: str) -> bool:
         """Delete an override, reverting to registry default.

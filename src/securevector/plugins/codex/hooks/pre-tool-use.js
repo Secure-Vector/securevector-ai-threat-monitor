@@ -227,7 +227,7 @@ function toHookOutput(d) {
 async function decide(toolName, baseUrl) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
-  const overrides = await fetchSyncedOverrides(baseUrl);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
   return decideFromOverrides(candidates, overrides);
 }
 

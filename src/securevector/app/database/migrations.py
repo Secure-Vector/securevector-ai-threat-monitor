@@ -182,6 +182,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         34: migrate_to_v34,
         35: migrate_to_v35,
         36: migrate_to_v36,
+        37: migrate_to_v37,
     }
 
     if version in migrations:
@@ -1511,6 +1512,35 @@ async def migrate_to_v36(db: DatabaseConnection) -> None:
         "(trace_id/session_id/turn_index/parent_span_id)')"
     )
     logger.info("Applied migration v36: agent-run trace-correlation keys + indexes")
+
+
+async def migrate_to_v37(db: DatabaseConnection) -> None:
+    """v36 -> v37: per-runtime scope on local tool-permission overrides.
+
+    Adds a nullable ``runtime_kind`` to ``tool_essential_overrides`` so a local
+    Block/Allow can target a single agent runtime (e.g. block Bash for Codex
+    only) instead of governing every runtime at once. NULL = applies to all
+    runtimes (the historical behaviour, preserved for every existing row).
+
+    The /synced-overrides enforcement endpoint filters local rows by the
+    requesting runtime (NULL OR == runtime), and each Guard hook now sends its
+    own ``?runtime=`` — so a Codex-scoped rule no longer leaks to Claude Code.
+
+    Idempotent via PRAGMA table_info.
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(tool_essential_overrides)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "runtime_kind" not in existing:
+        await conn.execute(
+            "ALTER TABLE tool_essential_overrides ADD COLUMN runtime_kind TEXT DEFAULT NULL"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (37, CURRENT_TIMESTAMP, "
+        "'per-runtime scope (runtime_kind) on tool_essential_overrides')"
+    )
+    logger.info("Applied migration v37: per-runtime override scope")
 
 
 # Future migration functions would be defined here:
