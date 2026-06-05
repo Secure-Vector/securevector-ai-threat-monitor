@@ -854,6 +854,58 @@ def chat_with_protection(user_input):
         resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
         content.appendChild(resultArea);
 
+        // --- Optional status line (clean, prominent, copy-paste) ---------
+        // Surfaced right under the install button because it was previously
+        // buried in a dense troubleshooting paragraph and users couldn't
+        // tell how to turn it on. It is OPTIONAL and never wired
+        // automatically — the command lives in the user's global
+        // ~/.claude/settings.json `statusLine`, which we never overwrite.
+        // The command points at the version-STABLE staging copy so it does
+        // not break on version bumps (the cache path is versioned).
+        const STATUSLINE_SETTINGS = [
+            '"statusLine": {',
+            '  "type": "command",',
+            '  "command": "node ~/.securevector/staging/claude-code-plugin/hooks/statusline.js",',
+            '  "refreshInterval": 5',
+            '}',
+        ].join('\n');
+
+        const slBlock = document.createElement('div');
+        slBlock.style.cssText = 'margin-bottom: 16px; padding: 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
+
+        const slHeading = document.createElement('div');
+        slHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px; color: var(--text-primary);';
+        slHeading.textContent = '📊 Add the status line (optional)';
+        slBlock.appendChild(slHeading);
+
+        const slDesc = document.createElement('div');
+        slDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
+        slDesc.textContent = 'Shows live threat counts and the allow/block tool-call balance in your Claude Code status bar. Add this block to the top level of ~/.claude/settings.json:';
+        slBlock.appendChild(slDesc);
+
+        const slCodeRow = document.createElement('div');
+        slCodeRow.style.cssText = 'display: flex; align-items: flex-start; gap: 8px;';
+        const slPre = document.createElement('pre');
+        slPre.style.cssText = 'flex: 1; margin: 0; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto; white-space: pre; color: var(--text-primary);';
+        slPre.textContent = STATUSLINE_SETTINGS;
+        const slCopyBtn = document.createElement('button');
+        slCopyBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-default); color: var(--text-primary); cursor: pointer; font-size: 12px; white-space: nowrap;';
+        slCopyBtn.textContent = 'Copy';
+        slCopyBtn.onclick = async () => {
+            try { await navigator.clipboard.writeText(STATUSLINE_SETTINGS); slCopyBtn.textContent = 'Copied'; setTimeout(() => slCopyBtn.textContent = 'Copy', 1200); }
+            catch { slCopyBtn.textContent = 'Copy failed'; }
+        };
+        slCodeRow.appendChild(slPre);
+        slCodeRow.appendChild(slCopyBtn);
+        slBlock.appendChild(slCodeRow);
+
+        const slFootnote = document.createElement('div');
+        slFootnote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 8px; line-height: 1.45;';
+        slFootnote.textContent = 'Already have a custom statusLine? Keep it — call statusline.js from your own script and append its output instead (see the Claude Code guide). Skipping this changes nothing about enforcement or audit; the status line is display-only.';
+        slBlock.appendChild(slFootnote);
+
+        content.appendChild(slBlock);
+
         // Two paste-in command blocks (revealed after install). These are
         // OPTIONAL — the manual fallback when auto-install can't reach
         // Claude Code's config dir. If "Install Plugin" succeeded with

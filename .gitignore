@@ -276,3 +276,6 @@ scratch_*
 # OS generated files
 .Trash-*
 .nfs*
+
+# Local marketing/scratch drafts — never commit to this public repo
+cloud-subscriber-feedback-email.md

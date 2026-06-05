@@ -181,6 +181,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         33: migrate_to_v33,
         34: migrate_to_v34,
         35: migrate_to_v35,
+        36: migrate_to_v36,
     }
 
     if version in migrations:
@@ -1454,6 +1455,62 @@ async def migrate_to_v35(db: DatabaseConnection) -> None:
     conn = await db.connect()
     await conn.executescript(MIGRATION_V35_SQL)
     logger.info("Applied migration v35: runtime_kind on redaction_events")
+
+
+async def migrate_to_v36(db: DatabaseConnection) -> None:
+    """v35 -> v36: agent-run trace-correlation keys on tool_call_audit.
+
+    Adds four nullable, metadata-only columns so the flat audit log can be
+    grouped into agent runs → turns for the Agent Run Trace + Agent Map views
+    (active-agent-observability bundle, story #141):
+
+      - trace_id        deterministic per-run id (runtime-namespaced SHA-256 of
+                        the runtime session id) — see app/utils/trace_id.py
+      - session_id      the raw runtime session id the trace is derived from
+      - turn_index      0-based position of this row within its run
+      - parent_span_id  reserved for future nested spans (always NULL in v1)
+
+    Run-boundary rule (v1): one agent run == one runtime session_id. Rows
+    without a session_id keep trace_id = NULL and render as orphan single-span
+    runs — no backfill, no history loss.
+
+    CRITICAL: these are metadata only and are deliberately NOT part of the v20
+    hash-chain canonical serialization (same precedent as device_id /
+    runtime_kind — see migrate_to_v21 / migrate_to_v32). The audit chain and
+    verify_audit_chain() are untouched.
+
+    Idempotent via PRAGMA table_info so re-running on a DB that already has the
+    columns (restored backup, partial-state recovery) is a no-op.
+    """
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(tool_call_audit)")
+    existing = {row[1] for row in await cur.fetchall()}
+    for col in ("trace_id", "session_id", "turn_index", "parent_span_id"):
+        if col not in existing:
+            col_type = "INTEGER" if col == "turn_index" else "TEXT"
+            await conn.execute(
+                f"ALTER TABLE tool_call_audit ADD COLUMN {col} {col_type} DEFAULT NULL"
+            )
+
+    # Group-by-run lookups (trace view) and per-session correlation are the
+    # hot paths the read routes hit; index both.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_trace "
+        "ON tool_call_audit (trace_id, turn_index)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_session "
+        "ON tool_call_audit (session_id)"
+    )
+
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (36, CURRENT_TIMESTAMP, "
+        "'agent-run trace keys on tool_call_audit "
+        "(trace_id/session_id/turn_index/parent_span_id)')"
+    )
+    logger.info("Applied migration v36: agent-run trace-correlation keys + indexes")
 
 
 # Future migration functions would be defined here:

@@ -77,6 +77,7 @@ jobs:
             --add-data "src/securevector/rules;securevector/rules" \
             --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
+            --add-data "src/securevector/plugins;securevector/plugins" \
             --hidden-import webview \
             --hidden-import webview.platforms.winforms \
             --hidden-import clr \
@@ -171,6 +172,7 @@ jobs:
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
+            --add-data "src/securevector/plugins:securevector/plugins" \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
@@ -296,6 +298,7 @@ jobs:
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
+            --add-data "src/securevector/plugins:securevector/plugins" \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \

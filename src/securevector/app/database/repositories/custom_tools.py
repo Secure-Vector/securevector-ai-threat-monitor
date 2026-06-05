@@ -339,6 +339,7 @@ class CustomToolsRepository:
         is_essential: bool = False,
         args_preview: Optional[str] = None,
         runtime_kind: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -357,6 +358,11 @@ class CustomToolsRepository:
             runtime_kind: Which agent runtime emitted the call — "claude-code",
                 "openclaw", etc. Metadata only; not in the v20 hash chain
                 (same precedent as device_id, see migrate_to_v21 comment).
+            session_id: The runtime's own session id for the agent run this
+                call belongs to. Used to derive the per-run ``trace_id`` and
+                ``turn_index`` that group the flat audit log into runs/turns
+                (story #141). Metadata only; NOT in the hash chain. Falsy →
+                the row is an orphan single-span run.
         """
         conn = await self.db.connect()
 
@@ -404,13 +410,30 @@ class CustomToolsRepository:
         from securevector.app.utils.device_id import get_device_id
         device_id = get_device_id()
 
+        # Agent-run grouping keys (story #141). Derived from the runtime
+        # session_id; metadata only, NOT in the canonical hash above. See
+        # app/utils/trace_id.py for the run-boundary rule. A row without a
+        # session_id gets trace_id=None and renders as an orphan single-span
+        # run; turn_index is its 0-based position within the run.
+        from securevector.app.utils.trace_id import derive_trace_id
+        trace_id = derive_trace_id(runtime_kind, session_id)
+        turn_index: Optional[int] = None
+        if trace_id is not None:
+            async with conn.execute(
+                "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ?",
+                (trace_id,),
+            ) as cursor:
+                count_row = await cursor.fetchone()
+            turn_index = int(count_row["n"] or 0)
+        parent_span_id: Optional[str] = None  # reserved for future nested spans
+
         await conn.execute(
             """
             INSERT INTO tool_call_audit
                 (tool_id, function_name, action, risk, reason, is_essential,
                  args_preview, called_at, seq, prev_hash, row_hash, device_id,
-                 runtime_kind)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 runtime_kind, session_id, trace_id, turn_index, parent_span_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 resolved_tool_id,
@@ -426,6 +449,10 @@ class CustomToolsRepository:
                 row_hash,
                 device_id,
                 runtime_kind,
+                session_id,
+                trace_id,
+                turn_index,
+                parent_span_id,
             ),
         )
         await conn.commit()
@@ -774,6 +801,129 @@ class CustomToolsRepository:
             ORDER BY c.last_used DESC
             """,
             (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_agent_tool_graph(self, window_days: int = 7) -> list[dict]:
+        """Aggregate audit rows into per-(agent, tool) edges for the Agent Map.
+
+        One row per (runtime_kind, tool_id) pair seen in tool_call_audit during
+        the trailing window — i.e. one edge from an agent node (the runtime that
+        emitted the call) to a tool/MCP node. Each edge carries call volume, the
+        allow/block/log_only breakdown, the most recent risk, a secret-touch
+        heuristic, and the cloud-policy attribution (so the tool node can show a
+        lock glyph). Nodes are derived from these edges by the route layer.
+
+        Per-agent identity is ``runtime_kind`` (the harness) — the most stable
+        agent identity available until a real agent_id column exists (the v36
+        ``trace_id`` groups individual runs, not agents). ``touched_secrets`` is
+        the same ``reason`` LIKE-heuristic as get_bill_of_tools.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            WITH edges AS (
+                SELECT
+                    COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                    tool_id,
+                    MAX(function_name) AS function_name,
+                    COUNT(*) AS calls,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                    SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
+                    SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                    MAX(called_at) AS last_used,
+                    MAX(risk) AS recent_risk,
+                    MAX(CASE
+                        WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api_key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%token%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%password%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%exfil%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%pii%'
+                        THEN 1 ELSE 0
+                    END) AS touched_secrets
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+                GROUP BY runtime_kind, tool_id
+            )
+            SELECT
+                e.runtime_kind,
+                e.tool_id,
+                e.function_name,
+                e.calls,
+                e.blocked,
+                e.allowed,
+                e.logged,
+                e.last_used,
+                e.recent_risk,
+                e.touched_secrets,
+                s.effect AS synced_effect,
+                s.policy_name AS synced_policy_name,
+                s.org_name AS synced_org_name
+            FROM edges e
+            LEFT JOIN synced_tool_rules s ON s.tool_id = e.tool_id
+            ORDER BY e.calls DESC
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_trace_runs(self, window_days: int = 7, limit: int = 50) -> list[dict]:
+        """List agent runs (traces) in the window, newest first.
+
+        One row per ``trace_id`` (a run = one runtime session, per the v36
+        run-boundary rule). Each run carries its runtime, span count, block
+        count, time bounds, and the distinct tools touched — enough to render
+        the run list of the Agent Run Trace view (story #142). Rows with a NULL
+        trace_id (no session id forwarded) are orphan single-span runs and are
+        excluded from this rollup; they remain visible in Tool Activity.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        limit = max(1, min(int(limit), 500))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                trace_id,
+                MAX(runtime_kind) AS runtime_kind,
+                MAX(session_id) AS session_id,
+                COUNT(*) AS spans,
+                SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                MIN(called_at) AS started_at,
+                MAX(called_at) AS ended_at,
+                MAX(risk) AS recent_risk,
+                GROUP_CONCAT(DISTINCT function_name) AS tools
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            ORDER BY ended_at DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_trace_spans(self, trace_id: str) -> list[dict]:
+        """Return the ordered spans (tool-call audit rows) for one run.
+
+        Ordered by turn_index then seq so the waterfall reads top-to-bottom in
+        execution order. Each span is one enforced tool call carrying its
+        allow/block/log_only verdict, risk, reason, and timestamp.
+        """
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                seq, turn_index, tool_id, function_name, action,
+                risk, reason, called_at, runtime_kind, args_preview
+            FROM tool_call_audit
+            WHERE trace_id = ?
+            ORDER BY turn_index ASC, seq ASC
+            """,
+            (trace_id,),
         )
         return [dict(r) for r in rows] if rows else []
 

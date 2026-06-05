@@ -1225,6 +1225,44 @@ def _handle_plugin_command(args) -> None:
 
     # Plugin handlers return ok-shaped responses. Surface failure as exit 1.
     ok = data.get("ok") if isinstance(data, dict) else None
+
+    # After a successful Claude Code install, surface the OPTIONAL status
+    # line. It is not wired automatically (it lives in the user's global
+    # ~/.claude/settings.json `statusLine`, which we never overwrite — a
+    # user may already have one). The JSON above is machine-shaped; this
+    # block tells a human exactly how to turn it on. Codex / OpenClaw have
+    # their own status surfaces, so this is Claude-Code-only.
+    if (
+        name == "claude-code"
+        and action == "install"
+        and isinstance(data, dict)
+        and data.get("ok") is not False
+    ):
+        # Prefer the staging path — it is version-stable, so the command
+        # the user pastes survives version bumps (the cache path is
+        # versioned, e.g. securevector-guard/4.5.0, and would break on
+        # upgrade). Fall back to the versioned cache path if staging is
+        # somehow absent.
+        sl_dir = data.get("staging_dir") or data.get("claude_install_path")
+        if sl_dir:
+            statusline_cmd = f'node "{sl_dir}/hooks/statusline.js"'
+            print()
+            print("─" * 64)
+            print("📊 Optional: add the SecureVector status line to Claude Code")
+            print("   Shows live threat + tool-call counts in your status bar.")
+            print("   Add this to ~/.claude/settings.json (top level):")
+            print()
+            print('     "statusLine": {')
+            print('       "type": "command",')
+            print(f'       "command": {json.dumps(statusline_cmd)},')
+            print('       "refreshInterval": 5')
+            print("     }")
+            print()
+            print("   Already have a statusLine? Call statusline.js from your")
+            print("   own script instead — or skip it; the plugin works fully")
+            print("   without the status line.")
+            print("─" * 64)
+
     sys.exit(0 if ok is None or ok is True else 1)
 
 

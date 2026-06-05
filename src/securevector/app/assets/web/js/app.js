@@ -11,6 +11,8 @@ const App = {
         dashboard: DashboardPage,
         threats: ThreatsPage,
         replay: ReplayPage,
+        'agent-map': AgentMapPage,
+        'agent-runs': AgentRunsPage,
         rules: RulesPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },

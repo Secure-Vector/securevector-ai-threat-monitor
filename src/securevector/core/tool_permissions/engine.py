@@ -145,6 +145,12 @@ def evaluate_tool_call(
     # Normalize for case-insensitive matching (LLM tools may use PascalCase e.g. "Read")
     function_name_lower = function_name.lower()
 
+    # Case-insensitive override view: a rule stored as `read` must resolve
+    # against a tool the registry calls `Read`. Mirrors the synced-rule
+    # case handling below and the agent-runtime oracles (CC / Codex hooks,
+    # OpenClaw plugin). Maps lowercased tool_id -> action string.
+    overrides_ci = {str(k).lower(): v for k, v in overrides.items()}
+
     # Cloud-pushed synced rules are the highest authority — they take priority
     # over the essential / custom registry. The cloud admin authored a policy
     # targeting this tool_id by name; whether the tool happens to be in the
@@ -206,9 +212,9 @@ def evaluate_tool_call(
                 is_essential=True,
             )
 
-        # Check for user override first
-        if tool_id in overrides:
-            action = overrides[tool_id]
+        # Check for user override first (case-insensitive)
+        if tool_id.lower() in overrides_ci:
+            action = overrides_ci[tool_id.lower()]
             return PermissionDecision(
                 tool_name=tool_id,
                 function_name=function_name,
@@ -251,9 +257,9 @@ def evaluate_tool_call(
                     is_essential=True,
                 )
 
-            # Exact match on the function part
-            if tool_id in overrides:
-                action = overrides[tool_id]
+            # Exact match on the function part (case-insensitive)
+            if tool_id.lower() in overrides_ci:
+                action = overrides_ci[tool_id.lower()]
                 return PermissionDecision(
                     tool_name=tool_id,
                     function_name=function_name,
@@ -277,9 +283,9 @@ def evaluate_tool_call(
     if custom_registry and function_name in custom_registry:
         custom_tool = custom_registry[function_name]
 
-        # Check for user override first
-        if function_name in overrides:
-            action = overrides[function_name]
+        # Check for user override first (case-insensitive)
+        if function_name_lower in overrides_ci:
+            action = overrides_ci[function_name_lower]
             return PermissionDecision(
                 tool_name=function_name,
                 function_name=function_name,

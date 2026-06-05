@@ -92,9 +92,10 @@ const THREAT_SCAN_TEXT_LIMIT = 8000; // bytes — well under /analyze's 100KB ca
 // exfil channel. The hook engine remaps `exec_command` / `shell_command`
 // to `Bash` on the wire (see ../lib/normalize.js comment) so this entry
 // is what fires for Codex shell calls. Per issue #131 we light it up;
-// the rule pack's `_INCOMING_SUPPRESSED_RULE_IDS` server-side already
-// drops the noisy prose-tier rules for direction='incoming', so the FP
-// rate that originally kept shell out is mitigated.
+// server-side the rule pack's direction-tagged suppression (outgoing-only
+// rules dropped on direction='incoming' — issue #136 Phase 3) already
+// removes the noisy prose-tier rules, so the FP rate that originally kept
+// shell out is mitigated.
 //
 // Still deliberately out: apply_patch results — the response is the
 // patched file or "ok" confirmation, not fetched external content.
@@ -311,6 +312,7 @@ async function audit(event, baseUrl) {
     }
   } catch { /* swallow — empty preview is acceptable */ }
 
+  const sessionId = (event && (event.session_id || event.sessionId)) || null;
   postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {
     tool_id: toolId,
     function_name: toolName,
@@ -320,6 +322,7 @@ async function audit(event, baseUrl) {
     is_essential: false,
     args_preview: argsPreview || null,
     runtime_kind: RUNTIME_KIND,
+    session_id: sessionId,
   });
 
   // Threat-intel pass — only for tools whose `tool_input` is prose the

@@ -79,6 +79,31 @@ test('denies when bare-tool fallback candidate matches', () => {
 });
 
 
+test('case-insensitive: lowercase rule tool_id denies PascalCase built-in (issue #138)', () => {
+  // Cloud / local rules may store tool_id as `read` while normalize()
+  // emits the canonical built-in candidate `Read`. A case-sensitive
+  // lookup silently failed the deny open; matching must be insensitive.
+  const overrides = {
+    synced: [{ tool_id: 'read', effect: 'deny', reason: 'sensitive read' }],
+    total: 1,
+  };
+  const result = decideFromOverrides(['Read'], overrides);
+  assert.equal(result.decision, 'deny');
+  assert.match(result.reason, /sensitive read/);
+  // Canonical (candidate) casing is preserved on the deny path for audit.
+  assert.equal(result.toolId, 'Read');
+});
+
+
+test('case-insensitive: PascalCase rule tool_id denies lowercase candidate (issue #138)', () => {
+  const overrides = {
+    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'no shell' }],
+    total: 1,
+  };
+  assert.equal(decideFromOverrides(['bash'], overrides).decision, 'deny');
+});
+
+
 test('maps effect=allow → permissionDecision allow', () => {
   const overrides = {
     synced: [{ tool_id: 'srv:tool_a', effect: 'allow', reason: 'explicitly allowed' }],

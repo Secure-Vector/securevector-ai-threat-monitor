@@ -106,7 +106,9 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - how\s+to\s+(?:hack|break\s+into)
+  # Negative lookahead drops benign "hack" idioms ("hack together a solution",
+  # "hackathon", "hacky", "hack day") so only real "hack into / break into" fires.
+  - how\s+to\s+(?:hack(?!\s+(?:together|athon|y\b|-?\s?day|night|a\s+(?:solution|prototype|quick|fix|script|tool)))|break\s+into)
   - instructions?\s+(?:for|to)\s+(?:hack|hacking)
   - teach\s+me\s+to\s+hack
   detection_logic: .*(how\s+to\s+(?:hack|break\s+into)|instructions?\s+(?:for|to)\s+(?:hack|hacking)|teach\s+me\s+to\s+hack).*

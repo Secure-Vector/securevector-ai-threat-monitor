@@ -14,6 +14,7 @@ const Sidebar = {
         // visibility under the agent-observability story instead of being
         // buried under Configure.
         { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
+            { id: 'agent-map',      label: 'Agent Map' },
             { id: 'replay',         label: 'Timeline' },
             { id: 'tool-activity',  label: 'Tool Activity' },
             { id: 'bill-of-tools',  label: 'Tool Inventory' },

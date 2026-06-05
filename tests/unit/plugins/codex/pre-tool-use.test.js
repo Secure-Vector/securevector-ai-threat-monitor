@@ -19,7 +19,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { toHookOutput } = require(
+const { toHookOutput, decideFromOverrides } = require(
   '../../../../src/securevector/plugins/codex/hooks/pre-tool-use.js'
 );
 
@@ -117,4 +117,14 @@ test('Codex toHookOutput: ask without reason still produces a non-empty deny rea
     typeof out.hookSpecificOutput.permissionDecisionReason === 'string'
     && out.hookSpecificOutput.permissionDecisionReason.length > 0
   );
+});
+
+
+test('Codex decideFromOverrides: case-insensitive tool_id matching (issue #138)', () => {
+  // Codex remaps exec/shell to `Bash` before the hook; a lowercase
+  // synced/local rule must still enforce against the canonical candidate.
+  const lower = { synced: [{ tool_id: 'bash', effect: 'deny', reason: 'no shell' }], total: 1 };
+  assert.equal(decideFromOverrides(['Bash'], lower).decision, 'deny');
+  const pascal = { synced: [{ tool_id: 'Read', effect: 'deny' }], total: 1 };
+  assert.equal(decideFromOverrides(['read'], pascal).decision, 'deny');
 });

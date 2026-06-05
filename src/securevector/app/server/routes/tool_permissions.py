@@ -188,12 +188,19 @@ def _build_tool_response_row(
     """Resolve precedence (last_resort > synced > local > default) and
     build the response row. Shared between registry tools and Claude
     Code built-ins so a single source of truth governs the precedence
-    chain."""
-    override = overrides_map.get(tool_id)
+    chain.
+
+    ``overrides_map`` and ``synced_map`` are keyed by lowercased tool_id
+    (see ``list_essential_tools``) so a rule stored as ``read`` resolves
+    against the canonical built-in ``Read`` — matching the case-insensitive
+    behaviour of the agent-runtime decision oracles (CC / Codex hooks,
+    OpenClaw plugin). Without this, a deny override silently fails open."""
+    tool_key = tool_id.lower()
+    override = overrides_map.get(tool_key)
     override_action = override["action"] if override else None
     default_perm = tool_meta.get("default_permission", "block")
 
-    synced_rule = synced_map.get(tool_id)
+    synced_rule = synced_map.get(tool_key)
     last_resort = last_resort_matcher(tool_id)
 
     if last_resort is not None:
@@ -258,7 +265,9 @@ async def list_essential_tools():
         db = get_database()
         repo = ToolPermissionsRepository(db)
         overrides_list = await repo.get_all_overrides()
-        overrides_map = {o["tool_id"]: o for o in overrides_list}
+        # Key by lowercased tool_id so resolution is case-insensitive
+        # (a rule stored as `read` matches the canonical built-in `Read`).
+        overrides_map = {o["tool_id"].lower(): o for o in overrides_list}
 
         # Layer cloud-pushed synced rules (active-mcp-and-policy-sync)
         from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
@@ -269,12 +278,15 @@ async def list_essential_tools():
         # after a `:` (cloud naming convention is `<server>:<tool>` but the
         # local registry uses bare tool names; without aliasing the lock icon
         # never appears on synced tools). Keep higher-priority rule on collision.
+        # Keys are lowercased so resolution is case-insensitive, matching
+        # the agent-runtime oracles (CC / Codex hooks, OpenClaw plugin).
         synced_map: dict = {}
         for r in synced_rows:
             keys = [r.tool_id]
             if ':' in r.tool_id:
                 keys.append(r.tool_id.split(':', 1)[1])
             for k in keys:
+                k = k.lower()
                 existing = synced_map.get(k)
                 if not existing or (r.priority or 0) > (existing.priority or 0):
                     synced_map[k] = r
@@ -685,6 +697,10 @@ class AuditLogRequest(BaseModel):
     # Which agent runtime emitted the call (e.g. "claude-code", "openclaw").
     # Metadata only; not in the v20 hash chain (see migrate_to_v21 / v32).
     runtime_kind: Optional[str] = None
+    # The runtime's own session id for this agent run. Used server-side to
+    # derive the per-run trace_id / turn_index that group the flat audit log
+    # into runs/turns (story #141). Metadata only; not in the hash chain.
+    session_id: Optional[str] = None
 
 
 @router.post("/tool-permissions/call-audit")
@@ -725,6 +741,7 @@ async def record_call_audit(request: AuditLogRequest):
             is_essential=request.is_essential,
             args_preview=request.args_preview,
             runtime_kind=request.runtime_kind,
+            session_id=request.session_id,
         )
         return {"ok": True}
 

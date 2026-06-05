@@ -123,6 +123,35 @@ const API = {
         }));
     },
 
+    // active-agent-observability #143 — Agent–Tool Live Graph. Agent nodes
+    // (runtime) → tool/MCP nodes, edges colored by enforcement outcome.
+    // See routes/graph.py for the server side.
+    async getAgentToolGraph(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        const qs = q.toString();
+        return this.request(`/api/graph/agent-tool${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7,
+            node_cap: 0, truncated: false, dropped_edges: 0, nodes: [], edges: [],
+        }));
+    },
+
+    // active-agent-observability #142 — Agent Run Trace. Runs (one per agent
+    // session) and the ordered enforced-tool-call spans within a run.
+    async getTraces(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        if (params.limit) q.set('limit', params.limit);
+        const qs = q.toString();
+        return this.request(`/api/traces${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7, runs: [],
+        }));
+    },
+
+    async getTrace(traceId) {
+        return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);
