@@ -1,57 +1,50 @@
 /**
- * Agent Map — active-agent-observability #143 (the hero graph)
+ * Agent Map — active-agent-observability (the hero graph), 3-layer edition.
  *
- * A force-directed network node map of the agent fleet: AGENT nodes (the
- * runtime that emitted the calls) connected to the TOOL / MCP nodes they
- * invoked. Organic 2D force layout (charge repulsion + link springs + gravity),
- * thin edges coloured by ENFORCEMENT OUTCOME (blocked pops red; allow/log
- * stay calm), tool-call traffic animated as flowing dashes, and hover-only
- * labels so a dense fleet stays readable.
+ * A multi-layer map of the agent fleet: DEVICE → HARNESS (runtime) → AGENT
+ * (one node per session/run) → TOOL (built-in vs external MCP). The user picks
+ * the TOPOLOGY: a radial dendrogram (hero), a tidy left→right tree, or a
+ * shared-tool mesh (Sankey is parked). Edges are coloured by ENFORCEMENT
+ * OUTCOME (blocked pops red), active runs animate a flowing pipeline, inactive
+ * runs grey out with an "Nd inactive" note. Click ANY node for a detail card
+ * that drills into Agent Runs; selecting a node focuses its connected subgraph
+ * (a shared tool lights up exactly the agents reaching it — blast radius).
  *
- * Interaction: wheel / button zoom (around the cursor), background pan, and
- * draggable + pinnable nodes. Local-first, read-only. Hand-rolled SVG (no
- * graph library), following the replay.js createElementNS idiom.
+ * Local-first, read-only. Hand-rolled SVG (no graph library), following the
+ * replay.js createElementNS idiom. Backed by GET /api/graph/agent-session.
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// Risk + outcome map to SecureVector's own status colours (danger / warning /
-// success), NOT a generic graph palette.
 const RISK_COLOR = { red: '#ef4444', amber: '#f59e0b', green: '#10b981' };
 const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981' };
-// Per-agent fills derived from the SecureVector brand (teal accent-primary
-// #5eadb8) — a cool teal/cyan/blue/indigo family, on-brand and deliberately
-// NOT the warm purple/yellow of a generic network graph. Deep enough to read
-// on both the dark (#0d1117) and light (#ffffff) themes. Reds/ambers/greens are
-// reserved for risk semantics, so they're kept out of this palette.
-// Spread across the cool spectrum (hue + lightness) so each agent is clearly
-// distinguishable — teal leads (brand), then blue, indigo, cyan, deep-teal,
-// sky, periwinkle, dark-cyan. Avoids near-duplicate teals.
-const AGENT_PALETTE = ['#5eadb8', '#3b82f6', '#8b5cf6', '#06b6d4', '#6366f1', '#0d9488', '#38bdf8', '#155e75'];
-const TOOL_FILL = '#64748b'; // built-in (harness) tool — neutral blue-slate, subordinate to agents, legible on dark + light
-// External MCP / plugin tool — a warm amber/orange. The agents own the cool
-// palette (teal/blue/violet/cyan/indigo), so a warm tone gives the strongest
-// possible separation: "this tool reaches out to a foreign service" reads at a
-// glance. Risk is shown as a RING (stroke) on the node — red for blocked, amber
-// for watch — not as the fill, so the orange fill reads as "external" while the
-// ring still reads as "risk". Mid-tone → legible on both dark and light themes.
-const TOOL_FILL_EXT = '#e08a3c';
+// Per-harness fills from the SecureVector brand (cool teal/blue/indigo family);
+// reds/ambers/greens stay reserved for risk semantics.
+const HARNESS_PALETTE = ['#5eadb8', '#3b82f6', '#8b5cf6', '#06b6d4', '#6366f1', '#0d9488', '#38bdf8', '#155e75'];
+const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
+const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
+const GRAY = '#5b626b';           // inactive / greyed-out
 
-// Inline SVG icons (no emojis — crisp + theme-consistent at any size).
+const GEAR_PATH = 'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z';
 const LOCK_PATH = 'M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 0 1 6 0z';
 const BAN_PATH = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2c1.8 0 3.5.6 4.9 1.7L5.7 16.9A8 8 0 0 1 12 4zm0 16a8 8 0 0 1-4.9-1.7L18.3 7.1A8 8 0 0 1 12 20z';
-// Gear / cog — marks external MCP / plugin tool nodes ("a service the agent reaches out to").
-const GEAR_PATH = 'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z';
 const ICON = {
     lock: (c = '#f59e0b', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${LOCK_PATH}"/></svg>`,
     ban: (c = '#ef4444', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${BAN_PATH}"/></svg>`,
     gear: (c = '#e08a3c', s = 12) => `<svg class="sv-spin" viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${GEAR_PATH}"/></svg>`,
 };
 
+const TOPOLOGIES = [
+    { key: 'radial', label: 'Radial tree' },
+    { key: 'tree', label: 'Tree' },
+    { key: 'mesh', label: 'Mesh' },
+    { key: 'sankey', label: 'Sankey', soon: true },
+];
+
 const AgentMapPage = {
     windowDays: 7,
-    focus: 'all', // 'all' | 'blocked' | 'secret' | '<agent node id>'
-    kinds: { builtin: true, external: true }, // built-in / external tool-node checkbox filter
+    topo: 'radial',
+    showInactive: false,
     data: { nodes: [], edges: [], truncated: false, dropped_edges: 0 },
 
     W: 1000,
@@ -63,14 +56,10 @@ const AgentMapPage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Agent Map', 'Live map of which agents are calling which tools — built-in vs external MCP — and what we blocked');
+            Header.setPageInfo('Agent Map', 'Live map of harness → agent → tool — pick a topology, click any node to drill in');
         }
         this._injectStyle();
 
-        // Single header row: tabs + Window/Focus filters + legend (the toolbar
-        // uses display:contents so its groups become flex items of the header,
-        // letting the legend's margin-left:auto push to the far right). Stats
-        // move to a compact overlay on the graph — see draw().
         const header = document.createElement('div');
         header.className = 'obs-header';
         ObsTabs.render(header, 'map');
@@ -97,59 +86,62 @@ const AgentMapPage = {
         const st = document.createElement('style');
         st.id = 'agent-map-style';
         st.textContent = `
-            @keyframes svFlow { to { stroke-dashoffset: -15; } }
-            @keyframes svPulse { 0%,100% { opacity: .78; } 50% { opacity: 1; } }
-            /* Solid connection line. */
-            .sv-edge-base { pointer-events: stroke; }
-            /* Travelling dashes along the solid line — the "water flow". Bigger
-               dash + smaller gap than before so the flow actually reads. */
-            .sv-edge-flow { stroke-dasharray: 3 12; stroke-linecap: round; animation: svFlow linear infinite; pointer-events: none; }
+            @keyframes svFlow { to { stroke-dashoffset: -16; } }
+            @keyframes svPulse { 0%,100% { opacity: .5; } 50% { opacity: .95; } }
+            .sv-edge-flow { stroke-dasharray: 3 11; stroke-linecap: round; animation: svFlow linear infinite; pointer-events: none; }
             .sv-edge-blocked { animation: svFlow linear infinite, svPulse 1.2s ease-in-out infinite; }
-            /* External-tool gears rotate slowly (rotate about their own centre). */
             @keyframes svGearSpin { to { transform: rotate(360deg); } }
             .sv-gear { transform-box: fill-box; transform-origin: center; animation: svGearSpin 28s linear infinite; }
-            /* Inline legend / tooltip gear (HTML-context <svg>) spins too. */
             .sv-spin { transform-origin: center; animation: svGearSpin 28s linear infinite; }
             @media (prefers-reduced-motion: reduce) { .sv-edge-flow, .sv-edge-blocked, .sv-gear, .sv-spin { animation: none !important; } }
             .sv-node { cursor: grab; }
             .sv-node:active { cursor: grabbing; }
-            /* Calm nodes wear a quiet theme-aware outline; elevated risk overrides inline. */
-            .sv-node-dot { stroke: var(--border-default,#30363d); stroke-width: 1.5; }
-            .sv-node:hover .sv-node-dot, .sv-node:focus .sv-node-dot { stroke-width: 3; filter: brightness(1.12); }
-            .sv-node.sv-pinned .sv-node-dot { stroke-dasharray: 2 2; }
-            /* Always-on label in a refined sans (Avenir Next), small + lightly
-               tracked; halo uses the card bg so it reads over edges. */
-            .sv-node-label { font: 600 10px 'Avenir Next','Avenir','Segoe UI Variable',system-ui,-apple-system,sans-serif;
-                letter-spacing:.2px; pointer-events:none; user-select:none;
-                opacity: .94; transition: opacity .1s; paint-order: stroke; stroke: var(--bg-card,#161b22); stroke-width: 3px; }
-            .sv-node:hover .sv-node-label, .sv-node:focus .sv-node-label { opacity: 1; }
-            /* Slim summary line — only the numbers you can't count by eye
-               (blocked, secret) are emphasised; the rest is quiet context. */
+            .sv-node.sv-sel circle { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 3.4 !important; }
+            .sv-node-label { font: 600 10px 'Avenir Next','Avenir','Segoe UI Variable',system-ui,sans-serif;
+                letter-spacing:.2px; pointer-events:none; user-select:none; paint-order: stroke;
+                stroke: var(--bg-card,#161b22); stroke-width: 3px; }
+            .sv-harness-label { font: 700 12.5px 'Avenir Next','Avenir',system-ui,sans-serif; }
+            .sv-agent-label { font: 700 9px ui-monospace,'JetBrains Mono',Menlo,monospace; }
+            .sv-reason { font: 500 9.5px 'Avenir Next','Avenir',system-ui,sans-serif; fill: var(--text-muted,#64748b); }
+            #agent-map-body.sv-panning { cursor: grabbing; }
+            /* Topology segmented control */
+            .sv-seg { display:inline-flex; background:color-mix(in srgb,var(--bg-card,#161b22) 60%, #000 8%); border:1px solid var(--border-default,#30363d); border-radius:10px; padding:3px; gap:2px; }
+            .sv-seg button { background:transparent; border:none; border-radius:7px; padding:6px 12px; font:600 12px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-secondary,#b1bac4); cursor:pointer; }
+            .sv-seg button.on { background:color-mix(in srgb,var(--accent-primary,#5eadb8) 20%, var(--bg-card,#161b22)); color:var(--text-primary,#e6edf3); }
+            .sv-seg button.soon { color:var(--text-muted,#64748b); font-style:italic; }
+            .sv-seg button .tag { font-size:8.5px; font-weight:700; color:var(--text-muted,#64748b); margin-left:5px; border:1px solid var(--border-default,#30363d); border-radius:5px; padding:0 4px; vertical-align:middle; }
+            /* Detail card — opens on click of ANY node (mirrors node→Runs drill-down) */
+            #agent-map-card { position:absolute; top:14px; right:14px; z-index:12; width:266px; padding:14px 15px;
+                border:1px solid var(--border-default,#30363d); border-radius:13px; background:color-mix(in srgb,var(--bg-card,#161b22) 97%, transparent);
+                -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); box-shadow:0 14px 40px rgba(0,0,0,.5);
+                transform:translateX(20px); opacity:0; pointer-events:none; transition:opacity .12s,transform .12s; }
+            #agent-map-card.show { transform:none; opacity:1; pointer-events:auto; }
+            #agent-map-card .ch { display:flex; align-items:center; gap:9px; margin-bottom:3px; }
+            #agent-map-card .ch .dot { width:11px; height:11px; border-radius:50%; flex:none; }
+            #agent-map-card .ch .ttl { font-weight:700; font-size:14px; color:var(--text-primary,#e6edf3); }
+            #agent-map-card .typ { font-size:10.5px; letter-spacing:.4px; text-transform:uppercase; color:var(--text-muted,#7d8590); margin-bottom:11px; }
+            #agent-map-card .kv { display:grid; grid-template-columns:90px 1fr; gap:5px 10px; font-size:12.5px; color:var(--text-secondary,#b1bac4); }
+            #agent-map-card .kv b { color:var(--text-primary,#e6edf3); font-weight:600; word-break:break-word; }
+            #agent-map-card .perm { display:inline-block; padding:1px 8px; border-radius:6px; font-size:11px; font-weight:700; }
+            #agent-map-card .perm.allow { color:#10b981; background:color-mix(in srgb,#10b981 16%,transparent); }
+            #agent-map-card .perm.block { color:#ef4444; background:color-mix(in srgb,#ef4444 16%,transparent); }
+            #agent-map-card .perm.log { color:#f59e0b; background:color-mix(in srgb,#f59e0b 16%,transparent); }
+            #agent-map-card .open { margin-top:13px; width:100%; text-align:left; background:color-mix(in srgb,var(--accent-primary,#5eadb8) 14%,var(--bg-card,#161b22));
+                border:1px solid color-mix(in srgb,var(--accent-primary,#5eadb8) 40%,var(--border-default,#30363d)); color:var(--text-primary,#e6edf3); border-radius:9px; padding:9px 11px;
+                font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            #agent-map-card .open:hover { background:color-mix(in srgb,var(--accent-primary,#5eadb8) 22%,var(--bg-card,#161b22)); }
+            #agent-map-card .close { position:absolute; top:11px; right:12px; width:20px; height:20px; border:none; background:transparent; color:var(--text-muted,#7d8590); font-size:16px; cursor:pointer; line-height:1; padding:0; }
             #agent-map-stats { position:absolute; top:12px; left:14px; z-index:4; display:flex; align-items:center;
-                gap:12px; flex-wrap:wrap; max-width:64%; padding:7px 13px; border-radius:11px;
+                gap:12px; flex-wrap:wrap; max-width:54%; padding:7px 13px; border-radius:11px;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 78%, transparent);
                 -webkit-backdrop-filter:blur(9px); backdrop-filter:blur(9px);
                 border:1px solid color-mix(in srgb, var(--border-default,#30363d) 80%, transparent);
-                box-shadow:0 6px 20px rgba(0,0,0,.28); pointer-events:none;
-                font-size:11px; color:var(--text-secondary,#b1bac4); }
+                box-shadow:0 6px 20px rgba(0,0,0,.28); pointer-events:none; font-size:11px; color:var(--text-secondary,#b1bac4); }
             .sv-stat { display:inline-flex; align-items:baseline; gap:5px; }
-            .sv-stat b { font:600 12px ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
+            .sv-stat b { font:600 12px ui-monospace,'JetBrains Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
             .sv-stat-sep { width:1px; height:14px; background:var(--border-default,#30363d); }
             .sv-stat.is-alert, .sv-stat.is-alert b { color:var(--danger,#ef4444); }
-            .sv-stat.is-watch, .sv-stat.is-watch b { color:var(--warning,#f59e0b); }
-            #agent-map-body.sv-panning { cursor: grabbing; }
-            #agent-map-legend { position:absolute; bottom:12px; left:14px; z-index:4; display:flex; align-items:center;
-                flex-wrap:wrap; max-width:72%; padding:7px 13px; border-radius:11px;
-                background:color-mix(in srgb, var(--bg-card,#161b22) 78%, transparent);
-                -webkit-backdrop-filter:blur(9px); backdrop-filter:blur(9px);
-                border:1px solid color-mix(in srgb, var(--border-default,#30363d) 80%, transparent);
-                box-shadow:0 6px 20px rgba(0,0,0,.28); pointer-events:none; }
-            #agent-map-legend span { display:inline-flex; align-items:center; gap:5px; margin-right:13px; font-size:11.5px; color:var(--text-secondary,#b1bac4); }
-            #agent-map-legend i { width:16px; height:0; border-top:3px solid; display:inline-block; }
-            #agent-map-legend .lg-dot { width:9px; height:9px; border:0; border-top:0; border-radius:50%; }
-            #agent-map-legend .lg-sq { width:10px; height:10px; border:0; border-top:0; border-radius:2px; }
-            #agent-map-legend .lg-sep { width:1px; height:13px; padding:0; background:var(--border-default,#30363d); margin-right:13px; }
-            .sv-zoom { position:absolute; top:12px; right:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
+            .sv-zoom { position:absolute; bottom:12px; right:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
             .sv-zoom button { width:33px; height:33px; display:flex; align-items:center; justify-content:center;
                 font-size:16px; line-height:1; border-radius:9px; cursor:pointer;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 78%, transparent);
@@ -157,32 +149,18 @@ const AgentMapPage = {
                 color:var(--text-primary,#e2e8f0); border:1px solid color-mix(in srgb, var(--border-default,#30363d) 80%, transparent);
                 box-shadow:0 4px 14px rgba(0,0,0,.25); transition:background .12s,border-color .12s,transform .1s; }
             .sv-zoom button:hover { background:var(--bg-hover,#21262d); border-color:var(--accent-primary,#5eadb8); transform:translateY(-1px); }
-            .sv-zoom button:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:1px; }
-            .sv-hint { position:absolute; right:12px; bottom:10px; max-width:46%; text-align:right; font-size:11px; color:var(--text-muted,#64748b); z-index:5; user-select:none; }
-            /* Rich hover tooltip — per-agent (or per-tool) call breakdown. */
-            .sv-tooltip { position:absolute; z-index:10; pointer-events:none; min-width:160px; max-width:280px;
-                background:var(--bg-card,#161b22); color:var(--text-primary,#e6edf3); border:1px solid var(--border-default,#30363d);
-                border-radius:8px; padding:7px 9px; font:11px ui-sans-serif,system-ui,sans-serif;
-                box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.4)); opacity:0; transition:opacity .08s; }
-            .sv-tooltip.show { opacity:1; }
-            .sv-tt-title { font-weight:600; font-size:12px; display:flex; align-items:center; gap:6px; margin-bottom:2px; }
-            .sv-tt-sub { color:var(--text-secondary,#b1bac4); font-size:10.5px; margin-bottom:5px; }
-            .sv-tt-row { display:flex; justify-content:space-between; gap:16px; padding:1px 0; }
-            .sv-tt-row b { font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace; font-variant-numeric:tabular-nums; }
-            .sv-tt-blk { color:var(--danger,#ef4444); }
-            .sv-tt-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex:0 0 auto; }
-            /* Tool-kind checkbox filter */
-            .sv-kind-checks { display:inline-flex; align-items:center; gap:14px; }
+            .sv-hint { position:absolute; left:14px; bottom:10px; max-width:50%; font-size:11px; color:var(--text-muted,#64748b); z-index:5; user-select:none; }
             .sv-check { display:inline-flex; align-items:center; gap:6px; cursor:pointer;
                 font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); user-select:none; }
             .sv-check input { width:14px; height:14px; cursor:pointer; accent-color:var(--accent-primary,#5eadb8); margin:0; }
-            .sv-check-dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
         `;
         document.head.appendChild(st);
     },
 
     _buildToolbar(bar) {
         bar.textContent = '';
+
+        // Window
         const grp = document.createElement('div');
         grp.className = 'filter-group';
         const lbl = document.createElement('label');
@@ -200,53 +178,46 @@ const AgentMapPage = {
         grp.appendChild(sel);
         bar.appendChild(grp);
 
-        // Focus filter — the persona convergence: cut the graph to what you
-        // care about (SOC → blocked · CISO → secret · indie → one agent).
-        const fgrp = document.createElement('div');
-        fgrp.className = 'filter-group';
-        const flbl = document.createElement('label');
-        flbl.textContent = 'Focus';
-        fgrp.appendChild(flbl);
-        const fsel = document.createElement('select');
-        fsel.className = 'filter-select';
-        fsel.id = 'agent-map-focus';
-        fsel.addEventListener('change', () => { this.focus = fsel.value; this._applyFocus(); });
-        fgrp.appendChild(fsel);
-        bar.appendChild(fgrp);
-        this._focusSel = fsel;
-
-        // Built-in vs external tool-node checkboxes — hide a whole class of
-        // tool nodes (and their edges) from the graph.
-        const kgrp = document.createElement('div');
-        kgrp.className = 'filter-group';
-        const klbl = document.createElement('label');
-        klbl.textContent = 'Tool';
-        kgrp.appendChild(klbl);
-        const kwrap = document.createElement('div');
-        kwrap.className = 'sv-kind-checks';
-        [
-            { key: 'builtin', label: 'Built-in', color: TOOL_FILL },
-            { key: 'external', label: 'External MCP', color: TOOL_FILL_EXT },
-        ].forEach(k => {
-            const lab = document.createElement('label');
-            lab.className = 'sv-check';
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.checked = !!this.kinds[k.key];
-            cb.addEventListener('change', () => { this.kinds[k.key] = cb.checked; this._applyFocus(); });
-            const dot = document.createElement('span');
-            dot.className = 'sv-check-dot';
-            dot.style.background = k.color;
-            const txt = document.createElement('span');
-            txt.textContent = k.label;
-            lab.appendChild(cb); lab.appendChild(dot); lab.appendChild(txt);
-            kwrap.appendChild(lab);
+        // Topology selector — user picks how to view the agent/tool graph.
+        const tgrp = document.createElement('div');
+        tgrp.className = 'filter-group';
+        const tlbl = document.createElement('label');
+        tlbl.textContent = 'View';
+        tgrp.appendChild(tlbl);
+        const seg = document.createElement('div');
+        seg.className = 'sv-seg';
+        TOPOLOGIES.forEach(t => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.dataset.topo = t.key;
+            b.className = (t.key === this.topo ? 'on ' : '') + (t.soon ? 'soon' : '');
+            b.innerHTML = this._esc(t.label) + (t.soon ? '<span class="tag">SOON</span>' : '');
+            b.addEventListener('click', () => {
+                this.topo = t.key;
+                seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.topo === this.topo));
+                this._closeCard();
+                this.draw();
+            });
+            seg.appendChild(b);
         });
-        kgrp.appendChild(kwrap);
-        bar.appendChild(kgrp);
+        tgrp.appendChild(seg);
+        bar.appendChild(tgrp);
 
-        // Legend lives as an overlay on the graph (see _renderLegend), so the
-        // header row stays short: tabs + Window + Focus + Tool + Export.
+        // Show inactive sessions toggle (off by default).
+        const igrp = document.createElement('div');
+        igrp.className = 'filter-group';
+        const ilab = document.createElement('label');
+        ilab.className = 'sv-check';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = this.showInactive;
+        cb.addEventListener('change', () => { this.showInactive = cb.checked; this._closeCard(); this.draw(); });
+        const itxt = document.createElement('span');
+        itxt.textContent = 'Show inactive';
+        ilab.appendChild(cb); ilab.appendChild(itxt);
+        igrp.appendChild(ilab);
+        bar.appendChild(igrp);
+
         const exp = ObsTabs.exportMenu([
             { label: 'CSV (connections)', onClick: () => this._exportCSV() },
             { label: 'PDF', onClick: () => this._exportPDF() },
@@ -254,413 +225,615 @@ const AgentMapPage = {
         bar.appendChild(exp);
     },
 
-    /** Legend rendered into the bottom-left graph overlay (keeps the header row
-     *  to a single line). */
-    _renderLegend() {
-        const el = document.getElementById('agent-map-legend');
-        if (!el) return;
-        el.innerHTML =
-            `<span><i style="border-color:${OUTCOME_COLOR.allow};opacity:.6"></i>allowed</span>` +
-            `<span><i style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked</span>` +
-            `<span class="lg-sep"></span>` +
-            `<span><i class="lg-dot" style="background:${AGENT_PALETTE[0]}"></i>agent</span>` +
-            `<span><i class="lg-dot" style="background:${TOOL_FILL}"></i>built-in tool</span>` +
-            `<span>${ICON.gear(TOOL_FILL_EXT, 14)} external / MCP</span>` +
-            `<span>${ICON.lock('#f59e0b', 13)} secret / cloud</span>`;
-    },
-
-    /** Rows for export: one per agent→tool edge. */
-    _edgeRows() {
-        const byId = this._byId || {};
-        return (this.data.edges || []).map(e => ({
-            agent: (byId[e.source] || {}).label || e.source,
-            tool: (byId[e.target] || {}).label || e.target,
-            kind: ObsTabs.isExternalTool((byId[e.target] || {}).tool_id) ? 'external' : 'built-in',
-            calls: e.calls, blocked: e.blocked, outcome: e.outcome, risk: e.risk,
-        }));
-    },
-    _exportCols() {
-        return [
-            { label: 'agent', get: r => r.agent }, { label: 'tool', get: r => r.tool },
-            { label: 'kind', get: r => r.kind }, { label: 'calls', get: r => r.calls },
-            { label: 'blocked', get: r => r.blocked }, { label: 'outcome', get: r => r.outcome },
-            { label: 'risk', get: r => r.risk },
-        ];
-    },
-    _exportCSV() {
-        const rows = this._edgeRows();
-        if (!rows.length) return;
-        ObsTabs.download('agent-map.csv', ObsTabs.toCSV(this._exportCols(), rows), 'text/csv');
-    },
-    /** PDF = printable page with the graph image + the connections table. */
-    _exportPDF() {
-        if (!this._svg) return;
-        const clone = this._svg.cloneNode(true);
-        clone.setAttribute('xmlns', SVG_NS);
-        clone.setAttribute('width', this.W); clone.setAttribute('height', this.H);
-        const svgHTML = new XMLSerializer().serializeToString(clone);
-        const n = this.data.nodes || [], e = this.data.edges || [];
-        const sub = `${n.filter(x => x.kind === 'agent').length} agents · ` +
-            `${n.filter(x => x.kind === 'tool').length} tools · ${e.length} connections · last ${this.windowDays} day(s)`;
-        ObsTabs.printDoc('SecureVector — Agent Map',
-            `<h1>Agent Map</h1><div class="sub">${sub}</div>${svgHTML}` +
-            `<h2 style="font-size:13px;margin:18px 0 6px;">Connections</h2>` +
-            ObsTabs.tableHTML(this._exportCols(), this._edgeRows()));
-    },
-
     async loadData() {
         const body = document.getElementById('agent-map-body');
         if (body) {
             body.innerHTML = '<div class="loading" style="padding:40px;text-align:center;color:var(--text-secondary,#b1bac4);">Loading agent map…</div>';
         }
-        this.data = await API.getAgentToolGraph({ window_days: this.windowDays });
-        this._assignAgentColors();
+        this.data = await API.getAgentSessionGraph({ window_days: this.windowDays });
+        this._assignColors();
         this.draw();
     },
 
-    _assignAgentColors() {
+    _assignColors() {
         let i = 0;
-        this._agentColor = {};
-        (this.data.nodes || []).filter(n => n.kind === 'agent').forEach(n => {
-            this._agentColor[n.id] = AGENT_PALETTE[i % AGENT_PALETTE.length];
+        this._harnessColor = {};
+        (this.data.nodes || []).filter(n => n.kind === 'harness').forEach(n => {
+            this._harnessColor[n.id] = HARNESS_PALETTE[i % HARNESS_PALETTE.length];
             i += 1;
         });
     },
 
-    _nodeFill(n) {
-        if (n.kind === 'agent') return this._agentColor[n.id] || AGENT_PALETTE[0];
-        return ObsTabs.isExternalTool(n.tool_id) ? TOOL_FILL_EXT : TOOL_FILL;
+    // ---------------- model preparation (device hub + inactive filter) -------
+
+    /** Build the render model from the raw 3-layer payload: synthesize the
+     *  local DEVICE hub, drop or grey inactive sessions per the toggle, and
+     *  attach per-node colour / gray / idle metadata. Returns {nodes, edges}. */
+    _prepare() {
+        const raw = this.data || {};
+        const rawNodes = raw.nodes || [];
+        const rawEdges = raw.edges || [];
+        const byId = {};
+        rawNodes.forEach(n => { byId[n.id] = n; });
+
+        const harnesses = rawNodes.filter(n => n.kind === 'harness');
+        const sessions = rawNodes.filter(n => n.kind === 'session');
+        const tools = rawNodes.filter(n => n.kind === 'tool');
+
+        // Which sessions are visible? Active always; inactive only when toggled.
+        const visSession = {};
+        sessions.forEach(s => { visSession[s.id] = s.active || this.showInactive; });
+
+        const nodes = [];
+        const edges = [];
+
+        // Device hub (one local device).
+        nodes.push({ id: 'device', kind: 'device', label: 'this device' });
+
+        harnesses.forEach(h => {
+            const col = this._harnessColor[h.id] || HARNESS_PALETTE[0];
+            const gray = !h.active;
+            const idle = this._idleDays(h.last_used);
+            nodes.push(Object.assign({}, h, {
+                col, gray,
+                reason: gray ? (idle != null ? `${idle}d idle` : 'no recent activity') : null,
+            }));
+            edges.push({ source: 'device', target: h.id, tier: 'device-harness', col: gray ? GRAY : col, op: gray ? 0.22 : 0.5, w: 1.4, flow: false });
+        });
+
+        sessions.forEach(s => {
+            if (!visSession[s.id]) return;
+            const col = this._harnessColor[s.harness_id] || HARNESS_PALETTE[0];
+            const gray = !s.active;
+            nodes.push(Object.assign({}, s, { col: gray ? GRAY : col, baseCol: col, gray }));
+        });
+
+        tools.forEach(t => {
+            if (!visSession[t.session_id_node]) return;
+            const sgray = !(byId[t.session_id_node] && byId[t.session_id_node].active);
+            const ext = ObsTabs.isExternalTool(t.tool_id);
+            const blocked = (t.blocked || 0) > 0 && !sgray;
+            nodes.push(Object.assign({}, t, { ext, gray: sgray, blocked }));
+        });
+
+        // Edges from the payload, filtered to visible endpoints.
+        const visNode = {};
+        nodes.forEach(n => { visNode[n.id] = true; });
+        rawEdges.forEach(e => {
+            if (!visNode[e.source] || !visNode[e.target]) return;
+            const tgt = byId[e.target] || {};
+            const srcSession = byId[e.source];
+            const sgray = e.tier === 'session-tool' && srcSession && !srcSession.active;
+            const blocked = e.outcome === 'blocked' && !sgray;
+            const harnessCol = e.tier === 'harness-session'
+                ? (this._harnessColor[e.source] || HARNESS_PALETTE[0])
+                : (this._harnessColor[(byId[e.source] || {}).harness_id] || HARNESS_PALETTE[0]);
+            const ext = e.tier === 'session-tool' && ObsTabs.isExternalTool(tgt.tool_id);
+            edges.push(Object.assign({}, e, {
+                col: blocked ? OUTCOME_COLOR.blocked : (sgray ? '#454b54' : (ext ? TOOL_FILL_EXT : harnessCol)),
+                op: sgray ? 0.15 : (blocked ? 0.7 : (e.tier === 'session-tool' ? 0.4 : 0.5)),
+                w: blocked ? 1.7 : Math.max(0.8, Math.min(1.7, Math.log2((e.calls || 1) + 1) * 0.42)),
+                flow: e.tier === 'session-tool' && !sgray,
+                blocked,
+            }));
+        });
+
+        return { nodes, edges, byId: this._index(nodes) };
     },
 
-    // External MCP tools arrive labelled with their full
-    // `mcp__server__tool` function name, which all truncate to the same
-    // indistinguishable "mcp__plugin_…" prefix on the canvas. Show the tool
-    // METHOD instead (the `server:tool` suffix → "browser_click") so sibling
-    // MCP nodes are tellable apart. Built-ins/agents keep their label.
-    _cleanName(label, toolId) {
-        if (toolId && ObsTabs.isExternalTool(toolId)) return String(toolId).split(':').pop();
-        return label;
+    _index(nodes) { const m = {}; nodes.forEach(n => { m[n.id] = n; }); return m; },
+
+    _idleDays(lastUsed) {
+        if (!lastUsed) return null;
+        const t = Date.parse(String(lastUsed).replace(' ', 'T') + (String(lastUsed).endsWith('Z') ? '' : 'Z'));
+        if (isNaN(t)) return null;
+        return Math.max(0, Math.floor((Date.now() - t) / 86400000));
     },
-    _displayLabel(n) {
-        const s = String(this._cleanName(n.label, n.tool_id) || '');
-        return s.length > 26 ? s.slice(0, 25) + '…' : s;
-    },
+
+    // ---------------- draw ----------------
 
     draw() {
         const body = document.getElementById('agent-map-body');
         if (!body) return;
         body.textContent = '';
+        this._sel = null;
 
-        const nodes = this.data.nodes || [];
-        const edges = this.data.edges || [];
-        if (!nodes.length) {
+        const model = this._prepare();
+        this._lnodes = model.nodes;
+        this._ledges = model.edges;
+        this._byId = model.byId;
+
+        const realSessions = (this.data.nodes || []).filter(n => n.kind === 'session');
+        if (!realSessions.length) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:64px 24px;text-align:center;color:var(--text-secondary,#b1bac4);';
-            empty.innerHTML = '<div style="font-size:15px;margin-bottom:6px;">No tool activity in this window.</div>' +
-                '<div style="font-size:13px;">Install a SecureVector Guard plugin and run an agent — every tool call shows up here.</div>';
+            empty.innerHTML = '<div style="font-size:15px;margin-bottom:6px;">No agent activity in this window.</div>' +
+                '<div style="font-size:13px;">Install a SecureVector Guard plugin and run an agent — every session and tool call shows up here.</div>';
             body.appendChild(empty);
             return;
         }
 
         const W = this.W, H = this.H;
-        this._layout(nodes, edges, W, H);
-
         const svg = document.createElementNS(SVG_NS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
         svg.setAttribute('role', 'img');
-        svg.setAttribute('aria-label',
-            `Agent–tool graph: ${nodes.filter(n => n.kind === 'agent').length} agents, ` +
-            `${nodes.filter(n => n.kind === 'tool').length} tools, ${edges.length} connections`);
+        svg.setAttribute('aria-label', `Agent map (${this.topo}): ${realSessions.length} agent sessions`);
         this._svg = svg;
-
         const bg = document.createElementNS(SVG_NS, 'rect');
-        bg.setAttribute('x', 0); bg.setAttribute('y', 0);
-        bg.setAttribute('width', W); bg.setAttribute('height', H);
-        bg.setAttribute('fill', 'transparent');
+        bg.setAttribute('width', W); bg.setAttribute('height', H); bg.setAttribute('fill', 'transparent');
         svg.appendChild(bg);
-
         const vp = document.createElementNS(SVG_NS, 'g');
         vp.setAttribute('id', 'sv-vp');
         svg.appendChild(vp);
         this._vp = vp;
 
-        const byId = {};
-        nodes.forEach(n => { byId[n.id] = n; });
+        if (this.topo === 'sankey') {
+            this._drawSankeyPlaceholder(vp);
+            body.appendChild(svg);
+            this._body = body;
+            this._wireViewport(svg, body);
+            this._fitStatic();
+            return;
+        }
 
-        // Edges (under nodes): a SOLID connection line + a bright dot that
-        // travels along it (the "water flow"). Outcome-coloured; blocked pops.
+        // Layout writes x,y onto each node (and may rewrite edges for mesh dedup).
+        if (this.topo === 'tree') this._layoutTree(model);
+        else if (this.topo === 'mesh') this._layoutMesh(model);
+        else this._layoutRadial(model);
+
+        // Edges under nodes.
         this._edgeEls = [];
-        edges.forEach(e => {
-            const s = byId[e.source], t = byId[e.target];
-            if (!s || !t) return;
-            const blocked = e.outcome === 'blocked';
-            const color = OUTCOME_COLOR[e.outcome] || OUTCOME_COLOR.allow;
-            let width = +Math.max(0.7, Math.min(1.6, Math.log2((e.calls || 1) + 1) * 0.32)).toFixed(2);
-            // Blocked edges are a warning — always render at full thickness so a
-            // low-volume block reads as boldly as a high-volume one (and matches
-            // the busiest green/grey edges).
-            if (blocked) width = 1.6;
-
-            const base = document.createElementNS(SVG_NS, 'line');
-            base.setAttribute('x1', s.x); base.setAttribute('y1', s.y);
-            base.setAttribute('x2', t.x); base.setAttribute('y2', t.y);
-            base.setAttribute('stroke', color);
-            base.setAttribute('stroke-width', width);
-            // Blocked base: a clear but not glaring red, readable on dark + light.
-            base.setAttribute('stroke-opacity', blocked ? '0.7' : '0.42');
-            base.setAttribute('stroke-linecap', 'round');
-            base.setAttribute('class', 'sv-edge-base');
-            const title = document.createElementNS(SVG_NS, 'title');
-            title.textContent = `${s.label} → ${t.label}: ${e.calls} call(s), ${e.blocked} blocked`;
-            base.appendChild(title);
-            base.style.cursor = 'pointer';
-            base.addEventListener('click', () => this._openTool(t));
+        this._ledges.forEach(e => {
+            const A = this._byId[e.source], B = this._byId[e.target];
+            if (!A || !B) return;
+            const d = this._edgePath(A, B);
+            const base = document.createElementNS(SVG_NS, 'path');
+            base.setAttribute('d', d); base.setAttribute('fill', 'none');
+            base.setAttribute('stroke', e.col); base.setAttribute('stroke-width', e.w);
+            base.setAttribute('stroke-opacity', e.op); base.setAttribute('stroke-linecap', 'round');
             vp.appendChild(base);
-
-            const flow = document.createElementNS(SVG_NS, 'line');
-            flow.setAttribute('x1', s.x); flow.setAttribute('y1', s.y);
-            flow.setAttribute('x2', t.x); flow.setAttribute('y2', t.y);
-            // Blocked flow uses WHITE moving dashes ("warning tape") — high
-            // contrast on the red line in both dark and light themes; allow/log
-            // flow matches its line colour.
-            flow.setAttribute('stroke', blocked ? '#ffffff' : color);
-            flow.setAttribute('stroke-width', Math.max(width + 0.6, 2));
-            // Soften the white blocked dashes so the red line reads as a gentle
-            // moving "tape", not a harsh white-on-red glare.
-            flow.setAttribute('stroke-opacity', blocked ? '0.6' : '0.98');
-            flow.setAttribute('class', blocked ? 'sv-edge-flow sv-edge-blocked' : 'sv-edge-flow');
-            // Speed ∝ call volume — busier edges flow faster.
-            flow.style.animationDuration = `${Math.max(0.5, 2.4 - Math.log2((e.calls || 1) + 1) * 0.3)}s`;
-            vp.appendChild(flow);
-
-            this._edgeEls.push({ lines: [base, flow], s, t, e });
+            let flow = null;
+            if (e.flow) {
+                flow = document.createElementNS(SVG_NS, 'path');
+                flow.setAttribute('d', d); flow.setAttribute('fill', 'none');
+                flow.setAttribute('stroke', e.blocked ? '#ffffff' : e.col);
+                flow.setAttribute('stroke-width', Math.max(e.w + 0.6, 2));
+                flow.setAttribute('stroke-opacity', e.blocked ? 0.6 : 0.9);
+                flow.setAttribute('class', e.blocked ? 'sv-edge-flow sv-edge-blocked' : 'sv-edge-flow');
+                flow.style.animationDuration = `${Math.max(0.6, 2.2 - Math.log2((e.calls || 1) + 1) * 0.3)}s`;
+                vp.appendChild(flow);
+            }
+            this._edgeEls.push({ base, flow, e, srcId: e.source, tgtId: e.target });
         });
 
-        // Nodes — solid fill (per-runtime palette / tool slate), risk ring.
+        // Nodes.
         this._nodeEls = {};
-        nodes.forEach(n => {
-            const g = document.createElementNS(SVG_NS, 'g');
-            g.setAttribute('class', 'sv-node');
-            g.setAttribute('tabindex', '0');
-            g.setAttribute('transform', `translate(${n.x},${n.y})`);
-
-            const external = n.kind === 'tool' && ObsTabs.isExternalTool(n.tool_id);
-            n._external = external;
-            // Agents + built-in tools are circles. An external MCP / plugin tool
-            // IS a solid amber GEAR (a foreign service the agent reaches out to —
-            // Playwright, GitHub, …) — no circle behind it.
-            const r = n.kind === 'agent' ? 13 : (external ? 11 : 8);
-            const fill = this._nodeFill(n);
-            // External = amber gear (wrapped in a <g> that centres + scales it,
-            // so the gear path can spin about its own centre via CSS without
-            // fighting that transform). Others = plain circle.
-            let dot, mount;
-            if (external) {
-                const gw = document.createElementNS(SVG_NS, 'g');
-                const gs = (r * 2) / 24; // scale the 24-grid gear to ~2r across
-                gw.setAttribute('transform', `translate(${(-12 * gs).toFixed(2)},${(-12 * gs).toFixed(2)}) scale(${gs.toFixed(3)})`);
-                dot = document.createElementNS(SVG_NS, 'path');
-                dot.setAttribute('d', GEAR_PATH);
-                gw.appendChild(dot);
-                mount = gw;
-            } else {
-                dot = document.createElementNS(SVG_NS, 'circle');
-                dot.setAttribute('r', r);
-                mount = dot;
-            }
-            dot.setAttribute('class', external ? 'sv-node-dot sv-gear' : 'sv-node-dot');
-            dot.setAttribute('fill', fill); // amber for the external gear
-            // Only elevated risk gets a coloured ring/outline, so blocked/secret
-            // nodes stand out; calm nodes wear a quiet dark outline.
-            dot.setAttribute('stroke', n.risk === 'green' ? 'rgba(2,6,23,.6)' : RISK_COLOR[n.risk]);
-            dot.setAttribute('stroke-width', n.risk === 'green' ? 1.5 : 3);
-            g.appendChild(mount);
-
-            // Amber hub fills the gear's centre hole so it reads as a SOLID
-            // orange gear (no white/transparent middle). Doesn't rotate (a disc
-            // is rotationally symmetric anyway).
-            if (external) {
-                const hub = document.createElementNS(SVG_NS, 'circle');
-                hub.setAttribute('r', (r * 0.34).toFixed(1));
-                hub.setAttribute('fill', fill);
-                hub.setAttribute('pointer-events', 'none');
-                g.appendChild(hub);
-            }
-
-            // Lock badge on secret / cloud-managed tools so a CISO spots the
-            // sensitive surface at a glance (only the few that qualify).
-            if (n.kind === 'tool' && (n.cloud_managed || n.touched_secrets)) {
-                const lock = document.createElementNS(SVG_NS, 'path');
-                lock.setAttribute('d', LOCK_PATH);
-                lock.setAttribute('fill', '#f59e0b');
-                lock.style.stroke = 'var(--bg-card, #161b22)'; // halo (CSS var works in .style, not in a presentation attr)
-                lock.setAttribute('stroke-width', '2.5');
-                lock.setAttribute('paint-order', 'stroke');
-                lock.setAttribute('pointer-events', 'none');
-                lock.setAttribute('transform', `translate(${r - 5}, ${-(r + 7)}) scale(0.5)`);
-                g.appendChild(lock);
-            }
-
-            const label = document.createElementNS(SVG_NS, 'text');
-            label.setAttribute('class', 'sv-node-label');
-            label.setAttribute('text-anchor', 'middle');
-            label.setAttribute('dy', r + 13); // below the node, always visible
-            // Agents wear their identity colour; tools stay neutral text so the
-            // coloured agents read as the primary actors.
-            label.style.fill = n.kind === 'agent' ? fill : 'var(--text-secondary, #b1bac4)';
-            label.textContent = this._displayLabel(n);
-            g.appendChild(label);
-
-            // Rich hover tooltip (per-agent / per-tool call breakdown) replaces
-            // the native <title>.
-            g.addEventListener('mouseenter', (ev) => this._showTip(n, ev));
-            g.addEventListener('mousemove', (ev) => this._moveTip(ev));
-            g.addEventListener('mouseleave', () => this._hideTip());
-            g.addEventListener('focus', () => this._showTipAtNode(n));
-            g.addEventListener('blur', () => this._hideTip());
-
-            this._wireNodeDrag(g, n);
-            vp.appendChild(g);
-            this._nodeEls[n.id] = { g, node: n };
-        });
+        this._lnodes.forEach(n => this._drawNode(vp, n));
 
         body.appendChild(svg);
-        // Overlays (zero extra vertical space; pointer-events:none so node drags
-        // pass straight through): stats pill top-left, legend pill bottom-left.
         const statsEl = document.createElement('div');
         statsEl.id = 'agent-map-stats';
         body.appendChild(statsEl);
-        const legendEl = document.createElement('div');
-        legendEl.id = 'agent-map-legend';
-        body.appendChild(legendEl);
+        const card = document.createElement('div');
+        card.id = 'agent-map-card';
+        body.appendChild(card);
+        this._card = card;
         this._body = body;
-        this._byId = byId;
-        this._edges = edges;
-        this._buildTooltip(body);
+
         this._renderStats();
-        this._renderLegend();
-        this._refreshFocusOptions();
-        this._applyFocus();
         this._wireViewport(svg, body);
         this._addControls(body);
+        svg.addEventListener('pointerdown', (ev) => { if (ev.target === bg || ev.target === svg) this._closeCard(); });
 
-        if (this.data.truncated) {
-            const note = document.createElement('div');
-            note.className = 'sv-hint';
-            note.style.color = '#f59e0b';
-            note.textContent = `Top ${this.data.node_cap} edges by volume — ${this.data.dropped_edges} hidden.`;
-            body.appendChild(note);
-        } else {
-            const hint = document.createElement('div');
-            hint.className = 'sv-hint';
-            hint.textContent = 'Hover a node for its name · scroll to zoom · drag canvas to pan · drag a node to pin it';
-            body.appendChild(hint);
-        }
+        const hint = document.createElement('div');
+        hint.className = 'sv-hint';
+        hint.textContent = this.data.truncated
+            ? `Top ${this.data.node_cap} edges by volume — ${this.data.dropped_edges} hidden · click a node for detail`
+            : 'Click any node for detail · drag to reposition · scroll to zoom · drag canvas to pan';
+        if (this.data.truncated) hint.style.color = '#f59e0b';
+        body.appendChild(hint);
 
-        this._fit();
+        this._fitStatic();
     },
 
-    // ---------------- force-directed layout ----------------
+    // ---------------- layouts ----------------
 
-    /**
-     * Organic 2D force layout: charge repulsion (every pair pushes apart),
-     * link springs (edges pull to an ideal length), and a gentle gravity that
-     * keeps the graph centred. Deterministic golden-angle seed → the same
-     * fleet always settles to the same shape (stable across reloads + tests).
-     * Pinned nodes (user-dragged) are fixed anchors the rest relaxes around.
-     */
-    _layout(nodes, edges, W, H) {
-        const cx = W / 2, cy = H / 2;
-        const byId = {};
-        nodes.forEach(n => { byId[n.id] = n; });
-        const agents = nodes.filter(n => n.kind === 'agent');
-        const tools = nodes.filter(n => n.kind === 'tool');
-        const ringR = (count) => Math.max(120, Math.min(Math.min(W, H) * 0.5 - 70, count * 26));
+    _layoutRadial(model) {
+        const W = this.W, H = this.H, cx = W / 2, cy = H / 2 + 4;
+        const rH = 118, rS = 198, rT = 288;
+        this._cx = cx; this._cy = cy;
+        const harnesses = model.nodes.filter(n => n.kind === 'harness');
+        const sessionsOf = h => model.nodes.filter(n => n.kind === 'session' && n.harness_id === h.id);
+        const toolsOf = s => model.nodes.filter(n => n.kind === 'tool' && n.session_id_node === s.id);
 
-        // EGO / STAR layout — a single agent sits dead-centre with its tools
-        // ringed around it. The clean hub-and-spokes shape for the indie-dev
-        // (one agent) case; avoids the lopsided look of a generic force layout.
-        if (agents.length === 1 && !agents[0].pinned && tools.length) {
-            agents[0].x = cx; agents[0].y = cy;
-            const r = ringR(tools.length);
-            tools.forEach((t, i) => {
-                if (t.pinned) return;
-                const a = (i / tools.length) * Math.PI * 2 - Math.PI / 2;
-                t.x = cx + r * Math.cos(a); t.y = cy + r * Math.sin(a);
+        // proportional wedges with a floor so small harnesses get breathing room
+        const minFrac = 0.14;
+        let sh = harnesses.map(h => Math.max(1, sessionsOf(h).length));
+        let tot = sh.reduce((a, b) => a + b, 0) || 1;
+        sh = sh.map(s => Math.max(minFrac, s / tot));
+        const t2 = sh.reduce((a, b) => a + b, 0);
+        sh = sh.map(s => s / t2);
+        let acc = 0;
+        const wedge = sh.map(w => { const o = { a0: acc * 6.2832 - 1.5708, a1: (acc + w) * 6.2832 - 1.5708 }; acc += w; return o; });
+        const totalTools = harnesses.reduce((a, h) => a + sessionsOf(h).reduce((b, s) => b + toolsOf(s).length, 0), 0);
+        const labelTools = totalTools <= 16;
+
+        const dev = model.nodes.find(n => n.id === 'device');
+        dev.x = cx; dev.y = cy;
+
+        harnesses.forEach((h, hi) => {
+            const a0 = wedge[hi].a0, a1 = wedge[hi].a1, c = (a0 + a1) / 2;
+            h.x = cx + Math.cos(c) * rH; h.y = cy + Math.sin(c) * rH;
+            const lr = (h.gray ? 13 : 16) + 13;
+            h._lbl = { dx: Math.cos(c) * lr, dy: Math.sin(c) * lr + 3, anchor: 'middle', reasonDy: 12 };
+            const ss = sessionsOf(h), m = ss.length;
+            // In a dense wedge the external "agent #N" labels collide — the
+            // in-node number already identifies each agent, so suppress the
+            // redundant outer label past a density threshold (click still works).
+            const denseLabel = m > 6;
+            // Inset each wedge by an angular GAP so the boundary sessions of
+            // adjacent harnesses don't sit close enough to overlap labels.
+            const gap = Math.min(0.18, (a1 - a0) * 0.22);
+            const loAng = a0 + gap, hiAng = a1 - gap;
+            const sAng = i => m <= 1 ? c : loAng + (hiAng - loAng) * (i / (m - 1));
+            ss.forEach((s, si) => {
+                const sa = sAng(si);
+                s._denseLabel = denseLabel;
+                s.x = cx + Math.cos(sa) * rS; s.y = cy + Math.sin(sa) * rS;
+                const tools = toolsOf(s), tn = tools.length;
+                tools.forEach((t, ti) => {
+                    const ta = sa + (ti - (tn - 1) / 2) * 0.075;
+                    t.x = cx + Math.cos(ta) * rT; t.y = cy + Math.sin(ta) * rT;
+                    const anchor = Math.abs(Math.cos(ta)) < 0.35 ? 'middle' : (Math.cos(ta) > 0 ? 'start' : 'end');
+                    t._lbl = labelTools ? { dx: Math.cos(ta) * 15, dy: Math.sin(ta) * 15 + 3, anchor } : null;
+                });
             });
-            return;
-        }
-        // GENERAL CASE — arrange the AGENTS as a fixed MATRIX (grid): two agents
-        // sit side by side; more fill a grid (cols = ceil(sqrt(n))), each row
-        // centred, so the fleet reads as a tidy matrix of hubs instead of a
-        // lopsided ring. Agents are ANCHORED (skipped by the force sim) so they
-        // hold their cells; only the tools relax, springing toward whichever
-        // agent(s) called them. The user can still drag an agent to re-pin it.
-        const cols = Math.ceil(Math.sqrt(agents.length));
-        const rowGap = H / (Math.ceil(agents.length / cols) + 1);
-        agents.forEach((n, i) => {
-            n._anchor = !n.pinned; // anchored to its grid cell unless user-pinned
-            if (n.pinned) return;
-            const row = Math.floor(i / cols);
-            const idxInRow = i - row * cols;
-            const inRow = Math.min(cols, agents.length - row * cols); // centre short rows
-            n.x = (W / (inRow + 1)) * (idxInRow + 1);
-            n.y = rowGap * (row + 1);
         });
-        // Seed each tool near the mean position of the agents that call it, so
-        // it settles in that agent's neighbourhood rather than the middle.
-        const GA = Math.PI * (3 - Math.sqrt(5));
-        tools.forEach((n, i) => {
-            if (n.pinned) return;
-            const conn = edges.filter(e => e.target === n.id).map(e => byId[e.source]).filter(Boolean);
-            let bx = cx, by = cy;
-            if (conn.length) {
-                bx = conn.reduce((s, a) => s + a.x, 0) / conn.length;
-                by = conn.reduce((s, a) => s + a.y, 0) / conn.length;
-            }
-            const rr = 40 + (i % 5) * 14;
-            n.x = bx + rr * Math.cos(i * GA);
-            n.y = by + rr * Math.sin(i * GA);
+        this._edgeMode = 'radial';
+    },
+
+    _layoutTree(model) {
+        const W = this.W, H = this.H, top = 54, bot = H - 46, span = bot - top;
+        const colX = { device: 72, harness: 300, session: 580, tool: 858 };
+        this._cx = colX.device; this._cy = H / 2;
+        const harnesses = model.nodes.filter(n => n.kind === 'harness');
+        const sessionsOf = h => model.nodes.filter(n => n.kind === 'session' && n.harness_id === h.id);
+        const toolsOf = s => model.nodes.filter(n => n.kind === 'tool' && n.session_id_node === s.id);
+
+        let totalLeaves = 0;
+        harnesses.forEach(h => { const ss = sessionsOf(h); if (!ss.length) { totalLeaves++; return; } ss.forEach(s => { totalLeaves += Math.max(1, toolsOf(s).length); }); });
+        totalLeaves = totalLeaves || 1;
+        let slot = 0;
+        const yNext = () => { const y = top + (slot + 0.5) / totalLeaves * span; slot++; return y; };
+
+        const hYs = [];
+        harnesses.forEach(h => {
+            const ss = sessionsOf(h), sYs = [];
+            ss.forEach(s => {
+                const tools = toolsOf(s), tYs = [];
+                tools.forEach(t => { const ty = yNext(); tYs.push(ty); t.x = colX.tool; t.y = ty; t._lbl = { dx: 14, dy: 3, anchor: 'start' }; });
+                const sy = tYs.length ? tYs.reduce((a, b) => a + b, 0) / tYs.length : yNext(); sYs.push(sy);
+                s.x = colX.session; s.y = sy;
+            });
+            const hy = sYs.length ? sYs.reduce((a, b) => a + b, 0) / sYs.length : yNext(); hYs.push(hy);
+            h.x = colX.harness; h.y = hy;
+            h._lbl = { dx: 0, dy: -(h.gray ? 13 : 16) - 19, anchor: 'middle', reasonDy: 12 };
+        });
+        const dev = model.nodes.find(n => n.id === 'device');
+        dev.x = colX.device; dev.y = hYs.length ? hYs.reduce((a, b) => a + b, 0) / hYs.length : H / 2;
+        this._edgeMode = 'tree';
+    },
+
+    _layoutMesh(model) {
+        const W = this.W, H = this.H, cx = W / 2, cy = H / 2 + 4;
+        const rH = 104, rS = 198, rT = 290;
+        this._cx = cx; this._cy = cy;
+        const harnesses = model.nodes.filter(n => n.kind === 'harness');
+        const sessions = model.nodes.filter(n => n.kind === 'session');
+        const perSessionTools = model.nodes.filter(n => n.kind === 'tool');
+
+        // Dedup tools by tool_id → shared tool nodes (the honest many-to-many).
+        const toolMap = {};
+        perSessionTools.forEach(t => {
+            const key = t.tool_id;
+            if (!toolMap[key]) toolMap[key] = { id: 'mtool:' + key, kind: 'tool', label: t.label, tool_id: key, ext: t.ext, blocked: false, calls: 0, cloud_managed: false, touched_secrets: false };
+            toolMap[key].blocked = toolMap[key].blocked || t.blocked;
+            toolMap[key].calls += (t.calls || 0);
+            toolMap[key].cloud_managed = toolMap[key].cloud_managed || t.cloud_managed;
+            toolMap[key].touched_secrets = toolMap[key].touched_secrets || t.touched_secrets;
+        });
+        const sharedTools = Object.values(toolMap).sort((a, b) => String(a.tool_id).localeCompare(String(b.tool_id)));
+
+        // Rebuild the node + edge sets for mesh: device + harnesses + sessions + shared tools.
+        const meshNodes = [];
+        const dev = model.nodes.find(n => n.id === 'device'); dev.x = cx; dev.y = cy; meshNodes.push(dev);
+        harnesses.forEach((h, i) => {
+            const a = -1.5708 + i / harnesses.length * 6.2832;
+            h.x = cx + Math.cos(a) * rH; h.y = cy + Math.sin(a) * rH;
+            const lr = (h.gray ? 13 : 16) + 12;
+            const anchor = Math.abs(Math.cos(a)) < 0.35 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end');
+            h._lbl = { dx: Math.cos(a) * lr, dy: Math.sin(a) * lr + 3, anchor, reasonDy: 12 };
+            meshNodes.push(h);
+        });
+        sessions.forEach((s, i) => {
+            const a = -1.5708 + (i + 0.5) / Math.max(1, sessions.length) * 6.2832;
+            s.x = cx + Math.cos(a) * rS; s.y = cy + Math.sin(a) * rS;
+            meshNodes.push(s);
+        });
+        const toolAng = {};
+        sharedTools.forEach((t, i) => {
+            const a = -1.5708 + i / Math.max(1, sharedTools.length) * 6.2832;
+            toolAng[t.tool_id] = a;
+            t.x = cx + Math.cos(a) * rT; t.y = cy + Math.sin(a) * rT;
+            const anchor = Math.abs(Math.cos(a)) < 0.35 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end');
+            t._lbl = { dx: Math.cos(a) * 15, dy: Math.sin(a) * 15 + 3, anchor };
+            meshNodes.push(t);
         });
 
-        // Lower gravity + strong agent↔agent repulsion keeps the agents fanned
-        // out (high-degree nodes would otherwise sink to the centre).
-        const REPULSE = 9000, LINK = 115, SPRING = 0.045, GRAVITY = 0.01, AGENT_MULT = 4.5;
-        let alpha = 1;
-        for (let it = 0; it < 340; it++) {
-            for (let i = 0; i < nodes.length; i++) {
-                for (let j = i + 1; j < nodes.length; j++) {
-                    const a = nodes[i], b = nodes[j];
-                    let dx = a.x - b.x, dy = a.y - b.y;
-                    let d2 = dx * dx + dy * dy;
-                    if (d2 < 1) { d2 = 1; dx = (i - j) || 1; dy = 1; }
-                    const d = Math.sqrt(d2);
-                    let f = (REPULSE * alpha) / d2;
-                    if (a.kind === 'agent' && b.kind === 'agent') f *= AGENT_MULT;
-                    const ux = dx / d, uy = dy / d;
-                    if (!a.pinned && !a._anchor) { a.x += ux * f; a.y += uy * f; }
-                    if (!b.pinned && !b._anchor) { b.x -= ux * f; b.y -= uy * f; }
-                }
-            }
-            for (const e of edges) {
-                const s = byId[e.source], t = byId[e.target];
-                if (!s || !t) continue;
-                const dx = t.x - s.x, dy = t.y - s.y;
-                const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                const diff = ((d - LINK) / d) * SPRING * alpha;
-                if (!s.pinned && !s._anchor) { s.x += dx * diff; s.y += dy * diff; }
-                if (!t.pinned && !t._anchor) { t.x -= dx * diff; t.y -= dy * diff; }
-            }
-            for (const n of nodes) {
-                if (n.pinned || n._anchor) continue;
-                n.x += (cx - n.x) * GRAVITY * alpha;
-                n.y += (cy - n.y) * GRAVITY * alpha;
-            }
-            alpha *= 0.992;
+        // Edges: device→harness, harness→session (from existing), session→sharedTool.
+        const meshEdges = [];
+        this._ledges.forEach(e => {
+            if (e.tier === 'device-harness' || e.tier === 'harness-session') meshEdges.push(e);
+        });
+        perSessionTools.forEach(t => {
+            const sid = t.session_id_node;
+            meshEdges.push({
+                source: sid, target: 'mtool:' + t.tool_id, tier: 'session-tool',
+                calls: t.calls || 0, blocked: t.blocked, outcome: t.blocked ? 'blocked' : 'allow',
+                col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : (this._harnessColor[(this._byId[sid] || {}).harness_id] || HARNESS_PALETTE[0]))),
+                op: t.gray ? 0.13 : (t.blocked ? 0.7 : 0.3),
+                w: t.blocked ? 1.7 : Math.max(0.8, Math.min(1.6, Math.log2((t.calls || 1) + 1) * 0.4)),
+                flow: !t.gray, blocked: t.blocked,
+            });
+        });
+
+        this._lnodes = meshNodes;
+        this._ledges = meshEdges;
+        this._byId = this._index(meshNodes);
+        this._edgeMode = 'mesh';
+    },
+
+    // ---------------- edge paths ----------------
+
+    _edgePath(A, B) {
+        if (this._edgeMode === 'tree') {
+            const mx = (A.x + B.x) / 2;
+            return `M${A.x.toFixed(1)},${A.y.toFixed(1)} C${mx.toFixed(1)},${A.y.toFixed(1)} ${mx.toFixed(1)},${B.y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
         }
+        if (this._edgeMode === 'mesh') {
+            return `M${A.x.toFixed(1)},${A.y.toFixed(1)} L${B.x.toFixed(1)},${B.y.toFixed(1)}`;
+        }
+        // radial bundled dendrogram curve
+        const cx = this._cx, cy = this._cy;
+        let aA = Math.atan2(A.y - cy, A.x - cx), rA = Math.hypot(A.x - cx, A.y - cy);
+        let aB = Math.atan2(B.y - cy, B.x - cx), rB = Math.hypot(B.x - cx, B.y - cy);
+        if (rA < 2) aA = aB; if (rB < 2) aB = aA;
+        const rm = (rA + rB) / 2;
+        const c1x = cx + Math.cos(aA) * rm, c1y = cy + Math.sin(aA) * rm;
+        const c2x = cx + Math.cos(aB) * rm, c2y = cy + Math.sin(aB) * rm;
+        return `M${A.x.toFixed(1)},${A.y.toFixed(1)} C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
+    },
+
+    // ---------------- node rendering ----------------
+
+    _drawNode(vp, n) {
+        const g = document.createElementNS(SVG_NS, 'g');
+        g.setAttribute('class', 'sv-node');
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('transform', `translate(${n.x},${n.y})`);
+
+        if (n.kind === 'device') {
+            const c = document.createElementNS(SVG_NS, 'circle');
+            c.setAttribute('r', 24); c.setAttribute('fill', 'var(--bg-card,#161b22)');
+            c.setAttribute('stroke', 'var(--border-default,#30363d)'); c.setAttribute('stroke-width', 1.5);
+            g.appendChild(c);
+            ['this', 'device'].forEach((tx, i) => {
+                const t = document.createElementNS(SVG_NS, 'text');
+                t.setAttribute('text-anchor', 'middle'); t.setAttribute('y', i ? 10 : -1);
+                t.setAttribute('font-size', 9.5); t.setAttribute('fill', 'var(--text-muted,#7d8590)');
+                t.textContent = tx; g.appendChild(t);
+            });
+        } else if (n.kind === 'harness') {
+            const r = n.gray ? 13 : 16;
+            const c = document.createElementNS(SVG_NS, 'circle');
+            c.setAttribute('r', r); c.setAttribute('fill', n.gray ? '#22272e' : n.col);
+            c.setAttribute('stroke', 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', 3);
+            if (n.gray) c.setAttribute('fill-opacity', 0.6);
+            g.appendChild(c);
+            const L = n._lbl || { dx: 0, dy: r + 16, anchor: 'middle' };
+            const hl = document.createElementNS(SVG_NS, 'text');
+            hl.setAttribute('class', 'sv-node-label sv-harness-label');
+            hl.setAttribute('x', L.dx); hl.setAttribute('y', L.dy); hl.setAttribute('text-anchor', L.anchor);
+            hl.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : n.col;
+            hl.textContent = n.label; g.appendChild(hl);
+            if (n.gray && n.reason) {
+                const rl = document.createElementNS(SVG_NS, 'text');
+                rl.setAttribute('class', 'sv-reason'); rl.setAttribute('x', L.dx);
+                rl.setAttribute('y', L.dy + (L.reasonDy || 12)); rl.setAttribute('text-anchor', L.anchor);
+                rl.textContent = n.reason; g.appendChild(rl);
+            }
+        } else if (n.kind === 'session') {
+            const c = document.createElementNS(SVG_NS, 'circle');
+            c.setAttribute('r', 10); c.setAttribute('fill', n.gray ? '#2b3038' : n.col);
+            c.setAttribute('stroke', 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', 2.5);
+            g.appendChild(c);
+            const num = document.createElementNS(SVG_NS, 'text');
+            num.setAttribute('text-anchor', 'middle'); num.setAttribute('y', 3);
+            num.setAttribute('font-size', 8); num.setAttribute('font-weight', 700);
+            num.setAttribute('fill', n.gray ? 'var(--text-muted,#7d8590)' : '#fff');
+            num.textContent = n.num != null ? n.num : ''; g.appendChild(num);
+            if (!n._denseLabel) {
+                const al = document.createElementNS(SVG_NS, 'text');
+                al.setAttribute('class', 'sv-node-label sv-agent-label'); al.setAttribute('text-anchor', 'middle'); al.setAttribute('y', 21);
+                al.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : 'var(--text-secondary,#b1bac4)';
+                al.textContent = n.label || ('agent #' + (n.num || '?')); g.appendChild(al);
+            }
+            if (!n.active) {
+                const idl = document.createElementNS(SVG_NS, 'text');
+                idl.setAttribute('class', 'sv-reason'); idl.setAttribute('text-anchor', 'middle'); idl.setAttribute('y', 31);
+                idl.textContent = (n.idle_days != null ? n.idle_days : '?') + 'd inactive'; g.appendChild(idl);
+            }
+        } else { // tool
+            if (n.blocked) {
+                const halo = document.createElementNS(SVG_NS, 'circle');
+                halo.setAttribute('r', 13); halo.setAttribute('fill', OUTCOME_COLOR.blocked);
+                halo.setAttribute('fill-opacity', 0.16); halo.setAttribute('stroke', OUTCOME_COLOR.blocked);
+                halo.setAttribute('stroke-opacity', 0.45); halo.setAttribute('stroke-width', 1);
+                g.appendChild(halo);
+            }
+            if (n.ext) {
+                const gw = document.createElementNS(SVG_NS, 'g');
+                gw.setAttribute('transform', 'translate(-8,-8) scale(0.68)');
+                const p = document.createElementNS(SVG_NS, 'path');
+                p.setAttribute('d', GEAR_PATH); p.setAttribute('fill', n.gray ? '#4b515a' : TOOL_FILL_EXT);
+                if (!n.gray) p.setAttribute('class', 'sv-gear');
+                gw.appendChild(p); g.appendChild(gw);
+            } else {
+                const c = document.createElementNS(SVG_NS, 'circle');
+                c.setAttribute('r', 6); c.setAttribute('fill', n.gray ? '#3a4048' : TOOL_FILL);
+                c.setAttribute('stroke', n.blocked ? OUTCOME_COLOR.blocked : 'var(--border-default,#30363d)');
+                c.setAttribute('stroke-width', n.blocked ? 2 : 1.2);
+                g.appendChild(c);
+            }
+            if ((n.cloud_managed || n.touched_secrets) && !n.gray) {
+                const lock = document.createElementNS(SVG_NS, 'path');
+                lock.setAttribute('d', LOCK_PATH); lock.setAttribute('fill', '#f59e0b');
+                lock.style.stroke = 'var(--bg-card,#161b22)'; lock.setAttribute('stroke-width', 2.5);
+                lock.setAttribute('paint-order', 'stroke'); lock.setAttribute('pointer-events', 'none');
+                lock.setAttribute('transform', 'translate(3,-13) scale(0.5)'); g.appendChild(lock);
+            }
+            if (n._lbl) {
+                const tl = document.createElementNS(SVG_NS, 'text');
+                tl.setAttribute('class', 'sv-node-label'); tl.setAttribute('x', n._lbl.dx); tl.setAttribute('y', n._lbl.dy);
+                tl.setAttribute('text-anchor', n._lbl.anchor); tl.setAttribute('font-size', 9.5);
+                tl.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : 'var(--text-secondary,#b1bac4)';
+                tl.textContent = this._toolLabel(n); g.appendChild(tl);
+            }
+        }
+
+        this._wireNodeDrag(g, n);
+        vp.appendChild(g);
+        this._nodeEls[n.id] = { g, node: n };
+    },
+
+    _toolLabel(n) {
+        const s = String(ObsTabs.isExternalTool(n.tool_id) ? String(n.tool_id).split(':').pop() : (n.label || ''));
+        return s.length > 22 ? s.slice(0, 21) + '…' : s;
+    },
+
+    _drawSankeyPlaceholder(vp) {
+        const W = this.W, H = this.H, cx = W / 2, cy = H / 2;
+        [[210, 'harness'], [500, 'agents'], [800, 'tools']].forEach(([x, label]) => {
+            for (let k = 0; k < 3; k++) {
+                const r = document.createElementNS(SVG_NS, 'rect');
+                r.setAttribute('x', x - 15); r.setAttribute('y', 200 + k * 110); r.setAttribute('width', 30); r.setAttribute('height', 74);
+                r.setAttribute('rx', 6); r.setAttribute('fill', 'var(--bg-card,#161b22)'); r.setAttribute('stroke', 'var(--border-default,#30363d)'); r.setAttribute('fill-opacity', 0.5);
+                vp.appendChild(r);
+            }
+            const t = document.createElementNS(SVG_NS, 'text');
+            t.setAttribute('x', x); t.setAttribute('y', 184); t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', 11); t.setAttribute('fill', 'var(--text-muted,#7d8590)');
+            t.textContent = label; vp.appendChild(t);
+        });
+        for (let k = 0; k < 3; k++) {
+            [[225, 485], [515, 785]].forEach(([x0, x1]) => {
+                const y0 = 237 + k * 110, y1 = 237 + ((k + 1) % 3) * 110, mx = (x0 + x1) / 2;
+                const p = document.createElementNS(SVG_NS, 'path');
+                p.setAttribute('d', `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1}`); p.setAttribute('fill', 'none');
+                p.setAttribute('stroke', 'var(--accent-primary,#5eadb8)'); p.setAttribute('stroke-width', 9); p.setAttribute('stroke-opacity', 0.1);
+                vp.appendChild(p);
+            });
+        }
+        const texts = [
+            [cy - 6, 19, 700, 'var(--text-primary,#e6edf3)', 'Sankey posture mode'],
+            [cy + 20, 12.5, 500, 'var(--text-secondary,#b1bac4)', 'Deduped shared tools + call-volume ribbons — parked for a later release.'],
+            [cy + 40, 12.5, 500, 'var(--text-muted,#7d8590)', 'The "which tools does my fleet share, and how heavily" posture view.'],
+        ];
+        texts.forEach(([y, fs, fw, fill, str]) => {
+            const t = document.createElementNS(SVG_NS, 'text');
+            t.setAttribute('x', cx); t.setAttribute('y', y); t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('font-size', fs); t.setAttribute('font-weight', fw); t.setAttribute('fill', fill);
+            t.textContent = str; vp.appendChild(t);
+        });
+    },
+
+    // ---------------- detail card (click any node) ----------------
+
+    selectNode(n, g) {
+        Object.values(this._nodeEls || {}).forEach(({ g }) => g.classList.remove('sv-sel'));
+        if (g) g.classList.add('sv-sel');
+        this._sel = n;
+        const col = n.col || (n.gray ? GRAY : (n.kind === 'tool' ? (n.ext ? TOOL_FILL_EXT : TOOL_FILL) : 'var(--accent-primary,#5eadb8)'));
+        let title, typ, rows = '', openLbl, openFn;
+        const kv = (k, v) => `<span>${this._esc(k)}</span><b>${v}</b>`;
+        const kvBlk = (k, v) => `<span>${this._esc(k)}</span><b style="color:${v ? 'var(--danger,#ef4444)' : 'var(--text-primary,#e6edf3)'}">${v}</b>`;
+
+        if (n.kind === 'device') {
+            const hs = this._lnodes.filter(x => x.kind === 'harness');
+            const ag = (this.data.nodes || []).filter(x => x.kind === 'session');
+            const calls = ag.reduce((a, x) => a + (x.calls || 0), 0);
+            const blk = ag.reduce((a, x) => a + (x.blocked || 0), 0);
+            title = 'this device'; typ = 'Host';
+            rows = kv('Harnesses', hs.length) + kv('Agents', ag.length) + kv('Tool calls', calls) + kvBlk('Blocked', blk);
+            openLbl = '▸ Open all runs'; openFn = () => this._openRuns();
+        } else if (n.kind === 'harness') {
+            title = this._esc(n.label); typ = 'Harness' + (n.gray ? ' · inactive' : '');
+            rows = kv('Status', n.gray ? (n.reason || 'inactive') : 'active') + kv('Agents', n.sessions || 0)
+                + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0);
+            openLbl = '▸ Open runs for ' + this._esc(n.label); openFn = () => this._openHarness(n);
+        } else if (n.kind === 'session') {
+            title = this._esc(n.label || ('agent #' + n.num)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
+            const sid = String(n.session_id || n.trace_id || '').slice(0, 10);
+            rows = kv('Status', n.active ? 'running' : ((n.idle_days != null ? n.idle_days : '?') + 'd inactive'))
+                + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
+                + (sid ? kv('Session', sid + '…') : '');
+            openLbl = '▸ Open this agent’s runs'; openFn = () => this._openAgent(n);
+        } else { // tool
+            const ins = this._ledges.filter(e => e.target === n.id);
+            const calls = ins.reduce((a, e) => a + (e.calls || 0), 0);
+            const agents = new Set(ins.map(e => e.source)).size;
+            const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
+            const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
+            title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '');
+            rows = kv('Tool permission', `<span class="perm ${perm[0]}">${perm[1]}</span>`) + kv('Source', src)
+                + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'));
+            openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);
+        }
+        const card = this._card;
+        card.innerHTML = `<button class="close" aria-label="close">×</button>` +
+            `<div class="ch"><span class="dot" style="background:${col}"></span><span class="ttl">${title}</span></div>` +
+            `<div class="typ">${typ}</div><div class="kv">${rows}</div>` +
+            `<button class="open">${openLbl}</button>`;
+        card.classList.add('show');
+        card.querySelector('.close').onclick = () => this._closeCard();
+        card.querySelector('.open').onclick = openFn;
+        this._focusNode(n);
+    },
+
+    _closeCard() {
+        if (this._card) this._card.classList.remove('show');
+        Object.values(this._nodeEls || {}).forEach(({ g }) => g.classList.remove('sv-sel'));
+        this._sel = null;
+        this._clearFocus();
+    },
+
+    /** Dim everything except the selected node's connected subgraph (blast radius). */
+    _focusNode(n) {
+        const keep = new Set([n.id]);
+        (this._edgeEls || []).forEach(({ e }) => { if (e.source === n.id || e.target === n.id) { keep.add(e.source); keep.add(e.target); } });
+        (this._edgeEls || []).forEach(({ base, flow, e }) => {
+            const on = e.source === n.id || e.target === n.id;
+            base.setAttribute('stroke-opacity', on ? Math.max(e.op, 0.9) : e.op * 0.1);
+            if (flow) flow.style.opacity = on ? 1 : 0.06;
+        });
+        Object.values(this._nodeEls || {}).forEach(({ g, node }) => { g.style.opacity = keep.has(node.id) ? 1 : 0.16; });
+    },
+
+    _clearFocus() {
+        (this._edgeEls || []).forEach(({ base, flow, e }) => { base.setAttribute('stroke-opacity', e.op); if (flow) flow.style.opacity = ''; });
+        Object.values(this._nodeEls || {}).forEach(({ g }) => { g.style.opacity = 1; });
     },
 
     // ---------------- zoom / pan / drag ----------------
@@ -669,7 +842,6 @@ const AgentMapPage = {
         const { k, tx, ty } = this.view;
         if (this._vp) this._vp.setAttribute('transform', `translate(${tx},${ty}) scale(${k})`);
     },
-
     _clientToVb(ev) {
         const ctm = this._svg.getScreenCTM();
         if (!ctm) return { x: 0, y: 0 };
@@ -678,73 +850,46 @@ const AgentMapPage = {
         const loc = pt.matrixTransform(ctm.inverse());
         return { x: loc.x, y: loc.y };
     },
-
     _clampK(k) { return Math.max(this._MIN_K, Math.min(this._MAX_K, k)); },
-
     _zoomAt(factor, center) {
-        const k0 = this.view.k;
-        const k1 = this._clampK(k0 * factor);
+        const k0 = this.view.k, k1 = this._clampK(k0 * factor);
         if (k1 === k0) return;
-        const gx = (center.x - this.view.tx) / k0;
-        const gy = (center.y - this.view.ty) / k0;
-        this.view.k = k1;
-        this.view.tx = center.x - gx * k1;
-        this.view.ty = center.y - gy * k1;
+        const gx = (center.x - this.view.tx) / k0, gy = (center.y - this.view.ty) / k0;
+        this.view.k = k1; this.view.tx = center.x - gx * k1; this.view.ty = center.y - gy * k1;
         this._applyView();
     },
-
-    _fit() {
-        const nodes = (this.data.nodes || []);
-        if (!nodes.length || !this._svg) return;
-        const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-        const pad = 42;
-        const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
-        const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
-        const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
-        // 0.82 → start a touch zoomed-out so the fleet has breathing room and
-        // the overlay pills (stats / legend) don't crowd the outer nodes.
-        const k = this._clampK(Math.min(this.W / bw, this.H / bh) * 0.70);
-        this.view.k = k;
-        this.view.tx = (this.W - bw * k) / 2 - minX * k;
-        this.view.ty = (this.H - bh * k) / 2 - minY * k;
+    _fitStatic() {
+        // The topology layouts are pre-fitted to the viewBox; reset to identity.
+        this.view = { k: 1, tx: 0, ty: 0 };
         this._applyView();
     },
-
     _wireViewport(svg, body) {
         svg.addEventListener('wheel', (ev) => {
             ev.preventDefault();
             const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
             this._zoomAt(factor, this._clientToVb(ev));
         }, { passive: false });
-
         let panning = false, startVb = null, startT = null;
         svg.addEventListener('pointerdown', (ev) => {
             if (ev.target.closest('.sv-node')) return;
-            panning = true;
-            startVb = this._clientToVb(ev);
-            startT = { tx: this.view.tx, ty: this.view.ty };
-            body.classList.add('sv-panning');
-            svg.setPointerCapture(ev.pointerId);
+            panning = true; startVb = this._clientToVb(ev); startT = { tx: this.view.tx, ty: this.view.ty };
+            body.classList.add('sv-panning'); svg.setPointerCapture(ev.pointerId);
         });
         svg.addEventListener('pointermove', (ev) => {
             if (!panning) return;
             const now = this._clientToVb(ev);
-            this.view.tx = startT.tx + (now.x - startVb.x);
-            this.view.ty = startT.ty + (now.y - startVb.y);
+            this.view.tx = startT.tx + (now.x - startVb.x); this.view.ty = startT.ty + (now.y - startVb.y);
             this._applyView();
         });
         const endPan = () => { panning = false; body.classList.remove('sv-panning'); };
         svg.addEventListener('pointerup', endPan);
         svg.addEventListener('pointercancel', endPan);
     },
-
     _wireNodeDrag(g, node) {
         let dragging = false, moved = false, start = null;
         g.addEventListener('pointerdown', (ev) => {
-            ev.stopPropagation();
-            dragging = true; moved = false;
-            start = this._clientToVb(ev);
-            g.setPointerCapture(ev.pointerId);
+            ev.stopPropagation(); dragging = true; moved = false;
+            start = this._clientToVb(ev); g.setPointerCapture(ev.pointerId);
         });
         g.addEventListener('pointermove', (ev) => {
             if (!dragging) return;
@@ -752,236 +897,121 @@ const AgentMapPage = {
             if (Math.abs(vb.x - start.x) + Math.abs(vb.y - start.y) > 3) moved = true;
             node.x = (vb.x - this.view.tx) / this.view.k;
             node.y = (vb.y - this.view.ty) / this.view.k;
-            node.pinned = true;
-            g.classList.add('sv-pinned');
             g.setAttribute('transform', `translate(${node.x},${node.y})`);
             this._updateEdgesFor(node);
         });
         g.addEventListener('pointerup', () => {
             dragging = false;
-            if (!moved) {
-                node.kind === 'tool' ? this._openTool(node) : this._openAgent(node);
-            }
+            if (!moved) this.selectNode(node, g);
         });
         g.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter' || ev.key === ' ') {
-                ev.preventDefault();
-                node.kind === 'tool' ? this._openTool(node) : this._openAgent(node);
-            }
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.selectNode(node, g); }
         });
     },
-
     _updateEdgesFor(node) {
-        (this._edgeEls || []).forEach(({ lines, s, t }) => {
-            lines.forEach(line => {
-                if (s === node) { line.setAttribute('x1', node.x); line.setAttribute('y1', node.y); }
-                if (t === node) { line.setAttribute('x2', node.x); line.setAttribute('y2', node.y); }
-            });
+        (this._edgeEls || []).forEach(({ base, flow, srcId, tgtId }) => {
+            if (srcId !== node.id && tgtId !== node.id) return;
+            const A = this._byId[srcId], B = this._byId[tgtId];
+            const d = this._edgePath(A, B);
+            base.setAttribute('d', d); if (flow) flow.setAttribute('d', d);
         });
     },
-
     _addControls(body) {
         const box = document.createElement('div');
         box.className = 'sv-zoom';
         const mk = (label, aria, fn) => {
             const b = document.createElement('button');
-            b.type = 'button';
-            b.textContent = label;
-            b.title = aria; b.setAttribute('aria-label', aria);
-            b.addEventListener('click', fn);
-            box.appendChild(b);
+            b.type = 'button'; b.textContent = label; b.title = aria; b.setAttribute('aria-label', aria);
+            b.addEventListener('click', fn); box.appendChild(b);
         };
         const center = () => ({ x: this.W / 2, y: this.H / 2 });
         mk('+', 'Zoom in', () => this._zoomAt(1.2, center()));
         mk('−', 'Zoom out', () => this._zoomAt(1 / 1.2, center()));
-        mk('⤢', 'Fit to view', () => this._fit());
+        mk('⤢', 'Reset view', () => this._fitStatic());
         body.appendChild(box);
     },
 
-    // ---------------- stats + tooltip ----------------
+    // ---------------- stats + exports ----------------
 
     _renderStats() {
         const el = document.getElementById('agent-map-stats');
         if (!el) return;
-        const nodes = this.data.nodes || [], edges = this.data.edges || [];
-        const agents = nodes.filter(n => n.kind === 'agent').length;
-        const tools = nodes.filter(n => n.kind === 'tool');
-        const blockedCalls = edges.reduce((s, e) => s + (e.blocked || 0), 0);
-        const secretTools = tools.filter(n => n.cloud_managed || n.touched_secrets).length;
-        const externalTools = tools.filter(n => ObsTabs.isExternalTool(n.tool_id)).length;
-        const builtinTools = tools.length - externalTools;
+        const sessions = (this.data.nodes || []).filter(n => n.kind === 'session');
+        const harnesses = (this.data.nodes || []).filter(n => n.kind === 'harness');
+        const active = sessions.filter(n => n.active).length;
+        const blocked = (this.data.edges || []).reduce((s, e) => s + (e.blocked || 0), 0);
         el.innerHTML =
-            `<span class="sv-stat"><b>${agents}</b> agents</span>` +
-            `<span class="sv-stat"><b>${builtinTools}</b> built-in</span>` +
-            `<span class="sv-stat"><b>${externalTools}</b> external / MCP</span>` +
-            `<span class="sv-stat"><b>${edges.length}</b> connections</span>` +
+            `<span class="sv-stat"><b>${harnesses.length}</b> harnesses</span>` +
+            `<span class="sv-stat"><b>${active}</b> active agents</span>` +
+            `<span class="sv-stat"><b>${sessions.length}</b> total</span>` +
             `<span class="sv-stat-sep"></span>` +
-            `<span class="sv-stat ${blockedCalls ? 'is-alert' : ''}">${ICON.ban(blockedCalls ? '#ef4444' : '#64748b', 13)} <b>${blockedCalls}</b> blocked</span>` +
-            `<span class="sv-stat ${secretTools ? 'is-watch' : ''}">${ICON.lock(secretTools ? '#f59e0b' : '#64748b', 13)} <b>${secretTools}</b> secret / cloud</span>`;
+            `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>`;
     },
 
-    _refreshFocusOptions() {
-        const sel = this._focusSel;
-        if (!sel) return;
-        const cur = this.focus || 'all';
-        const agents = (this.data.nodes || []).filter(n => n.kind === 'agent');
-        const opts = [
-            ['all', 'All'],
-            ['blocked', 'Blocked only'],
-            ['secret', 'Secret / cloud only'],
-            ...agents.map(a => [a.id, `Agent: ${a.label}`]),
+    _edgeRows() {
+        const byId = this._byId || {};
+        return (this._ledges || []).filter(e => e.tier === 'session-tool').map(e => {
+            const s = byId[e.source] || {}, t = byId[e.target] || {};
+            return {
+                agent: s.label || e.source, harness: s.harness || '',
+                tool: this._toolLabel(t), kind: ObsTabs.isExternalTool(t.tool_id) ? 'external' : 'built-in',
+                calls: e.calls, blocked: e.blocked ? 1 : 0, outcome: e.outcome,
+            };
+        });
+    },
+    _exportCols() {
+        return [
+            { label: 'harness', get: r => r.harness }, { label: 'agent', get: r => r.agent },
+            { label: 'tool', get: r => r.tool }, { label: 'kind', get: r => r.kind },
+            { label: 'calls', get: r => r.calls }, { label: 'blocked', get: r => r.blocked },
+            { label: 'outcome', get: r => r.outcome },
         ];
-        sel.innerHTML = opts.map(([v, t]) => `<option value="${this._esc(v)}">${this._esc(t)}</option>`).join('');
-        sel.value = opts.some(o => o[0] === cur) ? cur : 'all';
-        this.focus = sel.value;
+    },
+    _exportCSV() {
+        const rows = this._edgeRows();
+        if (!rows.length) return;
+        ObsTabs.download('agent-map.csv', ObsTabs.toCSV(this._exportCols(), rows), 'text/csv');
+    },
+    _exportPDF() {
+        if (!this._svg) return;
+        const clone = this._svg.cloneNode(true);
+        clone.setAttribute('xmlns', SVG_NS); clone.setAttribute('width', this.W); clone.setAttribute('height', this.H);
+        const svgHTML = new XMLSerializer().serializeToString(clone);
+        const sessions = (this.data.nodes || []).filter(n => n.kind === 'session');
+        const sub = `${sessions.length} agent sessions · ${this.topo} view · last ${this.windowDays} day(s)`;
+        ObsTabs.printDoc('SecureVector — Agent Map',
+            `<h1>Agent Map</h1><div class="sub">${sub}</div>${svgHTML}` +
+            `<h2 style="font-size:13px;margin:18px 0 6px;">Connections</h2>` +
+            ObsTabs.tableHTML(this._exportCols(), this._edgeRows()));
     },
 
-    /** Highlight the focused subset, dim the rest, and HIDE tool nodes whose
-     *  built-in/external kind is unchecked. Re-styles in place (no relayout). */
-    _applyFocus() {
-        const f = this.focus || 'all';
-        const kindHidden = (n) => n.kind === 'tool' &&
-            !this.kinds[ObsTabs.isExternalTool(n.tool_id) ? 'external' : 'builtin'];
-        const matched = new Set();
-        (this._edgeEls || []).forEach(ed => {
-            const base = ed.lines[0], flow = ed.lines[1];
-            if (kindHidden(ed.t)) { // edge to a hidden tool → fully hide it
-                // Use display:none, NOT opacity:0 — blocked edges run the svPulse
-                // opacity animation, which overrides inline opacity and would
-                // leave a pulsing "dotted line" to the now-hidden tool node.
-                [base, flow].forEach(l => { l.style.display = 'none'; l.style.pointerEvents = 'none'; });
-                return;
-            }
-            base.style.display = ''; base.style.pointerEvents = '';
-            let m;
-            if (f === 'all') m = true;
-            else if (f === 'blocked') m = ed.e.outcome === 'blocked';
-            else if (f === 'secret') m = !!(ed.t.cloud_managed || ed.t.touched_secrets);
-            else m = ed.s.id === f; // agent node id
-            const dim = !(f === 'all' || m);
-            // Dim a non-matching edge to a faint static base, and KILL its
-            // travelling dashes via display:none (opacity:0 is defeated by the
-            // blocked-edge pulse animation, leaving a ghost dotted line).
-            base.style.opacity = dim ? '0.07' : '';
-            flow.style.display = dim ? 'none' : '';
-            if (m) { matched.add(ed.s.id); matched.add(ed.t.id); }
-        });
-        Object.values(this._nodeEls || {}).forEach(({ g, node }) => {
-            if (kindHidden(node)) { g.style.opacity = '0'; g.style.pointerEvents = 'none'; return; }
-            g.style.pointerEvents = '';
-            g.style.opacity = (f === 'all' || matched.has(node.id)) ? '' : '0.12';
-        });
-    },
-
-    _buildTooltip(body) {
-        if (this._tip && this._tip.parentNode === body) return;
-        const tip = document.createElement('div');
-        tip.className = 'sv-tooltip';
-        body.appendChild(tip);
-        this._tip = tip;
-    },
-
-    // Escape agent-controlled strings (tool/agent names) before they hit
-    // innerHTML — a hostile tool/MCP name must not execute (XSS). The values
-    // originate from untrusted agent activity, not the trusted local user.
     _esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"]/g,
             c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     },
 
-    /** Per-counterpart call breakdown: tools → by agent, agents → by tool. */
-    _breakdownFor(node) {
-        const edges = this._edges || [], byId = this._byId || {};
-        let rows;
-        if (node.kind === 'tool') {
-            rows = edges.filter(e => e.target === node.id).map(e => ({
-                label: (byId[e.source] || {}).label || e.source,
-                color: this._nodeFill(byId[e.source] || { kind: 'agent', id: e.source }),
-                calls: e.calls, blocked: e.blocked,
-            }));
-        } else {
-            rows = edges.filter(e => e.source === node.id).map(e => ({
-                label: this._cleanName((byId[e.target] || {}).label || e.target, (byId[e.target] || {}).tool_id),
-                color: this._nodeFill(byId[e.target] || { kind: 'tool', tool_id: e.target }),
-                calls: e.calls, blocked: e.blocked,
-            }));
-        }
-        rows.sort((a, b) => b.calls - a.calls);
-        return {
-            total: rows.reduce((s, r) => s + r.calls, 0),
-            blocked: rows.reduce((s, r) => s + r.blocked, 0),
-            rows,
-        };
+    // ---------------- drill-downs (into Agent Runs) ----------------
+
+    _openRuns() {
+        if (window.App && typeof App.loadPage === 'function') App.loadPage('agent-runs');
     },
-
-    _showTip(node, ev) {
-        if (!this._tip) return;
-        const b = this._breakdownFor(node);
-        const isTool = node.kind === 'tool';
-        const sub = isTool ? 'called by agent' : 'calls by tool';
-        const secret = (node.cloud_managed || node.touched_secrets) ? ` ${ICON.lock('#f59e0b', 12)}` : '';
-        const isExt = isTool && ObsTabs.isExternalTool(node.tool_id);
-        const kindLabel = isTool ? (isExt ? 'External MCP / plugin' : 'Built-in tool') : 'Agent';
-        const gearMark = isExt ? ` ${ICON.gear(TOOL_FILL_EXT, 12)}` : '';
-        const head =
-            `<div class="sv-tt-title"><span class="sv-tt-dot" style="background:${this._nodeFill(node)}"></span>${this._esc(this._cleanName(node.label, node.tool_id))}${gearMark}${secret}</div>` +
-            `<div class="sv-tt-sub">${kindLabel} · ${b.total} call(s)` +
-            `${b.blocked ? ` · <span class="sv-tt-blk">${b.blocked} blocked</span>` : ''} · ${sub}</div>`;
-        const rows = b.rows.map(r =>
-            `<div class="sv-tt-row"><span><span class="sv-tt-dot" style="background:${r.color}"></span> ${this._esc(r.label)}</span>` +
-            `<b>${r.calls}${r.blocked ? ` <span class="sv-tt-blk">${ICON.ban('#ef4444', 11)}${r.blocked}</span>` : ''}</b></div>`).join('');
-        this._tip.innerHTML = head + (rows || '<div class="sv-tt-sub">no connections</div>');
-        this._tip.classList.add('show');
-        if (ev) this._moveTip(ev);
+    _openHarness(node) {
+        const runtime = node && node.label;
+        if (window.AgentRunsPage && runtime) AgentRunsPage._pendingRuntime = runtime;
+        this._openRuns();
     },
-
-    _showTipAtNode(node) {
-        this._showTip(node, null);
-        const el = this._nodeEls[node.id];
-        if (!el || !this._body) return;
-        const nr = el.g.getBoundingClientRect(), br = this._body.getBoundingClientRect();
-        this._tip.style.left = Math.min(br.width - (this._tip.offsetWidth || 200) - 6, nr.left - br.left + 16) + 'px';
-        this._tip.style.top = Math.max(6, nr.top - br.top) + 'px';
+    _openAgent(node) {
+        // Session → Agent Runs filtered to this run's runtime.
+        const runtime = node && node.harness;
+        if (window.AgentRunsPage && runtime) AgentRunsPage._pendingRuntime = runtime;
+        this._openRuns();
     },
-
-    _moveTip(ev) {
-        if (!this._tip || !this._body) return;
-        const rect = this._body.getBoundingClientRect();
-        const tw = this._tip.offsetWidth || 200, th = this._tip.offsetHeight || 80;
-        let x = ev.clientX - rect.left + 14;
-        let y = ev.clientY - rect.top + 14;
-        if (x + tw > rect.width) x = ev.clientX - rect.left - tw - 14;
-        if (y + th > rect.height) y = rect.height - th - 8;
-        this._tip.style.left = Math.max(6, x) + 'px';
-        this._tip.style.top = Math.max(6, y) + 'px';
-    },
-
-    _hideTip() {
-        if (this._tip) this._tip.classList.remove('show');
-    },
-
-    // ---------------- drill-downs ----------------
-
     _openTool(node) {
-        // Tool-node click → Agent Runs, with the matching tool-kind filter
-        // pre-selected: a gear (external MCP) node opens Runs showing only
-        // External MCP spans; a built-in dot opens Runs showing only built-in.
         const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
         if (window.AgentRunsPage) {
-            AgentRunsPage._pendingKinds = ext
-                ? { builtin: false, external: true }
-                : { builtin: true, external: false };
+            AgentRunsPage._pendingKinds = ext ? { builtin: false, external: true } : { builtin: true, external: false };
         }
-        if (window.App && typeof App.loadPage === 'function') App.loadPage('agent-runs');
-    },
-
-    _openAgent(node) {
-        // Agent-node click → Agent Runs, filtered to THIS runtime's sessions.
-        // The Map groups agents by runtime; Runs splits them per session — so a
-        // click here is "show me every run this runtime made" (#142).
-        const runtime = node && (node.label || String(node.id || '').replace(/^agent:/, ''));
-        if (window.AgentRunsPage && runtime) AgentRunsPage._pendingRuntime = runtime;
-        if (window.App && typeof App.loadPage === 'function') App.loadPage('agent-runs');
+        this._openRuns();
     },
 };
 

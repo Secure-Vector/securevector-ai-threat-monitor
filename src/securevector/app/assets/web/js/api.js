@@ -136,6 +136,19 @@ const API = {
         }));
     },
 
+    // active-agent-observability — 3-layer Agent Map. harness → agent/session →
+    // tool nodes; session nodes carry num ("agent #N"), active, idle_days. Edges
+    // tiered (harness-session / session-tool). See routes/graph.py build_graph_3layer.
+    async getAgentSessionGraph(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        const qs = q.toString();
+        return this.request(`/api/graph/agent-session${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7,
+            node_cap: 0, truncated: false, dropped_edges: 0, nodes: [], edges: [],
+        }));
+    },
+
     // active-agent-observability #142 — Agent Run Trace. Runs (one per agent
     // session) and the ordered enforced-tool-call spans within a run.
     async getTraces(params = {}) {

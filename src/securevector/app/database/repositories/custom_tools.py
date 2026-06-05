@@ -882,6 +882,81 @@ class CustomToolsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    async def get_agent_session_graph(self, window_days: int = 7) -> list[dict]:
+        """Aggregate audit rows into per-(harness, session, tool) edges for the
+        3-layer Agent Map (harness -> agent/session -> tool).
+
+        Like ``get_agent_tool_graph`` but with the session tier added: groups by
+        ``(runtime_kind, trace_id, tool_id)`` so each agent *run* (a session, per
+        the v36 trace boundary) becomes its own node sitting between its harness
+        and the tools it called. Rows with a NULL ``trace_id`` are bucketed into
+        one synthetic ``orphan:<runtime>`` session so single-span runs still
+        appear on the map. The route layer (``build_graph_3layer``) derives the
+        harness / session / tool nodes plus the two edge tiers, and rolls up each
+        session's last-activity (``last_used``) for the idle / grey-out logic.
+        ``touched_secrets`` is the same ``reason`` LIKE-heuristic used elsewhere.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            WITH edges AS (
+                SELECT
+                    COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                    COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')) AS session_key,
+                    MAX(session_id) AS session_id,
+                    MAX(trace_id) AS trace_id,
+                    tool_id,
+                    MAX(function_name) AS function_name,
+                    COUNT(*) AS calls,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                    SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
+                    SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                    MAX(called_at) AS last_used,
+                    CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
+                    MAX(CASE
+                        WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api_key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%token%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%password%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%exfil%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%pii%'
+                        THEN 1 ELSE 0
+                    END) AS touched_secrets
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+                GROUP BY
+                    COALESCE(runtime_kind, 'unknown'),
+                    COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')),
+                    tool_id
+            )
+            SELECT
+                e.runtime_kind,
+                e.session_key,
+                e.session_id,
+                e.trace_id,
+                e.tool_id,
+                e.function_name,
+                e.calls,
+                e.blocked,
+                e.allowed,
+                e.logged,
+                e.last_used,
+                e.recent_risk,
+                e.touched_secrets,
+                s.effect AS synced_effect,
+                s.policy_name AS synced_policy_name,
+                s.org_name AS synced_org_name
+            FROM edges e
+            LEFT JOIN synced_tool_rules s ON s.tool_id = e.tool_id
+            ORDER BY e.calls DESC
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_audit_activity(self, window_days: int = 7) -> list[dict]:
         """Per-day verdict counts over the FULL trailing window.
 

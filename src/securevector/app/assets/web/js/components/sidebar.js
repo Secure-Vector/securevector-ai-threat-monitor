@@ -130,10 +130,23 @@ const Sidebar = {
         const logoTextCol = document.createElement('div');
         logoTextCol.className = 'sidebar-logo-text';
 
+        // Wordmark + version on one row (version sits right next to the brand).
+        const brandRow = document.createElement('span');
+        brandRow.style.cssText = 'display:inline-flex;align-items:baseline;gap:7px;';
+
         const logo = document.createElement('span');
         logo.className = 'sidebar-logo';
         logo.textContent = 'SecureVector';
-        logoTextCol.appendChild(logo);
+        brandRow.appendChild(logo);
+
+        // App version badge. Keep in sync with __version__ in
+        // src/securevector/__init__.py on every release bump.
+        const version = document.createElement('span');
+        version.className = 'sidebar-version';
+        version.textContent = 'v4.5.0';
+        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
+        brandRow.appendChild(version);
+        logoTextCol.appendChild(brandRow);
 
         // Tagline — product positioning in small caps. Uses theme
         // variables so it respects light/dark switches automatically.
