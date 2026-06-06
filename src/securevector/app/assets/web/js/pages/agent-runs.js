@@ -36,7 +36,6 @@ const AgentRunsPage = {
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
-    _autoExpandTool: null, // one-shot: auto-open this tool's spans (Map tool-node drill)
     outcomeFilter: 'all',  // span verdict filter: all | allow | blocked | log_only | threat | secret
 
     async render(container) {
@@ -51,7 +50,7 @@ const AgentRunsPage = {
         // Tool-node drill → scope the run's spans to that one tool (one-shot, so
         // a plain tab nav clears it). Resets the verdict filter to "all" so the
         // tool's own outcomes (allow AND block) all show.
-        if (this._pendingTool) { this.toolFilter = this._pendingTool; this._autoExpandTool = this._pendingTool; this._pendingTool = null; this.outcomeFilter = 'all'; }
+        if (this._pendingTool) { this.toolFilter = this._pendingTool; this._pendingTool = null; this.outcomeFilter = 'all'; }
         else { this.toolFilter = null; }
         if (window.Header) {
             Header.setPageInfo('Agent Runs', 'Per-run trace — every tool call, turn by turn, with the tool permission applied to it. Click a step to expand its details.');
@@ -536,20 +535,11 @@ const AgentRunsPage = {
             return;
         }
 
-        // One-shot: a Map tool-node drill ("Open runs for <tool>") auto-expands
-        // the matching tool's spans so the user lands on the detail, not a
-        // collapsed list. Cleared after this render so toggling filters / picking
-        // other runs behaves normally. Track the first match to scroll it in view.
-        const autoExpand = this._autoExpandTool;
-        this._autoExpandTool = null;
-        let firstExpanded = null;
-
         spans.forEach(s => {
             const o = OUTCOME[s.outcome] || OUTCOME.allow;
             const external = ObsTabs.isExternalTool(s.tool_id);
             const span = document.createElement('div');
             span.className = 'ar-span';
-            if (autoExpand && s.tool_id === autoExpand) { span.classList.add('open'); firstExpanded = firstExpanded || span; }
             const dot = `<span class="ar-span-dot" style="background:${o.color}"></span>`;
             const caret = `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
             const badge = `<span class="ar-badge" style="background:${o.color}22;color:${o.color}">` +
@@ -570,7 +560,6 @@ const AgentRunsPage = {
             row.addEventListener('click', () => span.classList.toggle('open'));
             detail.appendChild(span);
         });
-        if (firstExpanded) firstExpanded.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     },
 
     /** The collapsible per-step detail panel revealed when a span is clicked. */

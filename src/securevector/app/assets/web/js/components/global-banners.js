@@ -8,7 +8,7 @@
  */
 
 const GlobalBanners = {
-    WHATS_NEW_VERSION: '4.1.0',
+    WHATS_NEW_VERSION: '4.5.0',
     // Fresh key — the v4.2 revamp generalises the nudge (OpenClaw + Claude
     // Code) so prior single-plugin dismissals shouldn't suppress it.
     KEY_PLUGINS_NUDGE: 'sv-plugins-nudge-dismissed',
@@ -72,15 +72,19 @@ const GlobalBanners = {
         const pluginNudgeRelevant = ocActionable || ccActionable;
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
 
-        if (pluginNudgeRelevant && !dismissed && !sessionHidden) {
-            // At least one runtime has a plugin available + not yet installed.
-            // The banner exposes both CTAs unconditionally; the one that isn't
-            // actionable is shown in a "done" state instead of being hidden,
-            // so the user sees the full plugin lineup either way.
-            slot.appendChild(this._buildPluginsNudge({ ocActionable, ccActionable }));
-        } else if (!whatsNewAcked) {
-            // Everyone else: show the What's New card for this release.
+        if (!whatsNewAcked) {
+            // The v4.5.0 launch banner — Agent Map & Runs — is our wow factor,
+            // so it leads on every fresh install AND every update until acked.
+            // It carries its own "install a plugin" CTA, so it doubles as the
+            // plugin nudge for new users; the dedicated nudge below only takes
+            // over once this release has been acknowledged.
             slot.appendChild(this._buildWhatsNew());
+        } else if (pluginNudgeRelevant && !dismissed && !sessionHidden) {
+            // Release already acked, but at least one runtime has a plugin
+            // available + not yet installed. The banner exposes both CTAs
+            // unconditionally; the one that isn't actionable is shown in a
+            // "done" state instead of being hidden.
+            slot.appendChild(this._buildPluginsNudge({ ocActionable, ccActionable }));
         }
 
         // Hide slot if empty (avoids extra padding)
@@ -269,42 +273,77 @@ const GlobalBanners = {
     },
 
     _buildWhatsNew() {
+        // v4.5.0 launch banner — the Agent Map & Runs is the headline
+        // feature ("wow factor"), so this gets a richer treatment than a plain
+        // text line: brand-accent left rail, a NEW pill, a topology icon, and two
+        // CTAs (explore the Map · install a plugin to populate it). Shown on
+        // every fresh install AND every update until acknowledged.
         const card = document.createElement('div');
         card.className = 'sv-global-banner';
-        card.style.cssText = 'position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 44px 10px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 10px;';
+        card.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap;';
 
-        // Version pill removed — versioning belongs in release notes, not in
-        // every dashboard load. The WHATS_NEW_VERSION constant still gates the
-        // banner so a new release re-surfaces it via the acked-version check.
+        // Topology / network-graph icon — three connected nodes, conveying
+        // the device -> agent -> tool map at a glance.
+        const icon = document.createElement('div');
+        icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M10.6 7l-4 9.7"/><path d="M13.4 7l4 9.7"/></svg>';
+        card.appendChild(icon);
 
         const textCol = document.createElement('div');
-        textCol.style.cssText = 'flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); line-height: 1.45;';
-        const strong = document.createElement('strong');
-        strong.textContent = 'What\u2019s new:';
-        strong.style.marginRight = '6px';
-        textCol.appendChild(strong);
-        // v4.1.0 headline = Agent Replay (per-agent timeline of scans + tool
-        // calls + LLM cost). Keep SIEM Forwarder visible as the previous-
-        // release callout so users returning after v4.0 still catch up on
-        // both. One banner, two releases — cheaper than a carousel.
-        textCol.appendChild(document.createTextNode('Agent Replay \u2014 per-agent timeline of scans, tool calls, and LLM cost. Plus indirect-prompt-injection (IDPI) detection and signed wheel attestations. \u00B7 Previously in v4.0: SIEM Forwarder.'));
+        textCol.style.cssText = 'flex: 1 1 300px; min-width: 240px;';
+
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
+        title.textContent = 'Agent Map & Runs';
+        titleRow.appendChild(title);
+        const pill = document.createElement('span');
+        pill.style.cssText = 'font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
+        pill.textContent = 'New \u00B7 v4.5.0';
+        titleRow.appendChild(pill);
+        textCol.appendChild(titleRow);
+
+        const desc = document.createElement('div');
+        desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
+        desc.textContent = 'Visualize every agent run \u2014 device \u2192 agent \u2192 tool \u2014 across tree, radial, mesh, and Sankey views, then drill into a step-by-step trace of every tool call. Install a SecureVector Guard plugin in your harness to populate the map with your agent\u2019s tool runs.';
+        textCol.appendChild(desc);
+
         card.appendChild(textCol);
 
-        const cta = document.createElement('button');
-        cta.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent-primary); background: transparent; border: 1px solid rgba(94,173,184,0.4); padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s;';
-        cta.textContent = 'Open SIEM Forwarder \u2192';
-        cta.addEventListener('mouseenter', () => { cta.style.background = 'rgba(94,173,184,0.08)'; });
-        cta.addEventListener('mouseleave', () => { cta.style.background = 'transparent'; });
-        cta.addEventListener('click', () => {
-            if (window.Sidebar) {
-                // SIEM Forwarder lives under the `integrations` section
-                // (labelled "Connect" in the sidebar). Expand first so
-                // the nav item is visible when we select it.
-                Sidebar.expandSection('integrations');
-                Sidebar.navigate('siem-export');
-            }
+        const ctaGroup = document.createElement('div');
+        ctaGroup.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;';
+
+        // Primary CTA — explore the hero feature (filled, brand accent).
+        const explore = document.createElement('button');
+        explore.style.cssText = 'font-size: 12px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 7px 13px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s, transform 0.05s; line-height: 1;';
+        explore.textContent = 'Explore the Agent Map \u2192';
+        explore.addEventListener('mouseenter', () => { explore.style.opacity = '0.9'; });
+        explore.addEventListener('mouseleave', () => { explore.style.opacity = '1'; });
+        explore.addEventListener('mousedown', () => { explore.style.transform = 'scale(0.98)'; });
+        explore.addEventListener('mouseup', () => { explore.style.transform = 'scale(1)'; });
+        explore.addEventListener('click', () => {
+            localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
+            // Lands on the Agent Map (the hero topology view) \u2014 navigate()
+            // expands the Agent Activity section automatically.
+            if (window.Sidebar) Sidebar.navigate('agent-map');
+            card.remove();
+            this._collapseSlotIfEmpty();
         });
-        card.appendChild(cta);
+        ctaGroup.appendChild(explore);
+
+        // Secondary CTA — install a plugin so the map has data to show.
+        const install = document.createElement('button');
+        install.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary); background: transparent; border: 1px solid rgba(94,173,184,0.45); padding: 7px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s; line-height: 1;';
+        install.textContent = 'Install a plugin \u2192';
+        install.addEventListener('mouseenter', () => { install.style.background = 'rgba(94,173,184,0.08)'; });
+        install.addEventListener('mouseleave', () => { install.style.background = 'transparent'; });
+        install.addEventListener('click', () => {
+            if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-claude-code'); }
+        });
+        ctaGroup.appendChild(install);
+
+        card.appendChild(ctaGroup);
 
         const closeBtn = document.createElement('button');
         closeBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 6px; transition: color 0.15s, background 0.15s;';
