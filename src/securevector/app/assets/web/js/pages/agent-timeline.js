@@ -265,7 +265,8 @@ const AgentTimelinePage = {
             row.innerHTML =
                 `<span class="tl-dot" style="background:${rtColor}"></span>` +
                 `<span class="tl-time">${this._fmtClock(e.called_at)}</span>` +
-                `<span class="tl-rt">${this._esc(e.runtime_kind || 'unknown')}</span>` +
+                `<span class="tl-rt"${(ObsTabs.agentName(e.trace_id)) ? ` title="${this._esc(e.runtime_kind || '')}"` : ''}>` +
+                `${this._esc(ObsTabs.agentName(e.trace_id) || e.runtime_kind || 'unknown')}</span>` +
                 `<span class="tl-tool"${riskColor ? ` title="risk: ${this._esc(e.risk)}"` : ''}>${this._esc(e.function_name || e.tool_id || 'tool')}</span>` +
                 `<span class="tl-kind ${external ? 'ext' : ''}">${external ? 'External MCP' : 'Built-in'}</span>` +
                 `<span class="tl-badge" style="background:${o.color}22;color:${o.color}">` +

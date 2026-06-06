@@ -24,6 +24,8 @@ const App = {
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
+        'guide-codex': { render: (c) => GuideCodexPage.render(c) },
+        'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         settings: SettingsPage,
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
         // Tool Activity / Cost Tracking are sub-items under Agent Replay;

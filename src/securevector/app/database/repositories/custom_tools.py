@@ -653,7 +653,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id, runtime_kind
+                       seq, prev_hash, row_hash, device_id, runtime_kind, trace_id
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -669,7 +669,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id, runtime_kind
+                       seq, prev_hash, row_hash, device_id, runtime_kind, trace_id
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
@@ -882,6 +882,13 @@ class CustomToolsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    # Lifecycle sentinels emitted by the plugin SessionStart/Stop hooks
+    # (e.g. Codex's session-start.js / stop.js). They mark session
+    # boundaries — they are NOT tools, so they must never become tool
+    # nodes on the Agent Map. They only contribute their session's
+    # existence + recency. See get_agent_session_graph.
+    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__")
+
     async def get_agent_session_graph(self, window_days: int = 7) -> list[dict]:
         """Aggregate audit rows into per-(harness, session, tool) edges for the
         3-layer Agent Map (harness -> agent/session -> tool).
@@ -895,11 +902,24 @@ class CustomToolsRepository:
         harness / session / tool nodes plus the two edge tiers, and rolls up each
         session's last-activity (``last_used``) for the idle / grey-out logic.
         ``touched_secrets`` is the same ``reason`` LIKE-heuristic used elsewhere.
+
+        **Session-boundary sentinels** (``__session_start__`` /
+        ``__session_end__``, emitted by the plugin SessionStart/Stop hooks) are
+        excluded from the tool-edge aggregation — they are lifecycle markers,
+        not tools, so they must not spawn phantom ``tool:`` nodes. They are
+        rolled up separately into ``boundary`` rows so the route can fold their
+        recency into the owning session (and surface a session that only ever
+        logged a start/end with no tool call yet). Historically these hooks did
+        not forward ``session_id``, so such rows have a NULL ``trace_id`` and
+        land in the ``orphan:<runtime>`` bucket; the route merges that recency
+        into the runtime's existing tool-bearing session instead of drawing a
+        second agent node for the same run.
         """
         window_days = max(1, min(int(window_days), 90))
         cutoff = f"-{window_days} days"
+        boundary_placeholders = ",".join("?" * len(self._SESSION_BOUNDARY_TOOL_IDS))
         rows = await self.db.fetch_all(
-            """
+            f"""
             WITH edges AS (
                 SELECT
                     COALESCE(runtime_kind, 'unknown') AS runtime_kind,
@@ -928,12 +948,14 @@ class CustomToolsRepository:
                     END) AS touched_secrets
                 FROM tool_call_audit
                 WHERE called_at >= datetime('now', ?)
+                  AND tool_id NOT IN ({boundary_placeholders})
                 GROUP BY
                     COALESCE(runtime_kind, 'unknown'),
                     COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')),
                     tool_id
             )
             SELECT
+                'edge' AS row_kind,
                 e.runtime_kind,
                 e.session_key,
                 e.session_id,
@@ -955,9 +977,34 @@ class CustomToolsRepository:
             LEFT JOIN synced_tool_rules s ON s.tool_id = e.tool_id
             ORDER BY e.calls DESC
             """,
-            (cutoff,),
+            (cutoff, *self._SESSION_BOUNDARY_TOOL_IDS),
         )
-        return [dict(r) for r in rows] if rows else []
+        edge_rows = [dict(r) for r in rows] if rows else []
+
+        # Session-boundary roll-up: one row per (runtime, session_key) over the
+        # lifecycle sentinels only, carrying the boundary recency. The route
+        # folds these into the owning session's last_used WITHOUT drawing a
+        # tool node, so a session-start/end marker never spawns a phantom agent.
+        boundary = await self.db.fetch_all(
+            f"""
+            SELECT
+                'boundary' AS row_kind,
+                COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')) AS session_key,
+                MAX(session_id) AS session_id,
+                MAX(trace_id) AS trace_id,
+                MAX(called_at) AS last_used
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?)
+              AND tool_id IN ({boundary_placeholders})
+            GROUP BY
+                COALESCE(runtime_kind, 'unknown'),
+                COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown'))
+            """,
+            (cutoff, *self._SESSION_BOUNDARY_TOOL_IDS),
+        )
+        boundary_rows = [dict(r) for r in boundary] if boundary else []
+        return edge_rows + boundary_rows
 
     async def get_audit_activity(self, window_days: int = 7) -> list[dict]:
         """Per-day verdict counts over the FULL trailing window.

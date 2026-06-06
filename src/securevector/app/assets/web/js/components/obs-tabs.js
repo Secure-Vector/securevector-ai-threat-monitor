@@ -14,6 +14,66 @@
  * built-ins. Shared so Map, Runs and Timeline agree on the distinction.
  */
 const ObsTabs = {
+    // --- shared agent naming (user-given names, keyed by trace_id) ----------
+    // The Map lets a user rename an agent (e.g. "agent #1" → "nightly-deploy").
+    // The name is keyed by the run's trace_id and persisted locally so it
+    // reflects everywhere the agent appears — Map, Runs, Timeline. Local-only
+    // (localStorage); the audit log itself is never rewritten.
+    AGENT_NAMES_KEY: 'sv-agent-names',
+    _agentNames() {
+        try { return JSON.parse(localStorage.getItem(this.AGENT_NAMES_KEY) || '{}') || {}; }
+        catch (_) { return {}; }
+    },
+    /** Custom name for a run/agent, or null if the user hasn't named it. */
+    agentName(traceId) {
+        if (!traceId) return null;
+        const m = this._agentNames();
+        return (m && m[traceId]) || null;
+    },
+    /** Set (or clear, when name is empty) the custom name for a trace_id. */
+    setAgentName(traceId, name) {
+        if (!traceId) return;
+        const m = this._agentNames();
+        const v = (name || '').trim().slice(0, 60);
+        if (v) m[traceId] = v; else delete m[traceId];
+        try { localStorage.setItem(this.AGENT_NAMES_KEY, JSON.stringify(m)); } catch (_) {}
+    },
+
+    // --- shared "How to read this view" deep-link --------------------------
+    // A small info link the Map and Runs pages place near their header/stats.
+    // Clicking it opens the Guide and scrolls to the matching how-to-read
+    // section. Keeps both views pointing at one source of truth.
+    _injectHowtoStyle() {
+        if (document.getElementById('sv-howto-style')) return;
+        const st = document.createElement('style');
+        st.id = 'sv-howto-style';
+        st.textContent = `
+            .sv-howto-link { display:inline-flex; align-items:center; gap:5px; background:transparent; cursor:pointer;
+                border:1px solid var(--border-default,#30363d); border-radius:999px; padding:3px 10px;
+                color:var(--text-secondary,#b1bac4); font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif;
+                transition:color .12s, border-color .12s, background .12s; white-space:nowrap; }
+            .sv-howto-link:hover { color:var(--accent-primary,#5eadb8); border-color:var(--accent-primary,#5eadb8);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 8%, transparent); }
+            .sv-howto-link svg { width:13px; height:13px; flex:0 0 auto; }
+        `;
+        document.head.appendChild(st);
+    },
+    /** Build a "How to read…" link that deep-links to a Guide section. */
+    howToReadLink(label, sectionId, subItemId) {
+        this._injectHowtoStyle();
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sv-howto-link';
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+            'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/>' +
+            '<path d="M12 16v-4M12 8h.01"/></svg><span></span>';
+        btn.querySelector('span').textContent = label;
+        btn.addEventListener('click', () => {
+            if (window.Sidebar && Sidebar.navigateToSection) Sidebar.navigateToSection('guide', sectionId, subItemId);
+        });
+        return btn;
+    },
+
     // --- shared tool classification (built-in harness vs external MCP/plugin) ---
     isExternalTool(toolId) {
         return typeof toolId === 'string' && toolId.includes(':');

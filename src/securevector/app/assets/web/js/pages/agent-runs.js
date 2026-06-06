@@ -60,6 +60,11 @@ const AgentRunsPage = {
         const header = document.createElement('div');
         header.className = 'obs-header';
         ObsTabs.render(header, 'runs');
+        // "How to read runs" — sits right after the tabs, before the filter
+        // cluster (which is pushed right via margin-left:auto on .filters-bar).
+        const howto = ObsTabs.howToReadLink('How to read runs', 'section-read-runs', 'gs-read-runs');
+        howto.style.alignSelf = 'center';
+        header.appendChild(howto);
         const toolbar = document.createElement('div');
         toolbar.className = 'filters-bar';
         toolbar.id = 'agent-runs-toolbar';
@@ -96,6 +101,8 @@ const AgentRunsPage = {
             .ar-run.sel::before { opacity:1; width:4px; }
             .ar-run-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
             .ar-run-rt { font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); letter-spacing:.2px; }
+            .ar-run-sub { font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-muted,#7d8590); text-transform:lowercase;
+                border:1px solid var(--border-default,#30363d); border-radius:999px; padding:1px 7px; letter-spacing:.2px; }
             .ar-run-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 3px color-mix(in srgb, var(--ar-accent,#5eadb8) 22%, transparent); }
             .ar-run-meta { font-size:11.5px; color:var(--text-secondary,#b1bac4); display:flex; gap:11px; flex-wrap:wrap; align-items:center; }
             .ar-num { font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
@@ -190,6 +197,31 @@ const AgentRunsPage = {
         sel.addEventListener('change', () => { this.windowDays = Number(sel.value); this.loadData(); });
         grp.appendChild(sel);
         bar.appendChild(grp);
+
+        // Harness filter — narrow the run list to one runtime (claude-code /
+        // codex / openclaw / …). Options are populated from the loaded runs in
+        // _populateHarnessFilter(); stays in sync with a Map drill-down's
+        // runtimeFilter.
+        const hgrp = document.createElement('div');
+        hgrp.className = 'filter-group';
+        const hlbl = document.createElement('label');
+        hlbl.textContent = 'Harness';
+        hgrp.appendChild(hlbl);
+        const hsel = document.createElement('select');
+        hsel.className = 'filter-select';
+        const allOpt = document.createElement('option');
+        allOpt.value = ''; allOpt.textContent = 'All harnesses';
+        hsel.appendChild(allOpt);
+        hsel.addEventListener('change', () => {
+            this.runtimeFilter = hsel.value || null;
+            this.renderRuns();
+            const shown = this._filteredRuns();
+            if (shown.length) this.selectRun((shown.find(r => r.trace_id === this.selected) || shown[0]).trace_id);
+            else this._detailEmpty(`No ${this.runtimeFilter} runs in this window.`, 'Pick another harness or widen the Window.');
+        });
+        hgrp.appendChild(hsel);
+        bar.appendChild(hgrp);
+        this._harnessSel = hsel;
 
         // Built-in vs external filter — checkboxes so each kind toggles
         // independently (isolate external MCP calls, or hide them entirely).
@@ -305,6 +337,8 @@ const AgentRunsPage = {
         const wantTrace = this._pendingTrace; this._pendingTrace = null;
         const data = await API.getTraces({ window_days: this.windowDays });
         this.runs = (data && data.runs) || [];
+        this._computeAgentNums();
+        this._populateHarnessFilter();
         this.renderRuns();
         const shown = this._filteredRuns();
         if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
@@ -321,6 +355,45 @@ const AgentRunsPage = {
         } else {
             this._detailEmpty('No agent runs in this window.', 'Install a Guard plugin and run an agent — each session becomes a trace here.');
         }
+    },
+
+    /** Assign each run an "agent #N" per harness, newest-first — mirrors the
+     *  Agent Map's per-harness numbering so the label a user clicked on the map
+     *  ("agent #2") is the same label shown here. */
+    _computeAgentNums() {
+        const byRt = {};
+        (this.runs || []).forEach(r => { (byRt[r.runtime_kind] = byRt[r.runtime_kind] || []).push(r); });
+        this._agentNum = {};
+        Object.values(byRt).forEach(list => {
+            list.slice()
+                .sort((a, b) => String(b.ended_at || '').localeCompare(String(a.ended_at || '')))
+                .forEach((r, i) => { this._agentNum[r.trace_id] = i + 1; });
+        });
+    },
+
+    /** Display label for a run: custom name (set on the Map) → "agent #N" →
+     *  runtime kind. The runtime is still shown as a small sub-tag alongside. */
+    _agentLabel(r) {
+        if (!r) return 'run';
+        const nm = ObsTabs.agentName(r.trace_id);
+        if (nm) return nm;
+        const n = this._agentNum ? this._agentNum[r.trace_id] : null;
+        return n != null ? ('agent #' + n) : (r.runtime_kind || 'run');
+    },
+
+    /** Fill the Harness dropdown with the distinct runtimes present in the
+     *  loaded runs, preserving the current selection (a Map drill-down may have
+     *  set runtimeFilter before the options existed). */
+    _populateHarnessFilter() {
+        const sel = this._harnessSel;
+        if (!sel) return;
+        const kinds = [...new Set((this.runs || []).map(r => r.runtime_kind).filter(Boolean))].sort();
+        sel.innerHTML = '';
+        const all = document.createElement('option');
+        all.value = ''; all.textContent = 'All harnesses';
+        sel.appendChild(all);
+        kinds.forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = k; sel.appendChild(o); });
+        sel.value = this.runtimeFilter || '';
     },
 
     /** Runs after applying the active runtime filter (Map drill-down). */
@@ -375,9 +448,13 @@ const AgentRunsPage = {
             card.type = 'button';
             const color = RUNTIME_COLOR[r.runtime_kind] || '#64748b';
             card.style.setProperty('--ar-accent', color);
+            // Label leads with the custom name or "agent #N" (matching the Map);
+            // the runtime/harness is always shown as a small secondary tag.
+            const rtMain = `<span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
+                `<span class="ar-run-sub">${this._esc(r.runtime_kind)}</span>`;
             card.innerHTML =
                 `<div class="ar-run-top"><span class="ar-run-dot" style="background:${color}"></span>` +
-                `<span class="ar-run-rt">${this._esc(r.runtime_kind)}</span>` +
+                rtMain +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green}" title="risk: ${r.risk}"></span></div>` +
                 `<div class="ar-run-meta"><span><span class="ar-num">${r.spans}</span> spans</span>` +
                 (r.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span> blocked</span>` : '') +
@@ -409,7 +486,8 @@ const AgentRunsPage = {
         const head = document.createElement('div');
         head.className = 'ar-det-head';
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
-            `<span class="ar-det-title">${this._esc(trace.runtime_kind)}</span>`;
+            `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
+            `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>`;
         detail.appendChild(head);
 
         const allSpans = trace.spans || [];

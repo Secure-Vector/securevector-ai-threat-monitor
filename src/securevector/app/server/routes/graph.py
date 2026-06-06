@@ -158,7 +158,17 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
     if now is None:
         now = datetime.now(timezone.utc)
 
-    raw_sorted = sorted(raw, key=lambda r: int(r.get("calls") or 0), reverse=True)
+    # Split lifecycle session-boundary roll-ups (row_kind == "boundary") out of
+    # the tool-edge stream. Boundary markers (__session_start__ /
+    # __session_end__) are NOT tools — they must not become tool nodes nor
+    # spawn a second agent node for a session that already has tool calls. They
+    # only contribute their session's existence + recency; folded in after the
+    # tool layer is built. (Rows without an explicit row_kind are treated as
+    # edges, preserving the older shape used by unit tests.)
+    boundary_rows = [r for r in raw if r.get("row_kind") == "boundary"]
+    edge_raw = [r for r in raw if r.get("row_kind") != "boundary"]
+
+    raw_sorted = sorted(edge_raw, key=lambda r: int(r.get("calls") or 0), reverse=True)
     dropped = max(0, len(raw_sorted) - _EDGE_CAP_3L)
     kept = raw_sorted[:_EDGE_CAP_3L]
 
@@ -270,6 +280,81 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
         t["last_used"] = _max_dt(t["last_used"], last_used)
         t["last_blocked"] = _max_dt(t["last_blocked"], last_blocked)
         t["risk"] = _worst(t["risk"], risk)
+
+    # Fold session-boundary recency into the owning session WITHOUT drawing a
+    # tool node. A boundary marker (__session_start__ / __session_end__) is a
+    # lifecycle signal, not a tool call — so it must never split a single run
+    # into a second agent node.
+    #
+    # Attribution:
+    #   * A boundary row that carries a real trace_id (session_key starts with
+    #     a hex trace, not "orphan:") maps straight onto its session node — and
+    #     creates a tool-less session node if that run logged only a start/end.
+    #   * A boundary row in the "orphan:<runtime>" bucket (the legacy case where
+    #     the SessionStart/Stop hook never forwarded session_id, so trace_id is
+    #     NULL) is merged into that runtime's most-recently-active tool-bearing
+    #     session. This is what prevents the phantom "orphan:codex" agent node
+    #     that used to appear beside the real run for one Codex session.
+    sessions_by_harness_recent: dict[str, list[dict]] = {}
+    for s in sessions.values():
+        sessions_by_harness_recent.setdefault(s["harness_id"], []).append(s)
+    for sess_list in sessions_by_harness_recent.values():
+        sess_list.sort(key=lambda s: (s["last_used"] or ""), reverse=True)
+
+    for b in boundary_rows:
+        runtime = b.get("runtime_kind") or "unknown"
+        session_key = b.get("session_key") or f"orphan:{runtime}"
+        last_used = b.get("last_used")
+        harness_id = f"harness:{runtime}"
+        session_node_id = f"session:{session_key}"
+
+        is_orphan = str(session_key).startswith("orphan:")
+        target = sessions.get(session_node_id)
+
+        if target is None and is_orphan:
+            # Legacy NULL-session_id markers: attach to this runtime's most
+            # recent real session rather than minting a duplicate agent node.
+            candidates = sessions_by_harness_recent.get(harness_id) or []
+            target = candidates[0] if candidates else None
+
+        if target is not None:
+            target["last_used"] = _max_dt(target["last_used"], last_used)
+            continue
+
+        # No tool-bearing session to attach to (real trace_id, tool-less run, or
+        # an orphan marker for a runtime with no tool calls yet). Surface the
+        # session so its existence/recency still shows — but with zero tools.
+        if session_node_id in sessions:
+            continue
+        sessions[session_node_id] = {
+            "id": session_node_id,
+            "kind": "session",
+            "harness": runtime,
+            "harness_id": harness_id,
+            "session_id": b.get("session_id"),
+            "trace_id": b.get("trace_id"),
+            "calls": 0,
+            "blocked": 0,
+            "tools": 0,
+            "risk": "green",
+            "last_used": last_used,
+        }
+        harnesses.setdefault(
+            harness_id,
+            {
+                "id": harness_id,
+                "kind": "harness",
+                "label": runtime,
+                "calls": 0,
+                "blocked": 0,
+                "sessions": 0,
+                "risk": "green",
+                "last_used": None,
+            },
+        )
+        harnesses[harness_id]["last_used"] = _max_dt(
+            harnesses[harness_id]["last_used"], last_used
+        )
 
     # Finalise sessions: idle/active + per-harness "agent #N" numbering.
     by_harness: dict[str, list[dict]] = {}

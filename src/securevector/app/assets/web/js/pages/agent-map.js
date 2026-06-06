@@ -152,7 +152,22 @@ const AgentMapPage = {
             #agent-map-card.show { transform:none; opacity:1; pointer-events:auto; }
             #agent-map-card .ch { display:flex; align-items:center; gap:9px; margin-bottom:3px; }
             #agent-map-card .ch .dot { width:11px; height:11px; border-radius:50%; flex:none; }
-            #agent-map-card .ch .ttl { font-weight:700; font-size:14px; color:var(--text-primary,#e6edf3); }
+            #agent-map-card .ch .ttl { font-weight:700; font-size:14px; color:var(--text-primary,#e6edf3); min-width:0; word-break:break-word; }
+            #agent-map-card .sv-rename { flex:0 0 auto; margin-left:auto; margin-right:16px; width:24px; height:24px; display:inline-flex;
+                align-items:center; justify-content:center; border:1px solid var(--border-default,#30363d); border-radius:7px;
+                background:var(--bg-card,#161b22); color:var(--text-muted,#7d8590); cursor:pointer; padding:0; transition:color .12s,border-color .12s; }
+            #agent-map-card .sv-rename:hover { color:var(--accent-primary,#5eadb8); border-color:var(--accent-primary,#5eadb8); }
+            #agent-map-card .sv-rename svg { width:13px; height:13px; }
+            #agent-map-card .sv-rename-row { display:flex; align-items:center; gap:6px; margin:2px 0 9px; }
+            #agent-map-card .sv-rename-input { flex:1 1 auto; min-width:0; background:var(--bg-tertiary,#21262d);
+                border:1px solid var(--accent-primary,#5eadb8); border-radius:7px; color:var(--text-primary,#e6edf3);
+                font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; padding:5px 8px; }
+            #agent-map-card .sv-rename-input:focus { outline:none; }
+            #agent-map-card .sv-rename-save, #agent-map-card .sv-rename-cancel { flex:0 0 auto; border:1px solid var(--border-default,#30363d);
+                border-radius:7px; padding:5px 9px; font:700 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            #agent-map-card .sv-rename-save { background:var(--accent-primary,#5eadb8); border-color:var(--accent-primary,#5eadb8); color:#fff; }
+            #agent-map-card .sv-rename-cancel { background:transparent; color:var(--text-secondary,#b1bac4); }
+            #agent-map-card .sv-rename-hint { font-size:10.5px; color:var(--text-muted,#7d8590); margin:-4px 0 9px; }
             #agent-map-card .typ { font-size:10.5px; letter-spacing:.4px; text-transform:uppercase; color:var(--text-muted,#7d8590); margin-bottom:11px; }
             #agent-map-card .kv { display:grid; grid-template-columns:90px 1fr; gap:5px 10px; font-size:12.5px; color:var(--text-secondary,#b1bac4); }
             #agent-map-card .kv b { color:var(--text-primary,#e6edf3); font-weight:600; word-break:break-word; }
@@ -671,7 +686,11 @@ const AgentMapPage = {
             h._lbl = { dx: 0, dy: -(h.gray ? 13 : 16) - 8, anchor: 'middle', reasonDy: 12 };
         });
         const dev = model.nodes.find(n => n.id === 'device');
-        dev.x = hXs.length ? hXs.reduce((a, b) => a + b, 0) / hXs.length : W / 2; dev.y = rowY.device;
+        // Center the root over the SPAN of its harnesses (midpoint of leftmost
+        // and rightmost), not their mean — the mean skews toward whichever side
+        // has the denser subtree (e.g. a Claude Code harness with many tool
+        // leaves drags the root left), which left the root visibly off-center.
+        dev.x = hXs.length ? (Math.min(...hXs) + Math.max(...hXs)) / 2 : W / 2; dev.y = rowY.device;
         this._edgeMode = 'tree';
     },
 
@@ -840,7 +859,7 @@ const AgentMapPage = {
                 const al = document.createElementNS(SVG_NS, 'text');
                 al.setAttribute('class', 'sv-node-label sv-agent-label'); al.setAttribute('text-anchor', 'middle'); al.setAttribute('y', 21);
                 al.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : 'var(--text-secondary,#b1bac4)';
-                al.textContent = n.label || ('agent #' + (n.num || '?')); g.appendChild(al);
+                al.textContent = this._sessionNodeLabel(n); g.appendChild(al);
             }
             if (!n.active) {
                 const idl = document.createElementNS(SVG_NS, 'text');
@@ -901,12 +920,24 @@ const AgentMapPage = {
         return s.length > 22 ? s.slice(0, 21) + '…' : s;
     },
 
+    /** Display name for an agent/session: a user-given name (keyed by trace_id)
+     *  wins, else the backend label, else "agent #N". Single source of truth so
+     *  renames reflect in the node label, tooltip, card title, and exports. */
+    _sessionLabel(n) {
+        return (n.trace_id && ObsTabs.agentName(n.trace_id)) || n.label || ('agent #' + (n.num != null ? n.num : '?'));
+    },
+    /** Same, truncated for the small in-graph node label. */
+    _sessionNodeLabel(n) {
+        const s = this._sessionLabel(n);
+        return s.length > 15 ? s.slice(0, 14) + '…' : s;
+    },
+
     /** Screen-reader description of a node — nodes are focusable buttons, so
      *  each needs a meaningful label (otherwise SRs announce just "group"). */
     _ariaLabel(n) {
         if (n.kind === 'device') return 'This device';
         if (n.kind === 'harness') return `${n.label} harness, ${n.gray ? 'inactive' : 'active'}, ${n.sessions || 0} agents, ${n.calls || 0} tool calls, ${n.blocked || 0} blocked`;
-        if (n.kind === 'session') return `Agent ${n.num}, ${n.harness}, ${n.active ? 'running' : 'inactive, no activity in last 24 hours, ' + (n.idle_days || 0) + ' days idle'}, ${n.tools || 0} tools, ${n.calls || 0} calls, ${n.blocked || 0} blocked`;
+        if (n.kind === 'session') return `${this._sessionLabel(n)}, ${n.harness}, ${n.active ? 'running' : 'inactive, no activity in last 24 hours, ' + (n.idle_days || 0) + ' days idle'}, ${n.tools || 0} tools, ${n.calls || 0} calls, ${n.blocked || 0} blocked`;
         const fleet = (this.data.nodes || []).filter(x => x.kind === 'tool' && x.tool_id === n.tool_id);
         const agents = new Set(fleet.map(x => x.session_id_node)).size || 1;
         return `${this._toolLabel(n)}, ${n.ext ? 'external MCP' : 'built-in'} tool, ${n.blocked ? 'blocked' : 'allowed'}, used by ${agents} agent${agents === 1 ? '' : 's'}`;
@@ -1035,7 +1066,7 @@ const AgentMapPage = {
             else { lab.setAttribute('x', -5); lab.setAttribute('y', n._h / 2); lab.setAttribute('text-anchor', 'end'); }
             lab.style.fill = n.kind === 'harness' ? (n.gray ? 'var(--text-muted,#7d8590)' : n.col) : 'var(--text-secondary,#b1bac4)';
             if (n.kind === 'harness') lab.style.fontWeight = '700';
-            lab.textContent = n.kind === 'tool' ? this._toolLabel(n) : (n.kind === 'harness' ? n.label : (n.label || ('agent #' + n.num)));
+            lab.textContent = n.kind === 'tool' ? this._toolLabel(n) : (n.kind === 'harness' ? n.label : this._sessionNodeLabel(n));
             g.appendChild(lab);
             this._wireSankeyClick(g, n);
             this._wireHover(g, n);
@@ -1070,7 +1101,7 @@ const AgentMapPage = {
         const blk = (b) => b ? ` · <span class="blk">${b} blocked</span>` : '';
         if (n.kind === 'device') return `<b>this device</b>`;
         if (n.kind === 'harness') return `<b>${e(n.label)}</b><span>${n.gray ? 'inactive' : 'active'} · ${n.sessions || 0} agents · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
-        if (n.kind === 'session') return `<b>agent #${n.num} · ${e(n.harness)}</b><span>${n.active ? 'running' : (n.idle_days || 0) + 'd inactive'} · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
+        if (n.kind === 'session') return `<b>${e(this._sessionLabel(n))} · ${e(n.harness)}</b><span>${n.active ? 'running' : (n.idle_days || 0) + 'd inactive'} · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
         // tool — full (untruncated) name + kind + volume, the value hover adds
         // over the rotated/clipped tree labels
         const owner = n.session_id_node ? (() => { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); return so ? ` · ${e(so.harness)} #${so.num}` : ''; })() : '';
@@ -1121,7 +1152,7 @@ const AgentMapPage = {
                 + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0);
             openLbl = '▸ Open runs for ' + this._esc(n.label); openFn = () => this._openHarness(n);
         } else if (n.kind === 'session') {
-            title = this._esc(n.label || ('agent #' + n.num)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
+            title = this._esc(this._sessionLabel(n)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
             const fullSid = String(n.session_id || n.trace_id || '');
             const sstatus = n.active ? 'running'
                 : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
@@ -1157,14 +1188,23 @@ const AgentMapPage = {
                 + (cloud ? kv('Cloud-managed', 'yes') : '');
             openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);
         }
+        // Agents (sessions with a trace_id) can be renamed — a pencil in the
+        // header opens an inline editor; the name persists and reflects in Runs
+        // and Timeline too.
+        const canRename = n.kind === 'session' && !!n.trace_id;
+        const renameBtn = canRename
+            ? `<button class="sv-rename" title="Rename agent" aria-label="Rename agent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`
+            : '';
         const card = this._card;
         card.innerHTML = `<button class="close" aria-label="close">×</button>` +
-            `<div class="ch"><span class="dot" style="background:${col}"></span><span class="ttl">${title}</span></div>` +
+            `<div class="ch"><span class="dot" style="background:${col}"></span><span class="ttl">${title}</span>${renameBtn}</div>` +
             `<div class="typ">${typ}</div><div class="kv">${rows}</div>` +
             `<button class="open">${openLbl}</button>`;
         card.classList.add('show');
         card.querySelector('.close').onclick = () => this._closeCard();
         card.querySelector('.open').onclick = openFn;
+        const rb = card.querySelector('.sv-rename');
+        if (rb) rb.onclick = () => this._beginRename(n);
         const cp = card.querySelector('.sv-copy');
         if (cp) cp.onclick = () => {
             const txt = cp.dataset.copy;
@@ -1173,6 +1213,60 @@ const AgentMapPage = {
             else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { } document.body.removeChild(ta); }
         };
         this._focusNode(n);
+    },
+
+    /** Turn the session card's title into an inline name editor. Saving writes
+     *  the name to ObsTabs (keyed by trace_id), redraws the graph so node labels
+     *  update, and re-opens the card on the same agent. */
+    _beginRename(n) {
+        const card = this._card;
+        if (!card) return;
+        const ch = card.querySelector('.ch');
+        if (!ch) return;
+        const current = (n.trace_id && ObsTabs.agentName(n.trace_id)) || '';
+        const placeholder = 'agent #' + (n.num != null ? n.num : '?');
+
+        const row = document.createElement('div');
+        row.className = 'sv-rename-row';
+        const input = document.createElement('input');
+        input.className = 'sv-rename-input';
+        input.type = 'text';
+        input.maxLength = 60;
+        input.value = current;
+        input.placeholder = placeholder;
+        const save = document.createElement('button');
+        save.className = 'sv-rename-save'; save.textContent = 'Save';
+        const cancel = document.createElement('button');
+        cancel.className = 'sv-rename-cancel'; cancel.textContent = 'Cancel';
+        row.appendChild(input); row.appendChild(save); row.appendChild(cancel);
+
+        const hint = document.createElement('div');
+        hint.className = 'sv-rename-hint';
+        hint.textContent = current ? 'Clear the field to reset to the default name.' : 'Reflects in Runs and Timeline too.';
+
+        ch.replaceWith(row);
+        card.insertBefore(hint, row.nextSibling);
+        input.focus(); input.select();
+
+        const commit = () => {
+            ObsTabs.setAgentName(n.trace_id, input.value);
+            this.draw();                       // re-label every view of this agent
+            this._reselectByTrace(n.trace_id); // re-open the card on the same agent
+        };
+        const abort = () => { this.selectNode(n, (this._nodeEls[n.id] || {}).g); };
+        save.onclick = commit;
+        cancel.onclick = abort;
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); abort(); }
+        });
+    },
+
+    /** Find the session node for a trace_id in the freshly-drawn graph and
+     *  re-select it (the node objects are rebuilt on every draw()). */
+    _reselectByTrace(traceId) {
+        const node = (this._lnodes || []).find(x => x.kind === 'session' && x.trace_id === traceId);
+        if (node) { const ent = this._nodeEls[node.id]; this.selectNode(node, ent && ent.g); }
     },
 
     _closeCard() {
@@ -1343,6 +1437,21 @@ const AgentMapPage = {
             `<span class="sv-stat-sep"></span>` +
             `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>` +
             `<span class="sv-stat ${secrets ? 'is-watch' : ''}">${ICON.lock(secrets ? '#f59e0b' : '#64748b', 13)} <b>${secrets}</b> secret</span>`;
+        // "How to read this map" — its own pill at the FAR RIGHT of the same
+        // line as the stats (the stats pill is pointer-events:none and capped at
+        // 54% width, so the link can't live inside it). Anchored top-right of
+        // the map body; replaced on each redraw.
+        const body = el.parentElement;
+        if (body) {
+            const existing = document.getElementById('agent-map-howto');
+            if (existing) existing.remove();
+            const howto = ObsTabs.howToReadLink('How to read this map', 'section-read-map', 'gs-read-map');
+            howto.id = 'agent-map-howto';
+            howto.style.cssText += ';position:absolute; top:14px; right:14px; z-index:6; pointer-events:auto;' +
+                'background:color-mix(in srgb, var(--bg-card,#161b22) 82%, transparent);' +
+                '-webkit-backdrop-filter:blur(9px); backdrop-filter:blur(9px);';
+            body.appendChild(howto);
+        }
     },
 
     _renderLegend() {
@@ -1370,7 +1479,7 @@ const AgentMapPage = {
         return (this._ledges || []).filter(e => e.tier === 'session-tool').map(e => {
             const s = byId[e.source] || {}, t = byId[e.target] || {};
             return {
-                agent: s.label || e.source, harness: s.harness || '',
+                agent: (s.kind === 'session' ? this._sessionLabel(s) : (s.label || e.source)), harness: s.harness || '',
                 tool: this._toolLabel(t), kind: ObsTabs.isExternalTool(t.tool_id) ? 'external' : 'built-in',
                 calls: e.calls, blocked: e.blocked ? 1 : 0, outcome: e.outcome,
             };

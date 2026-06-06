@@ -69,9 +69,12 @@ const Header = {
         const themeBtn = this.createThemeToggle();
         right.appendChild(themeBtn);
 
-        // Help button (question mark)
-        const helpBtn = this.createHelpButton();
-        right.appendChild(helpBtn);
+        // Guided tour launcher (compass) — opens the step-by-step walkthrough.
+        // The tour ends on the Guide, which is the single docs entry point now
+        // (the old standalone "?" help button was removed to avoid two doors to
+        // the same place).
+        const tourBtn = this.createTourButton();
+        right.appendChild(tourBtn);
 
         // AI Analysis button (opens modal)
         const llmToggle = this.createLLMToggle();
@@ -169,6 +172,45 @@ const Header = {
             if (window.Sidebar) Sidebar.toggleTheme();
         });
 
+        return btn;
+    },
+
+    createTourButton() {
+        const btn = document.createElement('button');
+        btn.className = 'tour-btn';
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); height: 28px; padding: 0 10px; border-radius: 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; margin-right: 10px;';
+        btn.title = 'Take the guided setup tour';
+
+        // Compass icon — "find your way around".
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.style.cssText = 'width: 14px; height: 14px;';
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
+        svg.appendChild(circle);
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', '16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76');
+        svg.appendChild(poly);
+        btn.appendChild(svg);
+
+        const label = document.createElement('span');
+        label.textContent = 'Tour';
+        btn.appendChild(label);
+
+        btn.addEventListener('mouseenter', () => {
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.color = 'var(--accent-primary)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.borderColor = 'var(--text-secondary)';
+            btn.style.color = 'var(--text-secondary)';
+        });
+        btn.addEventListener('click', () => { if (window.Tour) Tour.start(); });
         return btn;
     },
 

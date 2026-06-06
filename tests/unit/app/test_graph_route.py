@@ -230,6 +230,69 @@ def test_build_graph_3layer_carries_last_blocked():
     assert tools["tool:t1:srv:read"]["last_blocked"] is None
 
 
+def _boundary_row(runtime, session_key, last_used, session_id=None, trace_id=None):
+    """A session-boundary roll-up row (row_kind == 'boundary') as emitted by
+    get_agent_session_graph for __session_start__/__session_end__ sentinels."""
+    return {
+        "row_kind": "boundary",
+        "runtime_kind": runtime,
+        "session_key": session_key,
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "last_used": last_used,
+    }
+
+
+def test_build_graph_3layer_orphan_boundary_does_not_split_session():
+    """Regression: a single Codex session that emits a session-start/end marker
+    with a NULL trace_id (orphan bucket) plus a real Bash tool call must render
+    as ONE agent node — not the tool-bearing run AND a phantom 'orphan:codex'
+    node. The boundary's recency folds into the real session."""
+    raw = [
+        # The real run: one Bash call with a derived trace_id.
+        _row3("codex", "6c254e055afd", "Bash", 1, allowed=1,
+              last_used="2026-06-06 16:45:17", session_id="019e9dd2", trace_id="6c254e055afd"),
+        # The lifecycle markers landed in the orphan bucket (legacy NULL
+        # session_id), slightly LATER than the Bash call.
+        _boundary_row("codex", "orphan:codex", "2026-06-06 16:45:25"),
+    ]
+    g = build_graph_3layer(raw, window_days=7, now=_NOW)
+
+    sessions = [n for n in g["nodes"] if n["kind"] == "session" and n["harness"] == "codex"]
+    tools = [n for n in g["nodes"] if n["kind"] == "tool"]
+
+    # Exactly ONE codex agent node — no orphan:codex phantom.
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == "session:6c254e055afd"
+    assert not any("orphan:codex" in s["id"] for s in sessions)
+    # Boundary sentinels never become tool nodes.
+    assert not any(t["tool_id"] in ("__session_start__", "__session_end__") for t in tools)
+    assert all("orphan:codex" not in t["id"] for t in tools)
+    # The session's recency advances to the latest boundary timestamp.
+    assert sessions[0]["last_used"] == "2026-06-06 16:45:25"
+    # One codex harness with exactly one session.
+    codex_harness = next(n for n in g["nodes"] if n["kind"] == "harness" and n["label"] == "codex")
+    assert codex_harness["sessions"] == 1
+
+
+def test_build_graph_3layer_boundary_only_session_still_appears():
+    """A run that logged only a session-start/end (no tool call yet) but carries
+    a real trace_id still surfaces as a tool-less session node so its existence
+    and recency are visible on the map."""
+    raw = [
+        _boundary_row("codex", "deadbeef", "2026-06-05 17:30:00",
+                      session_id="sess-x", trace_id="deadbeef"),
+    ]
+    g = build_graph_3layer(raw, window_days=7, now=_NOW)
+    sessions = {n["id"]: n for n in g["nodes"] if n["kind"] == "session"}
+    assert "session:deadbeef" in sessions
+    assert sessions["session:deadbeef"]["tools"] == 0
+    assert sessions["session:deadbeef"]["last_used"] == "2026-06-05 17:30:00"
+    # No tool nodes / no session-tool edges for a boundary-only session.
+    assert not any(n["kind"] == "tool" for n in g["nodes"])
+    assert not any(e["tier"] == "session-tool" for e in g["edges"])
+
+
 def test_build_graph_3layer_truncates_top_n(monkeypatch):
     import securevector.app.server.routes.graph as graph_mod
 
@@ -274,6 +337,47 @@ async def test_repo_groups_edges_by_runtime_and_tool(tmp_path):
     assert by_key[("claude-code", "srv:b")]["blocked"] == 1
     assert by_key[("claude-code", "srv:b")]["touched_secrets"] == 1
     assert by_key[("codex", "srv:a")]["calls"] == 1
+
+    await db.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_repo_session_graph_excludes_boundary_markers_from_tools(tmp_path):
+    """Regression (one-session-two-nodes bug): a Codex session that logs a
+    session-start/end sentinel WITHOUT a session_id (NULL trace_id) plus a real
+    Bash call must yield ONE tool-bearing session edge and a SEPARATE boundary
+    roll-up — never a __session_* tool edge — so the route renders one agent
+    node, not two."""
+    db = await _build_db(tmp_path)
+    repo = CustomToolsRepository(db)
+
+    # Lifecycle markers: legacy behaviour forwarded no session_id → NULL trace.
+    await repo.log_tool_call_audit("__session_start__", "__session_start__", "log_only",
+                                   runtime_kind="codex")
+    await repo.log_tool_call_audit("Bash", "Bash", "allow",
+                                   runtime_kind="codex", session_id="codex-sess-1")
+    await repo.log_tool_call_audit("__session_end__", "__session_end__", "log_only",
+                                   runtime_kind="codex")
+
+    rows = await repo.get_agent_session_graph(window_days=7)
+    edge_rows = [r for r in rows if r.get("row_kind") == "edge"]
+    boundary_rows = [r for r in rows if r.get("row_kind") == "boundary"]
+
+    # The tool layer contains ONLY the real Bash edge — no sentinel tool edges.
+    assert {r["tool_id"] for r in edge_rows} == {"Bash"}
+    assert not any(r["tool_id"] in ("__session_start__", "__session_end__") for r in edge_rows)
+    # The boundary sentinels are rolled up into the orphan:codex bucket.
+    assert len(boundary_rows) == 1
+    assert boundary_rows[0]["session_key"] == "orphan:codex"
+
+    # End-to-end through the builder: exactly one codex session node.
+    g = build_graph_3layer(rows, window_days=7)
+    codex_sessions = [n for n in g["nodes"] if n["kind"] == "session" and n["harness"] == "codex"]
+    assert len(codex_sessions) == 1
+    assert not any(
+        n["kind"] == "tool" and n["tool_id"] in ("__session_start__", "__session_end__")
+        for n in g["nodes"]
+    )
 
     await db.disconnect()
 

@@ -65,7 +65,16 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
-            { id: 'guide-claude-code', label: 'Claude Code Plugin' },
+            // Harness plugin guides grouped under one header — one section per
+            // harness that ships a native plugin (Claude Code, Codex, OpenClaw).
+            { header: 'Plugin setup' },
+            { id: 'guide-claude-code', label: 'Claude Code' },
+            { id: 'guide-codex', label: 'Codex' },
+            { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
+            { header: 'Reading the data' },
+            { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
+            { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
+            { header: 'Reference' },
             { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
             { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
             { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
