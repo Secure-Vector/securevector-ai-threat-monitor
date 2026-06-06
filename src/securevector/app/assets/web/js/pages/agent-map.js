@@ -94,6 +94,18 @@ const AgentMapPage = {
             'var(--bg-card,#161b22);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);';
         container.appendChild(body);
 
+        // Escape closes the detail card (keyboard users open it via Enter on a
+        // node and need a keyboard dismiss). Wired once on the singleton page.
+        if (!this._escWired) {
+            this._escWired = true;
+            document.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape' && this._card && this._card.classList.contains('show')) {
+                    ev.stopPropagation();
+                    this._closeCard();
+                }
+            });
+        }
+
         this._buildToolbar(toolbar);
         await this.loadData();
     },
