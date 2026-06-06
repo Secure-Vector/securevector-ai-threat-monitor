@@ -869,23 +869,28 @@ const AgentMapPage = {
         const hIndex = {}; harnesses.forEach((h, i) => { hIndex[h.id] = i; });
         sessions.sort((a, b) => (hIndex[a.harness_id] - hIndex[b.harness_id]) || ((a.num || 0) - (b.num || 0)));
         // order tools by mean Y of the sessions using them (barycenter → fewer crossings)
-        const stackY = (nodes, x, gap) => {
+        // Reserve a MIN height per node so a low-volume harness/agent (one chatty
+        // session can dwarf the rest) stays visible and its label doesn't collide;
+        // the remaining space is shared by call volume so ribbon widths still read
+        // as throughput.
+        const stackY = (nodes, x, gap, minH) => {
+            const m = nodes.length;
             const total = nodes.reduce((a, n) => a + n.value, 0) || 1;
-            const scale = Math.max(0.0001, (availH - gap * Math.max(0, nodes.length - 1)) / total);
+            const pool = Math.max(0, availH - gap * Math.max(0, m - 1) - minH * m);
             let y = top;
-            nodes.forEach(n => { n._h = Math.max(3, n.value * scale); n._x = x; n._y = y; n._cy = y + n._h / 2; y += n._h + gap; });
+            nodes.forEach(n => { n._h = minH + (n.value / total) * pool; n._x = x; n._y = y; n._cy = y + n._h / 2; y += n._h + gap; });
             const used = (y - gap) - top, off = (availH - used) / 2;
             if (off > 0) nodes.forEach(n => { n._y += off; n._cy += off; });
         };
-        stackY(harnesses, colX.harness, 14);
-        stackY(sessions, colX.session, 8);
+        stackY(harnesses, colX.harness, 16, 22);
+        stackY(sessions, colX.session, 8, 13);
         const byIdTmp = {}; sessions.forEach(s => { byIdTmp[s.id] = s; });
         sharedTools.forEach(t => {
             const ys = perTools.filter(p => p.tool_id === t.tool_id).map(p => (byIdTmp[p.session_id_node] || {})._cy || 0);
             t._ord = ys.reduce((a, b) => a + b, 0) / (ys.length || 1);
         });
         sharedTools.sort((a, b) => a._ord - b._ord);
-        stackY(sharedTools, colX.tool, 6);
+        stackY(sharedTools, colX.tool, 6, 9);
 
         const nodes = harnesses.concat(sessions, sharedTools);
         const byId = {}; nodes.forEach(n => { byId[n.id] = n; });
