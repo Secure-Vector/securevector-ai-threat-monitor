@@ -20,7 +20,9 @@ const RISK_COLOR = { red: '#ef4444', amber: '#f59e0b', green: '#10b981' };
 const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981' };
 // Per-harness fills from the SecureVector brand (cool teal/blue/indigo family);
 // reds/ambers/greens stay reserved for risk semantics.
-const HARNESS_PALETTE = ['#5eadb8', '#3b82f6', '#8b5cf6', '#06b6d4', '#6366f1', '#0d9488', '#38bdf8', '#155e75'];
+// Cool teal/blue/cyan family (no purple/indigo) so harnesses are tellable
+// apart while reds/ambers/greens stay reserved for risk semantics.
+const HARNESS_PALETTE = ['#5eadb8', '#3b82f6', '#06b6d4', '#0ea5e9', '#0d9488', '#38bdf8', '#1d4ed8', '#155e75'];
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
 const GRAY = '#5b626b';           // inactive / greyed-out
@@ -97,6 +99,7 @@ const AgentMapPage = {
             .sv-node { cursor: grab; }
             .sv-node:active { cursor: grabbing; }
             .sv-node.sv-sel circle { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 3.4 !important; }
+            .sv-node.sv-sel rect { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 2.5 !important; }
             .sv-node-label { font: 600 10px 'Avenir Next','Avenir','Segoe UI Variable',system-ui,sans-serif;
                 letter-spacing:.2px; pointer-events:none; user-select:none; paint-order: stroke;
                 stroke: var(--bg-card,#161b22); stroke-width: 3px; }
@@ -141,6 +144,17 @@ const AgentMapPage = {
             .sv-stat b { font:600 12px ui-monospace,'JetBrains Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
             .sv-stat-sep { width:1px; height:14px; background:var(--border-default,#30363d); }
             .sv-stat.is-alert, .sv-stat.is-alert b { color:var(--danger,#ef4444); }
+            #agent-map-legend { position:absolute; bottom:12px; left:14px; z-index:4; display:flex; align-items:center;
+                flex-wrap:wrap; gap:4px 0; max-width:74%; padding:7px 13px; border-radius:11px;
+                background:color-mix(in srgb, var(--bg-card,#161b22) 80%, transparent);
+                -webkit-backdrop-filter:blur(9px); backdrop-filter:blur(9px);
+                border:1px solid color-mix(in srgb, var(--border-default,#30363d) 80%, transparent);
+                box-shadow:0 6px 20px rgba(0,0,0,.28); pointer-events:none; }
+            #agent-map-legend span { display:inline-flex; align-items:center; gap:5px; margin-right:13px; font-size:11px; color:var(--text-secondary,#b1bac4); }
+            #agent-map-legend i { width:15px; height:0; border-top:3px solid; display:inline-block; }
+            #agent-map-legend .lg-dot { width:9px; height:9px; border:0; border-radius:50%; }
+            #agent-map-legend .lg-ring { width:11px; height:11px; border-radius:50%; border:2px solid; box-sizing:border-box; }
+            #agent-map-legend .lg-sep { width:1px; height:13px; padding:0; background:var(--border-default,#30363d); margin-right:13px; }
             .sv-zoom { position:absolute; bottom:12px; right:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
             .sv-zoom button { width:33px; height:33px; display:flex; align-items:center; justify-content:center;
                 font-size:16px; line-height:1; border-radius:9px; cursor:pointer;
@@ -371,52 +385,50 @@ const AgentMapPage = {
         this._vp = vp;
 
         if (this.topo === 'sankey') {
-            this._drawSankeyPlaceholder(vp);
-            body.appendChild(svg);
-            this._body = body;
-            this._wireViewport(svg, body);
-            this._fitStatic();
-            return;
+            this._drawSankey(vp, model);
+        } else {
+            // Layout writes x,y onto each node (and may rewrite edges for mesh dedup).
+            if (this.topo === 'tree') this._layoutTree(model);
+            else if (this.topo === 'mesh') this._layoutMesh(model);
+            else this._layoutRadial(model);
+
+            // Edges under nodes.
+            this._edgeEls = [];
+            this._ledges.forEach(e => {
+                const A = this._byId[e.source], B = this._byId[e.target];
+                if (!A || !B) return;
+                const d = this._edgePath(A, B);
+                const base = document.createElementNS(SVG_NS, 'path');
+                base.setAttribute('d', d); base.setAttribute('fill', 'none');
+                base.setAttribute('stroke', e.col); base.setAttribute('stroke-width', e.w);
+                base.setAttribute('stroke-opacity', e.op); base.setAttribute('stroke-linecap', 'round');
+                vp.appendChild(base);
+                let flow = null;
+                if (e.flow) {
+                    flow = document.createElementNS(SVG_NS, 'path');
+                    flow.setAttribute('d', d); flow.setAttribute('fill', 'none');
+                    flow.setAttribute('stroke', e.blocked ? '#ffffff' : e.col);
+                    flow.setAttribute('stroke-width', Math.max(e.w + 0.6, 2));
+                    flow.setAttribute('stroke-opacity', e.blocked ? 0.6 : 0.9);
+                    flow.setAttribute('class', e.blocked ? 'sv-edge-flow sv-edge-blocked' : 'sv-edge-flow');
+                    flow.style.animationDuration = `${Math.max(0.6, 2.2 - Math.log2((e.calls || 1) + 1) * 0.3)}s`;
+                    vp.appendChild(flow);
+                }
+                this._edgeEls.push({ base, flow, e, srcId: e.source, tgtId: e.target });
+            });
+
+            // Nodes.
+            this._nodeEls = {};
+            this._lnodes.forEach(n => this._drawNode(vp, n));
         }
-
-        // Layout writes x,y onto each node (and may rewrite edges for mesh dedup).
-        if (this.topo === 'tree') this._layoutTree(model);
-        else if (this.topo === 'mesh') this._layoutMesh(model);
-        else this._layoutRadial(model);
-
-        // Edges under nodes.
-        this._edgeEls = [];
-        this._ledges.forEach(e => {
-            const A = this._byId[e.source], B = this._byId[e.target];
-            if (!A || !B) return;
-            const d = this._edgePath(A, B);
-            const base = document.createElementNS(SVG_NS, 'path');
-            base.setAttribute('d', d); base.setAttribute('fill', 'none');
-            base.setAttribute('stroke', e.col); base.setAttribute('stroke-width', e.w);
-            base.setAttribute('stroke-opacity', e.op); base.setAttribute('stroke-linecap', 'round');
-            vp.appendChild(base);
-            let flow = null;
-            if (e.flow) {
-                flow = document.createElementNS(SVG_NS, 'path');
-                flow.setAttribute('d', d); flow.setAttribute('fill', 'none');
-                flow.setAttribute('stroke', e.blocked ? '#ffffff' : e.col);
-                flow.setAttribute('stroke-width', Math.max(e.w + 0.6, 2));
-                flow.setAttribute('stroke-opacity', e.blocked ? 0.6 : 0.9);
-                flow.setAttribute('class', e.blocked ? 'sv-edge-flow sv-edge-blocked' : 'sv-edge-flow');
-                flow.style.animationDuration = `${Math.max(0.6, 2.2 - Math.log2((e.calls || 1) + 1) * 0.3)}s`;
-                vp.appendChild(flow);
-            }
-            this._edgeEls.push({ base, flow, e, srcId: e.source, tgtId: e.target });
-        });
-
-        // Nodes.
-        this._nodeEls = {};
-        this._lnodes.forEach(n => this._drawNode(vp, n));
 
         body.appendChild(svg);
         const statsEl = document.createElement('div');
         statsEl.id = 'agent-map-stats';
         body.appendChild(statsEl);
+        const legendEl = document.createElement('div');
+        legendEl.id = 'agent-map-legend';
+        body.appendChild(legendEl);
         const card = document.createElement('div');
         card.id = 'agent-map-card';
         body.appendChild(card);
@@ -424,6 +436,7 @@ const AgentMapPage = {
         this._body = body;
 
         this._renderStats();
+        this._renderLegend();
         this._wireViewport(svg, body);
         this._addControls(body);
         svg.addEventListener('pointerdown', (ev) => { if (ev.target === bg || ev.target === svg) this._closeCard(); });
@@ -496,9 +509,13 @@ const AgentMapPage = {
     },
 
     _layoutTree(model) {
-        const W = this.W, H = this.H, top = 54, bot = H - 46, span = bot - top;
-        const colX = { device: 72, harness: 300, session: 580, tool: 858 };
-        this._cx = colX.device; this._cy = H / 2;
+        // Top-down binary-tree style: device at the top, then a harness row, an
+        // agent/session row, and the tools fanned across the bottom. Horizontal
+        // position is leaf-driven (each parent sits at the mean of its children)
+        // for a tidy, balanced tree; the dense tool row uses rotated labels.
+        const W = this.W, H = this.H, left = 60, right = W - 60, span = right - left;
+        const rowY = { device: 56, harness: 188, session: 326, tool: 470 };
+        this._cx = W / 2; this._cy = H / 2;
         const harnesses = model.nodes.filter(n => n.kind === 'harness');
         const sessionsOf = h => model.nodes.filter(n => n.kind === 'session' && n.harness_id === h.id);
         const toolsOf = s => model.nodes.filter(n => n.kind === 'tool' && n.session_id_node === s.id);
@@ -507,23 +524,27 @@ const AgentMapPage = {
         harnesses.forEach(h => { const ss = sessionsOf(h); if (!ss.length) { totalLeaves++; return; } ss.forEach(s => { totalLeaves += Math.max(1, toolsOf(s).length); }); });
         totalLeaves = totalLeaves || 1;
         let slot = 0;
-        const yNext = () => { const y = top + (slot + 0.5) / totalLeaves * span; slot++; return y; };
+        const xNext = () => { const x = left + (slot + 0.5) / totalLeaves * span; slot++; return x; };
 
-        const hYs = [];
+        const hXs = [];
         harnesses.forEach(h => {
-            const ss = sessionsOf(h), sYs = [];
+            const ss = sessionsOf(h), sXs = [];
             ss.forEach(s => {
-                const tools = toolsOf(s), tYs = [];
-                tools.forEach(t => { const ty = yNext(); tYs.push(ty); t.x = colX.tool; t.y = ty; t._lbl = { dx: 14, dy: 3, anchor: 'start' }; });
-                const sy = tYs.length ? tYs.reduce((a, b) => a + b, 0) / tYs.length : yNext(); sYs.push(sy);
-                s.x = colX.session; s.y = sy;
+                const tools = toolsOf(s), tXs = [];
+                tools.forEach(t => {
+                    const tx = xNext(); tXs.push(tx); t.x = tx; t.y = rowY.tool;
+                    // rotated label so a dense bottom row doesn't overlap horizontally
+                    t._lbl = { dx: 0, dy: 14, anchor: 'start', rot: 55 };
+                });
+                const sx = tXs.length ? tXs.reduce((a, b) => a + b, 0) / tXs.length : xNext(); sXs.push(sx);
+                s.x = sx; s.y = rowY.session;
             });
-            const hy = sYs.length ? sYs.reduce((a, b) => a + b, 0) / sYs.length : yNext(); hYs.push(hy);
-            h.x = colX.harness; h.y = hy;
-            h._lbl = { dx: 0, dy: -(h.gray ? 13 : 16) - 19, anchor: 'middle', reasonDy: 12 };
+            const hx = sXs.length ? sXs.reduce((a, b) => a + b, 0) / sXs.length : xNext(); hXs.push(hx);
+            h.x = hx; h.y = rowY.harness;
+            h._lbl = { dx: 0, dy: -(h.gray ? 13 : 16) - 8, anchor: 'middle', reasonDy: 12 };
         });
         const dev = model.nodes.find(n => n.id === 'device');
-        dev.x = colX.device; dev.y = hYs.length ? hYs.reduce((a, b) => a + b, 0) / hYs.length : H / 2;
+        dev.x = hXs.length ? hXs.reduce((a, b) => a + b, 0) / hXs.length : W / 2; dev.y = rowY.device;
         this._edgeMode = 'tree';
     },
 
@@ -600,8 +621,9 @@ const AgentMapPage = {
 
     _edgePath(A, B) {
         if (this._edgeMode === 'tree') {
-            const mx = (A.x + B.x) / 2;
-            return `M${A.x.toFixed(1)},${A.y.toFixed(1)} C${mx.toFixed(1)},${A.y.toFixed(1)} ${mx.toFixed(1)},${B.y.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
+            // top-down: bow vertically through the mid-Y between the two rows
+            const my = (A.y + B.y) / 2;
+            return `M${A.x.toFixed(1)},${A.y.toFixed(1)} C${A.x.toFixed(1)},${my.toFixed(1)} ${B.x.toFixed(1)},${my.toFixed(1)} ${B.x.toFixed(1)},${B.y.toFixed(1)}`;
         }
         if (this._edgeMode === 'mesh') {
             return `M${A.x.toFixed(1)},${A.y.toFixed(1)} L${B.x.toFixed(1)},${B.y.toFixed(1)}`;
@@ -707,9 +729,14 @@ const AgentMapPage = {
             }
             if (n._lbl) {
                 const tl = document.createElementNS(SVG_NS, 'text');
-                tl.setAttribute('class', 'sv-node-label'); tl.setAttribute('x', n._lbl.dx); tl.setAttribute('y', n._lbl.dy);
-                tl.setAttribute('text-anchor', n._lbl.anchor); tl.setAttribute('font-size', 9.5);
+                tl.setAttribute('class', 'sv-node-label'); tl.setAttribute('text-anchor', n._lbl.anchor); tl.setAttribute('font-size', 9.5);
                 tl.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : 'var(--text-secondary,#b1bac4)';
+                if (n._lbl.rot) {
+                    tl.setAttribute('x', 0); tl.setAttribute('y', 0);
+                    tl.setAttribute('transform', `translate(${n._lbl.dx},${n._lbl.dy}) rotate(${n._lbl.rot})`);
+                } else {
+                    tl.setAttribute('x', n._lbl.dx); tl.setAttribute('y', n._lbl.dy);
+                }
                 tl.textContent = this._toolLabel(n); g.appendChild(tl);
             }
         }
@@ -724,39 +751,148 @@ const AgentMapPage = {
         return s.length > 22 ? s.slice(0, 21) + '…' : s;
     },
 
-    _drawSankeyPlaceholder(vp) {
-        const W = this.W, H = this.H, cx = W / 2, cy = H / 2;
-        [[210, 'harness'], [500, 'agents'], [800, 'tools']].forEach(([x, label]) => {
-            for (let k = 0; k < 3; k++) {
-                const r = document.createElementNS(SVG_NS, 'rect');
-                r.setAttribute('x', x - 15); r.setAttribute('y', 200 + k * 110); r.setAttribute('width', 30); r.setAttribute('height', 74);
-                r.setAttribute('rx', 6); r.setAttribute('fill', 'var(--bg-card,#161b22)'); r.setAttribute('stroke', 'var(--border-default,#30363d)'); r.setAttribute('fill-opacity', 0.5);
-                vp.appendChild(r);
-            }
-            const t = document.createElementNS(SVG_NS, 'text');
-            t.setAttribute('x', x); t.setAttribute('y', 184); t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', 11); t.setAttribute('fill', 'var(--text-muted,#7d8590)');
-            t.textContent = label; vp.appendChild(t);
+    /** Sankey posture view: harness → agent → deduped shared tool, ribbon
+     *  width ∝ call volume, blocked flow in red. Answers "which tools does my
+     *  fleet share, and how heavily". Sets the same _lnodes/_ledges/_nodeEls/
+     *  _edgeEls contract as the other topologies so cards + focus work. */
+    _drawSankey(vp, model) {
+        const W = this.W, H = this.H;
+        const harnesses = model.nodes.filter(n => n.kind === 'harness');
+        const sessions = model.nodes.filter(n => n.kind === 'session');
+        const perTools = model.nodes.filter(n => n.kind === 'tool');
+
+        this._lnodes = []; this._ledges = []; this._byId = {}; this._nodeEls = {}; this._edgeEls = [];
+        if (!sessions.length) return;
+
+        // Dedupe tools into shared nodes; accumulate call volume.
+        const toolMap = {};
+        perTools.forEach(t => {
+            const k = t.tool_id;
+            if (!toolMap[k]) toolMap[k] = { id: 'stool:' + k, kind: 'tool', label: t.label, tool_id: k, ext: t.ext, blocked: false, cloud_managed: false, touched_secrets: false, value: 0 };
+            const m = toolMap[k];
+            m.value += (t.calls || 0); m.blocked = m.blocked || t.blocked;
+            m.cloud_managed = m.cloud_managed || t.cloud_managed; m.touched_secrets = m.touched_secrets || t.touched_secrets;
         });
-        for (let k = 0; k < 3; k++) {
-            [[225, 485], [515, 785]].forEach(([x0, x1]) => {
-                const y0 = 237 + k * 110, y1 = 237 + ((k + 1) % 3) * 110, mx = (x0 + x1) / 2;
-                const p = document.createElementNS(SVG_NS, 'path');
-                p.setAttribute('d', `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1}`); p.setAttribute('fill', 'none');
-                p.setAttribute('stroke', 'var(--accent-primary,#5eadb8)'); p.setAttribute('stroke-width', 9); p.setAttribute('stroke-opacity', 0.1);
-                vp.appendChild(p);
-            });
-        }
-        const texts = [
-            [cy - 6, 19, 700, 'var(--text-primary,#e6edf3)', 'Sankey posture mode'],
-            [cy + 20, 12.5, 500, 'var(--text-secondary,#b1bac4)', 'Deduped shared tools + call-volume ribbons — parked for a later release.'],
-            [cy + 40, 12.5, 500, 'var(--text-muted,#7d8590)', 'The "which tools does my fleet share, and how heavily" posture view.'],
-        ];
-        texts.forEach(([y, fs, fw, fill, str]) => {
-            const t = document.createElementNS(SVG_NS, 'text');
-            t.setAttribute('x', cx); t.setAttribute('y', y); t.setAttribute('text-anchor', 'middle');
-            t.setAttribute('font-size', fs); t.setAttribute('font-weight', fw); t.setAttribute('fill', fill);
-            t.textContent = str; vp.appendChild(t);
+        const sharedTools = Object.values(toolMap);
+
+        // Node throughput values.
+        harnesses.forEach(h => { h.value = sessions.filter(s => s.harness_id === h.id).reduce((a, s) => a + (s.calls || 0), 0); });
+        sessions.forEach(s => { s.value = Math.max(1, s.calls || 0); });
+        sharedTools.forEach(t => { t.value = Math.max(1, t.value); });
+
+        const top = 46, bot = H - 40, availH = bot - top, barW = 13;
+        const colX = { harness: 122, session: Math.round(W * 0.46), tool: W - 152 };
+        const hIndex = {}; harnesses.forEach((h, i) => { hIndex[h.id] = i; });
+        sessions.sort((a, b) => (hIndex[a.harness_id] - hIndex[b.harness_id]) || ((a.num || 0) - (b.num || 0)));
+        // order tools by mean Y of the sessions using them (barycenter → fewer crossings)
+        const stackY = (nodes, x, gap) => {
+            const total = nodes.reduce((a, n) => a + n.value, 0) || 1;
+            const scale = Math.max(0.0001, (availH - gap * Math.max(0, nodes.length - 1)) / total);
+            let y = top;
+            nodes.forEach(n => { n._h = Math.max(3, n.value * scale); n._x = x; n._y = y; n._cy = y + n._h / 2; y += n._h + gap; });
+            const used = (y - gap) - top, off = (availH - used) / 2;
+            if (off > 0) nodes.forEach(n => { n._y += off; n._cy += off; });
+        };
+        stackY(harnesses, colX.harness, 14);
+        stackY(sessions, colX.session, 8);
+        const byIdTmp = {}; sessions.forEach(s => { byIdTmp[s.id] = s; });
+        sharedTools.forEach(t => {
+            const ys = perTools.filter(p => p.tool_id === t.tool_id).map(p => (byIdTmp[p.session_id_node] || {})._cy || 0);
+            t._ord = ys.reduce((a, b) => a + b, 0) / (ys.length || 1);
         });
+        sharedTools.sort((a, b) => a._ord - b._ord);
+        stackY(sharedTools, colX.tool, 6);
+
+        const nodes = harnesses.concat(sessions, sharedTools);
+        const byId = {}; nodes.forEach(n => { byId[n.id] = n; });
+
+        // Links with per-endpoint stacking offsets.
+        const links = [];
+        sessions.forEach(s => { links.push({ source: s.harness_id, target: s.id, value: Math.max(1, s.calls || 0), calls: s.calls || 0, blocked: (s.blocked || 0) > 0, col: s.baseCol || s.col }); });
+        perTools.forEach(t => {
+            const hcol = this._harnessColor[(byId[t.session_id_node] || {}).harness_id] || HARNESS_PALETTE[0];
+            links.push({ source: t.session_id_node, target: 'stool:' + t.tool_id, value: Math.max(1, t.calls || 0), calls: t.calls || 0, blocked: t.blocked, col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : hcol)) });
+        });
+        const bySrc = {}, byTgt = {};
+        links.forEach(l => { (bySrc[l.source] = bySrc[l.source] || []).push(l); (byTgt[l.target] = byTgt[l.target] || []).push(l); });
+        Object.values(bySrc).forEach(arr => {
+            const src = byId[arr[0].source]; if (!src) return;
+            arr.sort((a, b) => ((byId[a.target] || {})._cy || 0) - ((byId[b.target] || {})._cy || 0));
+            const sum = arr.reduce((s, l) => s + l.value, 0) || 1, scale = src._h / sum; let acc = 0;
+            arr.forEach(l => { l._sw = l.value * scale; l._sy = src._y + acc; acc += l._sw; });
+        });
+        Object.values(byTgt).forEach(arr => {
+            const tgt = byId[arr[0].target]; if (!tgt) return;
+            arr.sort((a, b) => ((byId[a.source] || {})._cy || 0) - ((byId[b.source] || {})._cy || 0));
+            const sum = arr.reduce((s, l) => s + l.value, 0) || 1, scale = tgt._h / sum; let acc = 0;
+            arr.forEach(l => { l._tw = l.value * scale; l._ty = tgt._y + acc; acc += l._tw; });
+        });
+
+        // Column headers.
+        [[colX.harness, 'harnesses'], [colX.session, 'agents'], [colX.tool, 'tools']].forEach(([x, t]) => {
+            const h = document.createElementNS(SVG_NS, 'text');
+            h.setAttribute('x', x + barW / 2); h.setAttribute('y', 30); h.setAttribute('text-anchor', 'middle');
+            h.setAttribute('font-size', 11); h.setAttribute('font-weight', 700); h.setAttribute('fill', 'var(--text-muted,#7d8590)');
+            h.setAttribute('letter-spacing', '.4px'); h.textContent = t.toUpperCase(); vp.appendChild(h);
+        });
+
+        // Ribbons (under bars).
+        links.forEach(l => {
+            const x0 = byId[l.source]._x + barW, x1 = byId[l.target]._x;
+            const d = this._ribbon(x0, l._sy, l._sy + l._sw, x1, l._ty, l._ty + l._tw);
+            const p = document.createElementNS(SVG_NS, 'path');
+            p.setAttribute('d', d); p.setAttribute('fill', l.col); p.setAttribute('fill-opacity', l.blocked ? 0.55 : 0.34);
+            p.setAttribute('stroke', 'none'); vp.appendChild(p);
+            this._edgeEls.push({ base: p, flow: null, e: l, srcId: l.source, tgtId: l.target });
+        });
+
+        // Node bars.
+        nodes.forEach(n => {
+            const g = document.createElementNS(SVG_NS, 'g');
+            g.setAttribute('class', 'sv-node'); g.setAttribute('tabindex', '0');
+            g.setAttribute('transform', `translate(${n._x},${n._y})`);
+            n.x = n._x + barW / 2; n.y = n._cy; // for card/focus geometry
+            const rect = document.createElementNS(SVG_NS, 'rect');
+            rect.setAttribute('width', barW); rect.setAttribute('height', n._h); rect.setAttribute('rx', 2.5);
+            const fill = n.kind === 'harness' ? (n.gray ? GRAY : n.col)
+                : n.kind === 'session' ? (n.gray ? GRAY : (n.col || n.baseCol))
+                    : (n.blocked ? OUTCOME_COLOR.blocked : (n.ext ? TOOL_FILL_EXT : TOOL_FILL));
+            rect.setAttribute('fill', fill);
+            rect.setAttribute('stroke', 'var(--bg-card,#161b22)'); rect.setAttribute('stroke-width', 1);
+            g.appendChild(rect);
+            // label: harness left, tool right, agent left (small)
+            const lab = document.createElementNS(SVG_NS, 'text');
+            lab.setAttribute('class', 'sv-node-label'); lab.setAttribute('font-size', n.kind === 'harness' ? 11.5 : 9.5);
+            lab.setAttribute('dominant-baseline', 'middle');
+            if (n.kind === 'tool') { lab.setAttribute('x', barW + 5); lab.setAttribute('y', n._h / 2); lab.setAttribute('text-anchor', 'start'); }
+            else { lab.setAttribute('x', -5); lab.setAttribute('y', n._h / 2); lab.setAttribute('text-anchor', 'end'); }
+            lab.style.fill = n.kind === 'harness' ? (n.gray ? 'var(--text-muted,#7d8590)' : n.col) : 'var(--text-secondary,#b1bac4)';
+            if (n.kind === 'harness') lab.style.fontWeight = '700';
+            lab.textContent = n.kind === 'tool' ? this._toolLabel(n) : (n.kind === 'harness' ? n.label : (n.label || ('agent #' + n.num)));
+            g.appendChild(lab);
+            this._wireSankeyClick(g, n);
+            vp.appendChild(g);
+            this._nodeEls[n.id] = { g, node: n };
+        });
+
+        this._lnodes = nodes; this._ledges = links; this._byId = byId;
+    },
+
+    _ribbon(x0, sy0, sy1, x1, ty0, ty1) {
+        const xm = (x0 + x1) / 2;
+        return `M${x0.toFixed(1)},${sy0.toFixed(1)} C${xm.toFixed(1)},${sy0.toFixed(1)} ${xm.toFixed(1)},${ty0.toFixed(1)} ${x1.toFixed(1)},${ty0.toFixed(1)} `
+            + `L${x1.toFixed(1)},${ty1.toFixed(1)} C${xm.toFixed(1)},${ty1.toFixed(1)} ${xm.toFixed(1)},${sy1.toFixed(1)} ${x0.toFixed(1)},${sy1.toFixed(1)} Z`;
+    },
+
+    _wireSankeyClick(g, node) {
+        let down = null;
+        g.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); down = { x: ev.clientX, y: ev.clientY }; });
+        g.addEventListener('pointerup', (ev) => {
+            if (!down) return;
+            if (Math.abs(ev.clientX - down.x) + Math.abs(ev.clientY - down.y) < 5) this.selectNode(node, g);
+            down = null;
+        });
+        g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.selectNode(node, g); } });
     },
 
     // ---------------- detail card (click any node) ----------------
@@ -823,16 +959,18 @@ const AgentMapPage = {
     _focusNode(n) {
         const keep = new Set([n.id]);
         (this._edgeEls || []).forEach(({ e }) => { if (e.source === n.id || e.target === n.id) { keep.add(e.source); keep.add(e.target); } });
+        // Use element opacity (not stroke-opacity) so it dims both stroked
+        // edges and Sankey's filled ribbons uniformly.
         (this._edgeEls || []).forEach(({ base, flow, e }) => {
             const on = e.source === n.id || e.target === n.id;
-            base.setAttribute('stroke-opacity', on ? Math.max(e.op, 0.9) : e.op * 0.1);
+            base.style.opacity = on ? 1 : 0.08;
             if (flow) flow.style.opacity = on ? 1 : 0.06;
         });
         Object.values(this._nodeEls || {}).forEach(({ g, node }) => { g.style.opacity = keep.has(node.id) ? 1 : 0.16; });
     },
 
     _clearFocus() {
-        (this._edgeEls || []).forEach(({ base, flow, e }) => { base.setAttribute('stroke-opacity', e.op); if (flow) flow.style.opacity = ''; });
+        (this._edgeEls || []).forEach(({ base, flow }) => { base.style.opacity = ''; if (flow) flow.style.opacity = ''; });
         Object.values(this._nodeEls || {}).forEach(({ g }) => { g.style.opacity = 1; });
     },
 
@@ -946,6 +1084,22 @@ const AgentMapPage = {
             `<span class="sv-stat"><b>${sessions.length}</b> total</span>` +
             `<span class="sv-stat-sep"></span>` +
             `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>`;
+    },
+
+    _renderLegend() {
+        const el = document.getElementById('agent-map-legend');
+        if (!el) return;
+        const flow = this.topo === 'sankey'
+            ? `<span><i style="border-color:${OUTCOME_COLOR.allow};opacity:.6;border-top-width:6px"></i>ribbon width = call volume</span>`
+            : `<span><i style="border-color:${OUTCOME_COLOR.allow};opacity:.6"></i>allowed</span>` +
+              `<span><i style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked</span>`;
+        el.innerHTML = flow +
+            `<span class="lg-sep"></span>` +
+            `<span><i class="lg-dot" style="background:${HARNESS_PALETTE[0]}"></i>harness / agent</span>` +
+            `<span><i class="lg-dot" style="background:${TOOL_FILL}"></i>built-in tool</span>` +
+            `<span>${ICON.gear(TOOL_FILL_EXT, 14)} external / MCP</span>` +
+            `<span><i class="lg-ring" style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked tool</span>` +
+            `<span><i class="lg-dot" style="background:${GRAY}"></i>inactive</span>`;
     },
 
     _edgeRows() {
