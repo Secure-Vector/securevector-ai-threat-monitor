@@ -158,7 +158,8 @@ const AgentMapPage = {
             #agent-map-card .sv-copy { flex:0 0 auto; border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4); border-radius:6px; padding:2px 7px; font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
             #agent-map-card .sv-copy:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
             #agent-map-tip { position:absolute; z-index:11; pointer-events:none; max-width:260px; padding:6px 9px;
-                border:1px solid var(--border-default,#30363d); border-radius:8px; background:rgba(22,27,34,.98);
+                border:1px solid var(--border-default,#30363d); border-radius:8px;
+                background:color-mix(in srgb, var(--bg-card,#161b22) 97%, transparent);
                 -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); box-shadow:0 6px 20px rgba(0,0,0,.45);
                 opacity:0; transition:opacity .08s; font:12px 'Avenir Next',Avenir,system-ui,sans-serif; }
             #agent-map-tip.show { opacity:1; }
