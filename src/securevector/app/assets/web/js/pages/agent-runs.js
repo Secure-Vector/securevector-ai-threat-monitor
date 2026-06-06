@@ -31,6 +31,7 @@ const AgentRunsPage = {
     runtimeFilter: null,   // active "only this runtime" filter (from a Map agent-node click)
     _pendingRuntime: null, // one-shot runtime filter handed off by the Map; consumed on render
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
+    _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
 
     async render(container) {
         container.textContent = '';
@@ -248,11 +249,18 @@ const AgentRunsPage = {
     async loadData() {
         const list = document.getElementById('ar-runlist');
         if (list) list.innerHTML = '<div class="ar-empty">Loading runs…</div>';
+        const wantTrace = this._pendingTrace; this._pendingTrace = null;
         const data = await API.getTraces({ window_days: this.windowDays });
         this.runs = (data && data.runs) || [];
         this.renderRuns();
         const shown = this._filteredRuns();
-        if (shown.length) {
+        if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
+            // A Map agent-node click → open that exact session's run.
+            this.selectRun(wantTrace);
+        } else if (wantTrace) {
+            this._detailEmpty('That agent run isn’t in this window.',
+                `Session ${this._esc(String(wantTrace).slice(0, 12))}… — widen the Window to load older runs.`);
+        } else if (shown.length) {
             const keep = shown.find(r => r.trace_id === this.selected);
             this.selectRun((keep || shown[0]).trace_id);
         } else if (this.runtimeFilter) {

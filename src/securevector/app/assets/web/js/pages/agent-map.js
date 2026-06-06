@@ -26,6 +26,8 @@ const HARNESS_PALETTE = ['#5eadb8', '#3b82f6', '#06b6d4', '#0ea5e9', '#0d9488', 
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
 const GRAY = '#5b626b';           // inactive / greyed-out
+// Later of two SQLite "YYYY-MM-DD HH:MM:SS" strings (lexical compare is safe).
+const maxStr = (a, b) => (!a ? b : (!b ? a : (a >= b ? a : b)));
 
 const GEAR_PATH = 'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z';
 const LOCK_PATH = 'M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 0 1 6 0z';
@@ -139,6 +141,10 @@ const AgentMapPage = {
                 font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
             #agent-map-card .open:hover { background:color-mix(in srgb,var(--accent-primary,#5eadb8) 22%,var(--bg-card,#161b22)); }
             #agent-map-card .close { position:absolute; top:11px; right:12px; width:20px; height:20px; border:none; background:transparent; color:var(--text-muted,#7d8590); font-size:16px; cursor:pointer; line-height:1; padding:0; }
+            #agent-map-card .sv-sid { display:flex; align-items:center; gap:6px; min-width:0; }
+            #agent-map-card .sv-sid code { font:600 10.5px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3); word-break:break-all; user-select:all; line-height:1.3; }
+            #agent-map-card .sv-copy { flex:0 0 auto; border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4); border-radius:6px; padding:2px 7px; font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            #agent-map-card .sv-copy:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
             #agent-map-stats { position:absolute; top:12px; left:14px; z-index:4; display:flex; align-items:center;
                 gap:12px; flex-wrap:wrap; max-width:54%; padding:7px 13px; border-radius:11px;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 78%, transparent);
@@ -381,6 +387,16 @@ const AgentMapPage = {
         return Math.floor(s / 86400) + 'd ago';
     },
 
+    /** Precise local clock time ("Jun 5, 15:44") so two near-simultaneous
+     *  events are distinguishable when both round to the same "Nh ago". */
+    _absTime(lastUsed) {
+        if (!lastUsed) return '';
+        const t = Date.parse(String(lastUsed).replace(' ', 'T') + (String(lastUsed).endsWith('Z') ? '' : 'Z'));
+        if (isNaN(t)) return '';
+        try { return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return ''; }
+    },
+
     // ---------------- draw ----------------
 
     draw() {
@@ -599,11 +615,13 @@ const AgentMapPage = {
         const toolMap = {};
         perSessionTools.forEach(t => {
             const key = t.tool_id;
-            if (!toolMap[key]) toolMap[key] = { id: 'mtool:' + key, kind: 'tool', label: t.label, tool_id: key, ext: t.ext, blocked: false, calls: 0, cloud_managed: false, touched_secrets: false };
+            if (!toolMap[key]) toolMap[key] = { id: 'mtool:' + key, kind: 'tool', label: t.label, tool_id: key, ext: t.ext, blocked: false, calls: 0, cloud_managed: false, touched_secrets: false, last_used: null, last_blocked: null };
             toolMap[key].blocked = toolMap[key].blocked || t.blocked;
             toolMap[key].calls += (t.calls || 0);
             toolMap[key].cloud_managed = toolMap[key].cloud_managed || t.cloud_managed;
             toolMap[key].touched_secrets = toolMap[key].touched_secrets || t.touched_secrets;
+            toolMap[key].last_used = maxStr(toolMap[key].last_used, t.last_used);
+            toolMap[key].last_blocked = maxStr(toolMap[key].last_blocked, t.last_blocked);
         });
         const sharedTools = Object.values(toolMap).sort((a, b) => String(a.tool_id).localeCompare(String(b.tool_id)));
 
@@ -820,10 +838,11 @@ const AgentMapPage = {
         const toolMap = {};
         perTools.forEach(t => {
             const k = t.tool_id;
-            if (!toolMap[k]) toolMap[k] = { id: 'stool:' + k, kind: 'tool', label: t.label, tool_id: k, ext: t.ext, blocked: false, cloud_managed: false, touched_secrets: false, value: 0 };
+            if (!toolMap[k]) toolMap[k] = { id: 'stool:' + k, kind: 'tool', label: t.label, tool_id: k, ext: t.ext, blocked: false, cloud_managed: false, touched_secrets: false, value: 0, calls: 0, last_used: null, last_blocked: null };
             const m = toolMap[k];
-            m.value += (t.calls || 0); m.blocked = m.blocked || t.blocked;
+            m.value += (t.calls || 0); m.calls += (t.calls || 0); m.blocked = m.blocked || t.blocked;
             m.cloud_managed = m.cloud_managed || t.cloud_managed; m.touched_secrets = m.touched_secrets || t.touched_secrets;
+            m.last_used = maxStr(m.last_used, t.last_used); m.last_blocked = maxStr(m.last_blocked, t.last_blocked);
         });
         const sharedTools = Object.values(toolMap);
 
@@ -975,37 +994,36 @@ const AgentMapPage = {
             openLbl = '▸ Open runs for ' + this._esc(n.label); openFn = () => this._openHarness(n);
         } else if (n.kind === 'session') {
             title = this._esc(n.label || ('agent #' + n.num)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
-            const sid = String(n.session_id || n.trace_id || '').slice(0, 10);
+            const fullSid = String(n.session_id || n.trace_id || '');
             const sstatus = n.active ? 'running'
                 : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
             rows = kv('Status', sstatus) + kv('Last call', this._relTime(n.last_used))
                 + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
-                + (sid ? kv('Session', sid + '…') : '');
-            openLbl = '▸ Open this agent’s runs'; openFn = () => this._openAgent(n);
+                + (fullSid ? `<span>Session</span><span class="sv-sid"><code>${this._esc(fullSid)}</code><button class="sv-copy" data-copy="${this._esc(fullSid)}" title="Copy session id">copy</button></span>` : '');
+            openLbl = '▸ Open this agent’s run'; openFn = () => this._openAgent(n);
         } else { // tool
-            // Blast radius is fleet-wide by tool_id, NOT per-node: in radial/tree
-            // the tool nodes are per-session, so an edge count would always say
-            // "1 agent". Count distinct agents + total calls for this tool across
-            // the whole fleet (the same number Mesh/Sankey collapse to).
+            // Per-node by design: in radial/tree a tool node is ONE agent's use
+            // of the tool, so calls/last-call/last-blocked describe THAT node (in
+            // mesh/sankey the node is the deduped shared tool → aggregated). Only
+            // "Used by" is fleet-wide (blast radius across all agents by tool_id).
             const tid = n.tool_id;
             const fleet = (this.data.nodes || []).filter(x => x.kind === 'tool' && x.tool_id === tid);
-            const calls = fleet.length ? fleet.reduce((a, x) => a + (x.calls || 0), 0)
-                : this._ledges.filter(e => e.target === n.id).reduce((a, e) => a + (e.calls || 0), 0);
             const agents = new Set(fleet.map(x => x.session_id_node)).size
                 || new Set(this._ledges.filter(e => e.target === n.id).map(e => e.source)).size;
-            const toolIds = new Set(fleet.map(x => x.id));
-            const times = (this.data.edges || []).filter(e => toolIds.has(e.target)).map(e => e.last_used).filter(Boolean).sort();
-            const lastCall = times.length ? times[times.length - 1] : null;
-            const blockedTimes = fleet.map(x => x.last_blocked).filter(Boolean).sort();
-            const lastBlocked = blockedTimes.length ? blockedTimes[blockedTimes.length - 1] : null;
-            const secret = fleet.some(x => x.touched_secrets), cloud = fleet.some(x => x.cloud_managed);
+            const calls = n.calls || 0;
+            const lastCall = n.last_used || null, lastBlocked = n.last_blocked || null;
+            const secret = !!n.touched_secrets, cloud = !!n.cloud_managed;
+            // owning agent (radial/tree per-session nodes) so claude-code's Bash
+            // is visibly distinct from codex's Bash
+            let owner = '';
+            if (n.session_id_node) { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); if (so) owner = ` · ${this._esc(so.harness)} agent #${so.num}`; }
             const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
             const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
-            title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '');
+            title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '') + owner;
             rows = kv('Tool permission', `<span class="perm ${perm[0]}">${perm[1]}</span>`) + kv('Source', src)
                 + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'))
-                + kv('Last call', this._relTime(lastCall))
-                + (lastBlocked ? kv('Last blocked', `<span style="color:var(--danger,#ef4444);font-weight:700">${this._esc(this._relTime(lastBlocked))}</span>`) : '')
+                + kv('Last call', `${this._esc(this._relTime(lastCall))}${lastCall ? ` <span style="color:var(--text-muted,#7d8590)">· ${this._esc(this._absTime(lastCall))}</span>` : ''}`)
+                + (lastBlocked ? kv('Last blocked', `<span style="color:var(--danger,#ef4444);font-weight:700">${this._esc(this._relTime(lastBlocked))}</span> <span style="color:var(--text-muted,#7d8590)">· ${this._esc(this._absTime(lastBlocked))}</span>`) : '')
                 + (secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (cloud ? kv('Cloud-managed', 'yes') : '');
             openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);
@@ -1018,6 +1036,13 @@ const AgentMapPage = {
         card.classList.add('show');
         card.querySelector('.close').onclick = () => this._closeCard();
         card.querySelector('.open').onclick = openFn;
+        const cp = card.querySelector('.sv-copy');
+        if (cp) cp.onclick = () => {
+            const txt = cp.dataset.copy;
+            const done = () => { cp.textContent = 'copied'; setTimeout(() => { cp.textContent = 'copy'; }, 1200); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => {});
+            else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { } document.body.removeChild(ta); }
+        };
         this._focusNode(n);
     },
 
@@ -1258,10 +1283,18 @@ const AgentMapPage = {
         if (!window.AgentRunsPage) return;
         AgentRunsPage._pendingRuntime = runtime || null;
         AgentRunsPage._pendingKinds = kinds || { builtin: true, external: true };
+        AgentRunsPage._pendingTrace = null; // cleared unless an agent drill sets it
     },
     _openRuns() { this._setPending(null, null); this._navRuns(); },              // device → all runs
     _openHarness(node) { this._setPending(node && node.label, null); this._navRuns(); },
-    _openAgent(node) { this._setPending(node && node.harness, null); this._navRuns(); },
+    _openAgent(node) {
+        // Open the EXACT run for this agent session (by trace_id) so Runs lands
+        // on it instead of just filtering to the runtime (which showed nothing
+        // precise). Runtime is still set for the filter chip context.
+        this._setPending(node && node.harness, null);
+        if (window.AgentRunsPage) AgentRunsPage._pendingTrace = (node && node.trace_id) || null;
+        this._navRuns();
+    },
     _openTool(node) {
         // Scope to the tool's OWNING runtime when it's a per-session tool node
         // (radial/tree): clicking claude-code's Bash → claude-code runs. Shared

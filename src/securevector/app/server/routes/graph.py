@@ -256,6 +256,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
                 "blocked": 0,
                 "cloud_managed": False,
                 "touched_secrets": False,
+                "last_used": None,
                 "last_blocked": None,
                 "risk": "green",
             },
@@ -266,6 +267,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
         t["blocked"] += blocked
         t["cloud_managed"] = t["cloud_managed"] or cloud_managed
         t["touched_secrets"] = t["touched_secrets"] or touched
+        t["last_used"] = _max_dt(t["last_used"], last_used)
         t["last_blocked"] = _max_dt(t["last_blocked"], last_blocked)
         t["risk"] = _worst(t["risk"], risk)
 
