@@ -757,11 +757,19 @@ const AgentMapPage = {
         } else if (n.kind === 'session') {
             const c = document.createElementNS(SVG_NS, 'circle');
             c.setAttribute('r', 10); c.setAttribute('fill', n.gray ? '#2b3038' : n.col);
-            // Risk ring so an agent that hit a block / secret / high-risk tool
-            // stands out: red = blocked, amber = secret-touch or high-risk.
-            const ring = n.gray ? null : ((n.blocked || 0) > 0 ? OUTCOME_COLOR.blocked : (n.secret || n.risk === 'amber') ? '#f59e0b' : n.risk === 'red' ? OUTCOME_COLOR.blocked : null);
-            c.setAttribute('stroke', ring || 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', ring ? 3 : 2.5);
+            // Always wear the dark card-coloured halo; the risk colour goes on a
+            // SEPARATE outer ring (below) so it reads even when the harness fill
+            // is the same hue (e.g. openclaw red + blocked red).
+            c.setAttribute('stroke', 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', 2.5);
             g.appendChild(c);
+            // Risk ring: red = blocked, amber = secret-touch or high-risk.
+            const ring = n.gray ? null : ((n.blocked || 0) > 0 ? OUTCOME_COLOR.blocked : (n.secret || n.risk === 'amber') ? '#f59e0b' : n.risk === 'red' ? OUTCOME_COLOR.blocked : null);
+            if (ring) {
+                const rr = document.createElementNS(SVG_NS, 'circle');
+                rr.setAttribute('r', 12.5); rr.setAttribute('fill', 'none');
+                rr.setAttribute('stroke', ring); rr.setAttribute('stroke-width', 2.5);
+                g.appendChild(rr);
+            }
             if (n.secret && !n.gray) {
                 const lock = document.createElementNS(SVG_NS, 'path');
                 lock.setAttribute('d', LOCK_PATH); lock.setAttribute('fill', '#f59e0b');
