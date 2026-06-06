@@ -37,16 +37,17 @@ const ICON = {
 };
 
 const TOPOLOGIES = [
-    { key: 'radial', label: 'Radial tree' },
     { key: 'tree', label: 'Tree' },
+    { key: 'radial', label: 'Radial' },
     { key: 'mesh', label: 'Mesh' },
-    { key: 'sankey', label: 'Sankey', soon: true },
+    { key: 'sankey', label: 'Sankey' },
 ];
 
 const AgentMapPage = {
     windowDays: 7,
-    topo: 'radial',
+    topo: 'tree',
     showInactive: false,
+    outcomeFilter: 'all', // all | allow | blocked | log_only | threat
     data: { nodes: [], edges: [], truncated: false, dropped_edges: 0 },
 
     W: 1000,
@@ -236,6 +237,26 @@ const AgentMapPage = {
         igrp.appendChild(ilab);
         bar.appendChild(igrp);
 
+        // Outcome filter — highlight only allowed / blocked / log-only / threat
+        // tool calls (dims the rest). The enforcement verdict is the thing a
+        // SOC/CISO wants to isolate.
+        const ogrp = document.createElement('div');
+        ogrp.className = 'filter-group';
+        const olbl = document.createElement('label');
+        olbl.textContent = 'Outcome';
+        ogrp.appendChild(olbl);
+        const osel = document.createElement('select');
+        osel.className = 'filter-select';
+        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Log-only'], ['threat', 'Threats']].forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = t;
+            if (v === this.outcomeFilter) o.selected = true;
+            osel.appendChild(o);
+        });
+        osel.addEventListener('change', () => { this.outcomeFilter = osel.value; this._closeCard(); });
+        ogrp.appendChild(osel);
+        bar.appendChild(ogrp);
+
         const exp = ObsTabs.exportMenu([
             { label: 'CSV (connections)', onClick: () => this._exportCSV() },
             { label: 'PDF', onClick: () => this._exportPDF() },
@@ -293,8 +314,8 @@ const AgentMapPage = {
             const gray = !h.active;
             const idle = this._idleDays(h.last_used);
             nodes.push(Object.assign({}, h, {
-                col, gray,
-                reason: gray ? (idle != null ? `${idle}d idle` : 'no recent activity') : null,
+                col, gray, idle_days: idle,
+                reason: gray ? (idle != null ? `inactive · ${idle}d idle` : 'no recent activity') : null,
             }));
             edges.push({ source: 'device', target: h.id, tier: 'device-harness', col: gray ? GRAY : col, op: gray ? 0.22 : 0.5, w: 1.4, flow: false });
         });
@@ -346,6 +367,18 @@ const AgentMapPage = {
         const t = Date.parse(String(lastUsed).replace(' ', 'T') + (String(lastUsed).endsWith('Z') ? '' : 'Z'));
         if (isNaN(t)) return null;
         return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+    },
+
+    /** Friendly "Nh ago" relative time for the last tool call. */
+    _relTime(lastUsed) {
+        if (!lastUsed) return '—';
+        const t = Date.parse(String(lastUsed).replace(' ', 'T') + (String(lastUsed).endsWith('Z') ? '' : 'Z'));
+        if (isNaN(t)) return String(lastUsed);
+        const s = Math.max(0, (Date.now() - t) / 1000);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + 'm ago';
+        if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+        return Math.floor(s / 86400) + 'd ago';
     },
 
     // ---------------- draw ----------------
@@ -455,6 +488,7 @@ const AgentMapPage = {
         body.appendChild(hint);
 
         this._fitStatic();
+        this._applyOutcomeFilter();
     },
 
     // ---------------- layouts ----------------
@@ -763,7 +797,7 @@ const AgentMapPage = {
     _ariaLabel(n) {
         if (n.kind === 'device') return 'This device';
         if (n.kind === 'harness') return `${n.label} harness, ${n.gray ? 'inactive' : 'active'}, ${n.sessions || 0} agents, ${n.calls || 0} tool calls, ${n.blocked || 0} blocked`;
-        if (n.kind === 'session') return `Agent ${n.num}, ${n.harness}, ${n.active ? 'running' : (n.idle_days || 0) + ' days inactive'}, ${n.tools || 0} tools, ${n.calls || 0} calls, ${n.blocked || 0} blocked`;
+        if (n.kind === 'session') return `Agent ${n.num}, ${n.harness}, ${n.active ? 'running' : 'inactive, no activity in last 24 hours, ' + (n.idle_days || 0) + ' days idle'}, ${n.tools || 0} tools, ${n.calls || 0} calls, ${n.blocked || 0} blocked`;
         const fleet = (this.data.nodes || []).filter(x => x.kind === 'tool' && x.tool_id === n.tool_id);
         const agents = new Set(fleet.map(x => x.session_id_node)).size || 1;
         return `${this._toolLabel(n)}, ${n.ext ? 'external MCP' : 'built-in'} tool, ${n.blocked ? 'blocked' : 'allowed'}, used by ${agents} agent${agents === 1 ? '' : 's'}`;
@@ -826,10 +860,10 @@ const AgentMapPage = {
 
         // Links with per-endpoint stacking offsets.
         const links = [];
-        sessions.forEach(s => { links.push({ source: s.harness_id, target: s.id, value: Math.max(1, s.calls || 0), calls: s.calls || 0, blocked: (s.blocked || 0) > 0, col: s.baseCol || s.col }); });
+        sessions.forEach(s => { links.push({ source: s.harness_id, target: s.id, tier: 'harness-session', value: Math.max(1, s.calls || 0), calls: s.calls || 0, blocked: (s.blocked || 0) > 0, col: s.baseCol || s.col }); });
         perTools.forEach(t => {
             const hcol = this._harnessColor[(byId[t.session_id_node] || {}).harness_id] || HARNESS_PALETTE[0];
-            links.push({ source: t.session_id_node, target: 'stool:' + t.tool_id, value: Math.max(1, t.calls || 0), calls: t.calls || 0, blocked: t.blocked, col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : hcol)) });
+            links.push({ source: t.session_id_node, target: 'stool:' + t.tool_id, tier: 'session-tool', outcome: t.blocked ? 'blocked' : 'allow', value: Math.max(1, t.calls || 0), calls: t.calls || 0, blocked: t.blocked, col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : hcol)) });
         });
         const bySrc = {}, byTgt = {};
         links.forEach(l => { (bySrc[l.source] = bySrc[l.source] || []).push(l); (byTgt[l.target] = byTgt[l.target] || []).push(l); });
@@ -935,13 +969,16 @@ const AgentMapPage = {
             openLbl = '▸ Open all runs'; openFn = () => this._openRuns();
         } else if (n.kind === 'harness') {
             title = this._esc(n.label); typ = 'Harness' + (n.gray ? ' · inactive' : '');
-            rows = kv('Status', n.gray ? (n.reason || 'inactive') : 'active') + kv('Agents', n.sessions || 0)
+            const hstatus = n.gray ? `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}` : 'active';
+            rows = kv('Status', hstatus) + kv('Last call', this._relTime(n.last_used)) + kv('Agents', n.sessions || 0)
                 + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0);
             openLbl = '▸ Open runs for ' + this._esc(n.label); openFn = () => this._openHarness(n);
         } else if (n.kind === 'session') {
             title = this._esc(n.label || ('agent #' + n.num)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
             const sid = String(n.session_id || n.trace_id || '').slice(0, 10);
-            rows = kv('Status', n.active ? 'running' : ((n.idle_days != null ? n.idle_days : '?') + 'd inactive'))
+            const sstatus = n.active ? 'running'
+                : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
+            rows = kv('Status', sstatus) + kv('Last call', this._relTime(n.last_used))
                 + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
                 + (sid ? kv('Session', sid + '…') : '');
             openLbl = '▸ Open this agent’s runs'; openFn = () => this._openAgent(n);
@@ -956,11 +993,18 @@ const AgentMapPage = {
                 : this._ledges.filter(e => e.target === n.id).reduce((a, e) => a + (e.calls || 0), 0);
             const agents = new Set(fleet.map(x => x.session_id_node)).size
                 || new Set(this._ledges.filter(e => e.target === n.id).map(e => e.source)).size;
+            const toolIds = new Set(fleet.map(x => x.id));
+            const times = (this.data.edges || []).filter(e => toolIds.has(e.target)).map(e => e.last_used).filter(Boolean).sort();
+            const lastCall = times.length ? times[times.length - 1] : null;
+            const secret = fleet.some(x => x.touched_secrets), cloud = fleet.some(x => x.cloud_managed);
             const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
             const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
             title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '');
             rows = kv('Tool permission', `<span class="perm ${perm[0]}">${perm[1]}</span>`) + kv('Source', src)
-                + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'));
+                + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'))
+                + kv('Last call', this._relTime(lastCall))
+                + (secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
+                + (cloud ? kv('Cloud-managed', 'yes') : '');
             openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);
         }
         const card = this._card;
@@ -979,6 +1023,34 @@ const AgentMapPage = {
         Object.values(this._nodeEls || {}).forEach(({ g }) => g.classList.remove('sv-sel'));
         this._sel = null;
         this._clearFocus();
+        this._applyOutcomeFilter(); // restore the base outcome-filter dimming
+    },
+
+    /** Highlight only the tool calls matching the Outcome filter (dim the rest).
+     *  Operates on session→tool edges + their tool nodes; structural edges and
+     *  harness/agent nodes stay visible so the map keeps its shape. */
+    _applyOutcomeFilter() {
+        const f = this.outcomeFilter || 'all';
+        const match = (e) => {
+            if (e.tier && e.tier !== 'session-tool') return true; // structural edges always shown
+            if (f === 'all') return true;
+            if (f === 'allow') return e.outcome === 'allow';
+            if (f === 'blocked') return e.outcome === 'blocked' || e.blocked;
+            if (f === 'log_only') return e.outcome === 'log_only' || (e.log_only || 0) > 0;
+            if (f === 'threat') return e.blocked || e.touched_secrets || e.risk === 'amber' || e.risk === 'red';
+            return true;
+        };
+        const lit = new Set();
+        (this._edgeEls || []).forEach(({ base, flow, e }) => {
+            const on = match(e);
+            base.style.opacity = on ? '' : '0.05';
+            if (flow) flow.style.display = on ? '' : 'none';
+            if (on && e.tier === 'session-tool') lit.add(e.target);
+        });
+        Object.values(this._nodeEls || {}).forEach(({ g, node }) => {
+            if (f === 'all' || node.kind !== 'tool') { g.style.opacity = ''; return; }
+            g.style.opacity = lit.has(node.id) ? '' : '0.12';
+        });
     },
 
     /** Dim everything except the selected node's connected subgraph (blast radius). */
@@ -1125,6 +1197,7 @@ const AgentMapPage = {
             `<span><i class="lg-dot" style="background:${TOOL_FILL}"></i>built-in tool</span>` +
             `<span>${ICON.gear(TOOL_FILL_EXT, 14)} external / MCP</span>` +
             `<span><i class="lg-ring" style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked tool</span>` +
+            `<span>${ICON.lock('#f59e0b', 13)} secret / cloud</span>` +
             `<span><i class="lg-dot" style="background:${GRAY}"></i>inactive</span>`;
     },
 
@@ -1172,26 +1245,33 @@ const AgentMapPage = {
 
     // ---------------- drill-downs (into Agent Runs) ----------------
 
-    _openRuns() {
+    _navRuns() {
         if (window.App && typeof App.loadPage === 'function') App.loadPage('agent-runs');
     },
-    _openHarness(node) {
-        const runtime = node && node.label;
-        if (window.AgentRunsPage && runtime) AgentRunsPage._pendingRuntime = runtime;
-        this._openRuns();
+    // Every drill-down FULLY specifies the Runs filter (runtime + tool kinds)
+    // so a previous click never leaks into the next — e.g. opening a claude-code
+    // tool after viewing openclaw runs must not stay scoped to openclaw.
+    _setPending(runtime, kinds) {
+        if (!window.AgentRunsPage) return;
+        AgentRunsPage._pendingRuntime = runtime || null;
+        AgentRunsPage._pendingKinds = kinds || { builtin: true, external: true };
     },
-    _openAgent(node) {
-        // Session → Agent Runs filtered to this run's runtime.
-        const runtime = node && node.harness;
-        if (window.AgentRunsPage && runtime) AgentRunsPage._pendingRuntime = runtime;
-        this._openRuns();
-    },
+    _openRuns() { this._setPending(null, null); this._navRuns(); },              // device → all runs
+    _openHarness(node) { this._setPending(node && node.label, null); this._navRuns(); },
+    _openAgent(node) { this._setPending(node && node.harness, null); this._navRuns(); },
     _openTool(node) {
-        const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
-        if (window.AgentRunsPage) {
-            AgentRunsPage._pendingKinds = ext ? { builtin: false, external: true } : { builtin: true, external: false };
+        // Scope to the tool's OWNING runtime when it's a per-session tool node
+        // (radial/tree): clicking claude-code's Bash → claude-code runs. Shared
+        // tools (mesh/sankey) span runtimes, so no runtime filter — just the
+        // built-in/external kind.
+        let runtime = null;
+        if (node && node.session_id_node) {
+            const s = (this.data.nodes || []).find(x => x.id === node.session_id_node);
+            runtime = s ? s.harness : null;
         }
-        this._openRuns();
+        const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
+        this._setPending(runtime, ext ? { builtin: false, external: true } : { builtin: true, external: false });
+        this._navRuns();
     },
 };
 
