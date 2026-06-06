@@ -1551,6 +1551,18 @@ const AgentMapPage = {
         if (node && node.session_id_node) {
             const s = (this.data.nodes || []).find(x => x.id === node.session_id_node);
             if (s) { runtime = s.harness; trace = s.trace_id; }
+        } else if (node && node.tool_id) {
+            // Shared tool (mesh/sankey) — no owning session. Pick the MOST-RECENT
+            // per-session instance of this tool so Runs opens a run that actually
+            // called it, then auto-expands the matching spans. Without this, Runs
+            // defaulted to the newest run, which often had no calls for this tool.
+            const fleet = (this.data.nodes || [])
+                .filter(x => x.kind === 'tool' && x.tool_id === node.tool_id && x.session_id_node)
+                .sort((a, b) => String(b.last_used || '').localeCompare(String(a.last_used || '')));
+            if (fleet.length) {
+                const s = (this.data.nodes || []).find(x => x.id === fleet[0].session_id_node);
+                if (s) { runtime = s.harness; trace = s.trace_id; }
+            }
         }
         const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
         this._setPending(runtime, ext ? { builtin: false, external: true } : { builtin: true, external: false });
