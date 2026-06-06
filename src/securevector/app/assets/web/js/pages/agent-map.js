@@ -100,6 +100,10 @@ const AgentMapPage = {
             .sv-node:active { cursor: grabbing; }
             .sv-node.sv-sel circle { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 3.4 !important; }
             .sv-node.sv-sel rect { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 2.5 !important; }
+            /* Visible keyboard-focus indicator (mouse focus stays clean). */
+            .sv-node:focus { outline: none; }
+            .sv-node:focus-visible circle, .sv-node:focus-visible rect { stroke: var(--accent-primary,#5eadb8) !important; stroke-width: 3 !important; }
+            .sv-node:focus-visible path.sv-gear { filter: drop-shadow(0 0 2px var(--accent-primary,#5eadb8)); }
             .sv-node-label { font: 600 10px 'Avenir Next','Avenir','Segoe UI Variable',system-ui,sans-serif;
                 letter-spacing:.2px; pointer-events:none; user-select:none; paint-order: stroke;
                 stroke: var(--bg-card,#161b22); stroke-width: 3px; }
@@ -373,8 +377,9 @@ const AgentMapPage = {
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        svg.setAttribute('role', 'img');
-        svg.setAttribute('aria-label', `Agent map (${this.topo}): ${realSessions.length} agent sessions`);
+        // role=group (not img) so the focusable node buttons are exposed to AT.
+        svg.setAttribute('role', 'group');
+        svg.setAttribute('aria-label', `Agent map (${this.topo}): ${realSessions.length} agent sessions. Tab through nodes; Enter for detail.`);
         this._svg = svg;
         const bg = document.createElementNS(SVG_NS, 'rect');
         bg.setAttribute('width', W); bg.setAttribute('height', H); bg.setAttribute('fill', 'transparent');
@@ -645,6 +650,8 @@ const AgentMapPage = {
         const g = document.createElementNS(SVG_NS, 'g');
         g.setAttribute('class', 'sv-node');
         g.setAttribute('tabindex', '0');
+        g.setAttribute('role', 'button');
+        g.setAttribute('aria-label', this._ariaLabel(n));
         g.setAttribute('transform', `translate(${n.x},${n.y})`);
 
         if (n.kind === 'device') {
@@ -751,6 +758,17 @@ const AgentMapPage = {
         return s.length > 22 ? s.slice(0, 21) + '…' : s;
     },
 
+    /** Screen-reader description of a node — nodes are focusable buttons, so
+     *  each needs a meaningful label (otherwise SRs announce just "group"). */
+    _ariaLabel(n) {
+        if (n.kind === 'device') return 'This device';
+        if (n.kind === 'harness') return `${n.label} harness, ${n.gray ? 'inactive' : 'active'}, ${n.sessions || 0} agents, ${n.calls || 0} tool calls, ${n.blocked || 0} blocked`;
+        if (n.kind === 'session') return `Agent ${n.num}, ${n.harness}, ${n.active ? 'running' : (n.idle_days || 0) + ' days inactive'}, ${n.tools || 0} tools, ${n.calls || 0} calls, ${n.blocked || 0} blocked`;
+        const fleet = (this.data.nodes || []).filter(x => x.kind === 'tool' && x.tool_id === n.tool_id);
+        const agents = new Set(fleet.map(x => x.session_id_node)).size || 1;
+        return `${this._toolLabel(n)}, ${n.ext ? 'external MCP' : 'built-in'} tool, ${n.blocked ? 'blocked' : 'allowed'}, used by ${agents} agent${agents === 1 ? '' : 's'}`;
+    },
+
     /** Sankey posture view: harness → agent → deduped shared tool, ribbon
      *  width ∝ call volume, blocked flow in red. Answers "which tools does my
      *  fleet share, and how heavily". Sets the same _lnodes/_ledges/_nodeEls/
@@ -850,6 +868,7 @@ const AgentMapPage = {
         nodes.forEach(n => {
             const g = document.createElementNS(SVG_NS, 'g');
             g.setAttribute('class', 'sv-node'); g.setAttribute('tabindex', '0');
+            g.setAttribute('role', 'button'); g.setAttribute('aria-label', this._ariaLabel(n));
             g.setAttribute('transform', `translate(${n._x},${n._y})`);
             n.x = n._x + barW / 2; n.y = n._cy; // for card/focus geometry
             const rect = document.createElementNS(SVG_NS, 'rect');
