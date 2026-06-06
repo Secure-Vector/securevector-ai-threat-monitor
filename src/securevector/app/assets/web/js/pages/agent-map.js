@@ -30,6 +30,15 @@ const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
 const GRAY = '#5b626b';           // inactive / greyed-out
 // Later of two SQLite "YYYY-MM-DD HH:MM:SS" strings (lexical compare is safe).
 const maxStr = (a, b) => (!a ? b : (!b ? a : (a >= b ? a : b)));
+// Mix a #rrggbb toward white (amt>0) or black (amt<0) — for gradient stops.
+const shade = (hex, amt) => {
+    const n = parseInt(String(hex).slice(1), 16);
+    if (isNaN(n)) return hex;
+    let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const t = amt < 0 ? 0 : 255, p = Math.abs(amt);
+    r = Math.round(r + (t - r) * p); g = Math.round(g + (t - g) * p); b = Math.round(b + (t - b) * p);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+};
 
 const GEAR_PATH = 'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z';
 const LOCK_PATH = 'M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 0 1 6 0z';
@@ -300,6 +309,31 @@ const AgentMapPage = {
         });
     },
 
+    /** One vertical LIGHT→DARK gradient per harness colour (bright at the top,
+     *  base in the middle, deeper at the bottom) — fills harness + agent nodes
+     *  so they read like glossy 3D chips rather than flat discs. Tools stay flat. */
+    _buildGradients(svg) {
+        const defs = document.createElementNS(SVG_NS, 'defs');
+        this._gradFill = {};
+        const colors = [...new Set(Object.values(this._harnessColor || {}))];
+        colors.forEach(col => {
+            const id = 'svgrad-' + String(col).replace('#', '');
+            const lg = document.createElementNS(SVG_NS, 'linearGradient');
+            lg.setAttribute('id', id);
+            lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0');
+            lg.setAttribute('x2', '0'); lg.setAttribute('y2', '1'); // top → bottom
+            [['0%', shade(col, 0.48)], ['50%', col], ['100%', shade(col, -0.34)]].forEach(([o, c]) => {
+                const st = document.createElementNS(SVG_NS, 'stop');
+                st.setAttribute('offset', o); st.setAttribute('stop-color', c);
+                lg.appendChild(st);
+            });
+            defs.appendChild(lg);
+            this._gradFill[col] = `url(#${id})`;
+        });
+        svg.appendChild(defs);
+    },
+    _fillFor(col) { return (this._gradFill && this._gradFill[col]) || col; },
+
     // ---------------- model preparation (device hub + inactive filter) -------
 
     /** Build the render model from the raw 3-layer payload: synthesize the
@@ -444,6 +478,7 @@ const AgentMapPage = {
         svg.setAttribute('role', 'group');
         svg.setAttribute('aria-label', `Agent map (${this.topo}): ${realSessions.length} agent sessions. Tab through nodes; Enter for detail.`);
         this._svg = svg;
+        this._buildGradients(svg);
         const bg = document.createElementNS(SVG_NS, 'rect');
         bg.setAttribute('width', W); bg.setAttribute('height', H); bg.setAttribute('fill', 'transparent');
         svg.appendChild(bg);
@@ -738,7 +773,7 @@ const AgentMapPage = {
         } else if (n.kind === 'harness') {
             const r = n.gray ? 13 : 16;
             const c = document.createElementNS(SVG_NS, 'circle');
-            c.setAttribute('r', r); c.setAttribute('fill', n.gray ? '#22272e' : n.col);
+            c.setAttribute('r', r); c.setAttribute('fill', n.gray ? '#22272e' : this._fillFor(n.col));
             c.setAttribute('stroke', 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', 3);
             if (n.gray) c.setAttribute('fill-opacity', 0.6);
             g.appendChild(c);
@@ -756,7 +791,7 @@ const AgentMapPage = {
             }
         } else if (n.kind === 'session') {
             const c = document.createElementNS(SVG_NS, 'circle');
-            c.setAttribute('r', 10); c.setAttribute('fill', n.gray ? '#2b3038' : n.col);
+            c.setAttribute('r', 10); c.setAttribute('fill', n.gray ? '#2b3038' : this._fillFor(n.col));
             // Always wear the dark card-coloured halo; the risk colour goes on a
             // SEPARATE outer ring (below) so it reads even when the harness fill
             // is the same hue (e.g. openclaw red + blocked red).
@@ -968,8 +1003,8 @@ const AgentMapPage = {
             n.x = n._x + barW / 2; n.y = n._cy; // for card/focus geometry
             const rect = document.createElementNS(SVG_NS, 'rect');
             rect.setAttribute('width', barW); rect.setAttribute('height', n._h); rect.setAttribute('rx', 2.5);
-            const fill = n.kind === 'harness' ? (n.gray ? GRAY : n.col)
-                : n.kind === 'session' ? (n.gray ? GRAY : (n.col || n.baseCol))
+            const fill = n.kind === 'harness' ? (n.gray ? GRAY : this._fillFor(n.col))
+                : n.kind === 'session' ? (n.gray ? GRAY : this._fillFor(n.col || n.baseCol))
                     : (n.blocked ? OUTCOME_COLOR.blocked : (n.ext ? TOOL_FILL_EXT : TOOL_FILL));
             rect.setAttribute('fill', fill);
             rect.setAttribute('stroke', 'var(--bg-card,#161b22)'); rect.setAttribute('stroke-width', 1);
