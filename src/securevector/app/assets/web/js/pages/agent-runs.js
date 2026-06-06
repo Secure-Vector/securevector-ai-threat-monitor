@@ -32,6 +32,9 @@ const AgentRunsPage = {
     _pendingRuntime: null, // one-shot runtime filter handed off by the Map; consumed on render
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
+    toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
+    _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
+    outcomeFilter: 'all',  // span verdict filter: all | allow | blocked | log_only | threat | secret
 
     async render(container) {
         container.textContent = '';
@@ -42,6 +45,11 @@ const AgentRunsPage = {
         this.runtimeFilter = this._pendingRuntime || null;
         this._pendingRuntime = null;
         if (this._pendingKinds) { this.kinds = this._pendingKinds; this._pendingKinds = null; }
+        // Tool-node drill → scope the run's spans to that one tool (one-shot, so
+        // a plain tab nav clears it). Resets the verdict filter to "all" so the
+        // tool's own outcomes (allow AND block) all show.
+        if (this._pendingTool) { this.toolFilter = this._pendingTool; this._pendingTool = null; this.outcomeFilter = 'all'; }
+        else { this.toolFilter = null; }
         if (window.Header) {
             Header.setPageInfo('Agent Runs', 'Per-run trace — every tool call, turn by turn, with the tool permission applied to it. Click a step to expand its details.');
         }
@@ -94,6 +102,11 @@ const AgentRunsPage = {
             .ar-det-head { display:flex; align-items:center; gap:10px; margin-bottom:3px; }
             .ar-det-title { font:700 16px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); letter-spacing:.2px; }
             .ar-det-sub { font-size:12px; color:var(--text-secondary,#b1bac4); margin-bottom:20px; }
+            .ar-sid { display:inline-flex; align-items:center; gap:6px; margin-top:6px; }
+            .ar-sid code { font:600 11px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3); user-select:all; }
+            .ar-copy { border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4);
+                border-radius:6px; padding:2px 7px; font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
+            .ar-copy:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
             /* Waterfall spine — gradient rail, glowing verdict dots. */
             .ar-span { position:relative; padding:0 0 20px 30px; }
             .ar-span::before { content:''; position:absolute; left:7px; top:16px; bottom:-3px; width:2px;
@@ -209,11 +222,49 @@ const AgentRunsPage = {
         kgrp.appendChild(kwrap);
         bar.appendChild(kgrp);
 
+        // Verdict filter — show only allowed / blocked / log-only / threat /
+        // secret-touching spans. Matches the Map's Outcome filter so a tool-node
+        // drill that lands here can be narrowed the same way.
+        const ogrp = document.createElement('div');
+        ogrp.className = 'filter-group';
+        const olbl = document.createElement('label');
+        olbl.textContent = 'Outcome';
+        ogrp.appendChild(olbl);
+        const osel = document.createElement('select');
+        osel.className = 'filter-select';
+        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Log-only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = t;
+            if (v === this.outcomeFilter) o.selected = true;
+            osel.appendChild(o);
+        });
+        osel.addEventListener('change', () => { this.outcomeFilter = osel.value; if (this._trace) this.renderWaterfall(this._trace); });
+        ogrp.appendChild(osel);
+        bar.appendChild(ogrp);
+        this._outcomeSel = osel;
+
         const exp = ObsTabs.exportMenu([
             { label: 'CSV', onClick: () => this._exportCSV() },
             { label: 'PDF', onClick: () => this._exportPDF() },
         ]);
         bar.appendChild(exp);
+    },
+
+    /** Does a span match the active Outcome (verdict) filter? */
+    _outcomeMatch(s) {
+        const f = this.outcomeFilter || 'all';
+        if (f === 'all') return true;
+        const act = s.action || s.outcome;
+        if (f === 'allow') return s.outcome === 'allow' || act === 'allow';
+        if (f === 'blocked') return s.outcome === 'blocked' || act === 'block';
+        if (f === 'log_only') return s.outcome === 'log_only' || act === 'log_only';
+        if (f === 'secret') return this._isSecret(s);
+        if (f === 'threat') return s.outcome === 'blocked' || act === 'block' || this._isSecret(s)
+            || ['delete', 'admin', 'write'].includes(String(s.risk || '').toLowerCase());
+        return true;
+    },
+    _isSecret(s) {
+        return /credential|secret|api[_ ]?key|token|password|exfil|pii/.test(String(s.reason || '').toLowerCase());
     },
 
     _exportCols() {
@@ -299,6 +350,15 @@ const AgentRunsPage = {
             chip.addEventListener('click', () => this.clearRuntimeFilter());
             list.appendChild(chip);
         }
+        if (this.toolFilter) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'ar-filter-chip';
+            chip.title = 'Clear tool filter';
+            chip.innerHTML = `Tool <b>${this._esc(String(this.toolFilter).split(':').pop())}</b><span class="ar-chip-x">×</span>`;
+            chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._trace) this.renderWaterfall(this._trace); });
+            list.appendChild(chip);
+        }
         const shown = this._filteredRuns();
         if (!shown.length) {
             const msg = document.createElement('div');
@@ -352,25 +412,42 @@ const AgentRunsPage = {
 
         const allSpans = trace.spans || [];
         const extCount = allSpans.filter(s => ObsTabs.isExternalTool(s.tool_id)).length;
+        const run = (this.runs || []).find(r => r.trace_id === trace.trace_id) || {};
+        const sid = String(run.session_id || trace.trace_id || '');
         const sub = document.createElement('div');
         sub.className = 'ar-det-sub';
         sub.innerHTML = `<span class="ar-num">${trace.span_count}</span> spans · ` +
             `<span class="ar-num">${allSpans.length - extCount}</span> built-in · ` +
             `<span class="ar-num">${extCount}</span> external · ` +
             (trace.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${trace.blocked}</span> blocked</span> · ` : '') +
-            `run ${String(trace.trace_id).slice(0, 12)}…`;
+            `run ${this._esc(String(trace.trace_id).slice(0, 12))}…` +
+            (sid ? `<br><span class="ar-sid">session <code>${this._esc(sid)}</code><button class="ar-copy" data-copy="${this._esc(sid)}" title="Copy session id">copy</button></span>` : '');
         detail.appendChild(sub);
+        const cp = sub.querySelector('.ar-copy');
+        if (cp) cp.onclick = () => {
+            const txt = cp.dataset.copy, done = () => { cp.textContent = 'copied'; setTimeout(() => { cp.textContent = 'copy'; }, 1200); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => {});
+            else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { } document.body.removeChild(ta); }
+        };
 
         // Apply the built-in / external checkbox filter, then show NEWEST first
         // (the API returns spans oldest→newest by seq; reverse for display so
         // the most recent step is at the top of every trace). .filter() already
         // returns a fresh array, so .reverse() doesn't mutate trace.spans.
         const spans = allSpans
-            .filter(s => ObsTabs.isExternalTool(s.tool_id) ? this.kinds.external : this.kinds.builtin)
+            .filter(s => (ObsTabs.isExternalTool(s.tool_id) ? this.kinds.external : this.kinds.builtin)
+                && (!this.toolFilter || s.tool_id === this.toolFilter)
+                && this._outcomeMatch(s))
             .reverse();
 
         if (!spans.length) {
             const none = !this.kinds.builtin && !this.kinds.external;
+            if (this.toolFilter || this.outcomeFilter !== 'all') {
+                const what = [this.toolFilter ? this._esc(String(this.toolFilter).split(':').pop()) : '',
+                this.outcomeFilter !== 'all' ? this.outcomeFilter.replace('_', '-') : ''].filter(Boolean).join(' · ');
+                this._detailEmpty(`No ${what} calls in this run.`, 'Clear the Tool/Outcome filter to see the full trace.');
+                return;
+            }
             const msg = none ? 'No tool kind selected.'
                 : !this.kinds.builtin ? 'No external MCP calls in this run.'
                     : 'No built-in tool calls in this run.';

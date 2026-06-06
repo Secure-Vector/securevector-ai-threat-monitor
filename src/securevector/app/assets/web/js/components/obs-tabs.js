@@ -117,7 +117,12 @@ const ObsTabs = {
             /* Push the whole filter+export cluster to the far right edge, well
                clear of the tabs (margin-left:auto on the toolbar itself). */
             .obs-header .filters-bar { margin:0 0 0 auto; padding:0; border:0; background:none;
-                display:flex; align-items:center; gap:12px 14px; flex-wrap:wrap; }
+                display:flex; align-items:flex-end; gap:12px 14px; flex-wrap:wrap; }
+            /* Keep every filter group the same height so their controls sit on a
+               single bottom line (short ones like a lone checkbox don't float). */
+            .obs-header .filter-group { min-height:40px; justify-content:flex-end; }
+            .obs-header .filter-group > .sv-check, .obs-header .filter-group > .ar-kind-checks,
+            .obs-header .filter-group > .sv-kind-checks { min-height:34px; align-items:center; }
             .sv-obs-tabs { display:inline-flex; gap:4px; padding:4px; border-radius:11px;
                 background:var(--bg-tertiary,#21262d); border:1px solid var(--border-default,#30363d);
                 margin-bottom:14px; box-shadow:var(--shadow-sm,0 1px 2px rgba(0,0,0,.2)) inset; }

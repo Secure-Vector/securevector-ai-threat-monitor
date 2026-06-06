@@ -61,7 +61,7 @@ const AgentMapPage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Agent Map', 'Live map of harness → agent → tool — pick a topology, click any node to drill in');
+            Header.setPageInfo('Agent Map', 'Live map of harness → agent → tool. Blocked calls pop red, secret-touching agents wear a lock — pick a topology, click any node to drill in.');
         }
         this._injectStyle();
 
@@ -334,11 +334,14 @@ const AgentMapPage = {
             edges.push({ source: 'device', target: h.id, tier: 'device-harness', col: gray ? GRAY : col, op: gray ? 0.22 : 0.5, w: 1.4, flow: false });
         });
 
+        // Which sessions touched a secret? (any of their tools tripped the
+        // secret heuristic) — so the map can flag "this agent detected a leak".
+        const secretSessions = new Set(tools.filter(t => t.touched_secrets).map(t => t.session_id_node));
         sessions.forEach(s => {
             if (!visSession[s.id]) return;
             const col = this._harnessColor[s.harness_id] || HARNESS_PALETTE[0];
             const gray = !s.active;
-            nodes.push(Object.assign({}, s, { col: gray ? GRAY : col, baseCol: col, gray }));
+            nodes.push(Object.assign({}, s, { col: gray ? GRAY : col, baseCol: col, gray, secret: secretSessions.has(s.id) }));
         });
 
         tools.forEach(t => {
@@ -751,8 +754,18 @@ const AgentMapPage = {
         } else if (n.kind === 'session') {
             const c = document.createElementNS(SVG_NS, 'circle');
             c.setAttribute('r', 10); c.setAttribute('fill', n.gray ? '#2b3038' : n.col);
-            c.setAttribute('stroke', 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', 2.5);
+            // Risk ring so an agent that hit a block / secret / high-risk tool
+            // stands out: red = blocked, amber = secret-touch or high-risk.
+            const ring = n.gray ? null : ((n.blocked || 0) > 0 ? OUTCOME_COLOR.blocked : (n.secret || n.risk === 'amber') ? '#f59e0b' : n.risk === 'red' ? OUTCOME_COLOR.blocked : null);
+            c.setAttribute('stroke', ring || 'var(--bg-card,#161b22)'); c.setAttribute('stroke-width', ring ? 3 : 2.5);
             g.appendChild(c);
+            if (n.secret && !n.gray) {
+                const lock = document.createElementNS(SVG_NS, 'path');
+                lock.setAttribute('d', LOCK_PATH); lock.setAttribute('fill', '#f59e0b');
+                lock.style.stroke = 'var(--bg-card,#161b22)'; lock.setAttribute('stroke-width', 2.5);
+                lock.setAttribute('paint-order', 'stroke'); lock.setAttribute('pointer-events', 'none');
+                lock.setAttribute('transform', 'translate(6,-16) scale(0.5)'); g.appendChild(lock);
+            }
             const num = document.createElementNS(SVG_NS, 'text');
             num.setAttribute('text-anchor', 'middle'); num.setAttribute('y', 3);
             num.setAttribute('font-size', 8); num.setAttribute('font-weight', 700);
@@ -1050,6 +1063,7 @@ const AgentMapPage = {
                 : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
             rows = kv('Status', sstatus) + kv('Last call', this._relTime(n.last_used))
                 + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
+                + (n.secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (fullSid ? `<span>Session</span><span class="sv-sid"><code>${this._esc(fullSid)}</code><button class="sv-copy" data-copy="${this._esc(fullSid)}" title="Copy session id">copy</button></span>` : '');
             openLbl = '▸ Open this agent’s run'; openFn = () => this._openAgent(n);
         } else { // tool
@@ -1335,7 +1349,8 @@ const AgentMapPage = {
         if (!window.AgentRunsPage) return;
         AgentRunsPage._pendingRuntime = runtime || null;
         AgentRunsPage._pendingKinds = kinds || { builtin: true, external: true };
-        AgentRunsPage._pendingTrace = null; // cleared unless an agent drill sets it
+        AgentRunsPage._pendingTrace = null; // cleared unless an agent/tool drill sets it
+        AgentRunsPage._pendingTool = null;  // cleared unless a tool drill sets it
     },
     _openRuns() { this._setPending(null, null); this._navRuns(); },              // device → all runs
     _openHarness(node) { this._setPending(node && node.label, null); this._navRuns(); },
@@ -1348,17 +1363,22 @@ const AgentMapPage = {
         this._navRuns();
     },
     _openTool(node) {
-        // Scope to the tool's OWNING runtime when it's a per-session tool node
-        // (radial/tree): clicking claude-code's Bash → claude-code runs. Shared
-        // tools (mesh/sankey) span runtimes, so no runtime filter — just the
-        // built-in/external kind.
-        let runtime = null;
+        // Open the EXACT run this tool node belongs to (radial/tree per-session)
+        // and FILTER the spans to this tool, so clicking claude-code's "Read"
+        // (allow) shows Read's calls — not every built-in span of the run. Shared
+        // tools (mesh/sankey) span runtimes, so no run/runtime, just the tool +
+        // kind filter.
+        let runtime = null, trace = null;
         if (node && node.session_id_node) {
             const s = (this.data.nodes || []).find(x => x.id === node.session_id_node);
-            runtime = s ? s.harness : null;
+            if (s) { runtime = s.harness; trace = s.trace_id; }
         }
         const ext = !!(node && ObsTabs.isExternalTool(node.tool_id));
         this._setPending(runtime, ext ? { builtin: false, external: true } : { builtin: true, external: false });
+        if (window.AgentRunsPage) {
+            AgentRunsPage._pendingTool = (node && node.tool_id) || null;
+            if (trace) AgentRunsPage._pendingTrace = trace;
+        }
         this._navRuns();
     },
 };
