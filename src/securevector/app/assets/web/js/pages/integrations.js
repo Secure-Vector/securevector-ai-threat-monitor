@@ -1143,7 +1143,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.2)';
+        featuresLabel.textContent = 'Capabilities (v4.5)';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -1514,7 +1514,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.4)';
+        featuresLabel.textContent = 'Capabilities (v4.5)';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
