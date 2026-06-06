@@ -145,6 +145,14 @@ const AgentMapPage = {
             #agent-map-card .sv-sid code { font:600 10.5px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3); word-break:break-all; user-select:all; line-height:1.3; }
             #agent-map-card .sv-copy { flex:0 0 auto; border:1px solid var(--border-default,#30363d); background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4); border-radius:6px; padding:2px 7px; font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; cursor:pointer; }
             #agent-map-card .sv-copy:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
+            #agent-map-tip { position:absolute; z-index:11; pointer-events:none; max-width:260px; padding:6px 9px;
+                border:1px solid var(--border-default,#30363d); border-radius:8px; background:rgba(22,27,34,.98);
+                -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); box-shadow:0 6px 20px rgba(0,0,0,.45);
+                opacity:0; transition:opacity .08s; font:12px 'Avenir Next',Avenir,system-ui,sans-serif; }
+            #agent-map-tip.show { opacity:1; }
+            #agent-map-tip b { display:block; font-weight:700; font-size:12.5px; color:var(--text-primary,#e6edf3); }
+            #agent-map-tip span { display:block; font-size:11px; color:var(--text-secondary,#b1bac4); margin-top:2px; }
+            #agent-map-tip span .blk { color:var(--danger,#ef4444); font-weight:600; }
             #agent-map-stats { position:absolute; top:12px; left:14px; z-index:4; display:flex; align-items:center;
                 gap:12px; flex-wrap:wrap; max-width:54%; padding:7px 13px; border-radius:11px;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 78%, transparent);
@@ -487,6 +495,10 @@ const AgentMapPage = {
         card.id = 'agent-map-card';
         body.appendChild(card);
         this._card = card;
+        const tip = document.createElement('div');
+        tip.id = 'agent-map-tip';
+        body.appendChild(tip);
+        this._tip = tip;
         this._body = body;
 
         this._renderStats();
@@ -801,6 +813,7 @@ const AgentMapPage = {
         }
 
         this._wireNodeDrag(g, n);
+        this._wireHover(g, n);
         vp.appendChild(g);
         this._nodeEls[n.id] = { g, node: n };
     },
@@ -943,6 +956,7 @@ const AgentMapPage = {
             lab.textContent = n.kind === 'tool' ? this._toolLabel(n) : (n.kind === 'harness' ? n.label : (n.label || ('agent #' + n.num)));
             g.appendChild(lab);
             this._wireSankeyClick(g, n);
+            this._wireHover(g, n);
             vp.appendChild(g);
             this._nodeEls[n.id] = { g, node: n };
         });
@@ -966,6 +980,38 @@ const AgentMapPage = {
         });
         g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.selectNode(node, g); } });
     },
+
+    // ---------------- hover tooltip (quick scan, no focus change) ----------------
+
+    _tipHtml(n) {
+        const e = (s) => this._esc(s);
+        const blk = (b) => b ? ` · <span class="blk">${b} blocked</span>` : '';
+        if (n.kind === 'device') return `<b>this device</b>`;
+        if (n.kind === 'harness') return `<b>${e(n.label)}</b><span>${n.gray ? 'inactive' : 'active'} · ${n.sessions || 0} agents · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
+        if (n.kind === 'session') return `<b>agent #${n.num} · ${e(n.harness)}</b><span>${n.active ? 'running' : (n.idle_days || 0) + 'd inactive'} · ${n.calls || 0} calls${blk(n.blocked)}</span>`;
+        // tool — full (untruncated) name + kind + volume, the value hover adds
+        // over the rotated/clipped tree labels
+        const owner = n.session_id_node ? (() => { const so = (this.data.nodes || []).find(x => x.id === n.session_id_node); return so ? ` · ${e(so.harness)} #${so.num}` : ''; })() : '';
+        const full = ObsTabs.isExternalTool(n.tool_id) ? String(n.tool_id).split(':').pop() : (n.label || '');
+        return `<b>${e(full)}</b><span>${n.ext ? 'external MCP' : 'built-in'}${n.blocked ? ' · <span class="blk">blocked</span>' : ''} · ${n.calls || 0} calls${owner}</span>`;
+    },
+
+    _wireHover(g, n) {
+        g.addEventListener('mouseenter', (ev) => { if (!this._tip) return; this._tip.innerHTML = this._tipHtml(n); this._tip.classList.add('show'); this._moveTip(ev); });
+        g.addEventListener('mousemove', (ev) => this._moveTip(ev));
+        g.addEventListener('mouseleave', () => this._hideTip());
+    },
+    _moveTip(ev) {
+        if (!this._tip || !this._body) return;
+        const rect = this._body.getBoundingClientRect();
+        const tw = this._tip.offsetWidth || 180, th = this._tip.offsetHeight || 40;
+        let x = ev.clientX - rect.left + 14, y = ev.clientY - rect.top + 14;
+        if (x + tw > rect.width) x = ev.clientX - rect.left - tw - 14;
+        if (y + th > rect.height) y = rect.height - th - 8;
+        this._tip.style.left = Math.max(6, x) + 'px';
+        this._tip.style.top = Math.max(6, y) + 'px';
+    },
+    _hideTip() { if (this._tip) this._tip.classList.remove('show'); },
 
     // ---------------- detail card (click any node) ----------------
 
@@ -1153,6 +1199,7 @@ const AgentMapPage = {
         let dragging = false, moved = false, start = null;
         g.addEventListener('pointerdown', (ev) => {
             ev.stopPropagation(); dragging = true; moved = false;
+            this._hideTip();
             start = this._clientToVb(ev); g.setPointerCapture(ev.pointerId);
         });
         g.addEventListener('pointermove', (ev) => {
