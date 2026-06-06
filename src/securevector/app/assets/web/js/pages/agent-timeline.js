@@ -11,9 +11,11 @@
  * SVG icons (no emoji), themed via the app's CSS variables (dark + light).
  */
 
+// Keep in sync with agent-map.js HARNESS_FIXED / agent-runs.js RUNTIME_COLOR
+// so a harness reads the same colour across Map, Runs and Timeline.
 const TL_RUNTIME_COLOR = {
-    'claude-code': '#5eadb8', codex: '#8b5cf6', openclaw: '#6366f1',
-    langchain: '#3b82f6', langgraph: '#06b6d4', crewai: '#0d9488',
+    'claude-code': '#fba35a', codex: '#3b82f6', openclaw: '#ef4444',
+    langchain: '#06b6d4', langgraph: '#0ea5e9', crewai: '#0d9488',
 };
 const TL_OUTCOME = {
     block: { color: '#ef4444', label: 'BLOCKED' },
