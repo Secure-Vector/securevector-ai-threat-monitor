@@ -106,6 +106,18 @@ const Sidebar = {
         // expanded rail comes up at the right size on first paint.
         this._applySavedSidebarWidth();
 
+        // Clean default on every app load: only "Agent Activity" opens
+        // automatically. Integrations + Guide always start collapsed even if
+        // the user expanded them in a prior session (navigating into a
+        // sub-item persists `nav-<id>-expanded=true`, which otherwise leaks
+        // an expanded section onto the next launch). Run once per page load —
+        // guarded so mid-session re-renders (e.g. theme toggle) don't fight a
+        // section the user just opened.
+        if (!Sidebar._loadDefaultsApplied) {
+            Sidebar._loadDefaultsApplied = true;
+            ['integrations', 'guide'].forEach(id => localStorage.removeItem(`nav-${id}-expanded`));
+        }
+
         // Clear container
         container.textContent = '';
 

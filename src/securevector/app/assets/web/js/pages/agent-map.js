@@ -262,9 +262,14 @@ const AgentMapPage = {
         tgrp.appendChild(seg);
         bar.appendChild(tgrp);
 
-        // Show inactive sessions toggle (off by default).
+        // Show inactive sessions toggle (off by default). Built here but
+        // appended LAST, after the labelled dropdowns — a bare checkbox wedged
+        // between two label-on-top groups (View | ☐ | Outcome) leaves a gap
+        // where its missing label would sit and reads as misaligned. Grouping
+        // the two label-less controls (this + Export) at the right edge keeps
+        // the toolbar visually balanced.
         const igrp = document.createElement('div');
-        igrp.className = 'filter-group';
+        igrp.className = 'filter-group sv-nolabel';
         const ilab = document.createElement('label');
         ilab.className = 'sv-check';
         const cb = document.createElement('input');
@@ -275,7 +280,6 @@ const AgentMapPage = {
         itxt.textContent = 'Show inactive';
         ilab.appendChild(cb); ilab.appendChild(itxt);
         igrp.appendChild(ilab);
-        bar.appendChild(igrp);
 
         // Outcome filter — highlight only allowed / blocked / log-only / threat
         // tool calls (dims the rest). The enforcement verdict is the thing a
@@ -296,6 +300,9 @@ const AgentMapPage = {
         osel.addEventListener('change', () => { this.outcomeFilter = osel.value; this._closeCard(); });
         ogrp.appendChild(osel);
         bar.appendChild(ogrp);
+
+        // Label-less controls grouped together at the right edge.
+        bar.appendChild(igrp);
 
         const exp = ObsTabs.exportMenu([
             { label: 'CSV (connections)', onClick: () => this._exportCSV() },
