@@ -20,9 +20,11 @@ const RISK_COLOR = { red: '#ef4444', amber: '#f59e0b', green: '#10b981' };
 const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981' };
 // Per-harness fills from the SecureVector brand (cool teal/blue/indigo family);
 // reds/ambers/greens stay reserved for risk semantics.
-// Cool teal/blue/cyan family (no purple/indigo) so harnesses are tellable
-// apart while reds/ambers/greens stay reserved for risk semantics.
-const HARNESS_PALETTE = ['#5eadb8', '#3b82f6', '#06b6d4', '#0ea5e9', '#0d9488', '#38bdf8', '#1d4ed8', '#155e75'];
+// Fixed brand colours for the known harnesses (user choice): claude-code
+// orange, codex blue, openclaw red. Other/unknown harnesses fall back to the
+// cool palette below.
+const HARNESS_FIXED = { 'claude-code': '#f97316', 'codex': '#3b82f6', 'openclaw': '#ef4444' };
+const HARNESS_PALETTE = ['#5eadb8', '#06b6d4', '#0ea5e9', '#0d9488', '#38bdf8', '#1d4ed8', '#155e75', '#8b5cf6'];
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
 const GRAY = '#5b626b';           // inactive / greyed-out
@@ -293,7 +295,7 @@ const AgentMapPage = {
         let i = 0;
         this._harnessColor = {};
         (this.data.nodes || []).filter(n => n.kind === 'harness').forEach(n => {
-            this._harnessColor[n.id] = HARNESS_PALETTE[i % HARNESS_PALETTE.length];
+            this._harnessColor[n.id] = HARNESS_FIXED[n.label] || HARNESS_PALETTE[i % HARNESS_PALETTE.length];
             i += 1;
         });
     },
