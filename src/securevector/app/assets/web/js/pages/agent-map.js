@@ -23,7 +23,7 @@ const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981
 // Fixed brand colours for the known harnesses (user choice): claude-code
 // orange, codex blue, openclaw red. Other/unknown harnesses fall back to the
 // cool palette below.
-const HARNESS_FIXED = { 'claude-code': '#f97316', 'codex': '#3b82f6', 'openclaw': '#ef4444' };
+const HARNESS_FIXED = { 'claude-code': '#fba35a', 'codex': '#3b82f6', 'openclaw': '#ef4444' };
 const HARNESS_PALETTE = ['#5eadb8', '#06b6d4', '#0ea5e9', '#0d9488', '#38bdf8', '#1d4ed8', '#155e75', '#8b5cf6'];
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
@@ -322,7 +322,8 @@ const AgentMapPage = {
             lg.setAttribute('id', id);
             lg.setAttribute('x1', '0'); lg.setAttribute('y1', '0');
             lg.setAttribute('x2', '0'); lg.setAttribute('y2', '1'); // top → bottom
-            [['0%', shade(col, 0.48)], ['50%', col], ['100%', shade(col, -0.34)]].forEach(([o, c]) => {
+            // gentle, matte gradient (small light/dark range) — not glossy
+            [['0%', shade(col, 0.20)], ['55%', col], ['100%', shade(col, -0.14)]].forEach(([o, c]) => {
                 const st = document.createElementNS(SVG_NS, 'stop');
                 st.setAttribute('offset', o); st.setAttribute('stop-color', c);
                 lg.appendChild(st);
