@@ -1328,13 +1328,16 @@ const AgentMapPage = {
     _renderLegend() {
         const el = document.getElementById('agent-map-legend');
         if (!el) return;
+        // Legend must match what's actually drawn: edges/flow are neutral slate
+        // (blocked = red), and node colour = harness identity.
+        const harnessDot = Object.values(this._harnessColor || {})[0] || HARNESS_PALETTE[0];
         const flow = this.topo === 'sankey'
-            ? `<span><i style="border-color:${OUTCOME_COLOR.allow};opacity:.6;border-top-width:6px"></i>ribbon width = call volume</span>`
-            : `<span><i style="border-color:${OUTCOME_COLOR.allow};opacity:.6"></i>allowed</span>` +
+            ? `<span><i style="border-color:${EDGE_NEUTRAL};border-top-width:6px"></i>ribbon width = call volume</span>`
+            : `<span><i style="border-color:${EDGE_NEUTRAL}"></i>tool call</span>` +
               `<span><i style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked</span>`;
         el.innerHTML = flow +
             `<span class="lg-sep"></span>` +
-            `<span><i class="lg-dot" style="background:${HARNESS_PALETTE[0]}"></i>harness / agent</span>` +
+            `<span><i class="lg-dot" style="background:${harnessDot}"></i>harness / agent</span>` +
             `<span><i class="lg-dot" style="background:${TOOL_FILL}"></i>built-in tool</span>` +
             `<span>${ICON.gear(TOOL_FILL_EXT, 14)} external / MCP</span>` +
             `<span><i class="lg-ring" style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked tool</span>` +
