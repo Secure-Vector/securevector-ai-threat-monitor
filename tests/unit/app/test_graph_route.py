@@ -214,6 +214,22 @@ def test_build_graph_3layer_marks_active_and_idle_days():
     assert harness["active"] is True
 
 
+def test_build_graph_3layer_carries_last_blocked():
+    raw = [
+        _row3("claude-code", "t1", "srv:bash", 5, blocked=2, last_blocked="2026-06-05 10:00:00"),
+        _row3("claude-code", "t2", "srv:bash", 3, blocked=1, last_blocked="2026-06-05 12:00:00"),
+        _row3("claude-code", "t1", "srv:read", 4, allowed=4),  # no block → None
+    ]
+    g = build_graph_3layer(raw, window_days=7, now=_NOW)
+    st = [e for e in g["edges"] if e["tier"] == "session-tool"]
+    assert any(e.get("last_blocked") == "2026-06-05 10:00:00" for e in st)
+    tools = {n["id"]: n for n in g["nodes"] if n["kind"] == "tool"}
+    assert tools["tool:t1:srv:bash"]["last_blocked"] == "2026-06-05 10:00:00"
+    assert tools["tool:t2:srv:bash"]["last_blocked"] == "2026-06-05 12:00:00"
+    # an allow-only tool has no block timestamp
+    assert tools["tool:t1:srv:read"]["last_blocked"] is None
+
+
 def test_build_graph_3layer_truncates_top_n(monkeypatch):
     import securevector.app.server.routes.graph as graph_mod
 

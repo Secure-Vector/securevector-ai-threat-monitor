@@ -996,6 +996,8 @@ const AgentMapPage = {
             const toolIds = new Set(fleet.map(x => x.id));
             const times = (this.data.edges || []).filter(e => toolIds.has(e.target)).map(e => e.last_used).filter(Boolean).sort();
             const lastCall = times.length ? times[times.length - 1] : null;
+            const blockedTimes = fleet.map(x => x.last_blocked).filter(Boolean).sort();
+            const lastBlocked = blockedTimes.length ? blockedTimes[blockedTimes.length - 1] : null;
             const secret = fleet.some(x => x.touched_secrets), cloud = fleet.some(x => x.cloud_managed);
             const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
             const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
@@ -1003,6 +1005,7 @@ const AgentMapPage = {
             rows = kv('Tool permission', `<span class="perm ${perm[0]}">${perm[1]}</span>`) + kv('Source', src)
                 + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'))
                 + kv('Last call', this._relTime(lastCall))
+                + (lastBlocked ? kv('Last blocked', `<span style="color:var(--danger,#ef4444);font-weight:700">${this._esc(this._relTime(lastBlocked))}</span>`) : '')
                 + (secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (cloud ? kv('Cloud-managed', 'yes') : '');
             openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);

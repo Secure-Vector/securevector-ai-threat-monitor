@@ -178,6 +178,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
         touched = bool(r.get("touched_secrets"))
         cloud_managed = r.get("synced_effect") is not None
         last_used = r.get("last_used")
+        last_blocked = r.get("last_blocked")
         risk = _edge_risk(blocked, touched, r.get("recent_risk"))
 
         harness_id = f"harness:{runtime}"
@@ -196,6 +197,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
                 "outcome": _edge_outcome(blocked, allowed, logged),
                 "risk": risk,
                 "last_used": last_used,
+                "last_blocked": last_blocked,
                 "cloud_managed": cloud_managed,
                 "touched_secrets": touched,
                 "policy_name": r.get("synced_policy_name"),
@@ -254,6 +256,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
                 "blocked": 0,
                 "cloud_managed": False,
                 "touched_secrets": False,
+                "last_blocked": None,
                 "risk": "green",
             },
         )
@@ -263,6 +266,7 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
         t["blocked"] += blocked
         t["cloud_managed"] = t["cloud_managed"] or cloud_managed
         t["touched_secrets"] = t["touched_secrets"] or touched
+        t["last_blocked"] = _max_dt(t["last_blocked"], last_blocked)
         t["risk"] = _worst(t["risk"], risk)
 
     # Finalise sessions: idle/active + per-harness "agent #N" numbering.

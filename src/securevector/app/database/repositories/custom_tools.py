@@ -78,7 +78,6 @@ async def _siem_enqueue_tool_audit(
     # as one finding rather than thousands.
     finding_group_id: Optional[str] = None
     try:
-        from datetime import datetime
         ca = str(called_at)
         hour = ca[:13] if len(ca) >= 13 else ca  # "YYYY-MM-DDTHH"
         seed = f"{tool_id}|{function_name}|{action}|{hour}".encode("utf-8")
@@ -844,6 +843,7 @@ class CustomToolsRepository:
                     SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
                     SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
                     MAX(called_at) AS last_used,
+                    MAX(CASE WHEN action='block' THEN called_at END) AS last_blocked,
                     CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
                     MAX(CASE
                         WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
@@ -913,6 +913,7 @@ class CustomToolsRepository:
                     SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
                     SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
                     MAX(called_at) AS last_used,
+                    MAX(CASE WHEN action='block' THEN called_at END) AS last_blocked,
                     CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
                     MAX(CASE
                         WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
@@ -944,6 +945,7 @@ class CustomToolsRepository:
                 e.allowed,
                 e.logged,
                 e.last_used,
+                e.last_blocked,
                 e.recent_risk,
                 e.touched_secrets,
                 s.effect AS synced_effect,
