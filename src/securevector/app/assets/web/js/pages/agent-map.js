@@ -163,6 +163,7 @@ const AgentMapPage = {
             .sv-stat b { font:600 12px ui-monospace,'JetBrains Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
             .sv-stat-sep { width:1px; height:14px; background:var(--border-default,#30363d); }
             .sv-stat.is-alert, .sv-stat.is-alert b { color:var(--danger,#ef4444); }
+            .sv-stat.is-watch, .sv-stat.is-watch b { color:var(--warning,#f59e0b); }
             #agent-map-legend { position:absolute; bottom:12px; left:14px; z-index:4; display:flex; align-items:center;
                 flex-wrap:wrap; gap:4px 0; max-width:74%; padding:7px 13px; border-radius:11px;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 80%, transparent);
@@ -1270,12 +1271,15 @@ const AgentMapPage = {
         const harnesses = (this.data.nodes || []).filter(n => n.kind === 'harness');
         const active = sessions.filter(n => n.active).length;
         const blocked = (this.data.edges || []).reduce((s, e) => s + (e.blocked || 0), 0);
+        // distinct secret-touching tools across the fleet (posture at a glance)
+        const secrets = new Set((this.data.nodes || []).filter(n => n.kind === 'tool' && n.touched_secrets).map(n => n.tool_id)).size;
         el.innerHTML =
             `<span class="sv-stat"><b>${harnesses.length}</b> harnesses</span>` +
             `<span class="sv-stat"><b>${active}</b> active agents</span>` +
             `<span class="sv-stat"><b>${sessions.length}</b> total</span>` +
             `<span class="sv-stat-sep"></span>` +
-            `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>`;
+            `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>` +
+            `<span class="sv-stat ${secrets ? 'is-watch' : ''}">${ICON.lock(secrets ? '#f59e0b' : '#64748b', 13)} <b>${secrets}</b> secret</span>`;
     },
 
     _renderLegend() {
