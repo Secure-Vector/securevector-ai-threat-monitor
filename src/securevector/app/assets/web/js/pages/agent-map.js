@@ -28,6 +28,7 @@ const HARNESS_PALETTE = ['#5eadb8', '#06b6d4', '#0ea5e9', '#0d9488', '#38bdf8', 
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear
 const GRAY = '#5b626b';           // inactive / greyed-out
+const EDGE_NEUTRAL = '#586273';   // edges/flow stay neutral slate — only NODES carry harness colour
 // Later of two SQLite "YYYY-MM-DD HH:MM:SS" strings (lexical compare is safe).
 const maxStr = (a, b) => (!a ? b : (!b ? a : (a >= b ? a : b)));
 // Mix a #rrggbb toward white (amt>0) or black (amt<0) — for gradient stops.
@@ -369,7 +370,7 @@ const AgentMapPage = {
                 col, gray, idle_days: idle,
                 reason: gray ? (idle != null ? `inactive · ${idle}d idle` : 'no recent activity') : null,
             }));
-            edges.push({ source: 'device', target: h.id, tier: 'device-harness', col: gray ? GRAY : col, op: gray ? 0.22 : 0.5, w: 1.4, flow: false });
+            edges.push({ source: 'device', target: h.id, tier: 'device-harness', col: gray ? GRAY : EDGE_NEUTRAL, op: gray ? 0.22 : 0.5, w: 1.4, flow: false });
         });
 
         // Which sessions touched a secret? (any of their tools tripped the
@@ -395,16 +396,13 @@ const AgentMapPage = {
         nodes.forEach(n => { visNode[n.id] = true; });
         rawEdges.forEach(e => {
             if (!visNode[e.source] || !visNode[e.target]) return;
-            const tgt = byId[e.target] || {};
             const srcSession = byId[e.source];
             const sgray = e.tier === 'session-tool' && srcSession && !srcSession.active;
             const blocked = e.outcome === 'blocked' && !sgray;
-            const harnessCol = e.tier === 'harness-session'
-                ? (this._harnessColor[e.source] || HARNESS_PALETTE[0])
-                : (this._harnessColor[(byId[e.source] || {}).harness_id] || HARNESS_PALETTE[0]);
-            const ext = e.tier === 'session-tool' && ObsTabs.isExternalTool(tgt.tool_id);
+            // Edges/flow stay neutral (only nodes carry harness colour); blocked
+            // edges still pop red, inactive ones dim grey.
             edges.push(Object.assign({}, e, {
-                col: blocked ? OUTCOME_COLOR.blocked : (sgray ? '#454b54' : (ext ? TOOL_FILL_EXT : harnessCol)),
+                col: blocked ? OUTCOME_COLOR.blocked : (sgray ? '#454b54' : EDGE_NEUTRAL),
                 op: sgray ? 0.15 : (blocked ? 0.7 : (e.tier === 'session-tool' ? 0.4 : 0.5)),
                 w: blocked ? 1.7 : Math.max(0.8, Math.min(1.7, Math.log2((e.calls || 1) + 1) * 0.42)),
                 flow: e.tier === 'session-tool' && !sgray,
@@ -715,7 +713,7 @@ const AgentMapPage = {
             meshEdges.push({
                 source: sid, target: 'mtool:' + t.tool_id, tier: 'session-tool',
                 calls: t.calls || 0, blocked: t.blocked, outcome: t.blocked ? 'blocked' : 'allow',
-                col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : (this._harnessColor[(this._byId[sid] || {}).harness_id] || HARNESS_PALETTE[0]))),
+                col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : EDGE_NEUTRAL),
                 op: t.gray ? 0.13 : (t.blocked ? 0.7 : 0.3),
                 w: t.blocked ? 1.7 : Math.max(0.8, Math.min(1.6, Math.log2((t.calls || 1) + 1) * 0.4)),
                 flow: !t.gray, blocked: t.blocked,
@@ -957,10 +955,9 @@ const AgentMapPage = {
 
         // Links with per-endpoint stacking offsets.
         const links = [];
-        sessions.forEach(s => { links.push({ source: s.harness_id, target: s.id, tier: 'harness-session', value: Math.max(1, s.calls || 0), calls: s.calls || 0, blocked: (s.blocked || 0) > 0, col: s.baseCol || s.col }); });
+        sessions.forEach(s => { links.push({ source: s.harness_id, target: s.id, tier: 'harness-session', value: Math.max(1, s.calls || 0), calls: s.calls || 0, blocked: (s.blocked || 0) > 0, col: EDGE_NEUTRAL }); });
         perTools.forEach(t => {
-            const hcol = this._harnessColor[(byId[t.session_id_node] || {}).harness_id] || HARNESS_PALETTE[0];
-            links.push({ source: t.session_id_node, target: 'stool:' + t.tool_id, tier: 'session-tool', outcome: t.blocked ? 'blocked' : 'allow', value: Math.max(1, t.calls || 0), calls: t.calls || 0, blocked: t.blocked, col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : (t.ext ? TOOL_FILL_EXT : hcol)) });
+            links.push({ source: t.session_id_node, target: 'stool:' + t.tool_id, tier: 'session-tool', outcome: t.blocked ? 'blocked' : 'allow', value: Math.max(1, t.calls || 0), calls: t.calls || 0, blocked: t.blocked, col: t.blocked ? OUTCOME_COLOR.blocked : (t.gray ? '#454b54' : EDGE_NEUTRAL) });
         });
         const bySrc = {}, byTgt = {};
         links.forEach(l => { (bySrc[l.source] = bySrc[l.source] || []).push(l); (byTgt[l.target] = byTgt[l.target] || []).push(l); });
