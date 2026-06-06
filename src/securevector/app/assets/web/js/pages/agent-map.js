@@ -927,9 +927,16 @@ const AgentMapPage = {
                 + (sid ? kv('Session', sid + '…') : '');
             openLbl = '▸ Open this agent’s runs'; openFn = () => this._openAgent(n);
         } else { // tool
-            const ins = this._ledges.filter(e => e.target === n.id);
-            const calls = ins.reduce((a, e) => a + (e.calls || 0), 0);
-            const agents = new Set(ins.map(e => e.source)).size;
+            // Blast radius is fleet-wide by tool_id, NOT per-node: in radial/tree
+            // the tool nodes are per-session, so an edge count would always say
+            // "1 agent". Count distinct agents + total calls for this tool across
+            // the whole fleet (the same number Mesh/Sankey collapse to).
+            const tid = n.tool_id;
+            const fleet = (this.data.nodes || []).filter(x => x.kind === 'tool' && x.tool_id === tid);
+            const calls = fleet.length ? fleet.reduce((a, x) => a + (x.calls || 0), 0)
+                : this._ledges.filter(e => e.target === n.id).reduce((a, e) => a + (e.calls || 0), 0);
+            const agents = new Set(fleet.map(x => x.session_id_node)).size
+                || new Set(this._ledges.filter(e => e.target === n.id).map(e => e.source)).size;
             const perm = n.blocked ? ['block', 'blocked'] : (n.ext ? ['log', 'log_only'] : ['allow', 'allow']);
             const src = n.blocked ? 'synced policy' : (n.ext ? 'essential default' : 'local override');
             title = this._esc(this._toolLabel(n)); typ = (n.ext ? 'External MCP tool' : 'Built-in tool') + (n.gray ? ' · inactive' : '');
