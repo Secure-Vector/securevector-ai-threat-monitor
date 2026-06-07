@@ -229,6 +229,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     mitre_attack_ids:
     - T1059
     references:
@@ -245,11 +246,29 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (cmd|powershell|bash|sh)\s*[;&|]
-  - "\\b(execute|run)\\s+(?:\\S+\\s+){0,4}command\\b"
-  - (system|exec|eval)\s*\(
-  - "\\bshell\\s+(?:\\S+\\s+){0,4}access\\b"
-  - "\\bterminal\\s+(?:\\S+\\s+){0,4}command\\b"
+  # Lookbehind excludes a preceding letter OR '.' so "sh" does not match inside
+  # "fish | source" or a script name "deploy.sh | tee" (both false positives).
+  - (?<![A-Za-z.])(?:cmd|powershell|pwsh|bash|zsh|ksh|sh)\s*[;&|]
+  # NB: natural-language patterns ("run … command", "shell … access",
+  # "terminal … command") were removed 2026-06-06 — they matched benign
+  # requests like "run the command: date" with no execution signal (top FP
+  # source for the OpenClaw plugin). Command-injection is carried by the
+  # STRUCTURAL patterns below (shell metachar chaining, pipe-to-interpreter,
+  # dangerous exec arguments), not by the English phrasing.
+  # Dynamic-exec call WITH a dangerous argument only. A bare os.system('ls') /
+  # eval('2+2') is benign and extremely common in code; the malicious signal is
+  # the ARGUMENT (destructive command, remote fetch, credential path), not the
+  # call. Matching the bare call at `critical` was the top FP source (2026-06-04).
+  - '(?<!\w)(?:os\.system|system|popen|exec|eval|subprocess\.\w+)\s*\([^)]*(?:rm\s+-rf|--no-preserve-root|mkfs|dd\s+if=|/etc/(?:passwd|shadow)|\bcurl\b|\bwget\b|\bnc\s|bash\s+-c|sh\s+-c|chmod\s+[0-7]*7{2,3}|>\s*/dev/sd|~?/?\.ssh/|\.aws/credentials|pickle\.loads|marshal\.loads|__import__|yaml\.load\b)'
+  # Decode-and-execute: piping decoded/obfuscated content straight into an
+  # interpreter (echo … | base64 -d | bash). The pipe-to-interpreter is the
+  # malicious signal; a bare base64 blob on its own is intentionally not flagged.
+  - '(?i)(?:base64\s+(?:-d|-D|--decode)|xxd\s+-r|openssl\s+enc\s+-d|gunzip)\s*\|\s*(?:bash|sh|zsh|python[23]?|perl|node|ruby)\b'
+  # Remote-fetch piped straight to an interpreter (curl … | sh) — a classic
+  # one-line drive-by install/exec. Requires the pipe-to-shell, not a bare curl.
+  # Restricted to SHELLS only — "curl … | python -m json.tool" pretty-prints
+  # JSON and is benign; piping a fetched script into a shell is the attack.
+  - '(?i)(?:curl|wget)\s+[^\n|]*\|\s*(?:bash|sh|zsh|ksh)\b'
   detection_logic: .*((cmd|powershell|bash|sh)\s*[;&|]|(execute|run).*command|(system|exec|eval)\s*\(|shell.*access|terminal.*command).*
   pattern_definitions:
     pattern_1:

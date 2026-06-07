@@ -35,7 +35,11 @@ test('RUNTIME_KIND is "codex"', () => {
 
 test('THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS gates command-output tools only', () => {
   assert.ok(THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('Bash'));
-  assert.ok(THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('PowerShell'));
+  // Unlike the Claude Code plugin, Codex has no 'PowerShell' tool: the hook
+  // engine remaps exec_command / shell_command → 'Bash', so PowerShell never
+  // arrives as a tool name. Gating it would be dead config (see the set's
+  // own comment in codex/hooks/post-tool-use.js).
+  assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('PowerShell'));
   assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('WebFetch'));
   assert.ok(!THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has('Read'));
 });

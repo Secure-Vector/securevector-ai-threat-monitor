@@ -87,7 +87,7 @@ curl -s http://127.0.0.1:8741/api/hooks/claude-code/status | python3 -m json.too
 # Expected:
 #   "installed": true
 #   "enabled": true
-#   "claude_install_path": ".../securevector-guard/4.4.0"
+#   "claude_install_path": ".../securevector-guard/4.5.0"
 #   "files_present": [..11 entries..]
 
 # 2. In your Claude Code session, run any Bash command. Then read the audit row:

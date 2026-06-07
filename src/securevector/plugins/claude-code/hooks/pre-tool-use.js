@@ -59,16 +59,22 @@ function decideFromOverrides(candidates, overrides) {
     return ALLOW;
   }
 
+  // Case-insensitive index. Cloud-pushed and local-UI rules may store
+  // `tool_id` in any casing (e.g. lowercase `read`) while normalize()
+  // emits canonical PascalCase built-ins (`Read`). Keying by lowercase
+  // stops a deny rule from silently failing open on a casing mismatch.
+  // First-seen-wins is preserved per lowercased key.
   const byToolId = new Map();
   for (const row of overrides.synced) {
-    if (row && typeof row.tool_id === 'string' && !byToolId.has(row.tool_id)) {
-      byToolId.set(row.tool_id, row);
+    if (row && typeof row.tool_id === 'string') {
+      const key = row.tool_id.toLowerCase();
+      if (!byToolId.has(key)) byToolId.set(key, row);
     }
   }
 
   // Candidates are ordered most-specific-first (prefixed before bare).
   for (const cand of candidates) {
-    const match = byToolId.get(cand);
+    const match = byToolId.get(cand.toLowerCase());
     if (!match) continue;
     const mapped = EFFECT_TO_DECISION[match.effect];
     if (!mapped) return ALLOW; // unknown effect → fail-open
@@ -117,7 +123,7 @@ function decisionToAuditAction(decision) {
  * post-tool-use, so block rows and allow rows look identical apart from
  * the action.
  */
-function buildAuditBody(toolName, toolId, toolInput, decision, reason) {
+function buildAuditBody(toolName, toolId, toolInput, decision, reason, sessionId) {
   let argsPreview = null;
   try {
     if (toolInput !== undefined && toolInput !== null) {
@@ -134,6 +140,7 @@ function buildAuditBody(toolName, toolId, toolInput, decision, reason) {
     is_essential: false,
     args_preview: argsPreview,
     runtime_kind: RUNTIME_KIND,
+    session_id: sessionId || null,
   };
 }
 
@@ -188,7 +195,7 @@ function toHookOutput(d) {
 async function decide(toolName, baseUrl) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
-  const overrides = await fetchSyncedOverrides(baseUrl);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
   return decideFromOverrides(candidates, overrides);
 }
 
@@ -225,9 +232,10 @@ async function main() {
   // computed above; this is purely the audit row.
   if (decision.decision === 'deny' && decision.toolId) {
     const toolInput = event && (event.tool_input || event.toolInput);
+    const sessionId = (event && (event.session_id || event.sessionId)) || null;
     postJsonAndForget(
       `${baseUrl}/api/tool-permissions/call-audit`,
-      buildAuditBody(toolName, decision.toolId, toolInput, decision.decision, decision.reason),
+      buildAuditBody(toolName, decision.toolId, toolInput, decision.decision, decision.reason, sessionId),
     );
   }
   process.stdout.write(JSON.stringify(toHookOutput(decision)));

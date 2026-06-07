@@ -97,12 +97,17 @@ function postJsonAndForget(url, body) {
  * handlers don't need to know the route. Inherits getJson's fail-open
  * contract — returns `{}` on any error and never throws.
  *
+ * Passes the caller's `runtime` so the local app drops rules scoped to a
+ * different runtime — a Codex-only Block must not reach the Claude Code hook.
+ *
  * @param {string} baseUrl  Local app base URL (e.g. http://127.0.0.1:8741).
+ * @param {string} [runtime]  This runtime's slug (e.g. "claude-code").
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<object>}  `{ synced: [...], total: N }` or `{}`.
  */
-async function fetchSyncedOverrides(baseUrl, opts = {}) {
-  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides`, opts);
+async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
+  const q = runtime ? `?runtime=${encodeURIComponent(runtime)}` : '';
+  return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
 }
 
 module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, DEFAULT_TIMEOUT_MS };

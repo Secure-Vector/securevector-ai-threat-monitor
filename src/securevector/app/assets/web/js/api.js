@@ -123,6 +123,72 @@ const API = {
         }));
     },
 
+    // active-agent-observability #143 — Agent–Tool Live Graph. Agent nodes
+    // (runtime) → tool/MCP nodes, edges colored by enforcement outcome.
+    // See routes/graph.py for the server side.
+    async getAgentToolGraph(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        const qs = q.toString();
+        return this.request(`/api/graph/agent-tool${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7,
+            node_cap: 0, truncated: false, dropped_edges: 0, nodes: [], edges: [],
+        }));
+    },
+
+    // active-agent-observability — 3-layer Agent Map. harness → agent/session →
+    // tool nodes; session nodes carry num ("agent #N"), active, idle_days. Edges
+    // tiered (harness-session / session-tool). See routes/graph.py build_graph_3layer.
+    async getAgentSessionGraph(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        const qs = q.toString();
+        return this.request(`/api/graph/agent-session${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7,
+            node_cap: 0, truncated: false, dropped_edges: 0, nodes: [], edges: [],
+        }));
+    },
+
+    // active-agent-observability #142 — Agent Run Trace. Runs (one per agent
+    // session) and the ordered enforced-tool-call spans within a run.
+    async getTraces(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        if (params.limit) q.set('limit', params.limit);
+        const qs = q.toString();
+        return this.request(`/api/traces${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7, runs: [],
+        }));
+    },
+
+    async getTrace(traceId) {
+        return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
+    },
+
+    // active-agent-observability — Timeline. Flat, newest-first feed of every
+    // enforced tool call (across all runs). Reuses the existing call-audit log.
+    async getCallAudit(params = {}) {
+        const q = new URLSearchParams();
+        q.set('limit', params.limit || 200);
+        if (params.offset) q.set('offset', params.offset);
+        if (params.action) q.set('action', params.action);
+        const qs = q.toString();
+        return this.request(`/api/tool-permissions/call-audit${qs ? '?' + qs : ''}`).catch(() => ({
+            entries: [], total: 0,
+        }));
+    },
+
+    // active-agent-observability — Timeline overview chart. Per-day verdict
+    // counts aggregated server-side over the FULL window, so the chart never
+    // under-counts blocks the way the paged feed (200 rows) would.
+    async getCallAuditActivity(params = {}) {
+        const q = new URLSearchParams();
+        q.set('window_days', params.windowDays || 7);
+        return this.request(`/api/tool-permissions/call-audit/activity?${q.toString()}`).catch(() => ({
+            window_days: params.windowDays || 7, buckets: [],
+        }));
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);
@@ -369,10 +435,13 @@ const API = {
         }));
     },
 
-    async setToolOverride(toolId, action) {
+    async setToolOverride(toolId, action, runtimeKind = null) {
+        const body = { action };
+        // null/undefined → omit (global, all runtimes); a slug scopes the rule.
+        if (runtimeKind) body.runtime_kind = runtimeKind;
         return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
             method: 'PUT',
-            body: JSON.stringify({ action }),
+            body: JSON.stringify(body),
         });
     },
 

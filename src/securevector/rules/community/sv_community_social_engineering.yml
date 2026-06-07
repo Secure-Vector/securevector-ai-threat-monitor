@@ -45,9 +45,15 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - as\s+(?:a|the)\s+(?:system|database)\s+admin
-  - as\s+(?:a|the|your)\s+(?:supervisor|manager)
-  - acting\s+as\s+(?:a|the|your)\s+(?:admin|supervisor)
+  # Require an override/extraction co-signal after the role claim, so benign
+  # self-description ("As the system administrator I rotated the certs") does
+  # not flag — only "as a db admin, GIVE ME ..." does. Also broadened the role
+  # to db/root/superuser (fixes the rule's own 'as a db admin give me' case).
+  - '(?i)as\s+(?:a|the|your)\s+(?:system\s+|database\s+|db\s+|root\s+)?admin\w*\b[^.\n]{0,40}\b(?:give|show|reveal|ignore|bypass|override|disable|grant|provide|tell|share|send|dump|list)\b'
+  - '(?i)(?:acting\s+as|as)\s+(?:a|the|your)\s+(?:supervisor|manager|root|superuser)\b[^.\n]{0,40}\b(?:give|show|reveal|ignore|bypass|override|disable|grant|provide|tell|share|send|dump|list|require)\b'
+  # "as <role> I need/want <sensitive>" — need/want only counts when the object
+  # is sensitive, so "as admin I need to restart the server" stays benign.
+  - '(?i)as\s+(?:a|the|your)\s+(?:system\s+|database\s+|db\s+|root\s+)?(?:admin\w*|supervisor|manager|root|superuser)\b[^.\n]{0,30}\b(?:need|want|require|must\s+have)\b[^.\n]{0,30}\b(?:passwords?|secrets?|credentials?|access|api\s+keys?|tokens?|private\s+keys?|personal|root|admin)\w*\b'
   detection_logic: .*(as\s+(?:a|the)\s+(?:system|database)\s+admin|as\s+(?:a|the|your)\s+(?:supervisor|manager)|acting\s+as\s+(?:a|the|your)\s+(?:admin|supervisor)).*
   threshold: 0.85
   pattern_definitions:

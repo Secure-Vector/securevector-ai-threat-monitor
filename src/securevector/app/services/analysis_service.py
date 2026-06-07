@@ -22,6 +22,116 @@ from securevector.app.database.repositories.rules import RulesRepository
 logger = logging.getLogger(__name__)
 
 
+# --- Per-rule detection confidence (issue #136) ----------------------------
+# The legacy engine stamped a flat 0.8 confidence on EVERY regex hit, so a
+# lone shape-only heuristic was indistinguishable from a rock-solid
+# `ghp_…`/`AKIA…`/PEM signature, and the `_MIN_RULE_CONFIDENCE` floor in the
+# analyze route was dead code (nothing ever scored below it). Confidence is
+# now a real per-rule value:
+#   1. An authored `metadata.confidence` (0.0–1.0) always wins — this is the
+#      precision dial tuned per rule against the precision/recall harness.
+#   2. Otherwise a severity-based default is used. Defaults are deliberately
+#      conservative (all above the 0.25 noise floor) so this change cannot
+#      regress recall on its own; the calibrated VERDICT (see the analyze
+#      route) is what gates a lone medium hit from alarming.
+_SEVERITY_CONFIDENCE_DEFAULT = {
+    "critical": 0.9,
+    "high": 0.75,
+    "medium": 0.6,
+    "low": 0.4,
+}
+
+
+def calibrate_confidence(severity: str, authored=None) -> float:
+    """Resolve a rule's detection confidence.
+
+    Authored `metadata.confidence` wins (clamped to [0, 1]); otherwise fall
+    back to a severity-based default. Kept module-level + importable so the
+    precision/recall harness and tests can assert the calibration directly.
+    """
+    if authored is not None:
+        try:
+            return max(0.0, min(1.0, float(authored)))
+        except (TypeError, ValueError):
+            logger.warning("Ignoring non-numeric rule confidence: %r", authored)
+    return _SEVERITY_CONFIDENCE_DEFAULT.get(severity, 0.6)
+
+
+# Calibrated-verdict thresholds (issue #136). A threat requires either ONE
+# high-confidence hit OR at least TWO corroborating medium-confidence hits.
+# Single source of truth: the analyze route AND the precision/recall harness
+# both call calibrated_verdict() so they can never drift apart.
+CALIBRATED_HIGH_CONFIDENCE = 0.75
+CALIBRATED_MED_CONFIDENCE = 0.6
+
+
+def calibrated_verdict(confidences) -> bool:
+    """Decide is_threat from the confidences of the SURVIVING matched rules.
+
+    Replaces the legacy "any rule matched = threat": a lone low/medium hit
+    informs the score but does not alarm on its own.
+    """
+    confs = []
+    for c in confidences:
+        try:
+            confs.append(float(c))
+        except (TypeError, ValueError):
+            continue
+    if any(c >= CALIBRATED_HIGH_CONFIDENCE for c in confs):
+        return True
+    return sum(1 for c in confs if c >= CALIBRATED_MED_CONFIDENCE) >= 2
+
+
+# --- Rule direction (issue #136 Phase 3) -----------------------------------
+# Each rule declares which scan directions it should be EVALUATED on. This
+# replaces the analyze route's hardcoded incoming-suppression list with a
+# tag-driven mechanism that is a single source of truth (route + engine +
+# precision/recall harness all import these). Vocabulary:
+#   both      (default) — evaluate on every direction.
+#   outgoing  — user prompt / model output only; SUPPRESSED on incoming
+#               fetched/tool content (these rules match shapes common in
+#               benign source code and docs and would FP-flood otherwise).
+#   incoming  — fetched/tool content only (e.g. IDPI-specific rules).
+# Legacy `input` / `output` / `llm_response` metadata values were dead config
+# (the engine's direction filter was never wired) and normalize to `both`.
+_VALID_DIRECTIONS = {"incoming", "outgoing", "both"}
+
+
+def resolve_direction(rule_id, category=None, authored=None) -> str:
+    """Resolve a rule's evaluation direction.
+
+    An explicit, valid `metadata.direction` wins. Otherwise rules whose id
+    marks them an evasion technique (`_evasion_`) default to `outgoing` —
+    reproducing the route's historical `"_evasion_" in id` incoming-suppression
+    so this refactor preserves behavior. Everything else is `both`.
+    """
+    if isinstance(authored, str):
+        a = authored.strip().lower()
+        if a in _VALID_DIRECTIONS:
+            return a
+    if rule_id and "_evasion_" in rule_id:
+        return "outgoing"
+    return "both"
+
+
+def direction_applies(rule_direction: str, scan_direction) -> bool:
+    """Whether a rule tagged `rule_direction` should fire on a `scan_direction`
+    scan. `scan_direction` is the analyze request direction
+    (`outgoing` / `incoming` / `llm_response`), or None when unspecified.
+
+      both     → always fires.
+      outgoing → fires on outgoing + llm_response (model side); NOT on incoming.
+      incoming → fires only on incoming fetched/tool content.
+    """
+    if rule_direction == "both" or not scan_direction:
+        return True
+    if rule_direction == "outgoing":
+        return scan_direction != "incoming"
+    if rule_direction == "incoming":
+        return scan_direction == "incoming"
+    return True
+
+
 @dataclass
 class AnalysisResult:
     """Result of threat analysis."""
@@ -220,6 +330,15 @@ class AnalysisService:
             else:
                 mitre_techniques = list(self._CATEGORY_MITRE_FALLBACK.get(rule.get("category") or "", []))
 
+            # Per-rule confidence (issue #136): authored metadata.confidence
+            # wins, else a severity-based default. Replaces the flat 0.8.
+            confidence = calibrate_confidence(severity, metadata.get("confidence"))
+            # Evaluation direction (issue #136 Phase 3): explicit tag, else
+            # `_evasion_`→outgoing, else both. Drives incoming-suppression.
+            direction = resolve_direction(
+                rule["id"], rule.get("category"), metadata.get("direction")
+            )
+
             for pattern_str in rule["patterns"]:
                 if not pattern_str:
                     continue
@@ -233,9 +352,9 @@ class AnalysisService:
                         "category": rule["category"],
                         "severity": severity,
                         "risk_score": base_score,
-                        "confidence": 0.8,
+                        "confidence": confidence,
                         "source": rule["source"],
-                        "direction": metadata.get("direction", "input"),
+                        "direction": direction,
                         "mitre_techniques": mitre_techniques,
                     })
                 except re.error as e:
@@ -267,8 +386,11 @@ class AnalysisService:
         threat_type = None
 
         for pattern_info in self._compiled_patterns:
-            # Skip rules that don't match the requested direction
-            if direction and pattern_info.get("direction", "input") != direction:
+            # Skip rules that don't apply to this scan direction (issue #136
+            # Phase 3). When `direction` is None (the route's default call),
+            # every rule applies and the route does the direction filtering
+            # itself using the per-rule `direction` returned below.
+            if not direction_applies(pattern_info.get("direction", "both"), direction):
                 continue
             try:
                 if pattern_info["compiled"].search(text):
@@ -280,6 +402,15 @@ class AnalysisService:
                         "source": pattern_info["source"],
                         "matched_patterns": [pattern_info["original"]],
                         "mitre_techniques": list(pattern_info.get("mitre_techniques") or []),
+                        # Per-rule confidence (issue #136) — consumed by the
+                        # analyze route's _MIN_RULE_CONFIDENCE floor and the
+                        # calibrated verdict. Previously absent, which is why
+                        # the floor was dead code.
+                        "confidence": round(float(pattern_info["confidence"]), 3),
+                        # Evaluation direction (Phase 3) — the route uses this
+                        # to suppress cross-direction rules (e.g. drop
+                        # outgoing-only rules on an incoming scan).
+                        "direction": pattern_info.get("direction", "both"),
                     })
                     if pattern_info["risk_score"] > max_risk_score:
                         max_risk_score = pattern_info["risk_score"]

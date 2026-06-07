@@ -14,6 +14,19 @@ const GettingStartedPage = {
 
         // === SECTIONS (all collapsible, collapsed by default) ===
 
+        // How-to-read guides for the two hero observability views. Deep-linked
+        // from the "How to read this map" / "How to read runs" links on the
+        // Agent Map and Agent Runs pages.
+        container.appendChild(this.createCollapsibleCard(
+            'Reading the Agent Map', 'How to read the device → harness → agent → tool topology, and what it is good for',
+            'section-read-map', () => this.buildReadMapContent()
+        ));
+
+        container.appendChild(this.createCollapsibleCard(
+            'Reading Agent Runs', 'How to read a per-run trace, the filters, and what each part tells you',
+            'section-read-runs', () => this.buildReadRunsContent()
+        ));
+
         container.appendChild(this.createCollapsibleCard(
             'Getting Started', 'No code changes — just set an environment variable',
             'section-getting-started', () => this.buildProxyContent()
@@ -2079,6 +2092,97 @@ const GettingStartedPage = {
             '<strong>SOCs investigating an incident</strong> — quick rollup of which tools were touched in the lead-up.',
         ]));
 
+        return frag;
+    },
+
+    // Shared helpers for the two how-to-read sections.
+    _gsHelpers() {
+        const para = (text) => { const el = document.createElement('div'); el.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.55;'; el.innerHTML = text; return el; };
+        const head = (text, mt = '14px') => { const el = document.createElement('div'); el.style.cssText = `font-weight: 700; font-size: 13px; color: var(--text-primary); margin: ${mt} 0 8px 0;`; el.textContent = text; return el; };
+        const list = (items) => { const ul = document.createElement('ul'); ul.style.cssText = 'margin: 0 0 12px 18px; padding: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;'; items.forEach(h => { const li = document.createElement('li'); li.innerHTML = h; li.style.marginBottom = '4px'; ul.appendChild(li); }); return ul; };
+        const callout = (text) => { const el = document.createElement('div'); el.style.cssText = 'margin: 10px 0 14px 0; font-size: 12px; color: var(--text-secondary); padding: 10px 12px; background: var(--bg-secondary); border-radius: 6px; border-left: 3px solid var(--accent-primary); line-height: 1.5;'; el.innerHTML = text; return el; };
+        return { para, head, list, callout };
+    },
+
+    buildReadMapContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+        const { para, head, list, callout } = this._gsHelpers();
+
+        frag.appendChild(para(
+            'The <strong style="color:var(--text-primary);">Agent Map</strong> (Agent Activity → Map) is a live topology of what your agents actually did. ' +
+            'It reads the tool-call audit log and draws four layers: <strong>this device</strong> → each <strong>harness</strong> ' +
+            '(the runtime — Claude Code, Codex, OpenClaw) → each <strong>agent</strong> (one run/session) → the <strong>tools</strong> that agent called.'
+        ));
+
+        frag.appendChild(head('The four layers'));
+        frag.appendChild(list([
+            '<strong>Device</strong> — the root; your local machine.',
+            '<strong>Harness</strong> — one node per runtime. Node colour is the harness: Claude Code orange, Codex blue, OpenClaw red.',
+            '<strong>Agent</strong> — one node per run, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the run into Runs and the Timeline.',
+            '<strong>Tool</strong> — each tool the agent called (Bash, Read, an MCP tool, …).',
+        ]));
+
+        frag.appendChild(head('Topologies'));
+        frag.appendChild(list([
+            '<strong>Tree</strong> (default) — top-down hierarchy; best for reading parent→child structure.',
+            '<strong>Radial</strong> — the same hierarchy bent into a dendrogram; compact for many agents.',
+            '<strong>Mesh</strong> — deduplicates shared tools so you can see which tools several agents have in common.',
+            '<strong>Sankey</strong> — flow bands sized by call volume; best for "where does most activity go".',
+        ]));
+
+        frag.appendChild(head('Reading the signals'));
+        frag.appendChild(list([
+            'A <strong>red halo / ring</strong> on a node means a blocked call sits under it.',
+            'A <strong>lock badge + "secret detected"</strong> marks an agent whose tools touched a credential or PII.',
+            'Greyed, dimmed nodes are <strong>inactive</strong> (no activity in the last 24h) — toggle "Show inactive" to include them.',
+            'Click any node for a detail card; click again to focus its blast radius. The <strong>Outcome</strong> filter (allowed / blocked / log-only / threats) dims everything that doesn\'t match.',
+            'The stats line up top totals harnesses, active agents, total agents, blocked calls, and secret-touching tools for the window.',
+        ]));
+
+        frag.appendChild(callout(
+            '<strong style="color:var(--text-primary);">Useful for:</strong> spotting which agent or tool is generating blocks, seeing a credential-touching run at a glance, ' +
+            'and drilling from a suspicious node straight into its exact run. Click an agent or tool node to jump to that run in <strong>Agent Runs</strong>.'
+        ));
+        return frag;
+    },
+
+    buildReadRunsContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 16px;';
+        const { para, head, list, callout } = this._gsHelpers();
+
+        frag.appendChild(para(
+            '<strong style="color:var(--text-primary);">Agent Runs</strong> (Agent Activity → Runs) is the per-run trace: the run list on the left, ' +
+            'and on the right a turn-by-turn waterfall of every tool call in the selected run, each with the tool permission that was applied.'
+        ));
+
+        frag.appendChild(head('The run list'));
+        frag.appendChild(list([
+            'Each card leads with the agent label — its custom name or <strong>"agent #N"</strong> (the same number as on the Map) — with the harness as a small tag beside it.',
+            'The left rail and dot are coloured by harness; the right dot is the run\'s risk.',
+            'Meta shows span count, blocked count, and the end time.',
+        ]));
+
+        frag.appendChild(head('Filters'));
+        frag.appendChild(list([
+            '<strong>Window</strong> — 24h / 7d / 30d.',
+            '<strong>Harness</strong> — narrow to one runtime (claude-code / codex / openclaw / …). A Map drill-down pre-sets this.',
+            '<strong>Tool</strong> — show built-in, external MCP, or both.',
+            '<strong>Outcome</strong> — allowed / blocked / log-only / threats / secret-touching, matching the Map\'s Outcome filter.',
+        ]));
+
+        frag.appendChild(head('The waterfall'));
+        frag.appendChild(list([
+            'Each step is one tool call: its verdict dot (allow / block / log-only), the tool name, a built-in vs external chip, and the outcome badge.',
+            'Click a step to expand its arguments, reason, and risk.',
+            'The header shows the agent label + harness; the sub-line carries the full, copyable session id.',
+        ]));
+
+        frag.appendChild(callout(
+            '<strong style="color:var(--text-primary);">Useful for:</strong> auditing exactly what a single agent did, in order; confirming a block fired where you expected; ' +
+            'and exporting one run\'s trace (CSV / PDF) for a ticket or review. Arriving from a Map tool-node click scopes the waterfall to that one tool.'
+        ));
         return frag;
     },
 

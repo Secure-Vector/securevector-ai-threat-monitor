@@ -1,6 +1,6 @@
 {
   "name": "securevector-guard",
-  "version": "4.4.0",
+  "version": "4.5.0",
   "description": "Real-time policy enforcement and tamper-evident audit for MCP tool calls invoked from an OpenAI Codex session. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Fails open if the local app is unreachable.",
   "author": {
     "name": "SecureVector",
@@ -25,16 +25,16 @@
       "hooks"
     ],
     "websiteUrl": "https://securevector.io",
-    "privacyPolicyUrl": "https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/v4.4.0/src/securevector/plugins/codex/PRIVACY.md",
+    "privacyPolicyUrl": "https://github.com/Secure-Vector/securevector-ai-threat-monitor/blob/v4.5.0/src/securevector/plugins/codex/PRIVACY.md",
     "brandColor": "#5EADB8",
     "defaultPrompt": [
       "Show me my recent Codex tool calls in SecureVector."
     ],
     "screenshots": [
-      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/dashboard.png",
-      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-permissions-light.png",
-      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/tool-activity-detail.png",
-      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.4.0/docs/screenshots/costs-light.png"
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.5.0/docs/screenshots/dashboard.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.5.0/docs/screenshots/tool-permissions-light.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.5.0/docs/screenshots/tool-activity-detail.png",
+      "https://raw.githubusercontent.com/Secure-Vector/securevector-ai-threat-monitor/v4.5.0/docs/screenshots/costs-light.png"
     ]
   }
 }

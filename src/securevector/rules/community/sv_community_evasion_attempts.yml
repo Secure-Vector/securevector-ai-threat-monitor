@@ -645,8 +645,10 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:enable|activate|enter|switch\s+to|turn\s+on|engage)\s+(?:developer|dev|debug|maintenance|admin|root|sudo|superuser|god|test(?:ing)?)\s+mode
-  - (?:developer|dev|debug|maintenance|admin|root|sudo|god|test(?:ing)?)\s+mode\s+(?:on|enabled|activated|engaged)
+  # Negative lookahead excludes legit dev-tool contexts ("enable developer mode
+  # in Chrome to load an unpacked extension") so only the AI-jailbreak sense fires.
+  - (?:enable|activate|enter|switch\s+to|turn\s+on|engage)\s+(?:developer|dev|debug|maintenance|admin|root|sudo|superuser|god|test(?:ing)?)\s+mode(?![^.\n]*\b(?:chrome|firefox|edge|safari|browser|android|ios|iphone|ipad|windows|macos|linux|vscode|visual\s+studio|extension|unpacked|emulator|simulator|device|phone|settings|wordpress|plugin|node)\b)
+  - (?:developer|dev|debug|maintenance|admin|root|sudo|god|test(?:ing)?)\s+mode\s+(?:on|enabled|activated|engaged)(?![^.\n]*\b(?:chrome|firefox|edge|safari|browser|android|ios|iphone|ipad|windows|macos|linux|vscode|devtools|extension|device|settings)\b)
   - (?:this\s+is|we\s+are\s+in|you\s+are\s+in)\s+(?:a\s+)?(?:test(?:ing)?|debug(?:ging)?|development|sandbox|staging)\s+(?:environment|mode|session)\s*[,.]?\s*(?:safety|security|filters?|restrictions?|rules?)\s+(?:features?\s+)?(?:are|is|should\s+be)?\s*(?:disabled|off|removed|not\s+(?:needed|required|applied))
   - (?:sudo|admin|root)\s+(?:mode\s+)?(?:on|activate|enable|override)
   - (?:I\s+have|with)\s+(?:admin|root|developer|sudo)\s+(?:access|privileges?|permissions?|rights?)\s*[,.]?\s*(?:so\s+)?(?:you\s+)?(?:can|should|must|need\s+to)\s+(?:bypass|ignore|disable|override|skip)
@@ -864,11 +866,16 @@ rules:
   pattern_type: regex
   patterns:
   # Leetspeak variants of "ignore" — 1gn0r3, !gn0re, etc.
-  - '[1!i][gq9][nñ][o0][rR][e3]\s+(?:[a4][l1]{2}\s+)?(?:[y¥][o0][uü][rR]\s+)?(?:[rR][uü][l1][e3][s5]|[iI1!][nñ][s5$][tT][rR][uü][cC][tT][iI1!][o0][nñ][s5$])'
+  # Guard: require >=1 actual leet char (digit/symbol) inside the "ignore"
+  # keyword span so the plain word "ignore" does NOT match (see jailbreak note).
+  - '(?=.{0,5}[0-9@!$ñ¥ü])[1!i][gq9][nñ][o0][rR][e3]\s+(?:[a4][l1]{2}\s+)?(?:[y¥][o0][uü][rR]\s+)?(?:[rR][uü][l1][e3][s5]|[iI1!][nñ][s5$][tT][rR][uü][cC][tT][iI1!][o0][nñ][s5$])'
   # Leetspeak variants of "bypass" — byp4ss, byp@ss, etc.
-  - '[bB][yY¥][pP][a4@][s5$]{2}\s+(?:[s5$][a4@][fF][e3][tT][yY¥]|[s5$][e3][cC][uü][rR][iI1!][tT][yY¥]|[rR][uü][l1][e3][s5$]|[fF][iI1!][l1][tT][e3][rR][s5$])'
+  - '(?=.{0,5}[0-9@!$ñ¥ü])[bB][yY¥][pP][a4@][s5$]{2}\s+(?:[s5$][a4@][fF][e3][tT][yY¥]|[s5$][e3][cC][uü][rR][iI1!][tT][yY¥]|[rR][uü][l1][e3][s5$]|[fF][iI1!][l1][tT][e3][rR][s5$])'
   # Leetspeak variants of "jailbreak" — j4!lbr34k, etc.
-  - '[jJ][a4@][iI1!][lL1][bB][rR][e3][a4@][kK]'
+  # Guard lookahead requires >=1 leet char within the 9-char keyword window,
+  # so the plain English word "jailbreak"/"Jailbreak_attempt" no longer trips
+  # this rule (was a false positive — issue #136 precision pass).
+  - '(?=.{0,8}[0-9@!$ñ¥ü])[jJ][a4@][iI1!][lL1][bB][rR][e3][a4@][kK]'
   # Space-separated or dot-separated character splitting for "ignore"
   # Inter-word gap uses [\s.\-_]+ (same class as intra-word separators)
   # so the no-space form 'i.g.n.o.r.e.r.u.l.e.s' still matches — a `\s+`

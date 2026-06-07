@@ -259,6 +259,12 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # Bundle 0.4 — Agent Replay Timeline. Merged threat / tool-audit / cost feed.
     from securevector.app.server.routes import replay
     app.include_router(replay.router, prefix="/api", tags=["Replay"])
+    # active-agent-observability #143 — Agent–Tool Live Graph (agent→tool node map).
+    from securevector.app.server.routes import graph
+    app.include_router(graph.router, prefix="/api", tags=["Graph"])
+    # active-agent-observability #142 — Agent Run Trace (runs → spans waterfall).
+    from securevector.app.server.routes import traces
+    app.include_router(traces.router, prefix="/api", tags=["Traces"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

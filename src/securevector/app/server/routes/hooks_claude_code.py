@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from . import _hooks_common
@@ -760,10 +760,10 @@ async def install_plugin():
     keeps the staged README pointing at the current local-app URL even if
     the user changed their app port.
     """
-    # Confirm the bundled source exists. We don't supply a regenerate_cb
-    # because the canonical plugin tree ships in the wheel via MANIFEST.in
-    # / pyproject.toml (Task 13). If files are missing we still proceed —
-    # stage_files will warn and skip; the InstallResponse reports the truth.
+    # Confirm the bundled source exists. The canonical plugin tree ships in
+    # the wheel via MANIFEST.in / pyproject.toml AND in the binary build via
+    # the PyInstaller `--add-data src/securevector/plugins` entry in
+    # build-installers.yml.
     _hooks_common.ensure_bundled_dir(BUNDLED_PLUGIN_DIR, PLUGIN_FILES)
 
     sv_url = _hooks_common.resolve_sv_url()
@@ -781,6 +781,25 @@ async def install_plugin():
         "Staged %d plugin file(s) for %s at %s (sv_url=%s)",
         len(files_written), PLUGIN_NAME, STAGING_DIR, sv_url,
     )
+
+    # Fail loud if NOTHING was staged. This is exactly the failure mode the
+    # Windows binary installer hit: the bundled plugin tree was missing from
+    # the frozen app (PyInstaller did not ship src/securevector/plugins), so
+    # staging produced 0 files and the install "succeeded" with no hooks —
+    # the plugin showed as installed but never fired a single tool call.
+    # Mirrors the Codex handler's guard; a wheel/binary that ships the assets
+    # never trips this.
+    if not files_written:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Claude Code plugin staging produced 0 files from {BUNDLED_PLUGIN_DIR}. "
+                "The bundled plugin assets are missing from the installed package — "
+                "for the wheel verify setup.py:package_data + MANIFEST.in include "
+                "plugins/claude-code/**/*; for the binary verify the PyInstaller "
+                "--add-data bundles src/securevector/plugins (build-installers.yml)."
+            ),
+        )
 
     # Try the no-marketplace auto-install. If Claude Code's plugin
     # config dir is present we copy the tree in and register it; the

@@ -53,6 +53,12 @@ function buildSessionOpenBody(event) {
       ? `session_id=${event.session_id}`.slice(0, 200)
       : null,
     runtime_kind: RUNTIME_KIND,
+    // Forward the runtime session id so the backend derives the SAME
+    // trace_id as this session's tool-call rows. Without it the boundary
+    // row gets a NULL trace_id and lands in the synthetic "orphan:codex"
+    // bucket, which the Agent Map would otherwise render as a SECOND agent
+    // node beside the real run (one logical session → two nodes bug).
+    session_id: typeof event.session_id === 'string' ? event.session_id : null,
   };
 }
 

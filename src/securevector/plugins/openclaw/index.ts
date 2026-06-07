@@ -93,16 +93,10 @@ class SVClient {
     const essentialMap = this.indexBy(registry?.tools, "tool_id");
     const syncedMap = this.indexBy(synced?.synced, "tool_id");
 
-    const toolLower = toolName.toLowerCase();
-    let syncedRule = syncedMap[toolName] || syncedMap[toolLower] || null;
-    if (!syncedRule) {
-      for (const key of Object.keys(syncedMap)) {
-        if (key.toLowerCase() === toolLower) {
-          syncedRule = syncedMap[key];
-          break;
-        }
-      }
-    }
+    // All three lookups are case-insensitive (see ciGet): cloud / local
+    // rules can store tool_id in any casing while the runtime emits the
+    // canonical name, so a deny rule must not fail open on a mismatch.
+    const syncedRule = this.ciGet(syncedMap, toolName);
 
     if (syncedRule) {
       const effect = String(syncedRule.effect || "").toLowerCase();
@@ -111,18 +105,18 @@ class SVClient {
       const action = effect === "allow" ? "allow" : "block";
       const policyName = syncedRule.policy_name || syncedRule.policy_id || "synced";
       const verSuffix = syncedRule.policy_version != null ? ` v${syncedRule.policy_version}` : "";
-      const isEssential = (toolName in essentialMap) || (toolLower in essentialMap);
+      const isEssential = this.ciGet(essentialMap, toolName) != null;
       return { action, risk: "synced", reason: `Synced policy '${policyName}'${verSuffix}: ${effect}`, tool_id: toolName, is_essential: isEssential };
     }
 
-    if (overrideMap[toolName]) {
-      const o = overrideMap[toolName];
-      return { action: o.action, risk: "overridden", reason: `User override: ${o.action}`, tool_id: toolName, is_essential: toolName in essentialMap };
+    const override = this.ciGet(overrideMap, toolName);
+    if (override) {
+      return { action: override.action, risk: "overridden", reason: `User override: ${override.action}`, tool_id: toolName, is_essential: this.ciGet(essentialMap, toolName) != null };
     }
 
-    if (essentialMap[toolName]) {
-      const e = essentialMap[toolName];
-      return { action: e.effective_action || e.default_action || "allow", risk: e.risk || "unknown", reason: e.reason || "Essential tool policy", tool_id: toolName, is_essential: true };
+    const essential = this.ciGet(essentialMap, toolName);
+    if (essential) {
+      return { action: essential.effective_action || essential.default_action || "allow", risk: essential.risk || "unknown", reason: essential.reason || "Essential tool policy", tool_id: toolName, is_essential: true };
     }
 
     return { action: "allow", risk: "unknown", reason: "Not in registry — allowed by default", tool_id: toolName, is_essential: false };
@@ -152,7 +146,10 @@ class SVClient {
       .replace(/password["']?\s*[:=]\s*["'][^"']+["']/gi, 'password: "[REDACTED]"');
     this.post("/api/tool-permissions/call-audit", {
       tool_id: toolName,
-      function_name: sessionKey,
+      // The tool's own name — drives the tool node label on the Agent Map.
+      // (Was mistakenly the sessionKey, which made the Map render the run's
+      // session key instead of e.g. "memory_search".)
+      function_name: toolName,
       action: verdict.action,
       risk: verdict.risk,
       reason: verdict.reason,
@@ -161,6 +158,9 @@ class SVClient {
       // Stamp the harness on every audit row so Tool Inventory's
       // "MCP server · via <harness>" column attributes correctly.
       runtime_kind: "openclaw",
+      // The run's session key — lets the backend derive the trace_id that
+      // groups this call into an OpenClaw run on the Agent Runs tab.
+      session_id: sessionKey,
     }, 3_000).catch(() => {});
   }
 
@@ -194,6 +194,23 @@ class SVClient {
     const out: Record<string, any> = {};
     if (Array.isArray(arr)) for (const item of arr) out[item[key]] = item;
     return out;
+  }
+
+  /**
+   * Case-insensitive lookup into a tool_id-keyed map. Cloud-pushed and
+   * local-UI rules may store `tool_id` in any casing (e.g. lowercase
+   * `read`) while a runtime emits canonical PascalCase tool names
+   * (`Read`). Matching case-sensitively here would silently fail a deny
+   * rule open. Tries exact, then lowercase, then a folded scan.
+   */
+  private ciGet(map: Record<string, any>, name: string): any {
+    if (map[name]) return map[name];
+    const lower = name.toLowerCase();
+    if (map[lower]) return map[lower];
+    for (const key of Object.keys(map)) {
+      if (key.toLowerCase() === lower) return map[key];
+    }
+    return null;
   }
 }
 

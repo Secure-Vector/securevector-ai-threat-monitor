@@ -5,6 +5,7 @@ Users can register their own agent tools (e.g. research, transcribe)
 and control permissions through the same block/allow system as essential tools.
 """
 
+import asyncio
 import hashlib
 import logging
 from typing import Optional
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Sentinel prev_hash for the first row in the chain.
 _AUDIT_GENESIS_HASH = "GENESIS"
+
+# Serializes the audit hash-chain's read-tail → insert critical section.
+# The app is single-process, so one process-wide asyncio lock makes seq +
+# prev_hash assignment atomic and prevents two concurrent writes from forking
+# the chain on the same seq (the "seq gap" the verifier would flag).
+_AUDIT_WRITE_LOCK = asyncio.Lock()
 
 
 async def _siem_enqueue_tool_audit(
@@ -71,7 +78,6 @@ async def _siem_enqueue_tool_audit(
     # as one finding rather than thousands.
     finding_group_id: Optional[str] = None
     try:
-        from datetime import datetime
         ca = str(called_at)
         hour = ca[:13] if len(ca) >= 13 else ca  # "YYYY-MM-DDTHH"
         seed = f"{tool_id}|{function_name}|{action}|{hour}".encode("utf-8")
@@ -339,6 +345,7 @@ class CustomToolsRepository:
         is_essential: bool = False,
         args_preview: Optional[str] = None,
         runtime_kind: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -357,78 +364,108 @@ class CustomToolsRepository:
             runtime_kind: Which agent runtime emitted the call — "claude-code",
                 "openclaw", etc. Metadata only; not in the v20 hash chain
                 (same precedent as device_id, see migrate_to_v21 comment).
+            session_id: The runtime's own session id for the agent run this
+                call belongs to. Used to derive the per-run ``trace_id`` and
+                ``turn_index`` that group the flat audit log into runs/turns
+                (story #141). Metadata only; NOT in the hash chain. Falsy →
+                the row is an orphan single-span run.
         """
         conn = await self.db.connect()
 
-        # Atomically: read tail of chain → compute new row_hash → insert.
-        # SQLite's default isolation level gives us a single-writer transaction here.
-        async with conn.execute(
-            "SELECT seq, row_hash FROM tool_call_audit ORDER BY seq DESC LIMIT 1"
-        ) as cursor:
-            tail = await cursor.fetchone()
+        # Serialize read-tail → compute → insert. seq + prev_hash derive from the
+        # current tail, so two concurrent writes must NOT interleave between the
+        # SELECT and the INSERT, or both pick the same seq and FORK the chain
+        # (the "seq gap" the verifier flags). aiosqlite serializes the INSERTs
+        # but not this read-modify-write, so hold a process-wide lock across it.
+        async with _AUDIT_WRITE_LOCK:
+            async with conn.execute(
+                "SELECT seq, row_hash FROM tool_call_audit ORDER BY seq DESC LIMIT 1"
+            ) as cursor:
+                tail = await cursor.fetchone()
 
-        if tail is None:
-            next_seq = 1
-            prev_hash = _AUDIT_GENESIS_HASH
-        else:
-            next_seq = int(tail["seq"] or 0) + 1
-            prev_hash = tail["row_hash"] or _AUDIT_GENESIS_HASH
+            if tail is None:
+                next_seq = 1
+                prev_hash = _AUDIT_GENESIS_HASH
+            else:
+                next_seq = int(tail["seq"] or 0) + 1
+                prev_hash = tail["row_hash"] or _AUDIT_GENESIS_HASH
 
-        # Resolve called_at deterministically so row_hash is reproducible on reads.
-        # SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC.
-        async with conn.execute("SELECT CURRENT_TIMESTAMP AS ts") as cursor:
-            ts_row = await cursor.fetchone()
-        called_at = str(ts_row["ts"])
+            # Resolve called_at deterministically so row_hash is reproducible on reads.
+            # SQLite's CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC.
+            async with conn.execute("SELECT CURRENT_TIMESTAMP AS ts") as cursor:
+                ts_row = await cursor.fetchone()
+            called_at = str(ts_row["ts"])
 
-        resolved_tool_id = tool_id or function_name
-        essential_int = 1 if is_essential else 0
+            resolved_tool_id = tool_id or function_name
+            essential_int = 1 if is_essential else 0
 
-        row_hash = _compute_audit_row_hash(
-            prev_hash=prev_hash,
-            seq=next_seq,
-            tool_id=resolved_tool_id,
-            function_name=function_name,
-            action=action,
-            risk=risk,
-            reason=reason,
-            is_essential=essential_int,
-            args_preview=args_preview,
-            called_at=called_at,
-        )
+            row_hash = _compute_audit_row_hash(
+                prev_hash=prev_hash,
+                seq=next_seq,
+                tool_id=resolved_tool_id,
+                function_name=function_name,
+                action=action,
+                risk=risk,
+                reason=reason,
+                is_essential=essential_int,
+                args_preview=args_preview,
+                called_at=called_at,
+            )
 
-        # Stable per-device identifier stamped on every row. Derived
-        # from the OS machine ID (survives reinstalls), SHA-256-hashed.
-        # Not part of the canonical hash-chain serialization — see
-        # migration v21's comment block for why this is metadata, not
-        # material.
-        from securevector.app.utils.device_id import get_device_id
-        device_id = get_device_id()
+            # Stable per-device identifier stamped on every row. Derived
+            # from the OS machine ID (survives reinstalls), SHA-256-hashed.
+            # Not part of the canonical hash-chain serialization — see
+            # migration v21's comment block for why this is metadata, not
+            # material.
+            from securevector.app.utils.device_id import get_device_id
+            device_id = get_device_id()
 
-        await conn.execute(
-            """
-            INSERT INTO tool_call_audit
-                (tool_id, function_name, action, risk, reason, is_essential,
-                 args_preview, called_at, seq, prev_hash, row_hash, device_id,
-                 runtime_kind)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                resolved_tool_id,
-                function_name,
-                action,
-                risk,
-                reason,
-                essential_int,
-                args_preview,
-                called_at,
-                next_seq,
-                prev_hash,
-                row_hash,
-                device_id,
-                runtime_kind,
-            ),
-        )
-        await conn.commit()
+            # Agent-run grouping keys (story #141). Derived from the runtime
+            # session_id; metadata only, NOT in the canonical hash above. See
+            # app/utils/trace_id.py for the run-boundary rule. A row without a
+            # session_id gets trace_id=None and renders as an orphan single-span
+            # run; turn_index is its 0-based position within the run.
+            from securevector.app.utils.trace_id import derive_trace_id
+            trace_id = derive_trace_id(runtime_kind, session_id)
+            turn_index: Optional[int] = None
+            if trace_id is not None:
+                async with conn.execute(
+                    "SELECT COUNT(*) AS n FROM tool_call_audit WHERE trace_id = ?",
+                    (trace_id,),
+                ) as cursor:
+                    count_row = await cursor.fetchone()
+                turn_index = int(count_row["n"] or 0)
+            parent_span_id: Optional[str] = None  # reserved for future nested spans
+
+            await conn.execute(
+                """
+                INSERT INTO tool_call_audit
+                    (tool_id, function_name, action, risk, reason, is_essential,
+                     args_preview, called_at, seq, prev_hash, row_hash, device_id,
+                     runtime_kind, session_id, trace_id, turn_index, parent_span_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    resolved_tool_id,
+                    function_name,
+                    action,
+                    risk,
+                    reason,
+                    essential_int,
+                    args_preview,
+                    called_at,
+                    next_seq,
+                    prev_hash,
+                    row_hash,
+                    device_id,
+                    runtime_kind,
+                    session_id,
+                    trace_id,
+                    turn_index,
+                    parent_span_id,
+                ),
+            )
+            await conn.commit()
 
         # SIEM fan-out — push the audit row (with its chain witness) to
         # every enabled forwarder so the customer's SIEM can re-verify the
@@ -616,7 +653,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id, runtime_kind
+                       seq, prev_hash, row_hash, device_id, runtime_kind, trace_id
                 FROM tool_call_audit
                 WHERE action = ?
                 ORDER BY id DESC
@@ -632,7 +669,7 @@ class CustomToolsRepository:
                 """
                 SELECT id, tool_id, function_name, action, risk, reason,
                        is_essential, args_preview, called_at,
-                       seq, prev_hash, row_hash, device_id, runtime_kind
+                       seq, prev_hash, row_hash, device_id, runtime_kind, trace_id
                 FROM tool_call_audit
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
@@ -774,6 +811,302 @@ class CustomToolsRepository:
             ORDER BY c.last_used DESC
             """,
             (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_agent_tool_graph(self, window_days: int = 7) -> list[dict]:
+        """Aggregate audit rows into per-(agent, tool) edges for the Agent Map.
+
+        One row per (runtime_kind, tool_id) pair seen in tool_call_audit during
+        the trailing window — i.e. one edge from an agent node (the runtime that
+        emitted the call) to a tool/MCP node. Each edge carries call volume, the
+        allow/block/log_only breakdown, the most recent risk, a secret-touch
+        heuristic, and the cloud-policy attribution (so the tool node can show a
+        lock glyph). Nodes are derived from these edges by the route layer.
+
+        Per-agent identity is ``runtime_kind`` (the harness) — the most stable
+        agent identity available until a real agent_id column exists (the v36
+        ``trace_id`` groups individual runs, not agents). ``touched_secrets`` is
+        the same ``reason`` LIKE-heuristic as get_bill_of_tools.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            WITH edges AS (
+                SELECT
+                    COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                    tool_id,
+                    MAX(function_name) AS function_name,
+                    COUNT(*) AS calls,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                    SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
+                    SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                    MAX(called_at) AS last_used,
+                    MAX(CASE WHEN action='block' THEN called_at END) AS last_blocked,
+                    CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
+                    MAX(CASE
+                        WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api_key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%token%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%password%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%exfil%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%pii%'
+                        THEN 1 ELSE 0
+                    END) AS touched_secrets
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+                GROUP BY runtime_kind, tool_id
+            )
+            SELECT
+                e.runtime_kind,
+                e.tool_id,
+                e.function_name,
+                e.calls,
+                e.blocked,
+                e.allowed,
+                e.logged,
+                e.last_used,
+                e.recent_risk,
+                e.touched_secrets,
+                s.effect AS synced_effect,
+                s.policy_name AS synced_policy_name,
+                s.org_name AS synced_org_name
+            FROM edges e
+            LEFT JOIN synced_tool_rules s ON s.tool_id = e.tool_id
+            ORDER BY e.calls DESC
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    # Lifecycle sentinels emitted by the plugin SessionStart/Stop hooks
+    # (e.g. Codex's session-start.js / stop.js). They mark session
+    # boundaries — they are NOT tools, so they must never become tool
+    # nodes on the Agent Map. They only contribute their session's
+    # existence + recency. See get_agent_session_graph.
+    _SESSION_BOUNDARY_TOOL_IDS = ("__session_start__", "__session_end__")
+
+    async def get_agent_session_graph(self, window_days: int = 7) -> list[dict]:
+        """Aggregate audit rows into per-(harness, session, tool) edges for the
+        3-layer Agent Map (harness -> agent/session -> tool).
+
+        Like ``get_agent_tool_graph`` but with the session tier added: groups by
+        ``(runtime_kind, trace_id, tool_id)`` so each agent *run* (a session, per
+        the v36 trace boundary) becomes its own node sitting between its harness
+        and the tools it called. Rows with a NULL ``trace_id`` are bucketed into
+        one synthetic ``orphan:<runtime>`` session so single-span runs still
+        appear on the map. The route layer (``build_graph_3layer``) derives the
+        harness / session / tool nodes plus the two edge tiers, and rolls up each
+        session's last-activity (``last_used``) for the idle / grey-out logic.
+        ``touched_secrets`` is the same ``reason`` LIKE-heuristic used elsewhere.
+
+        **Session-boundary sentinels** (``__session_start__`` /
+        ``__session_end__``, emitted by the plugin SessionStart/Stop hooks) are
+        excluded from the tool-edge aggregation — they are lifecycle markers,
+        not tools, so they must not spawn phantom ``tool:`` nodes. They are
+        rolled up separately into ``boundary`` rows so the route can fold their
+        recency into the owning session (and surface a session that only ever
+        logged a start/end with no tool call yet). Historically these hooks did
+        not forward ``session_id``, so such rows have a NULL ``trace_id`` and
+        land in the ``orphan:<runtime>`` bucket; the route merges that recency
+        into the runtime's existing tool-bearing session instead of drawing a
+        second agent node for the same run.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        boundary_placeholders = ",".join("?" * len(self._SESSION_BOUNDARY_TOOL_IDS))
+        rows = await self.db.fetch_all(
+            f"""
+            WITH edges AS (
+                SELECT
+                    COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                    COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')) AS session_key,
+                    MAX(session_id) AS session_id,
+                    MAX(trace_id) AS trace_id,
+                    tool_id,
+                    MAX(function_name) AS function_name,
+                    COUNT(*) AS calls,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                    SUM(CASE WHEN action='allow' THEN 1 ELSE 0 END) AS allowed,
+                    SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                    MAX(called_at) AS last_used,
+                    MAX(CASE WHEN action='block' THEN called_at END) AS last_blocked,
+                    CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
+                    MAX(CASE
+                        WHEN LOWER(COALESCE(reason,'')) LIKE '%credential%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%secret%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api_key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%api key%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%token%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%password%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%exfil%'
+                          OR LOWER(COALESCE(reason,'')) LIKE '%pii%'
+                        THEN 1 ELSE 0
+                    END) AS touched_secrets
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+                  AND tool_id NOT IN ({boundary_placeholders})
+                GROUP BY
+                    COALESCE(runtime_kind, 'unknown'),
+                    COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')),
+                    tool_id
+            )
+            SELECT
+                'edge' AS row_kind,
+                e.runtime_kind,
+                e.session_key,
+                e.session_id,
+                e.trace_id,
+                e.tool_id,
+                e.function_name,
+                e.calls,
+                e.blocked,
+                e.allowed,
+                e.logged,
+                e.last_used,
+                e.last_blocked,
+                e.recent_risk,
+                e.touched_secrets,
+                s.effect AS synced_effect,
+                s.policy_name AS synced_policy_name,
+                s.org_name AS synced_org_name
+            FROM edges e
+            LEFT JOIN synced_tool_rules s ON s.tool_id = e.tool_id
+            ORDER BY e.calls DESC
+            """,
+            (cutoff, *self._SESSION_BOUNDARY_TOOL_IDS),
+        )
+        edge_rows = [dict(r) for r in rows] if rows else []
+
+        # Session-boundary roll-up: one row per (runtime, session_key) over the
+        # lifecycle sentinels only, carrying the boundary recency. The route
+        # folds these into the owning session's last_used WITHOUT drawing a
+        # tool node, so a session-start/end marker never spawns a phantom agent.
+        boundary = await self.db.fetch_all(
+            f"""
+            SELECT
+                'boundary' AS row_kind,
+                COALESCE(runtime_kind, 'unknown') AS runtime_kind,
+                COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown')) AS session_key,
+                MAX(session_id) AS session_id,
+                MAX(trace_id) AS trace_id,
+                MAX(called_at) AS last_used
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?)
+              AND tool_id IN ({boundary_placeholders})
+            GROUP BY
+                COALESCE(runtime_kind, 'unknown'),
+                COALESCE(trace_id, 'orphan:' || COALESCE(runtime_kind, 'unknown'))
+            """,
+            (cutoff, *self._SESSION_BOUNDARY_TOOL_IDS),
+        )
+        boundary_rows = [dict(r) for r in boundary] if boundary else []
+        return edge_rows + boundary_rows
+
+    async def get_audit_activity(self, window_days: int = 7) -> list[dict]:
+        """Per-day verdict counts over the FULL trailing window.
+
+        Backs the Timeline overview chart. Aggregated server-side in SQL so the
+        chart reflects every enforced call in the window — not just the latest
+        page the feed list happens to fetch. (The feed is paged at 200 rows;
+        driving the chart off that page silently under-counted blocks whenever
+        volume exceeded 200 — the chart said "Blocked 0" while the Map, which
+        aggregates the full window, said "7 blocked". This method closes that
+        gap so both views agree.)
+
+        One row per (bucket, action, risk-bucket): ``called_at`` is the bucket
+        timestamp (hourly for a 24h window, otherwise daily) as a full
+        ``YYYY-MM-DD HH:MM:SS`` string the client can parse, ``n`` the count.
+        ``risk`` is lower-cased so the client can apply the same high-risk test
+        it uses on individual rows.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        # Hourly resolution for the 24h window so it doesn't collapse to one
+        # point; daily otherwise.
+        bucket_fmt = "%Y-%m-%d %H:00:00" if window_days <= 1 else "%Y-%m-%d 00:00:00"
+        # Bucket in a subquery first, then GROUP BY the projected column. If we
+        # grouped in the same SELECT, SQLite binds ``GROUP BY called_at`` to the
+        # raw table column (which exists) rather than the strftime alias, so no
+        # collapse happens and every row comes back with n=1.
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT called_at, action, risk, COUNT(*) AS n
+            FROM (
+                SELECT
+                    strftime('{bucket_fmt}', called_at) AS called_at,
+                    COALESCE(action, 'allow') AS action,
+                    LOWER(COALESCE(risk, '')) AS risk
+                FROM tool_call_audit
+                WHERE called_at >= datetime('now', ?)
+            )
+            GROUP BY called_at, action, risk
+            ORDER BY called_at
+            """,
+            (cutoff,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_trace_runs(self, window_days: int = 7, limit: int = 50) -> list[dict]:
+        """List agent runs (traces) in the window, newest first.
+
+        One row per ``trace_id`` (a run = one runtime session, per the v36
+        run-boundary rule). Each run carries its runtime, span count, block
+        count, time bounds, and the distinct tools touched — enough to render
+        the run list of the Agent Run Trace view (story #142). Rows with a NULL
+        trace_id (no session id forwarded) are orphan single-span runs and are
+        excluded from this rollup; they remain visible in Tool Activity.
+        """
+        window_days = max(1, min(int(window_days), 90))
+        limit = max(1, min(int(limit), 500))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                trace_id,
+                MAX(runtime_kind) AS runtime_kind,
+                MAX(session_id) AS session_id,
+                COUNT(*) AS spans,
+                SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS blocked,
+                SUM(CASE WHEN action='log_only' THEN 1 ELSE 0 END) AS logged,
+                MIN(called_at) AS started_at,
+                MAX(called_at) AS ended_at,
+                CASE WHEN MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write') THEN 1 ELSE 0 END) = 1 THEN 'admin' ELSE 'read' END AS recent_risk,
+                GROUP_CONCAT(DISTINCT function_name) AS tools
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?) AND trace_id IS NOT NULL
+            GROUP BY trace_id
+            ORDER BY ended_at DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_trace_spans(self, trace_id: str) -> list[dict]:
+        """Return the ordered spans (tool-call audit rows) for one run.
+
+        Ordered by ``seq`` — the globally-monotonic, uniquely-assigned hash-chain
+        sequence — so the waterfall always reads top-to-bottom in true execution
+        order. (``seq`` is the reliable order key; the stored ``turn_index`` is a
+        best-effort write-time counter and the route renumbers it for display, so
+        a concurrent-write collision can never surface as duplicate turn numbers.)
+        Each span is one enforced tool call carrying its allow/block/log_only
+        verdict, risk, reason, and timestamp.
+        """
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                seq, turn_index, tool_id, function_name, action,
+                risk, reason, called_at, runtime_kind, args_preview
+            FROM tool_call_audit
+            WHERE trace_id = ?
+            ORDER BY seq ASC
+            """,
+            (trace_id,),
         )
         return [dict(r) for r in rows] if rows else []
 

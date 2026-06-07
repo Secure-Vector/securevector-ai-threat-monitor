@@ -315,6 +315,7 @@ const ToolPermissionsPage = {
             }
         };
         applyBtnStyle(isBlocked);
+        let scopeSel = null;
         if (isManaged) {
             actionBtn.disabled = true;
             actionBtn.title = (
@@ -323,10 +324,29 @@ const ToolPermissionsPage = {
                     : (tool.synced_reason || 'Managed by your organization’s cloud policy.')
             );
         } else {
+            // Scope picker — which runtime(s) this Block/Allow governs. Default
+            // "All runtimes" (global, the historical behaviour); pick a single
+            // runtime to e.g. block Codex's Bash without touching Claude Code.
+            const scopeLbl = document.createElement('div');
+            scopeLbl.textContent = 'Applies to';
+            scopeLbl.style.cssText = 'font-size:11px;color:var(--text-secondary);margin:4px 0 4px;';
+            scopeSel = document.createElement('select');
+            scopeSel.className = 'filter-select';
+            scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['openclaw', 'OpenClaw only']]
+                .forEach(([v, t]) => {
+                    const o = document.createElement('option');
+                    o.value = v; o.textContent = t;
+                    if ((tool.runtime_kind || '') === v) o.selected = true;
+                    scopeSel.appendChild(o);
+                });
+            panel.appendChild(scopeLbl);
+            panel.appendChild(scopeSel);
+
             actionBtn.addEventListener('click', async () => {
                 const newAction = isBlocked ? 'allow' : 'block';
                 try {
-                    await API.setToolOverride(tool.tool_id, newAction);
+                    await API.setToolOverride(tool.tool_id, newAction, (scopeSel && scopeSel.value) || null);
                     tool.effective_action = newAction;
                     tool.has_override = true;
                     isBlocked = newAction === 'block';

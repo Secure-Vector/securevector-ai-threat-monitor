@@ -45,6 +45,10 @@ class OverrideRequest(BaseModel):
     """Request to set an override."""
 
     action: str = Field(..., pattern="^(block|allow)$")
+    # Optional per-runtime scope. None / "all" = governs every runtime (the
+    # historical behaviour); a runtime slug ("claude-code", "codex", …) limits
+    # the rule to that runtime so it doesn't leak to the others.
+    runtime_kind: Optional[str] = None
 
 
 class OverrideResponse(BaseModel):
@@ -188,12 +192,19 @@ def _build_tool_response_row(
     """Resolve precedence (last_resort > synced > local > default) and
     build the response row. Shared between registry tools and Claude
     Code built-ins so a single source of truth governs the precedence
-    chain."""
-    override = overrides_map.get(tool_id)
+    chain.
+
+    ``overrides_map`` and ``synced_map`` are keyed by lowercased tool_id
+    (see ``list_essential_tools``) so a rule stored as ``read`` resolves
+    against the canonical built-in ``Read`` — matching the case-insensitive
+    behaviour of the agent-runtime decision oracles (CC / Codex hooks,
+    OpenClaw plugin). Without this, a deny override silently fails open."""
+    tool_key = tool_id.lower()
+    override = overrides_map.get(tool_key)
     override_action = override["action"] if override else None
     default_perm = tool_meta.get("default_permission", "block")
 
-    synced_rule = synced_map.get(tool_id)
+    synced_rule = synced_map.get(tool_key)
     last_resort = last_resort_matcher(tool_id)
 
     if last_resort is not None:
@@ -258,7 +269,9 @@ async def list_essential_tools():
         db = get_database()
         repo = ToolPermissionsRepository(db)
         overrides_list = await repo.get_all_overrides()
-        overrides_map = {o["tool_id"]: o for o in overrides_list}
+        # Key by lowercased tool_id so resolution is case-insensitive
+        # (a rule stored as `read` matches the canonical built-in `Read`).
+        overrides_map = {o["tool_id"].lower(): o for o in overrides_list}
 
         # Layer cloud-pushed synced rules (active-mcp-and-policy-sync)
         from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
@@ -269,12 +282,15 @@ async def list_essential_tools():
         # after a `:` (cloud naming convention is `<server>:<tool>` but the
         # local registry uses bare tool names; without aliasing the lock icon
         # never appears on synced tools). Keep higher-priority rule on collision.
+        # Keys are lowercased so resolution is case-insensitive, matching
+        # the agent-runtime oracles (CC / Codex hooks, OpenClaw plugin).
         synced_map: dict = {}
         for r in synced_rows:
             keys = [r.tool_id]
             if ':' in r.tool_id:
                 keys.append(r.tool_id.split(':', 1)[1])
             for k in keys:
+                k = k.lower()
                 existing = synced_map.get(k)
                 if not existing or (r.priority or 0) > (existing.priority or 0):
                     synced_map[k] = r
@@ -359,7 +375,7 @@ async def get_overrides():
 
 
 @router.get("/tool-permissions/synced-overrides")
-async def get_synced_overrides():
+async def get_synced_overrides(runtime: Optional[str] = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -464,11 +480,20 @@ async def get_synced_overrides():
                 "returning synced-only: %s", e,
             )
         ACTION_TO_EFFECT = {"block": "deny", "allow": "allow"}
+        # Per-runtime scope: when a caller (a Guard hook) passes its own
+        # ?runtime=, drop local rows scoped to a DIFFERENT runtime so e.g. a
+        # Codex-only Block never reaches the Claude Code hook. A NULL/empty
+        # runtime_kind = governs all runtimes (historical behaviour). When no
+        # runtime is supplied (e.g. the UI listing rules), return everything.
+        req_runtime = (runtime or "").strip() or None
         for lr in local_rows:
             action = lr.get("action")
             effect = ACTION_TO_EFFECT.get(action)
             if effect is None:
                 continue
+            rule_runtime = (lr.get("runtime_kind") or "").strip() or None
+            if req_runtime and rule_runtime and rule_runtime != req_runtime:
+                continue  # rule is scoped to another runtime — not enforced here
             merged.append({
                 "tool_id": lr["tool_id"],
                 "effect": effect,
@@ -481,6 +506,7 @@ async def get_synced_overrides():
                 "org_name": "Local",
                 "reason": "User-set local override",
                 "source": "local",
+                "runtime_kind": rule_runtime,  # None = all runtimes
             })
         return {"synced": merged, "total": len(merged)}
 
@@ -509,9 +535,14 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
                 detail=f"Unknown essential tool: {tool_id}",
             )
 
+        # Normalise scope: "all"/""/None all mean "every runtime" (stored NULL).
+        scope = (request.runtime_kind or "").strip().lower() or None
+        if scope == "all":
+            scope = None
+
         db = get_database()
         repo = ToolPermissionsRepository(db)
-        result = await repo.upsert_override(tool_id, request.action)
+        result = await repo.upsert_override(tool_id, request.action, scope)
 
         return result
 
@@ -685,6 +716,10 @@ class AuditLogRequest(BaseModel):
     # Which agent runtime emitted the call (e.g. "claude-code", "openclaw").
     # Metadata only; not in the v20 hash chain (see migrate_to_v21 / v32).
     runtime_kind: Optional[str] = None
+    # The runtime's own session id for this agent run. Used server-side to
+    # derive the per-run trace_id / turn_index that group the flat audit log
+    # into runs/turns (story #141). Metadata only; not in the hash chain.
+    session_id: Optional[str] = None
 
 
 @router.post("/tool-permissions/call-audit")
@@ -725,6 +760,7 @@ async def record_call_audit(request: AuditLogRequest):
             is_essential=request.is_essential,
             args_preview=request.args_preview,
             runtime_kind=request.runtime_kind,
+            session_id=request.session_id,
         )
         return {"ok": True}
 
@@ -755,6 +791,27 @@ async def get_call_audit(
 
     except Exception as e:
         logger.error(f"Failed to fetch call audit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tool-permissions/call-audit/activity")
+async def get_call_audit_activity(window_days: int = 7):
+    """Per-day verdict counts over the full window — backs the Timeline chart.
+
+    Aggregated server-side so the overview chart reflects EVERY enforced call
+    in the window, not just the latest 200-row page the feed list fetches.
+    Without this the chart silently under-counted blocks past the page cap.
+
+    Returns: ``{"window_days": N, "buckets": [{called_at, action, risk, n}]}``.
+    """
+    try:
+        window_days = max(1, min(int(window_days), 90))
+        db = get_database()
+        repo = CustomToolsRepository(db)
+        buckets = await repo.get_audit_activity(window_days=window_days)
+        return {"window_days": window_days, "buckets": buckets}
+    except Exception as e:
+        logger.error(f"Failed to fetch call audit activity: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
