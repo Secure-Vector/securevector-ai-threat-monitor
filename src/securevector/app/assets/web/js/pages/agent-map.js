@@ -88,7 +88,12 @@ const AgentMapPage = {
 
         const body = document.createElement('div');
         body.id = 'agent-map-body';
-        body.style.cssText = 'position:relative;width:100%;height:700px;border:1px solid var(--border-default,#30363d);border-radius:14px;overflow:hidden;' +
+        // Height is user-adjustable (drag the bottom handle) and remembered
+        // across loads. Default 700px; clamped so the map never collapses or
+        // grows past a sane ceiling.
+        const savedH = parseInt(localStorage.getItem('sv-map-h') || '', 10);
+        const initH = (savedH >= 420 && savedH <= 1600) ? savedH : 700;
+        body.style.cssText = 'position:relative;width:100%;height:' + initH + 'px;border:1px solid var(--border-default,#30363d);border-radius:14px;overflow:hidden;' +
             'background:radial-gradient(120% 120% at 18% -5%, rgba(94,173,184,.10), transparent 50%),' +
             'radial-gradient(120% 120% at 100% 110%, rgba(99,102,241,.07), transparent 55%),' +
             'var(--bg-card,#161b22);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);';
@@ -108,6 +113,53 @@ const AgentMapPage = {
 
         this._buildToolbar(toolbar);
         await this.loadData();
+    },
+
+    /** Drag handle at the bottom-center of the map box — lets the user enlarge
+     *  or shrink the map height (the SVG scales to fill). Bottom-center avoids
+     *  the legend (bottom-left) and zoom controls (bottom-right). The chosen
+     *  height persists in localStorage; double-click resets to the 700px default. */
+    _wireResize(body) {
+        const MIN = 420, MAX = 1600, KEY = 'sv-map-h';
+        const handle = document.createElement('div');
+        handle.title = 'Drag to resize · double-click to reset';
+        handle.setAttribute('aria-label', 'Resize map height');
+        handle.style.cssText = 'position:absolute;left:50%;bottom:0;transform:translateX(-50%);' +
+            'width:70px;height:15px;display:flex;align-items:center;justify-content:center;' +
+            'cursor:ns-resize;z-index:6;border-radius:9px 9px 0 0;' +
+            'background:color-mix(in srgb,var(--bg-card,#161b22) 82%,transparent);' +
+            'border:1px solid var(--border-default,#30363d);border-bottom:none;transition:background .12s;';
+        handle.innerHTML = '<span style="width:28px;height:3px;border-radius:2px;background:var(--text-muted,#7d8590);display:block;"></span>';
+        handle.addEventListener('mouseenter', () => { handle.style.background = 'var(--bg-hover,#21262d)'; });
+        handle.addEventListener('mouseleave', () => { handle.style.background = 'color-mix(in srgb,var(--bg-card,#161b22) 82%,transparent)'; });
+        body.appendChild(handle);
+
+        let startY = 0, startH = 0, dragging = false;
+        const onMove = (e) => {
+            if (!dragging) return;
+            const h = Math.max(MIN, Math.min(MAX, startH + (e.clientY - startY)));
+            body.style.height = h + 'px';
+        };
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.body.style.userSelect = '';
+            localStorage.setItem(KEY, String(parseInt(body.style.height, 10) || 700));
+        };
+        handle.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            dragging = true; startY = e.clientY; startH = body.getBoundingClientRect().height;
+            document.body.style.userSelect = 'none';
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+        });
+        handle.addEventListener('dblclick', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            body.style.height = '700px';
+            localStorage.setItem(KEY, '700');
+        });
     },
 
     _injectStyle() {
@@ -575,6 +627,8 @@ const AgentMapPage = {
         body.appendChild(tip);
         this._tip = tip;
         this._body = body;
+        // Re-add the resize handle on every draw (the draw clears body above).
+        this._wireResize(body);
 
         this._renderStats();
         this._renderLegend();
