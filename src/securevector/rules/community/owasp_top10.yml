@@ -182,7 +182,12 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
+  # Value must contain a digit (positive lookahead) so source-code references
+  # and type annotations — `api_key: Optional[str]`, `token = self._cloud_token`
+  # — no longer trip a "secret leak". Real keys/tokens (AKIA…, sk-proj-…, JWTs)
+  # carry digits, so true leaks still match. (FP fix 2026-06-06: scanning source
+  # that merely *names* a credential variable was the top LLM-006 FP source.)
+  - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{8,}
   # PII patterns use `.{0,40}` (max ~40 chars in a single phrase) rather
   # than `\s+(?:\S+\s+){0,4}` so non-whitespace separators like `:`, `=`
   # match — `ssn: 123-45-6789`, `ccn=1234567890123456`, `phone:+1...`
