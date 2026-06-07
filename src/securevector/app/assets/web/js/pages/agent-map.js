@@ -88,16 +88,16 @@ const AgentMapPage = {
 
         const body = document.createElement('div');
         body.id = 'agent-map-body';
-        // Height is user-adjustable (drag the bottom handle) and remembered
-        // across loads. Default 700px; clamped so the map never collapses or
-        // grows past a sane ceiling.
-        const savedH = parseInt(localStorage.getItem('sv-map-h') || '', 10);
-        const initH = (savedH >= 420 && savedH <= 1600) ? savedH : 700;
-        body.style.cssText = 'position:relative;width:100%;height:' + initH + 'px;border:1px solid var(--border-default,#30363d);border-radius:14px;overflow:hidden;' +
+        // Height auto-fits the viewport by default, and the user can drag the
+        // bottom handle to override (remembered across loads). A 1px placeholder
+        // height is replaced with the real target right after the box is in the
+        // DOM (needs its top offset to size to the screen).
+        body.style.cssText = 'position:relative;width:100%;height:700px;border:1px solid var(--border-default,#30363d);border-radius:14px;overflow:hidden;' +
             'background:radial-gradient(120% 120% at 18% -5%, rgba(94,173,184,.10), transparent 50%),' +
             'radial-gradient(120% 120% at 100% 110%, rgba(99,102,241,.07), transparent 55%),' +
             'var(--bg-card,#161b22);box-shadow:inset 0 1px 0 rgba(255,255,255,.03);';
         container.appendChild(body);
+        this._wireAutoResize();
 
         // Escape closes the detail card (keyboard users open it via Enter on a
         // node and need a keyboard dismiss). Wired once on the singleton page.
@@ -113,19 +113,60 @@ const AgentMapPage = {
 
         this._buildToolbar(toolbar);
         await this.loadData();
+        // Fit to the viewport now, then again after a beat so any async chrome
+        // that pushes the map down (e.g. the launch banner) is accounted for.
+        this._applyAutoHeight();
+        setTimeout(() => this._applyAutoHeight(), 300);
+    },
+
+    // Map-box height bounds + persistence key (shared by the auto-fit + manual
+    // resize paths).
+    _MAP_MIN_H: 420,
+    _MAP_MAX_H: 1600,
+    _MAP_H_KEY: 'sv-map-h',
+
+    /** Target height for the map box: a saved MANUAL height wins; otherwise
+     *  auto-fit the viewport (fill down to ~24px above the window bottom). */
+    _targetHeight(body) {
+        const saved = parseInt(localStorage.getItem(this._MAP_H_KEY) || '', 10);
+        if (saved >= this._MAP_MIN_H && saved <= this._MAP_MAX_H) return saved;
+        const top = body.getBoundingClientRect().top;
+        const avail = Math.round(window.innerHeight - top - 24);
+        return Math.max(this._MAP_MIN_H, Math.min(this._MAP_MAX_H, avail));
+    },
+
+    /** Apply the viewport-fit height — unless the user has pinned a manual one.
+     *  Guarded against no-op writes so it can be called freely. */
+    _applyAutoHeight() {
+        const body = document.getElementById('agent-map-body');
+        if (!body) return;
+        const saved = parseInt(localStorage.getItem(this._MAP_H_KEY) || '', 10);
+        if (saved >= this._MAP_MIN_H && saved <= this._MAP_MAX_H) return; // manual — leave it
+        const target = this._targetHeight(body);
+        if (Math.abs((parseInt(body.style.height, 10) || 0) - target) > 2) {
+            body.style.height = target + 'px';
+        }
+    },
+
+    /** Re-fit the box to the viewport on window resize — only while the user
+     *  hasn't pinned a manual height. */
+    _wireAutoResize() {
+        if (this._autoResizeWired) return;
+        this._autoResizeWired = true;
+        window.addEventListener('resize', () => this._applyAutoHeight());
     },
 
     /** Drag handle at the bottom-center of the map box — lets the user enlarge
      *  or shrink the map height (the SVG scales to fill). Bottom-center avoids
-     *  the legend (bottom-left) and zoom controls (bottom-right). The chosen
-     *  height persists in localStorage; double-click resets to the 700px default. */
+     *  the legend (bottom-left) and zoom controls (bottom-right). Dragging pins
+     *  a manual height in localStorage; double-click clears it back to auto-fit. */
     _wireResize(body) {
-        const MIN = 420, MAX = 1600, KEY = 'sv-map-h';
+        const MIN = this._MAP_MIN_H, MAX = this._MAP_MAX_H, KEY = this._MAP_H_KEY;
         const handle = document.createElement('div');
         handle.title = 'Drag to resize · double-click to reset';
         handle.setAttribute('aria-label', 'Resize map height');
         handle.style.cssText = 'position:absolute;left:50%;bottom:0;transform:translateX(-50%);' +
-            'width:70px;height:15px;display:flex;align-items:center;justify-content:center;' +
+            'width:70px;height:12px;display:flex;align-items:center;justify-content:center;' +
             'cursor:ns-resize;z-index:6;border-radius:9px 9px 0 0;' +
             'background:color-mix(in srgb,var(--bg-card,#161b22) 82%,transparent);' +
             'border:1px solid var(--border-default,#30363d);border-bottom:none;transition:background .12s;';
@@ -157,8 +198,8 @@ const AgentMapPage = {
         });
         handle.addEventListener('dblclick', (e) => {
             e.preventDefault(); e.stopPropagation();
-            body.style.height = '700px';
-            localStorage.setItem(KEY, '700');
+            localStorage.removeItem(KEY);          // back to viewport auto-fit
+            body.style.height = this._targetHeight(body) + 'px';
         });
     },
 
@@ -256,7 +297,7 @@ const AgentMapPage = {
             .sv-stat-sep { width:1px; height:14px; background:var(--border-default,#30363d); }
             .sv-stat.is-alert, .sv-stat.is-alert b { color:var(--danger,#ef4444); }
             .sv-stat.is-watch, .sv-stat.is-watch b { color:var(--warning,#f59e0b); }
-            #agent-map-legend { position:absolute; bottom:12px; left:14px; z-index:4; display:flex; align-items:center;
+            #agent-map-legend { position:absolute; bottom:20px; left:14px; z-index:4; display:flex; align-items:center;
                 flex-wrap:wrap; gap:4px 0; max-width:74%; padding:7px 13px; border-radius:11px;
                 background:color-mix(in srgb, var(--bg-card,#161b22) 80%, transparent);
                 -webkit-backdrop-filter:blur(9px); backdrop-filter:blur(9px);
