@@ -51,6 +51,7 @@ All three plugins share the same enforcement core: one rule on `tool_id="Bash"` 
 <br>
 
 > **What's new in v4.5.0**
+> - **Agent Map & Runs — see every agent run at a glance** 🗺️ — a live, interactive map of your whole fleet: **device → harness → agent → tool**, rendered as tree, radial, shared-tool mesh, or Sankey. Blocked calls pop red, secret-touching agents wear a lock, active runs animate. Click any node to drill into **Agent Runs** — a turn-by-turn trace of every tool call with its allow / block / log-only verdict, risk, and reason. Rename agents inline, filter by harness, and the map auto-fits your screen (drag to resize). The fastest way to answer "what did my agents actually *do*?"
 > - **Case-insensitive policy matching** — a deny rule authored as `read` now correctly enforces against the canonical built-in `Read` across every runtime (Claude Code, Codex, OpenClaw) and in the dashboard's effective-permission view. A casing mismatch could previously let an intended deny silently fail open. Issue #138.
 > - **Clearer status-line setup** — the Integrations page and the `securevector-app --install-plugin claude-code` CLI now surface a clean, copy-paste `statusLine` block pinned to a version-stable path, so turning on the live threat / tool-call status bar is a single paste. Opt-in only — your existing `statusLine` is never overwritten.
 >
@@ -139,6 +140,17 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 ## Screenshots
 
 *All screenshots are from a local app instance.*
+
+**🗺️ New in v4.5.0 — Agent Map & Runs**
+
+<table>
+<tr>
+<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its run.</em></td>
+<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Agent Runs" width="100%"><br><em>Agent Runs — a turn-by-turn trace of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
+</tr>
+</table>
+
+<br>
 
 <table>
 <tr>
