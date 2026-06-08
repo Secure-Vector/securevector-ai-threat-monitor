@@ -83,10 +83,11 @@ const THREAT_SCAN_TEXT_LIMIT = 8000; // bytes — well under /analyze's 100KB ca
 //
 // Bash IS now in — `printenv`, `cat .env`, `cat ~/.aws/credentials`,
 // `git config --get user.password` are the highest-volume credential
-// exfil channel. Per issue #131 we light it up; the rule pack's
-// `_INCOMING_SUPPRESSED_RULE_IDS` server-side already drops the noisy
-// prose-tier rules for direction='incoming', so the FP rate that
-// originally kept Bash excluded is mitigated.
+// exfil channel. Per issue #131 we light it up; server-side the rule
+// pack's direction-tagged suppression (outgoing-only rules dropped on
+// direction='incoming' — issue #136 Phase 3) already removes the noisy
+// prose-tier rules, so the FP rate that originally kept Bash excluded
+// is mitigated.
 //
 // Still deliberately out: Write / Edit results — the response is
 // "ok" / a confirmation, not content. Nothing to scan.
@@ -286,7 +287,7 @@ async function audit(event, baseUrl) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return; // unknown tool name — skip audit (fail-open)
 
-  const overrides = await fetchSyncedOverrides(baseUrl);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
   const match = pickMatch(candidates, overrides);
 
   const toolId = match ? match.tool_id : candidates[0];
@@ -301,6 +302,7 @@ async function audit(event, baseUrl) {
     }
   } catch { /* swallow — empty preview is acceptable */ }
 
+  const sessionId = (event && (event.session_id || event.sessionId)) || null;
   postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {
     tool_id: toolId,
     function_name: toolName,
@@ -310,6 +312,7 @@ async function audit(event, baseUrl) {
     is_essential: false,
     args_preview: argsPreview || null,
     runtime_kind: RUNTIME_KIND,
+    session_id: sessionId,
   });
 
   // Threat-intel pass — only for tools whose `tool_input` is prose the

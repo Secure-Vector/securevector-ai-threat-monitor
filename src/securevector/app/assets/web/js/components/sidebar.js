@@ -14,7 +14,11 @@ const Sidebar = {
         // visibility under the agent-observability story instead of being
         // buried under Configure.
         { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
-            { id: 'replay',         label: 'Timeline' },
+            // One destination, three lenses (Map / Runs / Timeline tabs via ObsTabs).
+            // Lands on the Map — the hero topology view — and `aliases` keep this
+            // item highlighted while the user switches to the Runs/Timeline tab
+            // (those are separate page ids).
+            { id: 'agent-map',      label: 'Agent Runs', aliases: ['agent-runs', 'agent-timeline'] },
             { id: 'tool-activity',  label: 'Tool Activity' },
             { id: 'bill-of-tools',  label: 'Tool Inventory' },
             { id: 'redactions',     label: 'Secret Detections' },
@@ -61,7 +65,16 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
-            { id: 'guide-claude-code', label: 'Claude Code Plugin' },
+            // Harness plugin guides grouped under one header — one section per
+            // harness that ships a native plugin (Claude Code, Codex, OpenClaw).
+            { header: 'Plugin setup' },
+            { id: 'guide-claude-code', label: 'Claude Code' },
+            { id: 'guide-codex', label: 'Codex' },
+            { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
+            { header: 'Reading the data' },
+            { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
+            { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
+            { header: 'Reference' },
             { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
             { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
             { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
@@ -102,6 +115,18 @@ const Sidebar = {
         // expanded rail comes up at the right size on first paint.
         this._applySavedSidebarWidth();
 
+        // Clean default on every app load: only "Agent Activity" opens
+        // automatically. Integrations + Guide always start collapsed even if
+        // the user expanded them in a prior session (navigating into a
+        // sub-item persists `nav-<id>-expanded=true`, which otherwise leaks
+        // an expanded section onto the next launch). Run once per page load —
+        // guarded so mid-session re-renders (e.g. theme toggle) don't fight a
+        // section the user just opened.
+        if (!Sidebar._loadDefaultsApplied) {
+            Sidebar._loadDefaultsApplied = true;
+            ['integrations', 'guide'].forEach(id => localStorage.removeItem(`nav-${id}-expanded`));
+        }
+
         // Clear container
         container.textContent = '';
 
@@ -126,10 +151,23 @@ const Sidebar = {
         const logoTextCol = document.createElement('div');
         logoTextCol.className = 'sidebar-logo-text';
 
+        // Wordmark + version on one row (version sits right next to the brand).
+        const brandRow = document.createElement('span');
+        brandRow.style.cssText = 'display:inline-flex;align-items:baseline;gap:7px;';
+
         const logo = document.createElement('span');
         logo.className = 'sidebar-logo';
         logo.textContent = 'SecureVector';
-        logoTextCol.appendChild(logo);
+        brandRow.appendChild(logo);
+
+        // App version badge. Keep in sync with __version__ in
+        // src/securevector/__init__.py on every release bump.
+        const version = document.createElement('span');
+        version.className = 'sidebar-version';
+        version.textContent = 'v4.5.0';
+        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
+        brandRow.appendChild(version);
+        logoTextCol.appendChild(brandRow);
 
         // Tagline — product positioning in small caps. Uses theme
         // variables so it respects light/dark switches automatically.
@@ -347,8 +385,11 @@ const Sidebar = {
                     }
 
                     const subNavItem = document.createElement('div');
-                    subNavItem.className = 'nav-item nav-sub-item' + (subItem.id === this.currentPage ? ' active' : '');
+                    const subActive = subItem.id === this.currentPage ||
+                        (subItem.aliases && subItem.aliases.includes(this.currentPage));
+                    subNavItem.className = 'nav-item nav-sub-item' + (subActive ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
+                    if (subItem.aliases) subNavItem.dataset.aliases = subItem.aliases.join(',');
                     subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px;';
 
                     const subLabel = document.createElement('span');
@@ -1187,7 +1228,8 @@ const Sidebar = {
         this.currentPage = page;
         document.querySelectorAll('.nav-item').forEach(item => {
             const isSubItem = item.classList.contains('nav-sub-item');
-            const matchesPage = item.dataset.page === page;
+            const matchesPage = item.dataset.page === page ||
+                (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
                 item.classList.toggle('active', matchesPage);
             } else {

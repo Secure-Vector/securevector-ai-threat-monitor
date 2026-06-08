@@ -86,6 +86,12 @@ class MatchedRule(BaseModel):
     severity: str
     source: str  # 'community' or 'custom'
     matched_patterns: list[str] = []
+    # Per-rule detection confidence (issue #136), 0.0–1.0. Authored
+    # metadata.confidence or a severity default from the engine. Surfaced
+    # so consumers (and the precision/recall harness) can see why a rule
+    # did or didn't contribute to the calibrated verdict. Optional for
+    # backward compatibility with callers that don't emit it.
+    confidence: Optional[float] = None
     # MITRE ATT&CK technique IDs associated with this rule match. Sourced
     # from the rule's own metadata.mitre_attack_ids when present; falls
     # back to a per-category default otherwise. Surfaces in OCSF's
@@ -283,7 +289,11 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 analysis_source = "local_fallback"
 
         # Use local analysis service (combines SDK + custom rules)
-        from securevector.app.services.analysis_service import get_analysis_service
+        from securevector.app.services.analysis_service import (
+            calibrated_verdict,
+            direction_applies,
+            get_analysis_service,
+        )
 
         service = get_analysis_service()
 
@@ -317,25 +327,20 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # ML-stage threshold for "ALLOW" is < 0.45 in the engine.
         _MIN_RULE_CONFIDENCE = 0.25
 
-        # Direction-aware rule suppression. The community rule pack ships
-        # rules that match LANGUAGE-KEYWORD shapes (`eval\(`, `subprocess`,
-        # `system\s*\(`, "export as csv") rather than secret VALUES. They are
-        # useful for catching an LLM generating dangerous code in an outgoing
-        # response, but they fire on every source file or markdown a Read
-        # tool returns to the agent as incoming context — making the threat
-        # log look like a flood of false positives. Suppress this specific
-        # list on direction='incoming'.
-        #
-        # NOTE: rules that match actual secret values (`ghp_...`, AWS keys,
-        # PEM blocks, `password=...`) are NOT in this list — they should
-        # still fire on tool responses where a real credential leaks.
-        _INCOMING_SUPPRESSED_RULE_IDS = {
-            "sv_community_output_005_encoded_content",
-            "sv_attack_006_command_execution",
-            "sv_llm_002_insecure_output",
-            "sv_community_031_bulk_data_extraction",
-        }
-        _incoming = (request.direction == "incoming")
+        # Direction-aware rule suppression (issue #136 Phase 3). The community
+        # rule pack ships rules that match LANGUAGE-KEYWORD shapes (`eval\(`,
+        # `subprocess`, `system\s*\(`, "export as csv") rather than secret
+        # VALUES. They catch an LLM generating dangerous code in an outgoing
+        # response, but fire on every source file or markdown a Read tool
+        # returns as incoming context — a false-positive flood. Each rule now
+        # carries an evaluation `direction` (resolved by the engine via
+        # resolve_direction): `outgoing`-tagged rules — command-exec, insecure
+        # output, encoded content, bulk-extraction, and all `_evasion_` rules —
+        # are suppressed on an incoming scan, while rules that match real
+        # secret values stay `both` and still fire on tool responses where a
+        # credential leaks. This replaces the former hardcoded id list with a
+        # tag-driven check (`direction_applies`) shared by the engine, this
+        # route, and the precision/recall harness.
 
         # Low-signal heuristic-shape filter.
         #
@@ -401,24 +406,15 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 return False
             return all(_is_loose_heuristic_pattern(p) for p in patterns)
 
-        def _is_suppressed_on_incoming(rule_dict) -> bool:
-            rid = rule_dict.get("id") or ""
-            if rid in _INCOMING_SUPPRESSED_RULE_IDS:
-                return True
-            # All "evasion" rules detect SENDER attempts to bypass content
-            # filters — synonym substitution, payload splitting, leetspeak,
-            # zero-width characters. The shape signals (numbered "Step 1 /
-            # Step 2", synonyms in tech docs, hyphenated keywords) fire on
-            # legitimate tutorial READMEs and how-to docs. These rules
-            # belong on outgoing prompts, not incoming tool responses.
-            if "_evasion_" in rid:
-                return True
-            return False
-
         # Convert matched rules to response format (filtered)
         matched_rules = []
+        surviving_confidences = []  # per-rule confidence of survivors (issue #136)
         for rule in result.matched_rules:
-            if float(rule.get("confidence", 1.0)) < _MIN_RULE_CONFIDENCE:
+            # Missing confidence defaults to 1.0 — callers that pre-date the
+            # per-rule confidence field (and the unit tests that mock the
+            # engine) intend such a hit to count as high-signal.
+            rule_conf = float(rule.get("confidence", 1.0))
+            if rule_conf < _MIN_RULE_CONFIDENCE:
                 continue
             if _is_low_signal_heuristic_only(rule):
                 # Rule fired ONLY on loose shape heuristics (bulleted-token /
@@ -426,11 +422,12 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 # the source of the 0.8-confidence `data_leakage` flood; drop
                 # it. A real secret leak hits a structured pattern and is kept.
                 continue
-            if _incoming and _is_suppressed_on_incoming(rule):
-                # Skip keyword-shape rules that produce FPs on tool-fetched
-                # source code / markdown. Real-secret patterns are not in
-                # the suppression list — they still fire here.
+            if not direction_applies(rule.get("direction", "both"), request.direction):
+                # Cross-direction rule (e.g. an outgoing-only keyword/shape
+                # rule on an incoming fetched-content scan) — suppress. Rules
+                # that match real secret values are tagged `both` and survive.
                 continue
+            surviving_confidences.append(rule_conf)
             matched_rules.append(
                 MatchedRule(
                     rule_id=rule.get("id", "unknown"),
@@ -440,31 +437,37 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     source=rule.get("source", "community"),
                     matched_patterns=rule.get("matched_patterns", []),
                     mitre_techniques=list(rule.get("mitre_techniques") or []),
+                    confidence=round(rule_conf, 3),
                 )
             )
 
-        # Demote to non-threat when either:
-        #   (a) overall verdict confidence is below the floor — engine telling
-        #       you it isn't sure (catches high-risk / low-confidence noise),
-        #       OR
-        #   (b) every matched rule was filtered out by the per-rule floor or
-        #       the direction-aware output-rule guard — no rule survived to
-        #       justify a threat, so recording it as one is dishonest.
-        low_confidence = (
-            result.is_threat
-            and float(result.confidence or 0.0) < _MIN_RULE_CONFIDENCE
+        # Calibrated verdict (issue #136). "Any rule matched = threat"
+        # over-alarms: a lone low/medium-confidence heuristic should inform
+        # the score but not raise a threat by itself. Among the SURVIVING
+        # rules (after the per-rule floor + low-signal heuristic + direction
+        # guards above), require either ONE high-confidence hit OR at least
+        # TWO corroborating medium-confidence hits. This subsumes the old
+        # overall-confidence-floor and empty-after-filter demotions: an empty
+        # survivor set or a single sub-threshold heuristic both fail the bar.
+        calibrated_is_threat = bool(matched_rules) and calibrated_verdict(
+            surviving_confidences
         )
-        empty_after_filter = (
-            result.is_threat
-            and len(result.matched_rules or []) > 0
-            and not matched_rules
-        )
-        if low_confidence or empty_after_filter:
-            reason = "low-confidence" if low_confidence else "all rules filtered (direction guard)"
+        if result.is_threat and not calibrated_is_threat:
+            if not matched_rules:
+                reason = "all rules filtered (floor / heuristic / direction guard)"
+            else:
+                reason = (
+                    f"uncorroborated low/medium confidence "
+                    f"(top={max(surviving_confidences):.2f}, "
+                    f"survivors={len(surviving_confidences)})"
+                )
             logger.debug(
-                f"Dropped threat — {reason}: confidence={result.confidence:.3f}, "
-                f"risk_score={result.risk_score}, engine_rules={len(result.matched_rules or [])} → "
-                f"surviving={len(matched_rules)}"
+                "Dropped threat — %s: engine_conf=%.3f risk_score=%s engine_rules=%d → surviving=%d",
+                reason,
+                float(result.confidence or 0.0),
+                result.risk_score,
+                len(result.matched_rules or []),
+                len(matched_rules),
             )
             result.is_threat = False
             result.threat_type = None

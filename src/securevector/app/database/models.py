@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 35
+CURRENT_SCHEMA_VERSION = 37
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -295,7 +295,11 @@ SCHEMA_DESCRIPTION = (
     "v29: synced_tool_rules — cloud-pushed policy bundle rules layered over local Tool Permissions; "
     "v32: runtime_kind on tool_call_audit — identifies which Guard plugin runtime wrote the row; "
     "v34: redaction_events — audit log of every redact_secrets() match (hash-only, never raw); "
-    "v35: runtime_kind on redaction_events — identifies which Guard plugin caught the secret"
+    "v35: runtime_kind on redaction_events — identifies which Guard plugin caught the secret; "
+    "v36: agent-run trace keys on tool_call_audit (trace_id/session_id/turn_index/parent_span_id) "
+    "— groups the flat audit log into runs/turns for the Agent Run Trace + Agent Map views; "
+    "v37: per-runtime scope (runtime_kind) on tool_essential_overrides — a local Block/Allow "
+    "can target one agent runtime instead of governing all of them"
 )
 
 # Migration SQL for v34 — redaction_events table.

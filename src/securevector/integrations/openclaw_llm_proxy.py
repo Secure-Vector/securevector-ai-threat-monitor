@@ -883,6 +883,7 @@ class LLMProxy:
             client = await self.get_http_client()
             response = await client.get(
                 f"{self.securevector_url}/api/tool-permissions/synced-overrides",
+                params={"runtime": self.integration} if self.integration else None,
                 timeout=3.0,
             )
             if response.status_code == 200:
@@ -929,7 +930,55 @@ class LLMProxy:
 
         return self._custom_tools_registry or {}
 
-    async def _evaluate_tool_permissions(self, response_dict: dict, settings: dict) -> tuple:
+    def _derive_session_id(self, body_dict: dict) -> "str | None":
+        """Derive a STABLE per-conversation session id from the request body.
+
+        A proxy has no plugin-style session handle, so we anchor on the parts of
+        the conversation that stay constant as it grows: the system prompt + the
+        first user message. Every turn (and every tool-use loop iteration) of one
+        conversation therefore shares a session id — which the backend turns into
+        a single ``trace_id`` so the run shows up in Agent Runs. Different
+        conversations hash to different ids. Returns None if nothing to anchor on.
+        """
+        try:
+            def _txt(c) -> str:
+                if isinstance(c, str):
+                    return c
+                if isinstance(c, list):
+                    return " ".join(
+                        str(p.get("text", "")) for p in c if isinstance(p, dict)
+                    )
+                return str(c or "")
+
+            # System prompt: Anthropic puts it top-level; OpenAI in messages[].
+            sys_text = ""
+            s = body_dict.get("system")
+            if s:
+                sys_text = _txt(s)
+            msgs = body_dict.get("messages")
+            first_user = ""
+            if isinstance(msgs, list):
+                if not sys_text:
+                    sm = next((m for m in msgs if isinstance(m, dict) and m.get("role") == "system"), None)
+                    if sm:
+                        sys_text = _txt(sm.get("content"))
+                um = next((m for m in msgs if isinstance(m, dict) and m.get("role") == "user"), None)
+                if um:
+                    first_user = _txt(um.get("content"))
+            if not first_user and body_dict.get("input"):
+                first_user = _txt(body_dict.get("input"))
+
+            anchor = (sys_text[:2000] + "\x1f" + first_user[:2000]).strip()
+            if not anchor or anchor == "\x1f":
+                return None
+            import hashlib
+            return "proxy-" + hashlib.sha256(anchor.encode("utf-8", "ignore")).hexdigest()[:24]
+        except Exception:
+            return None
+
+    async def _evaluate_tool_permissions(
+        self, response_dict: dict, settings: dict, session_id: "str | None" = None
+    ) -> tuple:
         """Evaluate tool call permissions in an LLM response.
 
         Returns:
@@ -1068,6 +1117,9 @@ class LLMProxy:
                     # Stamp the harness so Tool Inventory groups proxy traffic
                     # by integration (langchain / langgraph / n8n / …).
                     "runtime_kind":  self.integration,
+                    # Per-conversation session → backend derives trace_id so the
+                    # run appears in Agent Runs (not just Map / Timeline).
+                    "session_id":    session_id,
                 }
                 client = await self.get_http_client()
                 await client.post(
@@ -1305,6 +1357,9 @@ class LLMProxy:
             except json.JSONDecodeError:
                 pass
 
+        # Stable per-conversation id for grouping tool-call audits into runs.
+        session_id = self._derive_session_id(body_dict) if body_dict else None
+
         # Extract full conversation context for context-aware output scanning
         input_context = self.extract_all_context_text(body_dict) if body_dict else ""
 
@@ -1470,7 +1525,7 @@ class LLMProxy:
                         settings = await self.check_settings()
                         if settings.get("tool_permissions_enabled"):
                             response_dict, blocked, _ = await self._evaluate_tool_permissions(
-                                response_dict, settings
+                                response_dict, settings, session_id
                             )
                             if blocked:
                                 # Return modified response with blocked tools stripped
@@ -1544,6 +1599,15 @@ class LLMProxy:
 
         settings = await self.check_settings()
         will_block = settings.get("block_threats", False)
+
+        # Session id for tool-permission attribution on the buffered-stream path
+        # (mirrors the non-streaming path's self._derive_session_id(body_dict)).
+        # Parsed from the request body; None if there's nothing to anchor on.
+        try:
+            _req_body = json.loads(body) if body else None
+        except Exception:
+            _req_body = None
+        session_id = self._derive_session_id(_req_body) if _req_body else None
 
         print("[llm-proxy] 🛡️ Buffering stream for output scan...")
 
@@ -1733,7 +1797,7 @@ class LLMProxy:
                         }]
                     }
 
-                modified, blocked, _ = await self._evaluate_tool_permissions(synthetic, settings)
+                modified, blocked, _ = await self._evaluate_tool_permissions(synthetic, settings, session_id)
                 if blocked:
                     # Return denial as non-streaming response — stream is already buffered
                     return Response(

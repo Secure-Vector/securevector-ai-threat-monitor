@@ -234,3 +234,74 @@ def test_mixed_match_keeps_structured_pattern(monkeypatch):
     body = r.json()
     assert body["is_threat"] is True
     assert len(_SpyThreatIntelRepo.created) == 1
+
+
+# ---------------------------------------------------------------------------
+# Calibrated verdict + per-rule confidence floor (issue #136). These drive the
+# real route with a per-rule `confidence` now flowing from the (faked) engine,
+# proving the verdict no longer treats "any rule matched" as a threat and that
+# the _MIN_RULE_CONFIDENCE floor is finally live. All rules below use a
+# STRUCTURED pattern so the low-signal heuristic gate keeps them.
+# ---------------------------------------------------------------------------
+
+def _rule(conf, rid="sv_test_rule"):
+    return {
+        "id": rid,
+        "name": "Test Rule",
+        "category": "data_leakage",
+        "severity": "critical",
+        "source": "community",
+        "matched_patterns": [_STRUCTURED_GHP_PATTERN],
+        "confidence": conf,
+    }
+
+
+def test_lone_medium_confidence_rule_does_not_alarm(monkeypatch):
+    """A single medium-confidence (0.6) hit informs the score but must not alarm."""
+    engine_result = _FakeAnalysisResult(
+        is_threat=True, threat_type="data_leakage", risk_score=90,
+        confidence=0.6, matched_rules=[_rule(0.6)],
+    )
+    client = _build_client(monkeypatch, engine_result)
+    body = client.post("/api/v1/analyze", json={"text": "x", "source": "t"}).json()
+    assert body["is_threat"] is False
+    assert _SpyThreatIntelRepo.created == []
+
+
+def test_two_medium_confidence_rules_corroborate(monkeypatch):
+    """Two medium-confidence hits corroborate → threat."""
+    engine_result = _FakeAnalysisResult(
+        is_threat=True, threat_type="data_leakage", risk_score=90,
+        confidence=0.6,
+        matched_rules=[_rule(0.6, "rule_a"), _rule(0.6, "rule_b")],
+    )
+    client = _build_client(monkeypatch, engine_result)
+    body = client.post("/api/v1/analyze", json={"text": "x", "source": "t"}).json()
+    assert body["is_threat"] is True
+    assert len(_SpyThreatIntelRepo.created) == 1
+
+
+def test_high_confidence_rule_alarms_alone(monkeypatch):
+    """A single high-confidence (0.9) hit alarms on its own."""
+    engine_result = _FakeAnalysisResult(
+        is_threat=True, threat_type="data_leakage", risk_score=90,
+        confidence=0.9, matched_rules=[_rule(0.9)],
+    )
+    client = _build_client(monkeypatch, engine_result)
+    body = client.post("/api/v1/analyze", json={"text": "x", "source": "t"}).json()
+    assert body["is_threat"] is True
+    assert len(_SpyThreatIntelRepo.created) == 1
+
+
+def test_subfloor_confidence_rule_is_dropped(monkeypatch):
+    """A rule below _MIN_RULE_CONFIDENCE (0.1 < 0.25) is filtered out — the
+    floor is now live because real per-rule confidence flows."""
+    engine_result = _FakeAnalysisResult(
+        is_threat=True, threat_type="data_leakage", risk_score=90,
+        confidence=0.1, matched_rules=[_rule(0.1)],
+    )
+    client = _build_client(monkeypatch, engine_result)
+    body = client.post("/api/v1/analyze", json={"text": "x", "source": "t"}).json()
+    assert body["is_threat"] is False
+    assert body["matched_rules"] == []
+    assert _SpyThreatIntelRepo.created == []

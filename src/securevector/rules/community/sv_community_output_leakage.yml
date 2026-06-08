@@ -179,7 +179,7 @@ rules:
   metadata:
     author: SecureVector Community
     created_at: '2026-02-02T00:00:00Z'
-    direction: output
+    direction: outgoing
     tags:
     - encoded
     - obfuscated
@@ -192,4 +192,34 @@ rules:
   - (?:base64|b64)[:\s]*[A-Za-z0-9+/=]{50,}
   - \\x[0-9a-fA-F]{2}(?:\\x[0-9a-fA-F]{2}){10,}
   - (?:0x[0-9a-fA-F]{2}[,\s]*){10,}
-  - eval\s*\(|exec\s*\(|subprocess|os\.system
+  # NOTE: removed bare `eval(|exec(|subprocess|os.system` — code-execution
+  # detection is sv_attack_006_command_execution's job; matching it here made
+  # an "encoded content" rule fire on every benign code snippet (FP source).
+- category: data_leakage
+  description: Detects credentials embedded in a connection-string / URL
+    (scheme://user:password@host) — a common secret-leak shape in logs and output.
+  id: sv_community_055_connstring_credentials
+  metadata:
+    author: SecureVector Community
+    created_at: '2026-06-04T00:00:00Z'
+    confidence: 0.85
+    direction: outgoing
+    tags:
+    - data_leakage
+    - connection_string
+    - credentials
+    mitre_attack_ids:
+    - T1552
+  name: Credentials in connection string / URL
+  severity: high
+  tier: community
+  pattern_type: regex
+  patterns:
+  - '(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|ftp|sftp|https?|jdbc:[a-z]+|mssql|oracle)://[^\s:/@]+:[^\s:/@]{3,}@[^\s/]+'
+  test_cases:
+  - description: postgres URL with password
+    expected_result: match
+    input: postgres://admin:Sup3rSecret@db.prod.internal:5432/maindb
+  - description: benign URL without credentials
+    expected_result: no_match
+    input: The dev server is at http://localhost:5432/api/v1/health

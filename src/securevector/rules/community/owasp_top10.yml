@@ -33,7 +33,10 @@ rules:
   tier: community
   pattern_type: context_aware
   patterns:
-  - (ignore|forget|disregard)\s+(all\s+)?(previous|above|earlier|prior)\s+(instructions?|rules?|prompts?|commands?)
+  # Allow up to two adjectives between the qualifier and the noun so
+  # "ignore all prior SAFETY instructions" / "forget the earlier SYSTEM rules"
+  # still match (the strict-adjacent form missed them).
+  - (ignore|forget|disregard)\s+(all\s+)?((?:the|your|its|my|this)\s+)?(previous|above|earlier|prior)\s+(?:\w+\s+){0,2}(instructions?|rules?|prompts?|commands?|directions?)
   - (act|behave|pretend|roleplay)\s+(as|like)\s+(jailbreak|admin|root|system|developer|god|unrestricted)
   - (bypass|override|circumvent|disable|turn\s+off)\s+(safety|filter|restriction|guardrail|protection)
   - now\s+you\s+(are|act\s+as)\s+(a|an)\s+(unrestricted|uncensored|jailbroken)\s+\w+
@@ -48,9 +51,15 @@ rules:
   # The dan/mode arm uses `.{0,40}` instead of `\s+(?:\S+\s+){0,4}` so
   # canonical phrasings like 'DAN, do anything mode' or 'DAN: mode' (with
   # punctuation right after DAN) still match — `\s+` would have missed them.
-  - "(?:\\bdan\\b.{0,40}\\bmode\\b|\\bdeveloper\\s+mode\\b|\\bgod\\s+mode\\b)"
-  - "\\b(jailbreak|escape)\\s+(?:\\S+\\s+){0,4}prompt\\b"
-  - enable\s+(developer|debug|admin)\s+mode
+  # dan/developer/god mode alternation, parenthesised so the \b anchors apply to
+  # EVERY arm ("badeveloper mode" / "demigod mode" must NOT match). 'developer
+  # mode' carries a browser-context negative lookahead so "developer mode in
+  # Chrome" stays benign while a bare "switch to developer mode" still flags.
+  - '(?:\bdan\b.{0,40}\bmode\b|\bdeveloper\s+mode\b(?![^.\n]*\b(?:chrome|firefox|edge|safari|browser|android|ios|iphone|ipad|windows|macos|linux|vscode|extension|unpacked|emulator|device|settings)\b)|\bgod\s+mode\b)'
+  # Require an imperative "jailbreak/escape/bypass [the/your/system] prompt"
+  # structure. The old {0,4}-word proximity form fired on benign security prose
+  # like "jailbreak techniques and prompt injection defenses" (FP 2026-06-04).
+  - "\\b(?:jailbreak|escape|bypass|override)\\s+(?:the\\s+|your\\s+|its\\s+|my\\s+|this\\s+)?(?:system\\s+)?prompt\\b"
   detection_logic:
     operator: and
     expression: behavioral_pattern_match
@@ -61,6 +70,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     references:
     - description: Community-developed methodology for output validation
       title: SecureVector Output Security Analysis
@@ -78,9 +88,9 @@ rules:
   patterns:
   - <script[^>]*>.*</script>
   - javascript:\s*\w+
-  - eval\s*\(
-  - exec\s*\(
-  - system\s*\(
+  - (?<!\w)eval\s*\(
+  - (?<!\w)exec\s*\(
+  - (?<!\w)system\s*\(
   - shell_exec\s*\(
   - passthru\s*\(
   - file_get_contents\s*\(
@@ -172,7 +182,12 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?[a-zA-Z0-9_-]{8,}
+  # Value must contain a digit (positive lookahead) so source-code references
+  # and type annotations — `api_key: Optional[str]`, `token = self._cloud_token`
+  # — no longer trip a "secret leak". Real keys/tokens (AKIA…, sk-proj-…, JWTs)
+  # carry digits, so true leaks still match. (FP fix 2026-06-06: scanning source
+  # that merely *names* a credential variable was the top LLM-006 FP source.)
+  - (api.key|apikey|secret.key|password|token)\s*[:=]\s*['"]?(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{8,}
   # PII patterns use `.{0,40}` (max ~40 chars in a single phrase) rather
   # than `\s+(?:\S+\s+){0,4}` so non-whitespace separators like `:`, `=`
   # match — `ssn: 123-45-6789`, `ccn=1234567890123456`, `phone:+1...`
