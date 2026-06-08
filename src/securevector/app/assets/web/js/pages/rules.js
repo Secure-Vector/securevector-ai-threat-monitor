@@ -404,47 +404,9 @@ const RulesPage = {
             return;
         }
 
-        // ── New-rules protection banner ─────────────────────────────────
-        const newRules = this.rules.filter(r => this._isNewRule(r));
-        if (newRules.length > 0 && !this.bannerDismissed) {
-            const banner = document.createElement('div');
-            banner.style.cssText = 'margin-bottom: 16px; padding: 14px 18px; border-radius: 8px; border: 1px solid rgba(180,83,9,0.3); background: rgba(245,158,11,0.08); display: flex; gap: 12px; align-items: flex-start; position: relative;';
-
-            const bannerBody = document.createElement('div');
-            bannerBody.style.cssText = 'flex: 1; min-width: 0; padding-right: 24px;';
-
-            const bannerTitle = document.createElement('div');
-            bannerTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--warning-text); margin-bottom: 4px;';
-            bannerTitle.textContent = newRules.length + ' new detection rule' + (newRules.length > 1 ? 's' : '') + ' added — AI Agent Attack Protection';
-            bannerBody.appendChild(bannerTitle);
-
-            const bannerDesc = document.createElement('div');
-            bannerDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
-            bannerDesc.textContent = 'SecureVector now detects the latest AI agent attack patterns: injected instructions inside tool results, multi-agent authority spoofing, and permission scope escalation. These cover real attack chains used against OpenClaw, GitHub MCP, and other agent frameworks in 2025\u20132026. Expand any highlighted rule below to see how it protects your agents.';
-            bannerBody.appendChild(bannerDesc);
-
-            const bannerList = document.createElement('div');
-            bannerList.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;';
-            newRules.forEach(r => {
-                const chip = document.createElement('span');
-                chip.style.cssText = 'font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--warning-chip-bg); color: var(--warning-text-muted); border: 1px solid var(--warning-chip-border); font-weight: 500;';
-                chip.textContent = r.name;
-                bannerList.appendChild(chip);
-            });
-            bannerBody.appendChild(bannerList);
-
-            banner.appendChild(bannerBody);
-
-            // Close button
-            const closeBtn = document.createElement('button');
-            closeBtn.style.cssText = 'position: absolute; top: 10px; right: 12px; background: none; border: none; cursor: pointer; color: var(--warning-text-muted); font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0.6;';
-            closeBtn.textContent = '\u00D7';
-            closeBtn.title = 'Dismiss';
-            closeBtn.addEventListener('click', () => { this.bannerDismissed = true; banner.remove(); });
-            banner.appendChild(closeBtn);
-
-            container.appendChild(banner);
-        }
+        // (The "N new detection rules added — AI Agent Attack
+        // Protection" promo banner was removed 2026-06-07 per product
+        // feedback — the rules table speaks for itself.)
 
         // Table
         const tableWrapper = document.createElement('div');
