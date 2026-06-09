@@ -28,6 +28,8 @@ EXPECTED_FILES = {
     "lib/client.js",
     "lib/redact.js",
     "README.md",
+    "LICENSE",
+    "PRIVACY.md",
 }
 
 

@@ -73,6 +73,13 @@ PLUGIN_FILES = [
     # and user-prompt-submit.js so both hooks mask the same surfaces.
     "lib/redact.js",
     "README.md",
+    # Apache-2.0 LICENSE (canonical, byte-identical to repo root + sibling
+    # plugins) and the Claude-Code-tailored PRIVACY.md. Both ship in the
+    # installed tree so the plugin is legally self-contained + marketplace-ready,
+    # matching codex/copilot-cli. (LICENSE byte-equality is enforced by
+    # tests/unit/app/test_plugin_license_consistency.py.)
+    "LICENSE",
+    "PRIVACY.md",
 ]
 
 # Bundled plugin source directory (shipped with the package).

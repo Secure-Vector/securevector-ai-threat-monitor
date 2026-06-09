@@ -33,10 +33,12 @@ For anything the companion app does with hook payloads after they arrive (local 
 
 Before sending a hook payload to the local app, the plugin runs the payload through a redactor (`lib/redact.js`) that masks common secret shapes:
 
-- API key prefixes (e.g. `sk-…`, `pk-…`)
+- API key prefixes (e.g. `sk-…`, `pk-…`, `sk-proj-…`)
+- Stripe secret keys (`sk_live_…`, `sk_test_…`)
 - GitHub tokens of all documented prefixes (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`)
-- AWS access key IDs (`AKIA…`)
+- AWS access key IDs (`AKIA…`) and secret access keys
 - JWTs
+- PEM private-key blocks (`-----BEGIN … PRIVATE KEY-----`)
 - Labelled credential key/value pairs (`password=…`, `secret: …`, etc.)
 
 Redaction is **best-effort pattern matching, not a cryptographic guarantee.** The canonical pattern set lives at [`lib/redact.js`](./lib/redact.js); review it before installation if your workload contains custom secret formats.

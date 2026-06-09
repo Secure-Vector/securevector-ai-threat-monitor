@@ -28,7 +28,7 @@ For anything the companion app does with hook payloads after they arrive (local 
 
 ## Client-side redaction before any POST
 
-Before sending a payload to the local app, the plugin masks common secret shapes via `lib/redact.js`: API-key prefixes (`sk-…`, `pk-…`), GitHub tokens (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`), AWS access key IDs (`AKIA…`), JWTs, and labelled credential key/value pairs. Redaction is **best-effort pattern matching, not a cryptographic guarantee** — review [`lib/redact.js`](./lib/redact.js) before installation if your workload contains custom secret formats.
+Before sending a payload to the local app, the plugin masks common secret shapes via `lib/redact.js`: API-key prefixes (`sk-…`, `pk-…`, `sk-proj-…`), Stripe secret keys (`sk_live_…`/`sk_test_…`), GitHub tokens (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`), AWS access key IDs (`AKIA…`) and secret access keys, JWTs, PEM private-key blocks, and labelled credential key/value pairs. Redaction is **best-effort pattern matching, not a cryptographic guarantee** — review [`lib/redact.js`](./lib/redact.js) before installation if your workload contains custom secret formats.
 
 Size limits enforced before any POST: `args_preview` truncated to 200 characters; `/analyze` `text` capped at 8 KB for prompt/prose scans and 16 KB for tool-response scans.
 
