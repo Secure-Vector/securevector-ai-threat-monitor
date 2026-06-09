@@ -90,8 +90,10 @@ const AgentRunsPage = {
             .ar-runlist { width:308px; flex:0 0 308px; max-height:680px; overflow:auto; display:flex; flex-direction:column; gap:9px; padding:2px; }
             .ar-detail { flex:1; min-width:0; border:1px solid var(--border-default,#30363d); border-radius:14px;
                 background:linear-gradient(180deg, var(--bg-card,#161b22), color-mix(in srgb, var(--bg-card,#161b22) 88%, #000)); padding:18px 20px; min-height:320px; }
-            /* Run cards: runtime-coloured left rail, lift on hover, accent when selected. */
-            .ar-run { position:relative; text-align:left; cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:12px;
+            /* Run cards: runtime-coloured left rail, lift on hover, accent when selected.
+               flex:0 0 auto is load-bearing — the runlist is a flex column with max-height,
+               so without it many runs flex-shrink every card to ~24px and crush the text. */
+            .ar-run { position:relative; flex:0 0 auto; text-align:left; cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:12px;
                 background:var(--bg-card,#161b22); padding:11px 13px 11px 16px; overflow:hidden;
                 transition:border-color .14s,background .14s,box-shadow .14s,transform .14s; }
             .ar-run::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--ar-accent,#5eadb8); opacity:.5; transition:opacity .14s,width .14s; }
@@ -100,9 +102,10 @@ const AgentRunsPage = {
             .ar-run.sel { border-color:var(--accent-primary,#5eadb8); background:color-mix(in srgb, var(--accent-primary,#5eadb8) 9%, var(--bg-card,#161b22)); }
             .ar-run.sel::before { opacity:1; width:4px; }
             .ar-run-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
-            .ar-run-rt { font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); letter-spacing:.2px; }
+            .ar-run-rt { font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); letter-spacing:.2px;
+                min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
             .ar-run-sub { font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-muted,#7d8590); text-transform:lowercase;
-                border:1px solid var(--border-default,#30363d); border-radius:999px; padding:1px 7px; letter-spacing:.2px; }
+                border:1px solid var(--border-default,#30363d); border-radius:999px; padding:1px 7px; letter-spacing:.2px; flex:0 0 auto; white-space:nowrap; }
             .ar-run-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 3px color-mix(in srgb, var(--ar-accent,#5eadb8) 22%, transparent); }
             .ar-run-meta { font-size:11.5px; color:var(--text-secondary,#b1bac4); display:flex; gap:11px; flex-wrap:wrap; align-items:center; }
             .ar-num { font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace; font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }

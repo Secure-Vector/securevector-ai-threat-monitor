@@ -622,6 +622,21 @@ const AgentMapPage = {
             else if (this.topo === 'mesh') this._layoutMesh(model);
             else this._layoutRadial(model);
 
+            // Any layout can land two agents close enough that their external
+            // "agent #N" labels collide (tree row with many sessions, mesh
+            // ring, adjacent radial wedges). Suppress the label on crowded
+            // nodes — the in-node number and hover card still identify them.
+            const sess = this._lnodes.filter(n => n.kind === 'session');
+            const MIN_LABEL_GAP = 54; // px — "agent #NN" at label size ≈ 48px wide
+            for (let i = 0; i < sess.length; i++) {
+                for (let j = i + 1; j < sess.length; j++) {
+                    const ddx = sess[i].x - sess[j].x, ddy = sess[i].y - sess[j].y;
+                    if (ddx * ddx + ddy * ddy < MIN_LABEL_GAP * MIN_LABEL_GAP) {
+                        sess[i]._denseLabel = true; sess[j]._denseLabel = true;
+                    }
+                }
+            }
+
             // Edges under nodes.
             this._edgeEls = [];
             this._ledges.forEach(e => {
@@ -775,17 +790,30 @@ const AgentMapPage = {
                 });
                 const sx = tXs.length ? tXs.reduce((a, b) => a + b, 0) / tXs.length : xNext(); sXs.push(sx);
                 s.x = sx; s.y = rowY.session;
+                s._denseLabel = false; // node objects are reused across topo switches; crowding is re-marked post-layout
             });
             const hx = sXs.length ? sXs.reduce((a, b) => a + b, 0) / sXs.length : xNext(); hXs.push(hx);
             h.x = hx; h.y = rowY.harness;
             h._lbl = { dx: 0, dy: -(h.gray ? 13 : 16) - 8, anchor: 'middle', reasonDy: 12 };
         });
+        // Harness labels ("copilot-cli" + "inactive · Nd idle") are far wider
+        // than the nodes, and child-mean x can land two harnesses nearly on top
+        // of each other (e.g. two small harnesses squeezed beside a 26-agent
+        // one). Sweep once each way to enforce a minimum gap within the span.
+        const MIN_HGAP = 104;
+        const hOrd = harnesses.slice().sort((a, b) => a.x - b.x);
+        for (let i = 1; i < hOrd.length; i++) hOrd[i].x = Math.max(hOrd[i].x, hOrd[i - 1].x + MIN_HGAP);
+        if (hOrd.length && hOrd[hOrd.length - 1].x > right) {
+            hOrd[hOrd.length - 1].x = right;
+            for (let i = hOrd.length - 2; i >= 0; i--) hOrd[i].x = Math.min(hOrd[i].x, hOrd[i + 1].x - MIN_HGAP);
+        }
         const dev = model.nodes.find(n => n.id === 'device');
         // Center the root over the SPAN of its harnesses (midpoint of leftmost
         // and rightmost), not their mean — the mean skews toward whichever side
         // has the denser subtree (e.g. a Claude Code harness with many tool
         // leaves drags the root left), which left the root visibly off-center.
-        dev.x = hXs.length ? (Math.min(...hXs) + Math.max(...hXs)) / 2 : W / 2; dev.y = rowY.device;
+        const hXs2 = harnesses.map(h => h.x);
+        dev.x = hXs2.length ? (Math.min(...hXs2) + Math.max(...hXs2)) / 2 : W / 2; dev.y = rowY.device;
         this._edgeMode = 'tree';
     },
 
@@ -825,6 +853,7 @@ const AgentMapPage = {
         sessions.forEach((s, i) => {
             const a = -1.5708 + (i + 0.5) / Math.max(1, sessions.length) * 6.2832;
             s.x = cx + Math.cos(a) * rS; s.y = cy + Math.sin(a) * rS;
+            s._denseLabel = false; // node objects are reused across topo switches; crowding is re-marked post-layout
             meshNodes.push(s);
         });
         const toolAng = {};
@@ -956,7 +985,7 @@ const AgentMapPage = {
                 al.style.fill = n.gray ? 'var(--text-muted,#7d8590)' : 'var(--text-secondary,#b1bac4)';
                 al.textContent = this._sessionNodeLabel(n); g.appendChild(al);
             }
-            if (!n.active) {
+            if (!n.active && !n._denseLabel) {
                 const idl = document.createElementNS(SVG_NS, 'text');
                 idl.setAttribute('class', 'sv-reason'); idl.setAttribute('text-anchor', 'middle'); idl.setAttribute('y', 31);
                 idl.textContent = (n.idle_days != null ? n.idle_days : '?') + 'd inactive'; g.appendChild(idl);
