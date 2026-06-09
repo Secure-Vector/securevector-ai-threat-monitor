@@ -25,6 +25,7 @@ from securevector.app.server.routes import tool_permissions as tp_routes
 from securevector.app.server.routes.tool_permissions import (
     CLAUDE_CODE_BUILTINS,
     CODEX_BUILTINS,
+    COPILOT_CLI_BUILTINS,
     router as tp_router,
 )
 from tests.fixtures.synced_rules import seed_synced_rules
@@ -33,6 +34,7 @@ from tests.fixtures.synced_rules import seed_synced_rules
 REPO = Path(__file__).resolve().parents[3]
 NORMALIZE_JS = REPO / "src" / "securevector" / "plugins" / "claude-code" / "lib" / "normalize.js"
 NORMALIZE_JS_CODEX = REPO / "src" / "securevector" / "plugins" / "codex" / "lib" / "normalize.js"
+NORMALIZE_JS_COPILOT = REPO / "src" / "securevector" / "plugins" / "copilot-cli" / "lib" / "normalize.js"
 
 
 def _builtins_from_js(path: Path) -> set[str]:
@@ -135,6 +137,24 @@ def test_codex_builtins_table_mirrors_codex_normalize_js():
     )
     assert not missing_in_js, (
         f"CODEX_BUILTINS has names absent from Codex normalize.js: {missing_in_js}"
+    )
+
+
+def test_copilot_builtins_table_mirrors_copilot_normalize_js():
+    """Same drift-check for the Copilot copy of normalize.js. Copilot's
+    tool namespace is distinct (lowercase: bash, view, edit, …), so the
+    check is against `COPILOT_CLI_BUILTINS` + the Copilot plugin's
+    normalize.js. Guards against the v4.6.0 bug where the plugin shipped
+    Codex's normalize.js and every Copilot tool fail-opened."""
+    js_names = _builtins_from_js(NORMALIZE_JS_COPILOT)
+    py_names = {name for (name, _r, _d) in COPILOT_CLI_BUILTINS}
+    missing_in_py = js_names - py_names
+    missing_in_js = py_names - js_names
+    assert not missing_in_py, (
+        f"COPILOT_CLI_BUILTINS missing built-ins present in Copilot normalize.js: {missing_in_py}"
+    )
+    assert not missing_in_js, (
+        f"COPILOT_CLI_BUILTINS has names absent from Copilot normalize.js: {missing_in_js}"
     )
 
 

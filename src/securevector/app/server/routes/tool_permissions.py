@@ -181,6 +181,27 @@ CODEX_BUILTINS: list[tuple[str, str, str]] = [
     ("report_agent_job_result", "write", "Report the result of an agent job."),
 ]
 
+# Canonical GitHub Copilot CLI built-in tool names. Unlike CC/Codex these are
+# LOWERCASE single words, confirmed empirically against Copilot CLI 1.0.60 — a
+# shell command's hook payload carries `toolName: "bash"` (not "Bash"). The
+# documented set lives at docs.github.com/en/copilot/reference/hooks-configuration.
+# KEEP IN LOCKSTEP with the Copilot copy of normalize.js
+# (src/securevector/plugins/copilot-cli/lib/normalize.js). Copilot's tool_id
+# namespace is its own — a rule authored `tool_id="bash"` governs Copilot; the
+# case-insensitive lookup also lets a `tool_id="Bash"` rule reach it.
+COPILOT_CLI_BUILTINS: list[tuple[str, str, str]] = [
+    ("bash",        "admin", "Execute a shell command."),
+    ("powershell",  "admin", "Execute a PowerShell command."),
+    ("view",        "read",  "Read file contents."),
+    ("edit",        "write", "Modify an existing file."),
+    ("create",      "write", "Create a new file."),
+    ("glob",        "read",  "Match files by glob pattern."),
+    ("grep",        "read",  "Search file contents by pattern."),
+    ("web_fetch",   "read",  "Fetch a URL."),
+    ("task",        "admin", "Dispatch a sub-agent task."),
+    ("ask_user",    "read",  "Ask the user a clarifying question."),
+]
+
 
 def _build_tool_response_row(
     tool_id: str,
@@ -339,6 +360,28 @@ async def list_essential_tools():
                 "name": name,
                 "provider": "Codex",
                 "category": "codex",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
+        # Copilot CLI built-ins. Copilot's tool_id namespace is its OWN
+        # (lowercase: bash, view, edit, …) — distinct from CC/Codex's
+        # PascalCase — surfaced as a distinct UI row under category
+        # "copilot_cli". Omitted only when the registry already claims the name.
+        for name, risk, description in COPILOT_CLI_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "GitHub Copilot CLI",
+                "category": "copilot_cli",
                 "risk": risk,
                 "default_permission": "allow",
                 "description": description,
@@ -529,6 +572,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         registry = _get_registry()
         builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
         builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,
