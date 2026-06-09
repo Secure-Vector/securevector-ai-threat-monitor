@@ -1275,11 +1275,12 @@ def chat_with_protection(user_input):
     createCopilotCliPluginCard() {
         // SecureVector Guard for GitHub Copilot CLI — host-native plugin.
         // Install stages the plugin tree (plugin.json at root) under
-        // ~/.securevector/staging/copilot-cli-plugin/ and returns the
-        // documented local-path install command `copilot plugin install <dir>`.
-        // Unlike Codex/CC there is no auto-install into the host's store
-        // (Copilot's installed-plugin layout isn't documented for out-of-band
-        // writes), so the command block is the PRIMARY install step.
+        // ~/.securevector/staging/copilot-cli-plugin/ and — when Copilot CLI is
+        // present — copies it into ~/.copilot/installed-plugins/_direct/ and
+        // registers it enabled in ~/.copilot/config.json (parity with CC/Codex
+        // auto-install; verified interchangeable with `copilot plugin install`).
+        // Falls back to the documented `copilot plugin install <dir>` command
+        // only when ~/.copilot is absent (CLI not installed).
         const card = document.createElement('div');
         card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
 
@@ -1374,7 +1375,10 @@ def chat_with_protection(user_input):
         const setStatusPill = (state, opts = {}) => {
             statusPill.textContent = '';
             const span = document.createElement('strong');
-            if (state === 'staged') {
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · start a new Copilot session';
+            } else if (state === 'staged') {
                 span.style.color = 'var(--success)';
                 span.textContent = 'Staged · run the install command below';
             } else if (state === 'not-staged') {
@@ -1418,9 +1422,17 @@ def chat_with_protection(user_input):
                 const res = await fetch('/api/hooks/copilot-cli/install', { method: 'POST' });
                 const result = await res.json();
                 if (result.ok) {
-                    showResult('success', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || ''}`.trim());
-                    renderCommands(result.commands && result.commands.length ? result.commands : commandsFor(result.staging_dir));
-                    setStatusPill('staged');
+                    if (result.auto_installed) {
+                        // Wrote directly into Copilot's store + config.json — no command needed.
+                        showResult('success', `Installed and enabled in Copilot CLI (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        renderCommands([]);
+                        setStatusPill('installed');
+                    } else {
+                        // Copilot CLI not detected — staged only; surface the install command.
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || ''}`.trim());
+                        renderCommands(result.commands && result.commands.length ? result.commands : commandsFor(result.staging_dir));
+                        setStatusPill('staged');
+                    }
                     installBtn.textContent = 'Reinstall Plugin';
                     uninstallBtn.style.display = '';
                 } else {
@@ -1441,7 +1453,7 @@ def chat_with_protection(user_input):
                 const res = await fetch('/api/hooks/copilot-cli/uninstall', { method: 'POST' });
                 const result = await res.json();
                 if (result.ok) {
-                    showResult('warning', 'Plugin removed from staging. Run `copilot plugin uninstall securevector-guard` in your terminal to drop it from Copilot CLI.');
+                    showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
                     renderCommands([]);
                     setStatusPill('not-staged');
                     installBtn.textContent = 'Install Plugin';
@@ -1456,13 +1468,19 @@ def chat_with_protection(user_input):
             uninstallBtn.textContent = 'Uninstall';
         };
 
-        // Initial status check. Copilot /status uses `copilot_detected` +
-        // `files_present` (no auto_installed/enabled — there's no host store write).
+        // Initial status check. `auto_installed`+`enabled` mean we wrote into
+        // Copilot's store + config.json; `installed` (staged) without them is the
+        // CLI-absent fallback where the user must run the install command.
         setTimeout(async () => {
             try {
                 const res = await fetch('/api/hooks/copilot-cli/status');
                 const status = await res.json();
-                if (status.installed) {
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
                     setStatusPill('staged');
                     renderCommands(commandsFor(status.staging_dir));
                     installBtn.textContent = 'Reinstall Plugin';
