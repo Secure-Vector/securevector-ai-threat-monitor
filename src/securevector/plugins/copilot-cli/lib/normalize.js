@@ -1,22 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Tool-name normalisation for the Guard plugin (Codex variant).
+ * Tool-name normalisation for the Guard plugin (GitHub Copilot CLI variant).
  *
- * Codex's tool surface is *completely different* from Claude Code's: there
- * is no `Read`/`Edit`/`Write`/`Bash` etc. Every file read, file write, and
- * shell command flows through a single `exec_command` tool. The LLM also
- * emits `apply_patch` (diff-based file mutation), `update_plan` (todo
- * list), `view_image`, `web_search`, and a handful of MCP/orchestration
- * tools. The canonical list lives in `codex-rs/core/src/tools/handlers/`
- * — every `name: "<tool>"` definition there.
+ * Copilot's tool surface differs from both Claude Code and Codex. Its
+ * built-in tools are LOWERCASE single words, confirmed empirically against
+ * Copilot CLI 1.0.60 — a `postToolUse` payload for a shell command carries
+ * `toolName: "bash"` (NOT "Bash"/"exec_command"). The documented built-in
+ * set (docs.github.com/.../hooks-configuration) is:
+ *
+ *   ask_user, bash, create, edit, glob, grep, powershell, task, view, web_fetch
+ *
+ * MCP tools: the exact on-the-wire `toolName` format for an MCP server tool
+ * is NOT documented by GitHub and was not captured in the 1.0.60 smoke test
+ * (no MCP server was configured). We keep the conventional `mcp__server__tool`
+ * handling so MCP rules work IF Copilot uses that shape — VERIFY against a
+ * real MCP-configured Copilot session before relying on MCP-targeted rules.
  *
  * Examples
- *   mcp__server-slack__slack_post_message
- *     → ['server-slack:slack_post_message', 'slack_post_message']
- *   exec_command
- *     → ['exec_command']
- *   Bash (a Claude Code name, not a Codex tool)
- *     → []  (unknown → fail-open allow)
+ *   bash                              → ['bash']
+ *   BASH                              → ['bash']   (case-insensitive)
+ *   mcp__server-slack__post_message   → ['server-slack:post_message', 'post_message']
+ *   read (a Claude/Codex name)        → []  (unknown → fail-open allow)
  */
 
 'use strict';
@@ -24,74 +28,30 @@
 const PREFIX = 'mcp__';
 const SEP = '__';
 
-// Canonical list of Codex hook-payload tool names. CRITICAL distinction
-// from the model-layer function_call.name: Codex's hook engine
-// translates a few tool names before invoking PreToolUse / PostToolUse.
-// The mapping is defined in `codex-rs/core/src/tools/hook_names.rs`:
-//
-//   exec_command  + shell_command   → "Bash"          (HookToolName::bash())
-//   apply_patch                     → "apply_patch"   (canonical; matcher aliases: Write, Edit)
-//   spawn_agent                     → "spawn_agent"   (canonical; matcher alias: Agent)
-//   everything else                 → passthrough     (HookToolName::new(name))
-//
-// Empirical confirmation: instrumented the hook to log stdin and saw
-//   `tool_name: "Bash"`  carrying  `tool_input: {"command": "ls /tmp"}`
-// when the LLM emitted a `function_call` with name=exec_command.
-//
-// So this Set lists the HOOK-PAYLOAD names that show up on stdin —
-// what synced/local rules with `tool_id="..."` must match against.
-//
-// Erring toward completeness is safe: an entry Codex never emits in
-// a session costs nothing; a missing entry silently no-ops cloud
-// rules targeting it (the bug we're avoiding).
-//
-// NOTE: the Set is exported for test introspection only. Callers MUST
-// NOT mutate it at runtime — `normalize()` reads the live reference,
-// so a mutation would silently change enforcement for the rest of the
-// process.
+// Canonical Copilot CLI built-in tool names (lowercase). Copilot emits these
+// lowercase on the hook payload, so we store + match lowercase. Erring toward
+// the documented set is safe: a name Copilot never emits costs nothing; a
+// missing name silently no-ops rules targeting it (the bug this fixes — the
+// v4.6.0 dev build shipped Codex's tool list here by mistake, so every Copilot
+// `bash`/`view`/etc. call failed the lookup and fail-opened).
 const BUILTIN_TOOLS = new Set([
-  // Shell + I/O — hook payload sends "Bash" for `exec_command` +
-  // `shell_command` via HookToolName::bash(). This is the single most
-  // load-bearing entry in the set; without it, every Codex shell call
-  // (which is most calls) fails the candidate lookup and fail-opens.
-  'Bash',
-  // File mutation — apply_patch is the canonical hook payload name.
-  // `Write` and `Edit` are matcher aliases at the hook engine layer,
-  // but the canonical name on stdin is `apply_patch`.
-  'apply_patch',
-  // Planning + UI
-  'update_plan',
-  'view_image',
-  'web_search',
-  // User interaction
-  'request_permissions',
-  'request_user_input',
-  // MCP discovery + read
-  'list_mcp_resources',
-  'list_mcp_resource_templates',
-  'read_mcp_resource',
-  // Plugin lifecycle
-  'list_available_plugins_to_install',
-  'request_plugin_install',
-  // Documentation lookup
-  'docs',
-  // Multi-agent orchestration (Codex's "agent jobs" subsystem)
-  'spawn_agent',
-  'spawn_agents_on_csv',
-  'wait_agent',
-  'close_agent',
-  'resume_agent',
-  'list_agents',
-  'send_input',
-  'send_message',
-  'followup_task',
-  'report_agent_job_result',
+  'ask_user',
+  'bash',
+  'create',
+  'edit',
+  'glob',
+  'grep',
+  'powershell',
+  'task',
+  'view',
+  'web_fetch',
 ]);
 
 function normalize(toolName) {
   if (typeof toolName !== 'string' || toolName.length === 0) return [];
 
-  // MCP tool: mcp__<server>__<tool>
+  // MCP tool: mcp__<server>__<tool> (format pending empirical confirmation
+  // for Copilot — see file header).
   if (toolName.startsWith(PREFIX)) {
     const remainder = toolName.slice(PREFIX.length);
     const sepIdx = remainder.indexOf(SEP);
@@ -102,14 +62,14 @@ function normalize(toolName) {
     return [`${server}:${tool}`, tool];
   }
 
-  // Built-in tool: bare PascalCase name. Returns the name itself as a
-  // single candidate so the standard synced-rule lookup path applies
-  // (cloud emits `tool_id="Bash"` etc.); no further plumbing needed in
-  // the hook handlers.
-  if (BUILTIN_TOOLS.has(toolName)) return [toolName];
+  // Built-in tool — case-insensitive match. Returns the canonical lowercase
+  // name as the single candidate; the synced-rule lookup downstream is also
+  // case-insensitive, so a cloud rule authored as `tool_id="Bash"` still
+  // matches the `bash` candidate.
+  const lower = toolName.toLowerCase();
+  if (BUILTIN_TOOLS.has(lower)) return [lower];
 
-  // Unknown tool name — fail-open by returning empty (hook short-circuits
-  // to allow without contacting the local app).
+  // Unknown tool name — fail-open (hook short-circuits to allow).
   return [];
 }
 
