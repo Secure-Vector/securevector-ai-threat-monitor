@@ -23,6 +23,7 @@ const App = {
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
+        'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },

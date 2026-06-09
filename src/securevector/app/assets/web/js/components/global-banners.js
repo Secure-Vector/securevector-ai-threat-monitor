@@ -8,7 +8,7 @@
  */
 
 const GlobalBanners = {
-    WHATS_NEW_VERSION: '4.5.0',
+    WHATS_NEW_VERSION: '4.6.0',
     // Fresh key — the v4.2 revamp generalises the nudge (OpenClaw + Claude
     // Code) so prior single-plugin dismissals shouldn't suppress it.
     KEY_PLUGINS_NUDGE: 'sv-plugins-nudge-dismissed',
@@ -300,7 +300,7 @@ const GlobalBanners = {
         titleRow.appendChild(title);
         const pill = document.createElement('span');
         pill.style.cssText = 'font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
-        pill.textContent = 'New \u00B7 v4.5.0';
+        pill.textContent = 'New \u00B7 v4.6.0';
         titleRow.appendChild(pill);
         textCol.appendChild(titleRow);
 

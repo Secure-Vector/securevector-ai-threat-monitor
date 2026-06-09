@@ -1,7 +1,7 @@
 {
   "name": "securevector-guard",
+  "description": "Real-time policy enforcement and tamper-evident audit for tool calls invoked from a GitHub Copilot CLI session. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Requires the free SecureVector local app; fails open if it is unreachable.",
   "version": "4.6.0",
-  "description": "Real-time policy enforcement and tamper-evident audit for MCP tool calls. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Fails open if the local app is unreachable.",
   "author": {
     "name": "SecureVector",
     "url": "https://securevector.io"
@@ -9,11 +9,13 @@
   "homepage": "https://securevector.io",
   "repository": "https://github.com/Secure-Vector/securevector-ai-threat-monitor",
   "license": "Apache-2.0",
+  "category": "Security",
   "keywords": [
     "security",
     "audit",
     "policy-enforcement",
     "mcp",
     "guardrails"
-  ]
+  ],
+  "hooks": "./hooks/hooks.json"
 }

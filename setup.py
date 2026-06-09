@@ -134,6 +134,9 @@ setup(
             # Same dot-dir gotcha as above — list .codex-plugin/ explicitly
             # so plugin.json (the file Codex reads on plugin add) ships.
             "plugins/codex/.codex-plugin/*",
+            # Copilot CLI plugin — manifest is plugin.json at the tree root
+            # (no dot-dir), so the recursive glob covers everything.
+            "plugins/copilot-cli/**/*",
         ],
         "": ["NOTICE"],
     },
