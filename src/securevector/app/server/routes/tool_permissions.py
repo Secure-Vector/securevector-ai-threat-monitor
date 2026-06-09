@@ -189,17 +189,47 @@ CODEX_BUILTINS: list[tuple[str, str, str]] = [
 # (src/securevector/plugins/copilot-cli/lib/normalize.js). Copilot's tool_id
 # namespace is its own — a rule authored `tool_id="bash"` governs Copilot; the
 # case-insensitive lookup also lets a `tool_id="Bash"` rule reach it.
+# Canonical GitHub Copilot CLI built-in tool names. VERIFIED against the live
+# tool inventory emitted by Copilot CLI 1.0.60 (captured from --log-level debug:
+# the `name`/`description` of every tool exposed to the model). KEEP IN LOCKSTEP
+# with BUILTIN_TOOLS in plugins/copilot-cli/lib/normalize.js (drift-tested by
+# tests/unit/app/test_tool_permissions_builtins.py).
+#
+# The shell family is bash + the background-session tools (write_bash sends
+# input/runs, stop_bash terminates, read_bash/list_bash inspect). Blocking only
+# `bash` would leave write_bash/stop_bash open — they are listed so shell access
+# is fully governable. `report_intent` is intentionally EXCLUDED: it is cosmetic
+# UI bookkeeping (sets the session's displayed intent), not an action surface;
+# normalize.js returns [] for it so it is never audited or enforced.
+#
+# `powershell` (Windows-only) and `ask_user` (interactive-only) are real but did
+# not register in a macOS non-interactive session — kept per GitHub's docs.
 COPILOT_CLI_BUILTINS: list[tuple[str, str, str]] = [
-    ("bash",        "admin", "Execute a shell command."),
-    ("powershell",  "admin", "Execute a PowerShell command."),
-    ("view",        "read",  "Read file contents."),
-    ("edit",        "write", "Modify an existing file."),
-    ("create",      "write", "Create a new file."),
-    ("glob",        "read",  "Match files by glob pattern."),
-    ("grep",        "read",  "Search file contents by pattern."),
-    ("web_fetch",   "read",  "Fetch a URL."),
-    ("task",        "admin", "Dispatch a sub-agent task."),
-    ("ask_user",    "read",  "Ask the user a clarifying question."),
+    # Shell execution + background-session management
+    ("bash",            "admin", "Run a Bash command in an interactive session."),
+    ("write_bash",      "admin", "Send input to / run a command in a Bash session."),
+    ("stop_bash",       "admin", "Terminate a running Bash session."),
+    ("read_bash",       "read",  "Read output from a Bash session."),
+    ("list_bash",       "read",  "List active Bash sessions."),
+    ("powershell",      "admin", "Execute a PowerShell command (Windows)."),
+    # Filesystem
+    ("view",            "read",  "View file or directory contents."),
+    ("edit",            "write", "Make string replacements in a file."),
+    ("create",          "write", "Create a new file."),
+    ("glob",            "read",  "Match files by glob pattern."),
+    ("grep",            "read",  "Search file contents (ripgrep)."),
+    # Network / data
+    ("web_fetch",       "read",  "Fetch a URL from the internet."),
+    ("sql",             "write", "Execute SQL against the session's SQLite store."),
+    ("session_store_sql","read", "Run read-only SQL against the cloud session store."),
+    # Agents / skills
+    ("task",            "admin", "Launch a specialized sub-agent."),
+    ("skill",           "admin", "Execute a skill in the main conversation."),
+    ("list_agents",     "read",  "List background agents."),
+    ("read_agent",      "read",  "Read a background agent's status/results."),
+    # Misc
+    ("fetch_copilot_cli_documentation", "read", "Fetch Copilot CLI documentation."),
+    ("ask_user",        "read",  "Ask the user a clarifying question (interactive)."),
 ]
 
 

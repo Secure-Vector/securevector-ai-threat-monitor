@@ -32,11 +32,15 @@ If ``~/.copilot`` doesn't exist (Copilot CLI not installed), we fall back to
 staging-only and return the documented ``copilot plugin install <dir>`` command
 so the user can install once they have the CLI.
 
-⚠️ EMPIRICAL-VERIFY (tracked on story #148, undocumented by GitHub as of 2026-06):
-  - ``hooks/hooks.json`` references hook scripts via ``${COPILOT_PLUGIN_ROOT}``.
-    Confirmed to expand for an installed local plugin against CLI v1.0.60.
-  - The exact ``toolName`` string MCP tools present as (only the 10 built-ins
-    are documented) — affects ``lib/normalize.js`` matching for MCP tools.
+VERIFIED against Copilot CLI v1.0.60 (--log-level debug, live sessions):
+  - ``${COPILOT_PLUGIN_ROOT}`` expands for installed-plugin hook commands.
+  - MCP tools present to hooks as ``<server>-<tool>`` (e.g. ``everything-echo``),
+    NOT Claude's ``mcp__server__tool``. ``lib/normalize.js`` handles the Copilot
+    shape and emits literal / ``<server>:<tool>`` / bare-tool / server candidates.
+  - The full built-in tool inventory (bash + the ``*_bash`` background-shell
+    family, view/edit/create/glob/grep, web_fetch, task, skill, sql, …) was
+    captured from the debug tool list and mirrored into the Python
+    ``COPILOT_CLI_BUILTINS`` table (drift-tested against normalize.js).
 """
 
 from __future__ import annotations

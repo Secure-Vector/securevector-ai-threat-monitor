@@ -24,7 +24,7 @@
 
 'use strict';
 
-const { normalize } = require('../lib/normalize.js');
+const { normalize, isMcpToolName } = require('../lib/normalize.js');
 const { postJsonAndForget, fetchSyncedOverrides } = require('../lib/client.js');
 const { redactForScan, hasCredentialMarkers } = require('../lib/redact.js');
 
@@ -180,8 +180,12 @@ async function audit(event, baseUrl) {
     }
   }
 
-  // Incoming IDPI / leakage scan on the tool response.
-  const isMcpTool = typeof toolName === 'string' && toolName.startsWith('mcp__');
+  // Incoming IDPI / leakage scan on the tool response. MCP tools return
+  // untrusted external data (like web_fetch/view), so scan their responses.
+  // Copilot names MCP tools `<server>-<tool>` — isMcpToolName() recognises that
+  // (and the defensive `mcp__…` shape); a bare `startsWith('mcp__')` would miss
+  // every real Copilot MCP tool.
+  const isMcpTool = isMcpToolName(toolName);
   if (THREAT_SCAN_RESPONSE_TOOLS.has(toolName) || isMcpTool || THREAT_SCAN_RESPONSE_MARKER_GATED_TOOLS.has(toolName)) {
     let rawResponseText = '';
     try {

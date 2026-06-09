@@ -158,6 +158,48 @@ def test_copilot_builtins_table_mirrors_copilot_normalize_js():
     )
 
 
+def _copilot_normalize(tool_name: str):
+    """Invoke the Copilot plugin's normalize() via node and return its array.
+    Skips if node isn't available."""
+    import json
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    script = (
+        f"const {{normalize}}=require({str(NORMALIZE_JS_COPILOT)!r});"
+        f"process.stdout.write(JSON.stringify(normalize({tool_name!r})));"
+    )
+    out = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=20
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_copilot_normalize_mcp_tool_candidates():
+    """Copilot MCP tools arrive as `<server>-<tool>` (verified live, e.g.
+    everything-echo). normalize() must yield candidates that match BOTH a
+    cloud `<server>:<tool>` synced rule AND a server-wide or exact-name rule —
+    otherwise MCP tools can't be governed (the gap this fixes)."""
+    cands = _copilot_normalize("everything-echo")
+    # literal name (exact-name rule), cloud server:tool form, bare tool, server
+    for expected in ("everything-echo", "everything:echo", "echo", "everything"):
+        assert expected in cands, f"{expected!r} missing from {cands}"
+    # most-specific (literal) first so a tool rule beats a server-wide one
+    assert cands[0] == "everything-echo"
+
+
+def test_copilot_normalize_builtin_and_internal():
+    """Built-ins normalize to their exact lowercase name; Copilot's internal
+    bookkeeping tools (no hyphen, not a built-in) return [] so they are never
+    audited/enforced."""
+    assert _copilot_normalize("write_bash") == ["write_bash"]
+    assert _copilot_normalize("bash") == ["bash"]
+    assert _copilot_normalize("report_intent") == []  # cosmetic UI tool — skipped
+
+
 def test_essential_response_includes_24_builtins(client):
     api, _ = client
     resp = api.get("/api/tool-permissions/essential")
