@@ -26,6 +26,7 @@ const App = {
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
+        'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         settings: SettingsPage,
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.

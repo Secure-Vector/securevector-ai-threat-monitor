@@ -67,10 +67,12 @@ const Sidebar = {
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             // Harness plugin guides grouped under one header — one section per
-            // harness that ships a native plugin (Claude Code, Codex, OpenClaw).
+            // harness that ships a native plugin (Claude Code, Codex, GitHub
+            // Copilot CLI, OpenClaw).
             { header: 'Plugin setup' },
             { id: 'guide-claude-code', label: 'Claude Code' },
             { id: 'guide-codex', label: 'Codex' },
+            { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
