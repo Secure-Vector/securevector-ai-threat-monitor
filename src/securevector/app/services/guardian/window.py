@@ -36,7 +36,12 @@ def _spans(text: str) -> list:
         else:
             for i in range(0, len(words), WORD_STRIDE):
                 out.append(" ".join(words[i:i + WORD_WINDOW]))
-                if i + WORD_WINDOW >= len(words):
+                # Stop building inside a single huge segment too — otherwise a
+                # boundary-free input builds thousands of windows before the
+                # outer cap truncates, making latency scale with input length
+                # instead of with MAX_WINDOWS. Same windows kept → identical
+                # detection, less work on very large inputs.
+                if i + WORD_WINDOW >= len(words) or len(out) >= MAX_WINDOWS:
                     break
         if len(out) >= MAX_WINDOWS:
             break
