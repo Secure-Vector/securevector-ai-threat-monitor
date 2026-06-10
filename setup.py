@@ -119,6 +119,11 @@ setup(
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
             "pricing/*.yml",
+            # SecureVector Guardian — vendored local ML runtime bundle. The .py
+            # files ship automatically; the model bundle + integrity sidecar are
+            # data files that must be listed so they land in the wheel.
+            "app/services/guardian/*.json.gz",
+            "app/services/guardian/*.sha256",
             "app/assets/**/*",
             "app/assets/web/**/*",
             "app/assets/web/css/*",

@@ -7,6 +7,7 @@ const SettingsPage = {
     cloudSettings: null,
     llmSettings: null,
     llmProviders: null,
+    generalSettings: null,
 
     async render(container) {
         container.textContent = '';
@@ -20,25 +21,40 @@ const SettingsPage = {
         container.appendChild(loading);
 
         try {
-            const [cloudSettings, llmSettings, llmProviders] = await Promise.all([
+            const [cloudSettings, llmSettings, llmProviders, generalSettings] = await Promise.all([
                 API.getCloudSettings(),
                 API.getLLMSettings(),
                 API.getLLMProviders(),
+                API.getSettings(),
             ]);
             this.cloudSettings = cloudSettings;
             this.llmSettings = llmSettings;
             this.llmProviders = llmProviders.providers || [];
+            this.generalSettings = generalSettings;
             this.renderContent(container);
         } catch (error) {
             this.cloudSettings = { credentials_configured: false, cloud_mode_enabled: false };
             this.llmSettings = { enabled: false, provider: 'ollama', model: 'llama3' };
             this.llmProviders = [];
+            this.generalSettings = { guardian_ml_enabled: true };
             this.renderContent(container);
         }
     },
 
     renderContent(container) {
         container.textContent = '';
+
+        // Guardian ML Detection Section — first on the page: it's on by
+        // default, so the disable flag must be the easiest thing to find.
+        const guardianSection = this.createSection(
+            'Guardian ML Detection',
+            'On by default. A local ML model that runs alongside the regex rules and catches obfuscated, paraphrased, and encoded attacks they miss — fully offline, sub-millisecond, nothing leaves your machine.',
+        );
+        const guardianCard = Card.create({ gradient: true });
+        const guardianBody = guardianCard.querySelector('.card-body');
+        this.renderGuardianSettings(guardianBody);
+        guardianSection.appendChild(guardianCard);
+        container.appendChild(guardianSection);
 
         // Cloud Connect Section
         const cloudSection = this.createSection(
@@ -125,6 +141,72 @@ const SettingsPage = {
         this.renderUninstallSection(uninstallBody);
         uninstallSection.appendChild(uninstallCard);
         container.appendChild(uninstallSection);
+    },
+
+    renderGuardianSettings(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 16px;';
+
+        const info = document.createElement('div');
+
+        const labelRow = document.createElement('div');
+        labelRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.style.fontWeight = '600';
+        label.textContent = 'SecureVector Guardian';
+        labelRow.appendChild(label);
+
+        const statusBadge = document.createElement('span');
+        statusBadge.className = 'badge';
+        const setBadge = (on) => {
+            statusBadge.classList.toggle('badge-success', on);
+            statusBadge.textContent = on ? 'Active' : 'Off';
+        };
+        setBadge(this.generalSettings.guardian_ml_enabled !== false);
+        labelRow.appendChild(statusBadge);
+        info.appendChild(labelRow);
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        note.textContent = 'Adds a semantic vote to every analyze call: blocks on its own only at high confidence, corroborates a firing rule at a lower bar. Regex rules keep running either way.';
+        info.appendChild(note);
+
+        row.appendChild(info);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = this.generalSettings.guardian_ml_enabled !== false;
+        checkbox.addEventListener('change', async (e) => {
+            const enabled = e.target.checked;
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                this.generalSettings.guardian_ml_enabled = enabled;
+                setBadge(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (error) {
+                checkbox.checked = !enabled;
+                setBadge(!enabled);
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        });
+        toggle.appendChild(checkbox);
+
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(slider);
+
+        row.appendChild(toggle);
+        container.appendChild(row);
     },
 
     renderUninstallSection(container) {

@@ -4,13 +4,36 @@ Analysis API endpoint for threat detection.
 POST /api/v1/analyze - Analyze text for threats
 """
 
+import asyncio
 import logging
+import os
 import re
 import time
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+
+# SecureVector Guardian (local ML detection layer) — verdict policy.
+# ADDITIVE: the model can only raise/strengthen a verdict, never suppress a
+# rule. It folds into the existing calibrated gate at TWO bars:
+#   * ML ALONE (no rule fired) blocks only at high confidence.
+#   * ML CORROBORATES an already-firing rule at a lower bar.
+# High-precision: catches what rules miss without firing on weak model hunches.
+_ML_ALONE_BAR = 0.90
+_ML_CORROBORATE_BAR = 0.60
+
+
+def _ml_enabled() -> bool:
+    """Environment kill-switch layered over the Settings toggle.
+
+    The user-facing on/off lives in app_settings.guardian_ml_enabled (Settings
+    page, default ON). SECUREVECTOR_ML_ENABLED=false force-disables Guardian
+    regardless of the UI — an operator escape hatch that needs no DB access.
+    Read per-request (cheap) so it can be toggled without a restart."""
+    return os.environ.get("SECUREVECTOR_ML_ENABLED", "on").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
 
 # Base64-encoded image blobs forwarded by the Claude Code plugin (e.g.
 # screenshots returned by a tool, image attachments in MCP responses) are
@@ -317,6 +340,23 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # "ghp_" appearing by chance in PNG/JPEG/GIF/WebP base64.
         scan_text = _strip_image_base64(scan_text)
 
+        # SecureVector Guardian (local ML layer) runs IN PARALLEL with the regex
+        # analysis below: kicked off here in a worker thread, awaited at the
+        # verdict merge. Fail-open — any setup error leaves rules untouched.
+        # Gated on the Settings toggle (default ON) AND the env kill-switch.
+        _guardian_task = None
+        if settings.guardian_ml_enabled and _ml_enabled():
+            try:
+                from securevector.app.services import guardian_service
+
+                _guardian_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        guardian_service.analyze, scan_text, direction=direction
+                    )
+                )
+            except Exception:  # noqa: BLE001 — never break analyze
+                _guardian_task = None
+
         result = await service.analyze(scan_text)
 
         # Drop rule hits below the noise floor. Engine occasionally returns very
@@ -440,6 +480,50 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     confidence=round(rule_conf, 3),
                 )
             )
+
+        # Fold in the PARALLEL Guardian (ML) result started before the regex run.
+        # ADDITIVE, never suppresses a rule. The bar depends on whether a rule
+        # already survived: ML ALONE must clear _ML_ALONE_BAR (0.90); if a rule
+        # fired, ML only needs _ML_CORROBORATE_BAR (0.60) to strengthen it. Its
+        # confidence then flows through the SAME calibrated gate below, so a
+        # qualifying ML hit raises or corroborates a threat exactly like a rule.
+        # Fail-open: any error leaves the rule verdict untouched.
+        if _guardian_task is not None:
+            try:
+                gr = await _guardian_task
+            except Exception:  # noqa: BLE001
+                gr = None
+            if gr and gr.get("is_threat") and gr.get("matched_rules"):
+                ml_rule = gr["matched_rules"][0]
+                ml_conf = float(ml_rule.get("confidence") or 0.0)
+                ml_bar = _ML_CORROBORATE_BAR if surviving_confidences else _ML_ALONE_BAR
+                if ml_conf >= ml_bar:
+                    surviving_confidences.append(ml_conf)
+                    matched_rules.append(
+                        MatchedRule(
+                            rule_id=ml_rule.get("rule_id", "sv_guardian_model"),
+                            rule_name=ml_rule.get("rule_name", "SecureVector Guardian (ML)"),
+                            category=ml_rule.get("category", "unknown"),
+                            severity=ml_rule.get("severity", "medium"),
+                            source="model",
+                            matched_patterns=[],
+                            mitre_techniques=[],
+                            confidence=round(ml_conf, 3),
+                        )
+                    )
+                    # PROMOTE: the engine said benign but ML ALONE cleared its
+                    # high bar — raise the verdict here, because the calibrated
+                    # block below only demotes (it keys off result.is_threat)
+                    # and final_* fields inherit from result.
+                    if not result.is_threat and ml_conf >= _ML_ALONE_BAR:
+                        result.is_threat = True
+                        result.threat_type = (
+                            gr.get("threat_type") or ml_rule.get("category") or "unknown"
+                        )
+                        result.risk_score = float(
+                            gr.get("risk_score") or round(ml_conf * 100)
+                        )
+                        result.confidence = ml_conf
 
         # Calibrated verdict (issue #136). "Any rule matched = threat"
         # over-alarms: a lone low/medium-confidence heuristic should inform

@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 37
+CURRENT_SCHEMA_VERSION = 38
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -299,7 +299,8 @@ SCHEMA_DESCRIPTION = (
     "v36: agent-run trace keys on tool_call_audit (trace_id/session_id/turn_index/parent_span_id) "
     "— groups the flat audit log into runs/turns for the Agent Run Trace + Agent Map views; "
     "v37: per-runtime scope (runtime_kind) on tool_essential_overrides — a local Block/Allow "
-    "can target one agent runtime instead of governing all of them"
+    "can target one agent runtime instead of governing all of them; "
+    "v38: guardian_ml_enabled — Guardian ML detection kill-switch in app_settings (default ON)"
 )
 
 # Migration SQL for v34 — redaction_events table.

@@ -358,6 +358,12 @@ Built from real attack chains observed against production agent frameworks:
 - **MCP Tool Call Injection** — malicious payloads delivered through MCP tool calls
 - **Evasion techniques** (22 rules) — zero-width characters, encoding tricks, roleplay framing, leetspeak, semantic inversion, emotional manipulation, and more
 
+### Optional ML Detection Layer — SecureVector Guardian
+
+Alongside the 72 regex rules, the app ships an **optional ML detection layer** — [**SecureVector Guardian**](https://github.com/Secure-Vector/securevector-guardian-model), a stdlib-only semantic threat classifier. It runs in parallel with the rule engine and catches obfuscated, paraphrased, buried, or encoded attacks that literal patterns miss, folding its verdict into the same allow / alert / block decision. The model is fully local and runs offline — no cloud round-trip, no prompt text leaves your machine.
+
+**On by default.** Toggle it from **Settings → Guardian ML Detection** (default ON), or force it off globally with the `SECUREVECTOR_ML_ENABLED=false` environment flag. With Guardian disabled the regex rules keep running unchanged, and the layer is fail-open — any model error silently falls back to rules-only so it never breaks the analyze path.
+
 <br>
 
 ## Device Identity
