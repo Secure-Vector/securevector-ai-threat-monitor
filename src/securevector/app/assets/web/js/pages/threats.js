@@ -23,11 +23,37 @@ const ThreatsPage = {
         source: '',
     },
 
+    // Deep-link target — set by Agent Runs when the user clicks a detection
+    // ("view details →"). Filters the table to that one record's request_id.
+    pendingRequestId: null,
+
     async render(container) {
         container.textContent = '';
         this.selectedIds.clear();
 
         if (window.Header) Header.setPageInfo('Threat Monitor', 'All LLM requests analyzed for threats');
+
+        // Honor a deep-link from Agent Runs: scope the table to the clicked
+        // detection's request_id and show a dismissable banner.
+        if (this.pendingRequestId) {
+            this.filters.request_id = this.pendingRequestId;
+            this.filters.page = 1;
+            this.pendingRequestId = null;
+        } else {
+            // Normal navigation — don't carry a stale deep-link filter forward.
+            this.filters.request_id = null;
+        }
+        if (this.filters.request_id) {
+            const banner = document.createElement('div');
+            banner.className = 'deep-link-banner';
+            banner.innerHTML = `<span>Showing the detection from Agent Runs (<code>${String(this.filters.request_id).replace(/[<>&"]/g, '')}</code>).</span>`;
+            const clear = document.createElement('button');
+            clear.textContent = '✕ show all threats';
+            clear.className = 'deep-link-clear';
+            clear.addEventListener('click', () => { this.filters.request_id = null; this.render(container); });
+            banner.appendChild(clear);
+            container.appendChild(banner);
+        }
 
         // Filters bar (will be populated after loading categories)
         const filtersBar = document.createElement('div');
@@ -1048,6 +1074,27 @@ const ThreatsPage = {
             });
 
             rulesSection.appendChild(rulesList);
+
+            // Mechanism 1 — ML/rule agreement tier (from analyze metadata).
+            // Tells the analyst whether Guardian corroborated this rule-driven
+            // hit or rated it benign (a likely false positive). Triage signal
+            // only — it never changed the verdict.
+            const mlAgree = threat.metadata && threat.metadata.ml_agreement;
+            const mlScore = threat.metadata && threat.metadata.ml_malicious_score;
+            const TIER = {
+                corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
+                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain — worth a review' },
+                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive — ML disagrees' },
+            };
+            if (mlAgree && TIER[mlAgree]) {
+                const t = TIER[mlAgree];
+                const assess = document.createElement('div');
+                assess.className = 'ml-assessment ' + t.cls;
+                const scoreTxt = (typeof mlScore === 'number') ? ' · model score ' + mlScore.toFixed(2) : '';
+                assess.textContent = t.icon + ' ' + t.text + scoreTxt;
+                rulesSection.appendChild(assess);
+            }
+
             content.appendChild(rulesSection);
         }
 

@@ -503,6 +503,7 @@ class ThreatIntelRepository:
         source: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        request_id: Optional[str] = None,
         sort: str = "created_at",
         order: str = "desc",
     ) -> ThreatIntelPage:
@@ -544,6 +545,10 @@ class ThreatIntelRepository:
         if source is not None:
             conditions.append("source_identifier = ?")
             params.append(source)
+
+        if request_id is not None:
+            conditions.append("request_id = ?")
+            params.append(request_id)
 
         if start_date is not None:
             conditions.append("created_at >= ?")

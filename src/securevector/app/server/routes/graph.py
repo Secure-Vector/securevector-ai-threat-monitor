@@ -117,6 +117,28 @@ async def get_agent_session_graph(
     db = get_database()
     repo = CustomToolsRepository(db)
     raw = await repo.get_agent_session_graph(window_days=window_days)
+    # Correlate each session→tool edge back to the threats its calls produced
+    # (shared request_id) so the map can badge Rule / ML / Rule+ML. Attached to
+    # the raw edge rows; build_graph_3layer copies them onto the edge payload.
+    det = await repo.get_edge_detection_sources(window_days=window_days)
+    if det:
+        for r in raw:
+            if r.get("row_kind") == "boundary":
+                continue
+            d = det.get((r.get("session_key"), r.get("tool_id")))
+            if d:
+                r["detection_source"] = d["source"]
+                r["ml_score"] = d["ml_score"]
+                r["detection_rules"] = d["rules"]
+                r["ml_agreement"] = d.get("ml_agreement")
+                # A correlated secret/leak detection lights the lock badge even
+                # when the call was *allowed* (reason=NULL) — the legacy
+                # reason-LIKE ``touched_secrets`` heuristic alone can't see a
+                # leak caught downstream by /analyze. build_graph_3layer rolls
+                # this onto the tool node; the frontend derives the session
+                # (agent) lock from any tool that touched a secret.
+                if d.get("secret"):
+                    r["touched_secrets"] = True
     return build_graph_3layer(raw, window_days)
 
 
@@ -143,6 +165,36 @@ def _max_dt(a: Optional[str], b: Optional[str]) -> Optional[str]:
     if b is None:
         return a
     return a if a >= b else b
+
+
+_AGREE_RANK = {"corroborated": 2, "ml_uncertain": 1, "ml_disagrees": 0}
+_RANK_AGREE = {2: "corroborated", 1: "ml_uncertain", 0: "ml_disagrees"}
+
+
+def _merge_detection(node: dict, source, ml_score, rules, ml_agreement=None) -> None:
+    """Fold one edge's detection source into a node (tool / session) roll-up.
+
+    A node aggregates several edges, so the combined source is Rule+ML if any
+    edge ever brought ML and any ever brought a rule; ml_score is the max; rule
+    names are unioned (capped); ml_agreement keeps the BEST tier (a single
+    corroborated edge means the node is real). No-op when the edge had no
+    detection.
+    """
+    if not source:
+        return
+    prev = node.get("detection_source")
+    has_ml = source in ("ml", "rule_ml") or prev in ("ml", "rule_ml")
+    has_rule = source in ("rule", "rule_ml") or prev in ("rule", "rule_ml")
+    node["detection_source"] = "rule_ml" if (has_ml and has_rule) else ("ml" if has_ml else "rule")
+    if ml_score is not None:
+        node["ml_score"] = ml_score if node.get("ml_score") is None else max(node["ml_score"], ml_score)
+    if rules:
+        merged = list(dict.fromkeys([*(node.get("detection_rules") or []), *rules]))
+        node["detection_rules"] = merged[:5]
+    if ml_agreement:
+        best = max(_AGREE_RANK.get(node.get("ml_agreement"), -1), _AGREE_RANK.get(ml_agreement, -1))
+        if best >= 0:
+            node["ml_agreement"] = _RANK_AGREE[best]
 
 
 def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime] = None) -> dict:
@@ -212,6 +264,12 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
                 "touched_secrets": touched,
                 "policy_name": r.get("synced_policy_name"),
                 "org_name": r.get("synced_org_name"),
+                # Detection source rolled up across this edge's calls (None when
+                # no call on the edge produced a threat record).
+                "detection_source": r.get("detection_source"),
+                "ml_score": r.get("ml_score"),
+                "detection_rules": r.get("detection_rules"),
+                "ml_agreement": r.get("ml_agreement"),
             }
         )
 
@@ -280,6 +338,15 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
         t["last_used"] = _max_dt(t["last_used"], last_used)
         t["last_blocked"] = _max_dt(t["last_blocked"], last_blocked)
         t["risk"] = _worst(t["risk"], risk)
+
+        # Roll detection source (Rule / ML / Rule+ML) up to the tool and session
+        # nodes — the clickable elements on the map, mirroring touched_secrets.
+        det_source = r.get("detection_source")
+        det_ml = r.get("ml_score")
+        det_rules = r.get("detection_rules")
+        det_agree = r.get("ml_agreement")
+        _merge_detection(t, det_source, det_ml, det_rules, det_agree)
+        _merge_detection(s, det_source, det_ml, det_rules, det_agree)
 
     # Fold session-boundary recency into the owning session WITHOUT drawing a
     # tool node. A boundary marker (__session_start__ / __session_end__) is a

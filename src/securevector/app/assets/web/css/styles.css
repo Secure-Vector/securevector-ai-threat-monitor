@@ -1003,21 +1003,26 @@ html, body {
 .try-it-trigger-btn:hover { opacity: 0.88; }
 .sidebar.collapsed .try-it-trigger-btn { display: none; }
 
-/* Guardian ML pill — flagship local-detection toggle in the bottom section.
-   Highlighted-border treatment that brightens when active: accent border +
-   soft shadow + a status dot with a halo. Sits one notch above the slim
-   status banners in visual weight, matching its importance. */
+/* Guardian ML pill — flagship local-detection toggle. Anchors the bottom
+   controls zone (above the proxy/plugin/SIEM banners). Highlighted-border
+   treatment that brightens when active: accent border + soft shadow + a status
+   dot with a halo. The divider above separates it from the nav. */
 .guardian-pill {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 10px 12px 4px;
+    margin: 8px 12px 4px;
     padding: 8px 11px;
     border-radius: 11px;
     border: 1px solid rgba(94, 173, 184, 0.3);
     background: var(--bg-secondary, rgba(94, 173, 184, 0.03));
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
     transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+/* The self-contained lit pill is its own visual block; a little more top gap
+   when it opens the bottom zone is enough to separate it from the nav. */
+.sidebar-bottom > .guardian-pill:first-child {
+    margin-top: 12px;
 }
 .guardian-pill:hover { border-color: rgba(94, 173, 184, 0.5); }
 .guardian-pill[data-active="true"] {
@@ -1059,11 +1064,14 @@ html, body {
     letter-spacing: 0.1px;
     color: var(--text-muted, #7d8590);
     margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 /* Collapsed rail: keep the pill fully visible (never hidden) — just tighten
    the horizontal padding so it fits the narrower rail. */
 .sidebar.collapsed .guardian-pill {
-    margin: 10px 8px 4px;
+    margin: 2px 8px 10px;
     padding: 8px 8px;
 }
 
@@ -2141,6 +2149,89 @@ html, body {
 .badge-success {
     background: rgba(16, 185, 129, 0.15);
     color: var(--success);
+}
+
+/* "New" pill beside a settings section title — flags a freshly shipped
+   feature (e.g. Guardian ML). Accent-tinted, uppercase, small caps-feel so
+   it reads as a label, not a status. Sized down from the heading so it sits
+   as a quiet adornment rather than competing with the title. */
+.section-new-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    color: var(--accent-primary, #5EADB8);
+    background: rgba(94, 173, 184, 0.14);
+    border: 1px solid rgba(94, 173, 184, 0.35);
+    vertical-align: middle;
+}
+
+/* Mechanism 1 — ML/rule agreement banner in the threat detail drawer.
+   Green = ML corroborated; amber = ML uncertain; red = likely false positive
+   (ML disagreed). Triage signal only; the verdict is unchanged. */
+.ml-assessment {
+    margin-top: 10px;
+    padding: 7px 11px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ml-assessment.mlassess-ok   { color: #10b981; background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.35); }
+.ml-assessment.mlassess-warn { color: #f59e0b; background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.35); }
+.ml-assessment.mlassess-fp   { color: #ef4444; background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.35); }
+
+/* Deep-link banner — shown on Threat Monitor / Secret Detections when arriving
+   from an Agent Runs detection ("view details →"), scoping to one record. */
+.deep-link-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin: 0 0 14px; padding: 9px 14px; border-radius: 8px; font-size: 13px;
+    color: var(--text-secondary, #b1bac4);
+    background: rgba(94, 173, 184, 0.10);
+    border: 1px solid rgba(94, 173, 184, 0.30);
+}
+.deep-link-banner code { font-size: 11.5px; color: var(--text-primary, #e6edf3); }
+.deep-link-clear {
+    cursor: pointer; font: 600 12px 'Avenir Next', Avenir, system-ui, sans-serif;
+    padding: 4px 11px; border-radius: 20px; white-space: nowrap;
+    color: var(--text-secondary, #b1bac4);
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-default, #30363d);
+}
+.deep-link-clear:hover { background: var(--bg-hover, #21262d); }
+
+/* Guardian model version chip in Settings — quiet, monospace, informational. */
+.guardian-model-ver {
+    font: 600 10.5px ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    color: var(--text-secondary, #b1bac4);
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-default, #30363d);
+    padding: 1px 7px;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+}
+
+/* Deep-link landing highlight — pulses a settings section when arrived at
+   via a nav deep-link (e.g. Configure → Guardian ML), then fades. */
+.section-focus-pulse {
+    animation: sectionFocusPulse 2s ease-out 1;
+    border-radius: 10px;
+}
+@keyframes sectionFocusPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(94, 173, 184, 0.0); }
+    15%  { box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.45); }
+    100% { box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .section-focus-pulse { animation: none; }
 }
 
 /* Toggle Switch */

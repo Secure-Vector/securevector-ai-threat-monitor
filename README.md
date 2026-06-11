@@ -6,6 +6,7 @@
 
 </div>
 
+- **Guardian ML threat detection** *(new in v4.6.0)* — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
 - **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
@@ -361,6 +362,8 @@ Built from real attack chains observed against production agent frameworks:
 ### Optional ML Detection Layer — SecureVector Guardian
 
 Alongside the 72 regex rules, the app ships an **optional ML detection layer** — [**SecureVector Guardian**](https://github.com/Secure-Vector/securevector-guardian-model), a stdlib-only semantic threat classifier. It runs in parallel with the rule engine and catches obfuscated, paraphrased, buried, or encoded attacks that literal patterns miss, folding its verdict into the same allow / alert / block decision. The model is fully local and runs offline — no cloud round-trip, no prompt text leaves your machine.
+
+**Install — nothing extra to do.** Guardian ships *inside* the app: `pip install securevector-ai-monitor` includes the model runtime (~1.8 MB, pure Python, zero ML dependencies), so it's ready on first launch — no separate download, no network. The loaded model version is shown in **Settings → Guardian ML Detection**. *(Optional: `pip install securevector-ai-monitor[ml]` adds the model as a pip-managed dependency, so `pip install -U securevector-guardian-model` + restart picks up a fresher model between app releases — the app uses it only when it's newer than the bundled one.)*
 
 **On by default.** Toggle it from **Settings → Guardian ML Detection** (default ON), or force it off globally with the `SECUREVECTOR_ML_ENABLED=false` environment flag. With Guardian disabled the regex rules keep running unchanged, and the layer is fail-open — any model error silently falls back to rules-only so it never breaks the analyze path.
 

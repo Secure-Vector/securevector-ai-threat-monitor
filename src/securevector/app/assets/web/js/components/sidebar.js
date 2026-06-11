@@ -29,6 +29,11 @@ const Sidebar = {
         // surfaced under Agent Replay above.
         { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
+        // Guardian ML — local ML threat detection. A configure-time choice
+        // (on/off + what it does), so it sits in Configure and deep-links to
+        // the Guardian section on the Settings page. Lives here rather than as
+        // a sidebar pill so the bottom status zone stays single-purpose.
+        { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
         // MCP Policies — read-only viewer of cloud-synced policy bundles.
         // Lives next to Tool Permissions because the rules layered there
         // come from here. Separate sidebar entry keeps the trust artifact
@@ -272,7 +277,7 @@ const Sidebar = {
             }
 
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
-            const persistNewItems = ['rules'];
+            const persistNewItems = ['rules', 'guardian-ml'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
             const sessionNewItems = ['siem-export', 'integrations'];
@@ -492,6 +497,11 @@ const Sidebar = {
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
 
+        // Guardian ML lives in Settings (Configure section) — it's a
+        // configuration choice, not a sidebar control. Keeping it out of the
+        // bottom zone lets the proxy/plugin/SIEM status banners (which hide
+        // when inactive) read as a clean, single-purpose status stack.
+
         // Integration proxy status indicator — compact single line, anchored in bottom section
         const proxyBanner = document.createElement('div');
         proxyBanner.id = 'integration-proxy-banner';
@@ -640,12 +650,6 @@ const Sidebar = {
                 }
             });
         }
-
-        // Guardian ML control — the flagship local-detection toggle, anchoring
-        // the bottom section as an accent-bordered pill that lights up when
-        // active. Enabling it pops a confirmation explaining what it does; the
-        // full controls live on the Settings page (click the label).
-        this.renderGuardianToggle(bottomSection);
 
         container.appendChild(bottomSection);
     },
@@ -1186,6 +1190,21 @@ const Sidebar = {
             ],
             shield: [
                 { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
+            ],
+            // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
+            // it visually distinct from the two shields (Threats / MCP Policies)
+            // so the nav doesn't read as a triplicated shield.
+            guardian: [
+                { tag: 'rect', attrs: { x: '4', y: '4', width: '16', height: '16', rx: '2' } },
+                { tag: 'rect', attrs: { x: '9', y: '9', width: '6', height: '6' } },
+                { tag: 'line', attrs: { x1: '9', y1: '1', x2: '9', y2: '4' } },
+                { tag: 'line', attrs: { x1: '15', y1: '1', x2: '15', y2: '4' } },
+                { tag: 'line', attrs: { x1: '9', y1: '20', x2: '9', y2: '23' } },
+                { tag: 'line', attrs: { x1: '15', y1: '20', x2: '15', y2: '23' } },
+                { tag: 'line', attrs: { x1: '20', y1: '9', x2: '23', y2: '9' } },
+                { tag: 'line', attrs: { x1: '20', y1: '14', x2: '23', y2: '14' } },
+                { tag: 'line', attrs: { x1: '1', y1: '9', x2: '4', y2: '9' } },
+                { tag: 'line', attrs: { x1: '1', y1: '14', x2: '4', y2: '14' } },
             ],
             rules: [
                 { tag: 'path', attrs: { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' } },

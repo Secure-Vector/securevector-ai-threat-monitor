@@ -303,6 +303,12 @@ async function audit(event, baseUrl) {
   } catch { /* swallow — empty preview is acceptable */ }
 
   const sessionId = (event && (event.session_id || event.sessionId)) || null;
+  // One correlation id per tool call, stamped on the audit row AND the
+  // /analyze scans below. The app joins them (tool_call_audit.request_id ↔
+  // threat_intel_records.request_id) to label what caught a detection —
+  // Rule / ML / Rule+ML — on Agent Runs and the Agent Map. Loopback-only,
+  // random, carries no content.
+  const requestId = `cc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {
     tool_id: toolId,
     function_name: toolName,
@@ -313,6 +319,7 @@ async function audit(event, baseUrl) {
     args_preview: argsPreview || null,
     runtime_kind: RUNTIME_KIND,
     session_id: sessionId,
+    request_id: requestId,
   });
 
   // Threat-intel pass — only for tools whose `tool_input` is prose the
@@ -346,6 +353,8 @@ async function audit(event, baseUrl) {
         text: scanText,
         source: 'claude-code-plugin',
         direction: 'outgoing',
+        request_id: requestId,
+        session_id: sessionId,
         metadata: {
           runtime_kind: RUNTIME_KIND,
           tool_name: toolName,
@@ -402,6 +411,8 @@ async function audit(event, baseUrl) {
         text: scanText,
         source: 'claude-code-plugin',
         direction: 'incoming',
+        request_id: requestId,
+        session_id: sessionId,
         metadata: {
           runtime_kind: RUNTIME_KIND,
           tool_name: toolName,

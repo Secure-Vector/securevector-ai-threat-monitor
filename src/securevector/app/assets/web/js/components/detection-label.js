@@ -88,6 +88,26 @@ const DetectionLabel = {
         return this._html(this.fromFields(source, mlScore, ruleNames));
     },
 
+    /** Merge detection fields (detection_source / ml_score / detection_rules)
+     *  from a source node/edge into a destination node — for client-side
+     *  roll-ups (e.g. the Agent Map mesh/sankey topologies that dedupe a tool
+     *  across sessions). Mutates dst. Rule+ML if either side ever had each. */
+    mergeInto(dst, src) {
+        if (!src || !src.detection_source) return;
+        const s = src.detection_source, p = dst.detection_source;
+        const hasMl = s === 'ml' || s === 'rule_ml' || p === 'ml' || p === 'rule_ml';
+        const hasRule = s === 'rule' || s === 'rule_ml' || p === 'rule' || p === 'rule_ml';
+        dst.detection_source = hasMl && hasRule ? 'rule_ml' : (hasMl ? 'ml' : 'rule');
+        if (src.ml_score != null) {
+            dst.ml_score = dst.ml_score == null ? src.ml_score : Math.max(dst.ml_score, src.ml_score);
+        }
+        if (src.detection_rules && src.detection_rules.length) {
+            dst.detection_rules = Array.from(
+                new Set([...(dst.detection_rules || []), ...src.detection_rules])
+            ).slice(0, 5);
+        }
+    },
+
     _html(c) {
         if (!c) return '';
         const esc = (s) => String(s)

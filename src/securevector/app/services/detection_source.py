@@ -16,6 +16,51 @@ from typing import Optional
 
 ML_RULE_ID = "sv_guardian_model"
 
+# Threat types and rule-name fragments that mean a credential / secret / PII
+# was exposed. Used to light the Agent Map's lock badge from the detection
+# pipeline (a leaked secret on an *allowed* call never reaches the audit
+# row's ``reason``, so the legacy reason-LIKE heuristic alone misses it).
+_SECRET_THREAT_TYPES = frozenset(
+    {
+        "data_leakage",
+        "secret_exposure",
+        "credential_exfil",
+        "credential_exfiltration",
+        "pii_exposure",
+        "sensitive_data",
+        "sensitive_information_disclosure",
+    }
+)
+_SECRET_RULE_FRAGMENTS = (
+    "credential",
+    "secret",
+    "api key",
+    "api_key",
+    "sensitive information",
+    "data leak",
+    "exfil",
+    "pii",
+)
+
+
+def is_secret_detection(threat_type, rules) -> bool:
+    """True when a detection represents a leaked credential / secret / PII.
+
+    Matches on the threat type first, then falls back to scanning the matched
+    rule names for secret/credential fragments — so a leak caught purely by a
+    credential rule still lights the lock even if the coarse ``threat_type``
+    is something generic.
+    """
+    if isinstance(threat_type, str) and threat_type.strip().lower() in _SECRET_THREAT_TYPES:
+        return True
+    for name in rules or []:
+        if not name:
+            continue
+        low = str(name).lower()
+        if any(frag in low for frag in _SECRET_RULE_FRAGMENTS):
+            return True
+    return False
+
 
 def _is_ml(rule: dict) -> bool:
     return bool(rule) and (
@@ -52,8 +97,16 @@ def classify_matched_rules(matched_rules) -> Optional[dict]:
         if isinstance(conf, (int, float)):
             ml_score = round(float(conf), 3)
 
-    names = [r.get("rule_name") or r.get("name") or r.get("rule_id") for r in rule_hits]
-    names = [n for n in names if n]
+    # A rule that matched several spans is recorded once per match, so the raw
+    # list repeats names ("System-prompt extraction ×3"). Dedupe, preserving
+    # first-seen order, so the UI shows each rule once.
+    _seen: set = set()
+    names = []
+    for r in rule_hits:
+        n = r.get("rule_name") or r.get("name") or r.get("rule_id")
+        if n and n not in _seen:
+            _seen.add(n)
+            names.append(n)
 
     if has_ml and has_rule:
         source = "rule_ml"

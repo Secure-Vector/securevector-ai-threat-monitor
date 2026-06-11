@@ -39,6 +39,11 @@ class GeneralSettingsResponse(BaseModel):
     block_threats: bool = False
     tool_permissions_enabled: bool = True
     guardian_ml_enabled: bool = True
+    # Loaded Guardian model version + availability — surfaced in Settings so the
+    # version is transparent and `pip install -U securevector-guardian-model`
+    # (once split out) + restart visibly bumps it.
+    guardian_model_version: Optional[str] = None
+    guardian_ml_available: bool = False
     config_file: Optional[str] = None
     config_updated: bool = False
     proxy_action: Optional[str] = None
@@ -112,6 +117,8 @@ async def get_general_settings() -> GeneralSettingsResponse:
         settings_repo = SettingsRepository(db)
         settings = await settings_repo.get()
 
+        from securevector.app.services import guardian_service
+
         return GeneralSettingsResponse(
             scan_llm_responses=settings.scan_llm_responses,
             store_text_content=settings.store_text_content,
@@ -119,6 +126,8 @@ async def get_general_settings() -> GeneralSettingsResponse:
             block_threats=settings.block_threats,
             tool_permissions_enabled=settings.tool_permissions_enabled,
             guardian_ml_enabled=settings.guardian_ml_enabled,
+            guardian_model_version=guardian_service.model_version(),
+            guardian_ml_available=guardian_service.is_available(),
         )
 
     except Exception as e:

@@ -120,6 +120,13 @@ async def get_trace(trace_id: str):
             "detection_source": det.get("source") if det else None,
             "ml_score": det.get("ml_score") if det else None,
             "detection_rules": det.get("rules") if det else None,
+            # Mechanism 1 FP-triage tier (corroborated / ml_uncertain /
+            # ml_disagrees) so SOC can deprioritise likely-FPs in Runs, not
+            # only on the Threats page.
+            "ml_agreement": det.get("ml_agreement") if det else None,
+            # Correlation id so a detection row can deep-link to the underlying
+            # threat / secret record ("see what was detected").
+            "request_id": r.get("request_id") if det else None,
         })
 
     return {

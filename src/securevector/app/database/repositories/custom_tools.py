@@ -346,6 +346,7 @@ class CustomToolsRepository:
         args_preview: Optional[str] = None,
         runtime_kind: Optional[str] = None,
         session_id: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -369,6 +370,11 @@ class CustomToolsRepository:
                 ``turn_index`` that group the flat audit log into runs/turns
                 (story #141). Metadata only; NOT in the hash chain. Falsy →
                 the row is an orphan single-span run.
+            request_id: Per-call correlation id shared with the /analyze posts
+                the same tool call produced, so a span can be joined back to
+                its threat_intel_records (detection-source labels on Agent
+                Runs / Map). Metadata only; NOT in the hash chain — same
+                precedent as session_id / device_id.
         """
         conn = await self.db.connect()
 
@@ -442,8 +448,9 @@ class CustomToolsRepository:
                 INSERT INTO tool_call_audit
                     (tool_id, function_name, action, risk, reason, is_essential,
                      args_preview, called_at, seq, prev_hash, row_hash, device_id,
-                     runtime_kind, session_id, trace_id, turn_index, parent_span_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     runtime_kind, session_id, trace_id, turn_index, parent_span_id,
+                     request_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     resolved_tool_id,
@@ -463,6 +470,7 @@ class CustomToolsRepository:
                     trace_id,
                     turn_index,
                     parent_span_id,
+                    request_id,
                 ),
             )
             await conn.commit()
@@ -1131,13 +1139,15 @@ class CustomToolsRepository:
         placeholders = ",".join("?" * len(ids))
         rows = await self.db.fetch_all(
             f"""
-            SELECT request_id, risk_score, matched_rules
+            SELECT request_id, risk_score, matched_rules, metadata
             FROM threat_intel_records
             WHERE is_threat = 1 AND request_id IN ({placeholders})
             ORDER BY risk_score DESC
             """,
             tuple(ids),
         )
+        import json as _json
+
         out: dict = {}
         for r in rows or []:
             rid = r["request_id"]
@@ -1145,7 +1155,104 @@ class CustomToolsRepository:
                 continue
             info = classify_matched_rules(r["matched_rules"])
             if info:
+                # Mechanism 1 — surface the FP-triage tier (ml_agreement) stored
+                # in the analyze metadata, so Agent Runs/Map can flag likely FPs.
+                try:
+                    md = r["metadata"]
+                    if isinstance(md, str):
+                        md = _json.loads(md)
+                    if isinstance(md, dict) and md.get("ml_agreement"):
+                        info["ml_agreement"] = md["ml_agreement"]
+                except Exception:  # noqa: BLE001 — metadata is best-effort
+                    pass
                 out[rid] = info
+        return out
+
+    async def get_edge_detection_sources(self, window_days: int = 7) -> dict:
+        """Per (session_key, tool_id) detection-source roll-up for the Agent Map.
+
+        Each session→tool edge aggregates many calls, so this aggregates the
+        threat records those calls produced (correlated on the shared
+        ``request_id``): the edge is **Rule+ML** if any correlated threat was
+        caught by both signals across the edge (ML ever AND rule ever), **ML**
+        if only the model ever fired, **Rule** if only rules. ``ml_score`` is the
+        max across the edge. Keyed by the same ``session_key`` the 3-layer graph
+        groups on (``trace_id`` or ``orphan:<runtime>``).
+        """
+        from securevector.app.services.detection_source import (
+            classify_matched_rules,
+            is_secret_detection as _is_secret_detection,
+        )
+
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                COALESCE(a.trace_id, 'orphan:' || COALESCE(a.runtime_kind, 'unknown')) AS session_key,
+                a.tool_id AS tool_id,
+                t.matched_rules AS matched_rules,
+                t.threat_type AS threat_type,
+                t.metadata AS metadata
+            FROM tool_call_audit a
+            JOIN threat_intel_records t
+              ON t.request_id = a.request_id AND t.is_threat = 1
+            WHERE a.called_at >= datetime('now', ?)
+            """,
+            (cutoff,),
+        )
+        import json as _json
+
+        # Edge-level FP-triage tier: pick the *best* agreement across the edge's
+        # threats (a single corroborated hit means the edge is real). Ranks:
+        # corroborated > ml_uncertain > ml_disagrees > (none).
+        _AGREE_RANK = {"corroborated": 2, "ml_uncertain": 1, "ml_disagrees": 0}
+        _RANK_AGREE = {2: "corroborated", 1: "ml_uncertain", 0: "ml_disagrees"}
+        agg: dict = {}
+        for r in rows or []:
+            info = classify_matched_rules(r["matched_rules"])
+            if not info:
+                continue
+            key = (r["session_key"], r["tool_id"])
+            cur = agg.setdefault(key, {"ml": False, "rule": False, "ml_score": None, "rules": set(), "secret": False, "agree_rank": -1})
+            md = r["metadata"]
+            if isinstance(md, str):
+                try:
+                    md = _json.loads(md)
+                except Exception:  # noqa: BLE001
+                    md = None
+            agr = md.get("ml_agreement") if isinstance(md, dict) else None
+            cur["agree_rank"] = max(cur["agree_rank"], _AGREE_RANK.get(agr, -1))
+            src = info["source"]
+            if src in ("ml", "rule_ml"):
+                cur["ml"] = True
+            if src in ("rule", "rule_ml"):
+                cur["rule"] = True
+            ms = info.get("ml_score")
+            if ms is not None:
+                cur["ml_score"] = ms if cur["ml_score"] is None else max(cur["ml_score"], ms)
+            for n in info.get("rules") or []:
+                cur["rules"].add(n)
+            # Secret/leak signal — the Agent Map's lock badge keys off
+            # ``touched_secrets``, historically a LIKE match on the audit
+            # row's ``reason``. An allowed tool call whose CONTENT leaked a
+            # credential has reason=NULL (the leak was caught downstream by
+            # /analyze, not by a permission rule), so that heuristic misses
+            # it. Bridge the gap: if the correlated threat is a leakage type
+            # or a credential/secret rule fired, the node touched a secret.
+            if _is_secret_detection(r["threat_type"], info.get("rules")):
+                cur["secret"] = True
+
+        out: dict = {}
+        for key, v in agg.items():
+            source = "rule_ml" if (v["ml"] and v["rule"]) else ("ml" if v["ml"] else "rule")
+            out[key] = {
+                "source": source,
+                "ml_score": v["ml_score"],
+                "rules": sorted(v["rules"])[:5],
+                "secret": v["secret"],
+                "ml_agreement": _RANK_AGREE.get(v["agree_rank"]),
+            }
         return out
 
     async def cleanup_old_audit_records(self, retention_days: int) -> int:

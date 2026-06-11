@@ -184,6 +184,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         36: migrate_to_v36,
         37: migrate_to_v37,
         38: migrate_to_v38,
+        39: migrate_to_v39,
     }
 
     if version in migrations:
@@ -1569,6 +1570,43 @@ async def migrate_to_v38(db: DatabaseConnection) -> None:
         "'guardian_ml_enabled — Guardian ML detection kill-switch in app_settings')"
     )
     logger.info("Applied migration v38: guardian_ml_enabled flag")
+
+
+async def migrate_to_v39(db: DatabaseConnection) -> None:
+    """v38 -> v39: per-call ``request_id`` correlation key on tool_call_audit.
+
+    The detection-source labels (Rule / ML / Rule+ML) on Agent Runs / Agent
+    Map join a tool-call span back to the threat_intel_records its /analyze
+    scans produced. The Guard plugins stamp one correlation id per tool call
+    on BOTH the call-audit row and the /analyze posts; this column stores it
+    on the audit side (threat_intel_records.request_id already exists and is
+    indexed).
+
+    Metadata only — deliberately NOT part of the v20 hash-chain canonical
+    serialization (same precedent as device_id / runtime_kind / the v36 trace
+    keys). Nullable, no backfill: old rows simply show no detection label.
+
+    Idempotent via PRAGMA table_info, like v36.
+    """
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(tool_call_audit)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "request_id" not in existing:
+        await conn.execute(
+            "ALTER TABLE tool_call_audit ADD COLUMN request_id TEXT DEFAULT NULL"
+        )
+    # The detection-source join filters audit rows by request_id IN (...).
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_call_audit_request_id "
+        "ON tool_call_audit (request_id)"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (39, CURRENT_TIMESTAMP, "
+        "'request_id on tool_call_audit - span/threat correlation for detection-source labels')"
+    )
+    logger.info("Applied migration v39: tool_call_audit.request_id correlation key")
 
 
 # Future migration functions would be defined here:
