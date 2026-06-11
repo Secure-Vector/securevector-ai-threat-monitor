@@ -3,6 +3,14 @@
  * Note: All content is static/hardcoded, no user input is rendered
  */
 
+// Load-scoped guard so the Guardian ML "sentinel" robot plays its 30s scan
+// orbit exactly ONCE per page load (on launch / hard reload), not again on
+// every in-app navigation. render() builds the nav once per load and a hard
+// reload re-runs this whole script, resetting the flag — which is precisely
+// the "every launch / hard reload" cadence we want.
+let _gmRoboPlayed = false;
+let _gmRoboTimer = null;
+
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -276,8 +284,10 @@ const Sidebar = {
                 navItem.appendChild(tier);
             }
 
-            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
-            const persistNewItems = ['rules', 'guardian-ml'];
+            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
+            // Guardian ML deliberately omitted: it gets the animated "sentinel"
+            // robot below instead of a NEW badge.
+            const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
             const sessionNewItems = ['siem-export', 'integrations'];
@@ -306,6 +316,50 @@ const Sidebar = {
                 }
                 navItem.appendChild(newBadge);
                 setTimeout(dismissBadge, 30000);
+            }
+
+            // Guardian ML — an animated "sentinel" robot in place of a NEW badge.
+            // A little guardian bot with a satellite orbiting it on a dashed
+            // scan-ring: it reads as "the local ML model is watching every call."
+            // On each launch / hard reload it runs the orbit for 30s, then
+            // retracts the orbit and settles into a slow breathing eye-glow so
+            // the sidebar doesn't stay busy. Plays once per page load (guard).
+            if (item.id === 'guardian-ml') {
+                const robo = document.createElement('span');
+                robo.className = 'gm-robo';
+                // Title gives sighted users a hover hint; the SVG is aria-hidden
+                // and the span carries NO aria-label — the nav row already owns
+                // the accessible name "Guardian ML", so labelling here would
+                // double-announce. The bot is purely decorative.
+                robo.title = 'Guardian ML — local AI threat detection, watching every call';
+                // Geometry is centered ~(20,18): the bot sits in the middle of
+                // its scan-ring and the satellite orbits OUTSIDE the antenna
+                // tips so the bright dot never collides with them at 26px.
+                robo.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
+                    <g class="gm-bot">
+                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
+                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
+                        <rect class="gm-ear" x="9.6" y="17.6" width="2" height="4.2" rx="1"/>
+                        <rect class="gm-ear" x="28.4" y="17.6" width="2" height="4.2" rx="1"/>
+                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="5.6"/>
+                        <circle class="gm-eye l" cx="16.9" cy="18.6" r="1.5"/>
+                        <circle class="gm-eye r" cx="23.1" cy="18.6" r="1.5"/>
+                        <path class="gm-smile" d="M17 22.2 Q20 24 23 22.2" stroke-linecap="round"/>
+                    </g>
+                    <g class="gm-orbit"><circle class="gm-sat" cx="20" cy="2" r="2.3"/></g>
+                </svg>`;
+                navItem.appendChild(robo);
+                if (_gmRoboPlayed) {
+                    // Already played this page load → show the calm settled state.
+                    robo.classList.add('gm-static');
+                } else {
+                    _gmRoboPlayed = true;
+                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
+                    _gmRoboTimer = setTimeout(() => robo.classList.add('gm-static'), 30000);
+                }
             }
 
 
