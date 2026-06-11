@@ -1003,6 +1003,71 @@ html, body {
 .try-it-trigger-btn:hover { opacity: 0.88; }
 .sidebar.collapsed .try-it-trigger-btn { display: none; }
 
+/* Guardian ML pill — flagship local-detection toggle in the bottom section.
+   Highlighted-border treatment that brightens when active: accent border +
+   soft shadow + a status dot with a halo. Sits one notch above the slim
+   status banners in visual weight, matching its importance. */
+.guardian-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 12px 4px;
+    padding: 8px 11px;
+    border-radius: 11px;
+    border: 1px solid rgba(94, 173, 184, 0.3);
+    background: var(--bg-secondary, rgba(94, 173, 184, 0.03));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.guardian-pill:hover { border-color: rgba(94, 173, 184, 0.5); }
+.guardian-pill[data-active="true"] {
+    border-color: rgba(94, 173, 184, 0.6);
+    background: rgba(94, 173, 184, 0.06);
+    box-shadow: 0 0 0 1px rgba(94, 173, 184, 0.22), 0 2px 12px rgba(94, 173, 184, 0.16);
+}
+.guardian-pill .gp-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted, #7d8590);
+    transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+.guardian-pill[data-active="true"] .gp-dot {
+    background: var(--accent-primary, #5eadb8);
+    box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.18);
+}
+.guardian-pill .gp-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: pointer;
+}
+.guardian-pill .gp-title {
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.1px;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.guardian-pill .gp-sub {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-muted, #7d8590);
+    transition: color 0.18s ease;
+}
+.guardian-pill[data-active="true"] .gp-sub { color: var(--accent-primary, #5eadb8); }
+/* Collapsed rail: keep the pill fully visible (never hidden) — just tighten
+   the horizontal padding so it fits the narrower rail. */
+.sidebar.collapsed .guardian-pill {
+    margin: 10px 8px 4px;
+    padding: 8px 8px;
+}
+
 /* ── Floating chat panel ─────────────────────────────────────── */
 .tryit-chat-panel {
     position: fixed;

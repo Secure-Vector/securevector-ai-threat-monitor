@@ -641,6 +641,13 @@ const Sidebar = {
             });
         }
 
+        // Guardian ML control — the flagship local-detection toggle. Rendered
+        // as an accent-bordered pill that lights up when active, sitting right
+        // above "Try SecureVector" so the model's on/off is always one glance
+        // away. Enabling it pops a confirmation explaining what it does; the
+        // full controls live on the Settings page (click the label).
+        this.renderGuardianToggle(bottomSection);
+
         // Try SecureVector button — opens floating chat
         const tryBtn = document.createElement('button');
         tryBtn.className = 'try-it-trigger-btn';
@@ -659,6 +666,149 @@ const Sidebar = {
         bottomSection.appendChild(tryBtn);
 
         container.appendChild(bottomSection);
+    },
+
+    // Guardian ML control — an accent-bordered pill in the sidebar bottom
+    // section (above "Try SecureVector"). It's the flagship local-detection
+    // toggle, so it gets a more substantial treatment than the slim status
+    // banners: a highlighted border + soft shadow that brighten when active,
+    // plus a status dot. Mirrors the page-level toggle (PUT /api/settings
+    // {guardian_ml_enabled}); enabling it pops a confirmation explaining what
+    // the model does before committing; disabling commits immediately. The
+    // label opens the full Guardian section on the Settings page.
+    renderGuardianToggle(parent) {
+        const pill = document.createElement('div');
+        pill.className = 'guardian-pill';
+        pill.dataset.guardianToggle = 'true';
+
+        // Status dot — muted when off, accent + halo when active (CSS-driven
+        // off the pill's data-active attribute).
+        const dot = document.createElement('span');
+        dot.className = 'gp-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        pill.appendChild(dot);
+
+        // Title + status sub-label, stacked. Clicking opens the full Guardian
+        // section in Settings (the one affordance that survives collapsed mode).
+        const textCol = document.createElement('div');
+        textCol.className = 'gp-text';
+        textCol.title = 'SecureVector Guardian — local ML threat detection. Click to open settings.';
+        const title = document.createElement('span');
+        title.className = 'gp-title';
+        title.textContent = 'Guardian ML';
+        const sub = document.createElement('span');
+        sub.className = 'gp-sub';
+        textCol.appendChild(title);
+        textCol.appendChild(sub);
+        textCol.addEventListener('click', () => this.navigate('settings'));
+        pill.appendChild(textCol);
+
+        // Toggle switch — reuses the global .toggle / .toggle-slider markup so
+        // it matches the Settings page exactly, scaled down for the rail.
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle guardian-nav-toggle';
+        toggle.style.cssText = 'flex-shrink: 0; transform: scale(0.8); transform-origin: right center;';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-label', 'Toggle Guardian ML detection');
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(checkbox);
+        toggle.appendChild(slider);
+        pill.appendChild(toggle);
+
+        // Single place that keeps the visual state (active glow + status text)
+        // in sync with the checkbox.
+        const reflect = (on) => {
+            pill.dataset.active = on ? 'true' : 'false';
+            sub.textContent = on ? 'Active' : 'Off';
+        };
+
+        // Optimistic default ON (matches server default) so the pill doesn't
+        // flash "Off" before the settings fetch resolves.
+        checkbox.checked = true;
+        reflect(true);
+        API.getSettings().then(s => {
+            const on = (s && s.guardian_ml_enabled) !== false;
+            checkbox.checked = on;
+            reflect(on);
+        }).catch(() => { /* keep optimistic default */ });
+
+        // Guard against the change handler firing while we set state ourselves.
+        let suppress = false;
+        const setChecked = (val) => { suppress = true; checkbox.checked = val; reflect(val); suppress = false; };
+
+        const commit = async (enabled) => {
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                reflect(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (e) {
+                setChecked(!enabled);
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        };
+
+        checkbox.addEventListener('change', (e) => {
+            if (suppress) return;
+            const enabled = e.target.checked;
+            if (enabled) {
+                // Opt-in: hold the switch OFF until the user confirms, so
+                // dismissing the modal (Cancel / X / overlay) leaves it off
+                // with no extra wiring. Only an explicit confirm turns it on.
+                setChecked(false);
+                this.showGuardianEnableConfirm(() => { setChecked(true); commit(true); });
+            } else {
+                commit(false);
+            }
+        });
+
+        parent.appendChild(pill);
+    },
+
+    // Confirmation popup shown when the user flips Guardian ML on — explains
+    // what the model does so enabling is an informed opt-in. onConfirm commits
+    // the change. Dismissing the modal (Cancel / X / overlay) does nothing:
+    // the caller holds the switch off until confirmed, so no revert is needed.
+    showGuardianEnableConfirm(onConfirm) {
+        const content = document.createElement('div');
+
+        const lead = document.createElement('p');
+        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
+        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
+        content.appendChild(lead);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'Fully offline — nothing leaves your machine, no API key.',
+            'Fast — sub-millisecond on a typical prompt or tool call.',
+            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        content.appendChild(list);
+
+        const foot = document.createElement('p');
+        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
+        foot.textContent = 'You can turn it off anytime here or on the Settings page. Regex rules keep running either way.';
+        content.appendChild(foot);
+
+        Modal.show({
+            title: 'Enable Guardian ML detection?',
+            content,
+            size: 'small',
+            actions: [
+                { label: 'Cancel', primary: false },
+                { label: 'Enable Guardian', primary: true, onClick: onConfirm },
+            ],
+        });
     },
 
     toggleCollapse() {
