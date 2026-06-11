@@ -641,29 +641,11 @@ const Sidebar = {
             });
         }
 
-        // Guardian ML control — the flagship local-detection toggle. Rendered
-        // as an accent-bordered pill that lights up when active, sitting right
-        // above "Try SecureVector" so the model's on/off is always one glance
-        // away. Enabling it pops a confirmation explaining what it does; the
+        // Guardian ML control — the flagship local-detection toggle, anchoring
+        // the bottom section as an accent-bordered pill that lights up when
+        // active. Enabling it pops a confirmation explaining what it does; the
         // full controls live on the Settings page (click the label).
         this.renderGuardianToggle(bottomSection);
-
-        // Try SecureVector button — opens floating chat
-        const tryBtn = document.createElement('button');
-        tryBtn.className = 'try-it-trigger-btn';
-        const tryIcon = document.createElement('img');
-        tryIcon.src = '/images/favicon.png';
-        tryIcon.style.cssText = 'width:14px; height:14px; object-fit:contain; flex-shrink:0;';
-        const tryLabel = document.createElement('span');
-        tryLabel.textContent = 'Try SecureVector';
-        const tryArrow = document.createElement('span');
-        tryArrow.textContent = '↗';
-        tryArrow.style.cssText = 'font-size:10px; opacity:0.7;';
-        tryBtn.appendChild(tryIcon);
-        tryBtn.appendChild(tryLabel);
-        tryBtn.appendChild(tryArrow);
-        tryBtn.addEventListener('click', () => TryItChat.open());
-        bottomSection.appendChild(tryBtn);
 
         container.appendChild(bottomSection);
     },
@@ -696,8 +678,12 @@ const Sidebar = {
         const title = document.createElement('span');
         title.className = 'gp-title';
         title.textContent = 'Guardian ML';
+        // One-line description of what it is — the on/off state is carried by
+        // the toggle, the status dot, and the border glow, so this stays a
+        // fixed explainer rather than an "Active/Off" label.
         const sub = document.createElement('span');
         sub.className = 'gp-sub';
+        sub.textContent = 'Local ML threat detection';
         textCol.appendChild(title);
         textCol.appendChild(sub);
         textCol.addEventListener('click', () => this.navigate('settings'));
@@ -717,11 +703,10 @@ const Sidebar = {
         toggle.appendChild(slider);
         pill.appendChild(toggle);
 
-        // Single place that keeps the visual state (active glow + status text)
-        // in sync with the checkbox.
+        // Single place that keeps the visual state (active glow via the
+        // data-active attribute → dot + border) in sync with the checkbox.
         const reflect = (on) => {
             pill.dataset.active = on ? 'true' : 'false';
-            sub.textContent = on ? 'Active' : 'Off';
         };
 
         // Optimistic default ON (matches server default) so the pill doesn't

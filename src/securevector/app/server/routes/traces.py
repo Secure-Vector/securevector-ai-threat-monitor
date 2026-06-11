@@ -87,6 +87,11 @@ async def get_trace(trace_id: str):
     if not rows:
         raise HTTPException(status_code=404, detail="trace not found")
 
+    # Correlate each span back to the threat record it came from (shared
+    # request_id) so the waterfall can show what caught it — Rule / ML /
+    # Rule+ML and the ML score. tool_call_audit doesn't carry that itself.
+    detections = await repo.get_detection_sources([r.get("request_id") for r in rows])
+
     spans = []
     blocked = 0
     # Renumber turn_index sequentially at read time (rows arrive in reliable
@@ -97,6 +102,7 @@ async def get_trace(trace_id: str):
         outcome, verdict, color = _VERDICT.get(action, _VERDICT["allow"])
         if action == "block":
             blocked += 1
+        det = detections.get(r.get("request_id"))
         spans.append({
             "turn_index": i,
             "span_kind": "tool_call",
@@ -110,6 +116,10 @@ async def get_trace(trace_id: str):
             "reason": r.get("reason"),
             "called_at": r.get("called_at"),
             "args_preview": r.get("args_preview"),
+            # Detection source (None when the span isn't tied to a threat).
+            "detection_source": det.get("source") if det else None,
+            "ml_score": det.get("ml_score") if det else None,
+            "detection_rules": det.get("rules") if det else None,
         })
 
     return {

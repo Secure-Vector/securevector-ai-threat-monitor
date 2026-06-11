@@ -1053,14 +1053,13 @@ html, body {
     white-space: nowrap;
 }
 .guardian-pill .gp-sub {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    text-transform: uppercase;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.1px;
     color: var(--text-muted, #7d8590);
-    transition: color 0.18s ease;
+    margin-top: 1px;
 }
-.guardian-pill[data-active="true"] .gp-sub { color: var(--accent-primary, #5eadb8); }
 /* Collapsed rail: keep the pill fully visible (never hidden) — just tighten
    the horizontal padding so it fits the narrower rail. */
 .sidebar.collapsed .guardian-pill {
@@ -3586,6 +3585,57 @@ html, body {
     background: var(--bg-primary);
     padding: 2px 8px;
     border-radius: 10px;
+}
+
+/* Detection-source badge — Rule / ML / Rule+ML. Shown on Threats, Agent Map,
+   and Agent Runs; hover tells you exactly what caught it (+ ML score). Three
+   distinct hues: rules = slate, ML = Guardian cyan, both = indigo. */
+.detection-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 5px;
+    white-space: nowrap;
+    line-height: 1.5;
+    cursor: default;
+    border: 1px solid transparent;
+}
+.detection-rule {
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.12);
+    border-color: rgba(100, 116, 139, 0.3);
+}
+.detection-ml {
+    color: var(--accent-primary, #5eadb8);
+    background: rgba(94, 173, 184, 0.13);
+    border-color: rgba(94, 173, 184, 0.4);
+}
+.detection-rule_ml {
+    color: #818cf8;
+    background: rgba(129, 140, 248, 0.13);
+    border-color: rgba(129, 140, 248, 0.4);
+}
+
+/* Per-rule origin chip inside the threat-detail matched-rules list. */
+.matched-rule-origin {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    cursor: default;
+}
+.matched-rule-origin.origin-ml {
+    color: var(--accent-primary, #5eadb8);
+    background: rgba(94, 173, 184, 0.13);
+}
+.matched-rule-origin.origin-rule {
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.12);
 }
 
 /* LLM Review Section in Threat Details */

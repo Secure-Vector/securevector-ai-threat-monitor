@@ -1101,7 +1101,8 @@ class CustomToolsRepository:
             """
             SELECT
                 seq, turn_index, tool_id, function_name, action,
-                risk, reason, called_at, runtime_kind, args_preview
+                risk, reason, called_at, runtime_kind, args_preview,
+                request_id
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC
@@ -1109,6 +1110,43 @@ class CustomToolsRepository:
             (trace_id,),
         )
         return [dict(r) for r in rows] if rows else []
+
+    async def get_detection_sources(self, request_ids) -> dict:
+        """Map request_id → detection-source summary for a set of requests.
+
+        Correlates tool-call spans / graph edges (which live in
+        ``tool_call_audit``) back to the ``threat_intel_records`` they came from
+        on the shared ``request_id``, so the Rule / ML / Rule+ML label and ML
+        score can be shown on the Agent Runs and Agent Map views — neither of
+        which carries that data on its own write path. When a request produced
+        more than one threat record, the highest-risk one wins.
+
+        Returns ``{request_id: {"source", "ml_score", "rules"}}``.
+        """
+        from securevector.app.services.detection_source import classify_matched_rules
+
+        ids = list({rid for rid in (request_ids or []) if rid})
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT request_id, risk_score, matched_rules
+            FROM threat_intel_records
+            WHERE is_threat = 1 AND request_id IN ({placeholders})
+            ORDER BY risk_score DESC
+            """,
+            tuple(ids),
+        )
+        out: dict = {}
+        for r in rows or []:
+            rid = r["request_id"]
+            if rid in out:  # ORDER BY risk_score DESC → first seen is highest-risk
+                continue
+            info = classify_matched_rules(r["matched_rules"])
+            if info:
+                out[rid] = info
+        return out
 
     async def cleanup_old_audit_records(self, retention_days: int) -> int:
         """Delete audit rows older than ``retention_days``.

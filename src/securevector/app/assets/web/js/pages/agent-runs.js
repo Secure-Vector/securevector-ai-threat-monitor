@@ -544,6 +544,11 @@ const AgentRunsPage = {
             const caret = `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
             const badge = `<span class="ar-badge" style="background:${o.color}22;color:${o.color}">` +
                 `${s.outcome === 'blocked' ? BAN_SVG(o.color, 10) : ''}${o.label}</span>`;
+            // Rule / ML / Rule+ML — shown only when this step is tied to a
+            // threat detection (correlated by request_id server-side).
+            const detBadge = s.detection_source
+                ? DetectionLabel.htmlFromFields(s.detection_source, s.ml_score, s.detection_rules)
+                : '';
             const kind = `<span class="ar-kind ${external ? 'ext' : ''}">${external ? 'External MCP' : 'Built-in'}</span>`;
             // Reason sits INLINE on the same row (truncated); full text is in the
             // expandable detail panel below.
@@ -553,7 +558,7 @@ const AgentRunsPage = {
             span.innerHTML = dot +
                 `<div class="ar-span-row">${caret}<span class="ar-turn">#${s.turn_index ?? '–'}</span>` +
                 `<span class="ar-span-tool">${this._esc(s.function_name || s.tool_id || 'tool')}</span>` +
-                kind + badge + reason +
+                kind + badge + detBadge + reason +
                 `<span class="ar-time">${this._fmtTime(s.called_at)}</span></div>` +
                 this._spanDetail(s, external);
             const row = span.querySelector('.ar-span-row');
@@ -568,6 +573,11 @@ const AgentRunsPage = {
         const args = s.args_preview
             ? `<div class="ar-args"><div class="ar-args-label">Arguments (redacted preview)</div><pre>${this._esc(s.args_preview)}</pre></div>`
             : '';
+        // Detected-by row: raw HTML (badge), not escaped text — only when the
+        // step is tied to a threat detection.
+        const det = s.detection_source
+            ? `<dt>Detected by</dt><dd>${DetectionLabel.htmlFromFields(s.detection_source, s.ml_score, s.detection_rules)}</dd>`
+            : '';
         return `<div class="ar-detail-body">` +
             `<dl class="ar-kv">` +
             kv('Tool', s.tool_id) +
@@ -575,6 +585,7 @@ const AgentRunsPage = {
             kv('Kind', external ? 'External MCP / plugin' : 'Built-in harness tool') +
             kv('Tool permission', s.verdict || (s.outcome || '').toUpperCase()) +
             kv('Risk', s.risk) +
+            det +
             kv('Time', this._fmtTime(s.called_at)) +
             kv('Reason', s.reason) +
             `</dl>${args}</div>`;
