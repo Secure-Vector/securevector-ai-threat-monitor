@@ -7447,7 +7447,7 @@ thead tr:hover #records-select-all,
 }
 /* Scoped to .nav-item so it beats `.nav-item svg{width:20px}` on SPECIFICITY,
    not just source order (robust against CSS reordering/minification). */
-.nav-item .gm-robo svg { width: 32px; height: 32px; display: block; overflow: visible; }
+.nav-item .gm-robo svg { width: 24px; height: 24px; display: block; overflow: visible; }
 /* Collapsed icon-rail: pull the bot closer to the 20px neighbour glyphs so it
    doesn't dominate the narrow strip (no label there to justify the size). */
 .sidebar.collapsed .nav-item .gm-robo svg { width: 24px; height: 24px; }
