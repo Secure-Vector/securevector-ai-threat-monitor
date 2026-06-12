@@ -958,6 +958,37 @@ html, body {
     font-size: 22px;
 }
 
+/* Collapsed icon-rail: the Guardian robot is a <span class="gm-robo"> icon
+   wrapper, so the generic `.collapsed .nav-item span` label-hider (above)
+   would erase it — exempt it explicitly. */
+.sidebar.collapsed .nav-item span.gm-robo {
+    display: inline-flex;
+}
+
+/* Collapsed icon-rail: the status stack shrinks to centered dot chips.
+   The banner buttons carry inline width/margin/padding (cssText), so these
+   overrides need !important to win. The fold-toggle header hides entirely —
+   an uppercase label can't fit a 64px rail (it visibly bled into the page);
+   the dot chips themselves are the collapsed-state signal. */
+.sidebar.collapsed #sidebar-status-toggle {
+    display: none !important;
+}
+.sidebar.collapsed #cc-plugin-active-banner,
+.sidebar.collapsed #codex-plugin-active-banner,
+.sidebar.collapsed #copilot-plugin-active-banner,
+.sidebar.collapsed #siem-active-banner {
+    width: 36px !important;
+    margin: 6px auto 0 !important;
+    padding: 7px 0 !important;
+    justify-content: center;
+}
+.sidebar.collapsed #cc-plugin-banner-text,
+.sidebar.collapsed #codex-plugin-banner-text,
+.sidebar.collapsed #copilot-plugin-banner-text,
+.sidebar.collapsed #siem-banner-text {
+    display: none;
+}
+
 /* Proxy banner: very light cyan border pulse */
 @keyframes proxy-border-pulse {
     0%, 100% { border-color: rgba(94, 173, 184, 0.25); }
