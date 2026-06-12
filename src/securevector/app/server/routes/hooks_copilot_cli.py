@@ -469,3 +469,201 @@ async def uninstall_plugin():
                     logger.warning("Could not rewrite Copilot config.json (continuing): %s", e)
 
     return UninstallResponse(ok=True)
+
+
+# --- Token usage (Cost Tracking) -------------------------------------------
+#
+# Mirrors the Claude Code transcript scanner: Copilot CLI writes per-session
+# event logs to ~/.copilot/session-state/<id>/events.jsonl, and each session's
+# token consumption is available as CUMULATIVE per-model counters in the
+# `data.modelMetrics.<model>.usage` block (carried on `session.shutdown` and
+# periodically on turn events). Unlike Claude Code transcripts there is no
+# reliable per-turn usage delta, so a session's totals are attributed to the
+# day of its last activity — close enough for the 7/30-day dashboard charts.
+#
+# Reuses the Claude Code route's response models + ISO helpers so the Cost
+# Tracking UI consumes an identical payload shape from both runtimes.
+
+from .hooks_claude_code import (  # noqa: E402  (route-module convention)
+    DailyTokenUsage,
+    ModelUsage,
+    TokenUsageResponse,
+    _iso_to_local_day,
+    _parse_iso,
+)
+
+COPILOT_SESSION_STATE_DIR = COPILOT_HOME / "session-state"
+
+
+def _aggregate_copilot_session(events_path: Path):
+    """Return (turns, per_model_usage, last_iso) for one events.jsonl.
+
+    per_model_usage: model -> {input, output, cache_create, cache_read}
+    taken from the LAST modelMetrics snapshot in the file (the counters are
+    cumulative, so the last snapshot IS the session total — covers both clean
+    `session.shutdown` files and sessions that died mid-flight).
+    """
+    turns = 0
+    snapshot: dict = {}
+    last_iso = None
+    try:
+        with open(events_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                ts = rec.get("timestamp")
+                if isinstance(ts, str):
+                    last_iso = ts
+                etype = rec.get("type")
+                if etype == "assistant.message":
+                    turns += 1
+                data = rec.get("data")
+                metrics = data.get("modelMetrics") if isinstance(data, dict) else None
+                if isinstance(metrics, dict) and metrics:
+                    snapshot = metrics
+    except OSError:
+        # File locked / unreadable — treat as empty rather than 500.
+        return 0, {}, None
+
+    per_model: dict = {}
+    for model, m in snapshot.items():
+        usage = m.get("usage") if isinstance(m, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        # `outputTokens` already includes the model's reasoning tokens
+        # (reasoningTokens is an of-which breakdown, not an addend), so it is
+        # NOT added again here. cacheWrite/cacheRead map onto the CC payload's
+        # cache_creation / cache_read fields.
+        per_model[model] = {
+            "input": int(usage.get("inputTokens") or 0),
+            "output": int(usage.get("outputTokens") or 0),
+            "cache_create": int(usage.get("cacheWriteTokens") or 0),
+            "cache_read": int(usage.get("cacheReadTokens") or 0),
+        }
+    return turns, per_model, last_iso
+
+
+def _compute_copilot_token_usage_sync() -> TokenUsageResponse:
+    """Blocking aggregation across all Copilot CLI session logs."""
+    if not COPILOT_SESSION_STATE_DIR.is_dir():
+        return TokenUsageResponse(
+            sessions=0, turns_with_usage=0,
+            input_tokens=0, output_tokens=0,
+            cache_creation_input_tokens=0, cache_read_input_tokens=0,
+            last_activity=None, by_model=[], daily=[],
+        )
+
+    sessions = 0
+    total_turns = 0
+    total = {"input": 0, "output": 0, "cache_create": 0, "cache_read": 0}
+    latest_iso = None
+    model_totals: dict = {}
+    day_totals: dict = {}
+
+    for session_dir in COPILOT_SESSION_STATE_DIR.iterdir():
+        events = session_dir / "events.jsonl"
+        if not session_dir.is_dir() or not events.is_file():
+            continue
+        turns, per_model, last_iso = _aggregate_copilot_session(events)
+        if not per_model and turns == 0:
+            continue
+        sessions += 1
+        total_turns += turns
+        if last_iso:
+            last_dt = _parse_iso(last_iso)
+            cur_dt = _parse_iso(latest_iso) if latest_iso else None
+            if last_dt is not None and (cur_dt is None or last_dt > cur_dt):
+                latest_iso = last_iso
+        day = _iso_to_local_day(last_iso) if last_iso else None
+        for model, mu in per_model.items():
+            agg = model_totals.setdefault(model, {
+                "turns": 0, "input": 0, "output": 0,
+                "cache_create": 0, "cache_read": 0,
+            })
+            agg["turns"] += turns
+            for k in ("input", "output", "cache_create", "cache_read"):
+                agg[k] += mu[k]
+                total[k] += mu[k]
+            if day is not None:
+                du = day_totals.setdefault(day, {
+                    "turns": 0, "input": 0, "output": 0,
+                    "cache_create": 0, "cache_read": 0,
+                })
+                du["turns"] += turns
+                for k in ("input", "output", "cache_create", "cache_read"):
+                    du[k] += mu[k]
+
+    by_model = [
+        ModelUsage(
+            model=model,
+            turns=mu["turns"],
+            input_tokens=mu["input"],
+            output_tokens=mu["output"],
+            cache_creation_input_tokens=mu["cache_create"],
+            cache_read_input_tokens=mu["cache_read"],
+        )
+        for model, mu in model_totals.items()
+    ]
+    by_model.sort(
+        key=lambda m: m.input_tokens + m.output_tokens
+                    + m.cache_creation_input_tokens + m.cache_read_input_tokens,
+        reverse=True,
+    )
+
+    daily = sorted(
+        (
+            DailyTokenUsage(
+                day=day,
+                turns=du["turns"],
+                input_tokens=du["input"],
+                output_tokens=du["output"],
+                cache_creation_input_tokens=du["cache_create"],
+                cache_read_input_tokens=du["cache_read"],
+            )
+            for day, du in day_totals.items()
+        ),
+        key=lambda d: d.day,
+    )[-30:]
+
+    return TokenUsageResponse(
+        sessions=sessions,
+        turns_with_usage=total_turns,
+        input_tokens=total["input"],
+        output_tokens=total["output"],
+        cache_creation_input_tokens=total["cache_create"],
+        cache_read_input_tokens=total["cache_read"],
+        last_activity=latest_iso,
+        by_model=by_model,
+        daily=daily,
+    )
+
+
+# Same short-TTL memo as the CC scanner — the dashboard re-requests on every
+# navigation and the walk is disk-bound.
+_COPILOT_TOKEN_USAGE_TTL_SECONDS = 60.0
+_copilot_token_usage_cache: dict = {"ts": 0.0, "value": None}
+
+
+@router.get("/token-usage", response_model=TokenUsageResponse)
+async def get_copilot_token_usage() -> TokenUsageResponse:
+    """Aggregate token usage across all Copilot CLI session logs.
+
+    Walks ``~/.copilot/session-state/*/events.jsonl`` and reads each
+    session's final cumulative ``modelMetrics`` snapshot. Missing dir →
+    zeros (fresh installs that haven't run a Copilot session).
+    """
+    import asyncio
+    import time
+
+    now = time.monotonic()
+    cached = _copilot_token_usage_cache
+    if cached["value"] is not None and (now - cached["ts"]) < _COPILOT_TOKEN_USAGE_TTL_SECONDS:
+        return cached["value"]
+    value = await asyncio.to_thread(_compute_copilot_token_usage_sync)
+    cached["ts"] = time.monotonic()
+    cached["value"] = value
+    return value
