@@ -117,9 +117,10 @@ const GlobalBanners = {
 
         const ack = () => {
             try { localStorage.setItem(this.KEY_GUARDIAN_NOTICE, '1'); } catch (_) { /* private mode */ }
-            banner.remove();
-            const slot = document.getElementById('sv-global-banners');
-            if (slot && !slot.hasChildNodes()) slot.style.display = 'none';
+            // Re-render the slot so the next relevant banner (what's-new /
+            // plugins nudge) takes over immediately — without this, banners
+            // only advanced on a full reload, which read as "banner missing".
+            this.render();
         };
 
         // Shield-with-spark icon — security feature, not a sales pitch
@@ -287,8 +288,7 @@ const GlobalBanners = {
         dismissBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             localStorage.setItem(this.KEY_PLUGINS_NUDGE, '1');
-            banner.remove();
-            this._collapseSlotIfEmpty();
+            this.render();
         });
         banner.appendChild(dismissBtn);
 
@@ -435,8 +435,7 @@ const GlobalBanners = {
             // Lands on the Agent Map (the hero topology view) \u2014 navigate()
             // expands the Agent Activity section automatically.
             if (window.Sidebar) Sidebar.navigate('agent-map');
-            card.remove();
-            this._collapseSlotIfEmpty();
+            this.render();
         });
         ctaGroup.appendChild(explore);
 
@@ -451,8 +450,7 @@ const GlobalBanners = {
         closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'var(--text-muted)'; closeBtn.style.background = 'transparent'; });
         closeBtn.addEventListener('click', () => {
             localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
-            card.remove();
-            this._collapseSlotIfEmpty();
+            this.render();
         });
         card.appendChild(closeBtn);
 

@@ -120,6 +120,17 @@ const App = {
         const urlParams = new URLSearchParams(window.location.search);
         if (hasSeenWelcome || urlParams.has('no-welcome')) return;
 
+        // Fresh install: the welcome modal IS the orientation, so the
+        // "what's new in vX.Y" upgrade banner is meaningless noise — mark it
+        // acked. Deliberately does NOT touch the Guardian consent notice:
+        // that must reach every user (fresh installs AND updaters) until
+        // they make an explicit keep-on / turn-off choice.
+        try {
+            if (window.GlobalBanners) {
+                localStorage.setItem(GlobalBanners.KEY_WHATS_NEW, GlobalBanners.WHATS_NEW_VERSION);
+            }
+        } catch (_) { /* private mode */ }
+
         // Create modal overlay
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
