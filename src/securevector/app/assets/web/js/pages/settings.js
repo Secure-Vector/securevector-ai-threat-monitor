@@ -58,17 +58,31 @@ const SettingsPage = {
         guardianSection.appendChild(guardianCard);
         container.appendChild(guardianSection);
 
-        // Deep-link from the Configure → Guardian ML nav entry: scroll the
-        // section into view and pulse a highlight so the user lands on the
-        // toggle, not the top of a long Settings page. One-shot — reset the
-        // flag so a normal Settings visit doesn't re-trigger it.
+        // Arrived from the Configure → "Guardian ML" nav item: show a FOCUSED
+        // Guardian page (this section only), NOT the full Settings page — so the
+        // user isn't dropped into Cloud Connect / AI Analysis / Uninstall and
+        // left wondering what they clicked. A link opens full Settings; the
+        // separate "Settings" nav item still renders everything (below).
+        // One-shot flag so a normal Settings visit shows the whole page.
         if (this.focusGuardian) {
             this.focusGuardian = false;
+            const moreRow = document.createElement('div');
+            moreRow.style.cssText = 'margin-top: 18px;';
+            const moreLink = document.createElement('button');
+            moreLink.type = 'button';
+            moreLink.textContent = 'Open full Settings →';
+            moreLink.style.cssText = 'background: none; border: none; color: var(--accent-primary); font: inherit; font-size: 13px; cursor: pointer; padding: 6px 0;';
+            moreLink.addEventListener('click', () => {
+                if (typeof Sidebar !== 'undefined' && Sidebar.navigate) Sidebar.navigate('settings');
+                else if (typeof App !== 'undefined') App.loadPage('settings');
+            });
+            moreRow.appendChild(moreLink);
+            container.appendChild(moreRow);
             requestAnimationFrame(() => {
-                guardianSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 guardianSection.classList.add('section-focus-pulse');
                 setTimeout(() => guardianSection.classList.remove('section-focus-pulse'), 2000);
             });
+            return;   // focused Guardian view — skip the rest of Settings
         }
 
         // Cloud Connect Section
@@ -248,6 +262,24 @@ const SettingsPage = {
 
         row.appendChild(toggle);
         container.appendChild(row);
+
+        // Highlight the model's provenance — what it's trained on. Honest framing:
+        // original from-scratch training on SecureVector's own corpus + rule
+        // library, with coverage guided by PUBLIC attack taxonomies (OWASP /
+        // MITRE). No third-party datasets or pretrained weights — that's an
+        // originality / no-data-leakage selling point, not a limitation.
+        const provenance = document.createElement('div');
+        provenance.style.cssText = 'margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.22);';
+        const provLabel = document.createElement('div');
+        provLabel.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 5px;';
+        provLabel.textContent = 'How Guardian is trained';
+        const provText = document.createElement('div');
+        provText.style.cssText = 'font-size: 12.5px; line-height: 1.55; color: var(--text-secondary);';
+        // Static copy, no user input.
+        provText.innerHTML = 'Trained <strong>from scratch</strong> on SecureVector\'s own labelled threat corpus and detection-rule library, with attack coverage aligned with <strong>public security taxonomies</strong> (OWASP LLM Top&nbsp;10, MITRE ATLAS).';
+        provenance.appendChild(provLabel);
+        provenance.appendChild(provText);
+        container.appendChild(provenance);
     },
 
     // Confirmation popup shown when Guardian ML is flipped on from Settings —

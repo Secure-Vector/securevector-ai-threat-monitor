@@ -7467,8 +7467,8 @@ thead tr:hover #records-select-all,
 
 /* orbit layer — the "circular motion" */
 .gm-robo .gm-ring {
-    fill: none; stroke: var(--accent-primary); stroke-width: 1.3;
-    stroke-dasharray: 3 4; opacity: 0.6;
+    fill: none; stroke: var(--accent-primary); stroke-width: 1.4;
+    stroke-dasharray: 2.5 3; opacity: 0.85;
     transform-box: view-box; transform-origin: 20px 18px;
     animation: gm-ring-spin 7s linear infinite;
 }
@@ -7496,8 +7496,10 @@ thead tr:hover #records-select-all,
    (Pause/Stop/Hide) snag, costs idle GPU on the always-visible filter, and
    reads as fake activity since it doesn't track real Guardian state. The
    bot just settles into a calm, fully static glow. */
-.gm-robo.gm-static .gm-orbit,
-.gm-robo.gm-static .gm-ring { opacity: 0; animation: none; transition: opacity 0.6s ease; }
+/* At settle the orbiting dot + trail retract, but the dashed circle STAYS
+   (just stops spinning) so the robot keeps its ring permanently. */
+.gm-robo.gm-static .gm-orbit { opacity: 0; animation: none; transition: opacity 0.6s ease; }
+.gm-robo.gm-static .gm-ring { animation: none; }
 .gm-robo.gm-static .gm-bot,
 .gm-robo.gm-static .gm-eye,
 .gm-robo.gm-static .gm-ant-tip { animation: none; opacity: 1; }
@@ -7508,23 +7510,22 @@ thead tr:hover #records-select-all,
    cleanly (reset transforms + full opacity so nothing freezes mid-keyframe) */
 @media (prefers-reduced-motion: reduce) {
     .gm-robo .gm-orbit, .gm-robo .gm-ring, .gm-robo .gm-bot,
-    .gm-robo .gm-eye, .gm-robo .gm-ant-tip {
-        animation: none !important; transform: none !important; opacity: 1 !important;
-    }
-    .gm-robo .gm-orbit, .gm-robo .gm-ring { opacity: 0 !important; }
+    .gm-robo .gm-eye, .gm-robo .gm-ant-tip { animation: none !important; transform: none !important; }
+    .gm-robo .gm-eye, .gm-robo .gm-ant-tip { opacity: 1 !important; }
+    .gm-robo .gm-orbit { opacity: 0 !important; }   /* hide the moving dot; keep the static ring */
 }
 
-/* Light theme — the "lit" parts (eyes / antenna tips / satellite / trail) are
-   near-white cyan: great glow on the dark sidebar, but invisible on the light
-   #f6f8fa rail. Swap them to saturated teal so the whole bot reads. The head
-   outline, ring (the circle), and smile already use --accent-primary (#2b8a97),
-   so they show in light unchanged — the circle stays. */
-[data-theme="light"] .gm-robo .gm-head { fill: rgba(43, 138, 151, 0.10); }
-[data-theme="light"] .gm-robo .gm-eye { fill: #176d78; }
+/* Light theme — match the sibling nav icons instead of standing out as a teal
+   mascot. The near-white "lit" glow is invisible on the light rail anyway, so
+   in light the bot becomes a monochrome `currentColor` glyph (outline head, no
+   fill, no glow) — same icon language as its neighbours, and it now tints on
+   hover/active exactly like them. The circle (ring) stays, also in currentColor. */
+[data-theme="light"] .gm-robo .gm-head { fill: none; stroke: currentColor; }
+[data-theme="light"] .gm-robo .gm-ant,
+[data-theme="light"] .gm-robo .gm-smile { stroke: currentColor; }
+[data-theme="light"] .gm-robo .gm-eye,
 [data-theme="light"] .gm-robo .gm-ant-tip,
-[data-theme="light"] .gm-robo .gm-sat {
-    fill: #0c8a9b; filter: drop-shadow(0 0 2px rgba(12, 138, 155, 0.45));
-}
-[data-theme="light"] .gm-robo .gm-trail { stroke: #2b8a97; opacity: 0.5; }
-[data-theme="light"] .gm-robo .gm-ring { opacity: 0.7; }
+[data-theme="light"] .gm-robo .gm-sat { fill: currentColor; filter: none; }
+[data-theme="light"] .gm-robo .gm-ring { stroke: currentColor; opacity: 0.5; }
+[data-theme="light"] .gm-robo .gm-trail { stroke: currentColor; opacity: 0.4; }
 
