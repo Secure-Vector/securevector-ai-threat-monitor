@@ -199,6 +199,8 @@ const API = {
         // Bundle 0.3 — agent slice. The threat-intel route already accepts
         // ?source=... server-side; just plumb it through the SDK call.
         if (params.source) queryParams.set('source', params.source);
+        // Deep-link from an Agent Runs detection to the exact record.
+        if (params.request_id) queryParams.set('request_id', params.request_id);
 
         const query = queryParams.toString();
         return this.request(`/api/threat-intel${query ? '?' + query : ''}`).catch(() => ({

@@ -1,6 +1,6 @@
 {
   "name": "securevector-guard",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "description": "Real-time policy enforcement and tamper-evident audit for MCP tool calls. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Fails open if the local app is unreachable.",
   "author": {
     "name": "SecureVector",

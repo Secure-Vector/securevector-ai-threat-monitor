@@ -74,6 +74,14 @@ setup(
             # handle PEP 604 `X | None` strings produced by `from __future__ import
             # annotations`. No-op on 3.10+.
             'eval_type_backport>=0.2.0; python_version<"3.10"',
+            # SecureVector Guardian — the local ML detection model, installed as
+            # a normal pip dependency (no vendored runtime in this repo). The app
+            # imports it from `svguardian`; `pip install -U` updates the model
+            # like any other dependency. The runtime is pure-Python (zero ML
+            # deps). Range pins a compatible major (semver). The model package
+            # requires Python >=3.10, so it's marker-gated: on 3.9 the app still
+            # installs and runs (Guardian fail-open → regex rules only).
+            'securevector-guardian-model>=1.2,<2; python_version >= "3.10"',
         ],
         "dev": [
             "pytest>=6.0",
@@ -107,6 +115,7 @@ setup(
             "psutil>=5.8",
             "memory-profiler>=0.60",
             'eval_type_backport>=0.2.0; python_version<"3.10"',
+            'securevector-guardian-model>=1.2,<2; python_version >= "3.10"',  # Guardian ML model (Python >=3.10)
         ],
     },
     include_package_data=True,
@@ -134,6 +143,9 @@ setup(
             # Same dot-dir gotcha as above — list .codex-plugin/ explicitly
             # so plugin.json (the file Codex reads on plugin add) ships.
             "plugins/codex/.codex-plugin/*",
+            # Copilot CLI plugin — manifest is plugin.json at the tree root
+            # (no dot-dir), so the recursive glob covers everything.
+            "plugins/copilot-cli/**/*",
         ],
         "": ["NOTICE"],
     },

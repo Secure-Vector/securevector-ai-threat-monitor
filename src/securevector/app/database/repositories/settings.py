@@ -48,6 +48,8 @@ class AppSettings:
     block_threats: bool = False
     # Tool call permission scanning
     tool_permissions_enabled: bool = True
+    # SecureVector Guardian — local ML detection layer (runs in parallel with rules)
+    guardian_ml_enabled: bool = True
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -73,6 +75,7 @@ class AppSettings:
             ),
             "scan_llm_responses": self.scan_llm_responses,
             "block_threats": self.block_threats,
+            "guardian_ml_enabled": self.guardian_ml_enabled,
         }
 
 
@@ -152,6 +155,7 @@ class SettingsRepository:
             scan_llm_responses=bool(row_dict.get("scan_llm_responses", True)),
             block_threats=bool(row_dict.get("block_threats", False)),
             tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", True)),
+            guardian_ml_enabled=bool(row_dict.get("guardian_ml_enabled", True)),
         )
 
     async def update(self, **kwargs) -> AppSettings:
@@ -188,6 +192,7 @@ class SettingsRepository:
             "scan_llm_responses",
             "block_threats",
             "tool_permissions_enabled",
+            "guardian_ml_enabled",
         }
 
         updates = {}

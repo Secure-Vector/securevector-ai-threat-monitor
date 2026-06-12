@@ -40,6 +40,11 @@ const RedactionsPage = {
         // below ours.
         container.textContent = '';
 
+        // Deep-link from Agent Runs ("view details →"): scope to one secret on
+        // arrival; normal navigation clears any stale scope.
+        if (this.pendingRequestId) { this._activeRequestId = this.pendingRequestId; this.pendingRequestId = null; }
+        else { this._activeRequestId = null; }
+
         if (window.Header) {
             Header.setPageInfo(
                 'Secret Detections',
@@ -50,6 +55,18 @@ const RedactionsPage = {
         const page = document.createElement('div');
         page.className = 'page-wrapper';
         container.appendChild(page);
+
+        if (this._activeRequestId) {
+            const banner = document.createElement('div');
+            banner.className = 'deep-link-banner';
+            banner.innerHTML = `<span>Showing the secret detection from Agent Runs (<code>${String(this._activeRequestId).replace(/[<>&"]/g, '')}</code>).</span>`;
+            const clr = document.createElement('button');
+            clr.className = 'deep-link-clear';
+            clr.textContent = '✕ show all secrets';
+            clr.addEventListener('click', () => { this._activeRequestId = null; this.render(container); });
+            banner.appendChild(clr);
+            page.appendChild(banner);
+        }
 
         const header = document.createElement('div');
         header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;';
@@ -216,6 +233,11 @@ const RedactionsPage = {
         });
         this._state.summary = data.summary;
         this._state.events = data.events || [];
+        // Deep-link from an Agent Runs detection — scope the table to that one
+        // secret's request_id so the user lands on exactly what was detected.
+        if (this._activeRequestId) {
+            this._state.events = this._state.events.filter(e => e.request_id === this._activeRequestId);
+        }
 
         // Refresh the Harness filter options from the live by_runtime
         // breakdown — we only show runtimes that have at least one event.
@@ -315,7 +337,7 @@ const RedactionsPage = {
 
         const thead = document.createElement('thead');
         const trh = document.createElement('tr');
-        ['Time', 'Direction', 'Harness', 'Pattern', 'Secret type', 'Source tool', 'Request', 'Hash'].forEach((l) => {
+        ['Time', 'Direction', 'Harness', 'Pattern', 'Secret type', 'Detected by', 'Source tool', 'Request', 'Hash'].forEach((l) => {
             const th = document.createElement('th');
             th.textContent = l;
             th.style.cssText = 'text-align:left;padding:8px 10px;border-bottom:2px solid var(--border-default);font-weight:600;color:var(--text-primary);';
@@ -349,6 +371,11 @@ const RedactionsPage = {
             tr.appendChild(cell(this._runtimeLabel(ev.runtime_kind)));
             tr.appendChild(cell(ev.pattern_id || '—', { mono: true }));
             tr.appendChild(cell(ev.secret_type || '—'));
+            // Rule (regex secret) / Rule+ML (request also ML-flagged) — Option 2.
+            tr.appendChild(cell(
+                DetectionLabel.htmlFromFields(ev.detection_source, ev.ml_score, ev.detection_rules) || '—',
+                { html: true }
+            ));
             tr.appendChild(cell(ev.source_tool_id || ev.source_tool || '—', { mono: true }));
             tr.appendChild(cell(ev.request_id || '—', { mono: true }));
 

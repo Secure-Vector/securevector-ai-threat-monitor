@@ -7,6 +7,7 @@ const SettingsPage = {
     cloudSettings: null,
     llmSettings: null,
     llmProviders: null,
+    generalSettings: null,
 
     async render(container) {
         container.textContent = '';
@@ -20,25 +21,69 @@ const SettingsPage = {
         container.appendChild(loading);
 
         try {
-            const [cloudSettings, llmSettings, llmProviders] = await Promise.all([
+            const [cloudSettings, llmSettings, llmProviders, generalSettings] = await Promise.all([
                 API.getCloudSettings(),
                 API.getLLMSettings(),
                 API.getLLMProviders(),
+                API.getSettings(),
             ]);
             this.cloudSettings = cloudSettings;
             this.llmSettings = llmSettings;
             this.llmProviders = llmProviders.providers || [];
+            this.generalSettings = generalSettings;
             this.renderContent(container);
         } catch (error) {
             this.cloudSettings = { credentials_configured: false, cloud_mode_enabled: false };
             this.llmSettings = { enabled: false, provider: 'ollama', model: 'llama3' };
             this.llmProviders = [];
+            this.generalSettings = { guardian_ml_enabled: true };
             this.renderContent(container);
         }
     },
 
     renderContent(container) {
         container.textContent = '';
+
+        // Guardian ML Detection Section — first on the page: it's on by
+        // default, so the disable flag must be the easiest thing to find.
+        const guardianSection = this.createSection(
+            'Guardian ML Detection',
+            'On by default. A local ML model that runs alongside the regex rules and catches obfuscated, paraphrased, and encoded attacks they miss — fully offline, sub-millisecond, nothing leaves your machine.',
+            'New',
+        );
+        guardianSection.id = 'settings-guardian-section';
+        const guardianCard = Card.create({ gradient: true });
+        const guardianBody = guardianCard.querySelector('.card-body');
+        this.renderGuardianSettings(guardianBody);
+        guardianSection.appendChild(guardianCard);
+        container.appendChild(guardianSection);
+
+        // Arrived from the Configure → "Guardian ML" nav item: show a FOCUSED
+        // Guardian page (this section only), NOT the full Settings page — so the
+        // user isn't dropped into Cloud Connect / AI Analysis / Uninstall and
+        // left wondering what they clicked. A link opens full Settings; the
+        // separate "Settings" nav item still renders everything (below).
+        // One-shot flag so a normal Settings visit shows the whole page.
+        if (this.focusGuardian) {
+            this.focusGuardian = false;
+            const moreRow = document.createElement('div');
+            moreRow.style.cssText = 'margin-top: 18px;';
+            const moreLink = document.createElement('button');
+            moreLink.type = 'button';
+            moreLink.textContent = 'Open full Settings →';
+            moreLink.style.cssText = 'background: none; border: none; color: var(--accent-primary); font: inherit; font-size: 13px; cursor: pointer; padding: 6px 0;';
+            moreLink.addEventListener('click', () => {
+                if (typeof Sidebar !== 'undefined' && Sidebar.navigate) Sidebar.navigate('settings');
+                else if (typeof App !== 'undefined') App.loadPage('settings');
+            });
+            moreRow.appendChild(moreLink);
+            container.appendChild(moreRow);
+            requestAnimationFrame(() => {
+                guardianSection.classList.add('section-focus-pulse');
+                setTimeout(() => guardianSection.classList.remove('section-focus-pulse'), 2000);
+            });
+            return;   // focused Guardian view — skip the rest of Settings
+        }
 
         // Cloud Connect Section
         const cloudSection = this.createSection(
@@ -125,6 +170,158 @@ const SettingsPage = {
         this.renderUninstallSection(uninstallBody);
         uninstallSection.appendChild(uninstallCard);
         container.appendChild(uninstallSection);
+    },
+
+    renderGuardianSettings(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 16px;';
+
+        const info = document.createElement('div');
+
+        const labelRow = document.createElement('div');
+        labelRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.style.fontWeight = '600';
+        label.textContent = 'SecureVector Guardian';
+        labelRow.appendChild(label);
+
+        const statusBadge = document.createElement('span');
+        statusBadge.className = 'badge';
+        const setBadge = (on) => {
+            statusBadge.classList.toggle('badge-success', on);
+            statusBadge.textContent = on ? 'Active' : 'Off';
+        };
+        setBadge(this.generalSettings.guardian_ml_enabled !== false);
+        labelRow.appendChild(statusBadge);
+
+        // Model version — transparency. Shows which Guardian model is loaded
+        // (bundled today; the installed securevector-guardian-model package once
+        // the model ships separately, so pip -U + restart visibly bumps it).
+        const ver = this.generalSettings.guardian_model_version;
+        if (ver) {
+            const verChip = document.createElement('span');
+            verChip.className = 'guardian-model-ver';
+            verChip.textContent = 'Model v' + ver;
+            verChip.title = 'Loaded Guardian model version. Update with: pip install -U securevector-guardian-model, then restart.';
+            labelRow.appendChild(verChip);
+        }
+        info.appendChild(labelRow);
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        note.textContent = 'Adds a semantic vote to every analyze call: blocks on its own only at high confidence, corroborates a firing rule at a lower bar. Regex rules keep running either way.';
+        info.appendChild(note);
+
+        row.appendChild(info);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = this.generalSettings.guardian_ml_enabled !== false;
+        const commit = async (enabled) => {
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                this.generalSettings.guardian_ml_enabled = enabled;
+                setBadge(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (error) {
+                checkbox.checked = !enabled;
+                setBadge(!enabled);
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        };
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                // Enabling is an informed opt-in. Hold the switch off and let
+                // the confirmation modal be the commit point — any dismissal
+                // (Cancel / X / overlay / Esc) leaves Guardian off, so there's
+                // no revert bookkeeping to get wrong.
+                checkbox.checked = false;
+                this.showGuardianEnableConfirm(() => {
+                    checkbox.checked = true;
+                    commit(true);
+                });
+            } else {
+                commit(false);
+            }
+        });
+        toggle.appendChild(checkbox);
+
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(slider);
+
+        row.appendChild(toggle);
+        container.appendChild(row);
+
+        // Highlight the model's provenance — what it's trained on. Honest framing:
+        // original from-scratch training on SecureVector's own corpus + rule
+        // library, with coverage guided by PUBLIC attack taxonomies (OWASP /
+        // MITRE). No third-party datasets or pretrained weights — that's an
+        // originality / no-data-leakage selling point, not a limitation.
+        const provenance = document.createElement('div');
+        provenance.style.cssText = 'margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: rgba(94,173,184,0.08); border: 1px solid rgba(94,173,184,0.22);';
+        const provLabel = document.createElement('div');
+        provLabel.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 5px;';
+        provLabel.textContent = 'How Guardian is trained';
+        const provText = document.createElement('div');
+        provText.style.cssText = 'font-size: 12.5px; line-height: 1.55; color: var(--text-secondary);';
+        // Static copy, no user input.
+        provText.innerHTML = 'Trained <strong>from scratch</strong> on SecureVector\'s own labelled threat corpus and detection-rule library, with attack coverage aligned with <strong>public security taxonomies</strong> (OWASP LLM Top&nbsp;10, MITRE ATLAS).';
+        provenance.appendChild(provLabel);
+        provenance.appendChild(provText);
+        container.appendChild(provenance);
+    },
+
+    // Confirmation popup shown when Guardian ML is flipped on from Settings —
+    // explains what the model does so enabling is an informed opt-in. onConfirm
+    // commits + flips the switch; dismissing does nothing (the caller holds the
+    // switch off until confirmed). Mirrors the modal the sidebar used before
+    // Guardian moved into this Configure section.
+    showGuardianEnableConfirm(onConfirm) {
+        const content = document.createElement('div');
+
+        const lead = document.createElement('p');
+        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
+        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
+        content.appendChild(lead);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'Fully offline — nothing leaves your machine, no API key.',
+            'Fast — sub-millisecond on a typical prompt or tool call.',
+            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        content.appendChild(list);
+
+        const foot = document.createElement('p');
+        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
+        foot.textContent = 'You can turn it off anytime here. Regex rules keep running either way.';
+        content.appendChild(foot);
+
+        Modal.show({
+            title: 'Enable Guardian ML detection?',
+            content,
+            size: 'small',
+            actions: [
+                { label: 'Cancel', primary: false },
+                { label: 'Enable Guardian', primary: true, onClick: onConfirm },
+            ],
+        });
     },
 
     renderUninstallSection(container) {
@@ -1096,7 +1293,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         container.appendChild(row);
     },
 
-    createSection(title, description) {
+    createSection(title, description, badgeText) {
         const section = document.createElement('div');
         section.className = 'settings-section';
 
@@ -1106,6 +1303,16 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const titleEl = document.createElement('h2');
         titleEl.className = 'section-title';
         titleEl.textContent = title;
+        // Optional "New" pill beside the title — flags a freshly shipped
+        // section so it's discoverable on first open. Inline-flex keeps the
+        // pill baseline-aligned with the heading text.
+        if (badgeText) {
+            titleEl.style.cssText = 'display: inline-flex; align-items: center; gap: 10px;';
+            const newBadge = document.createElement('span');
+            newBadge.className = 'section-new-badge';
+            newBadge.textContent = badgeText;
+            titleEl.appendChild(newBadge);
+        }
         header.appendChild(titleEl);
 
         if (description) {

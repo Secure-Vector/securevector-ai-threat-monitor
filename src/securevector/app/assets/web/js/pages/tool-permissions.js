@@ -5,6 +5,10 @@
 
 const ToolPermissionsPage = {
     activeTab: 'permissions',
+    // When set (array of tab ids), the tab bar renders only that subset —
+    // lets the nav expose Activity + Inventory as one merged destination
+    // without surfacing the Permissions tab twice.
+    visibleTabs: null,
     tools: [],
     customTools: [],
     settings: null,
@@ -333,7 +337,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['openclaw', 'OpenClaw only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['openclaw', 'OpenClaw only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -483,7 +487,7 @@ const ToolPermissionsPage = {
             { id: 'permissions', label: 'Tool Permissions' },
             { id: 'activity',    label: 'Tool Call History' },
             { id: 'bill',        label: 'Tool Inventory' },
-        ];
+        ].filter(d => !this.visibleTabs || this.visibleTabs.includes(d.id));
 
         defs.forEach(({ id, label }) => {
             const btn = document.createElement('button');
@@ -1674,6 +1678,7 @@ const ToolPermissionsPage = {
             openclaw: 'OpenClaw',
             claude_code: 'Claude Code',
             codex: 'Codex',
+            copilot_cli: 'GitHub Copilot CLI',
             communication: 'Communication',
             project_management: 'Project Management',
             code_devops: 'Code & DevOps',
@@ -1691,6 +1696,7 @@ const ToolPermissionsPage = {
             openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
             claude_code: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
             codex: { color: '#C0655E', bg: 'rgba(192,101,94,0.12)' },
+            copilot_cli: { color: '#8957e5', bg: 'rgba(137,87,229,0.12)' },
             communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -1707,6 +1713,7 @@ const ToolPermissionsPage = {
             'openclaw',
             'claude_code',    // Claude Code built-in tools (Bash / Edit / Read / etc.)
             'codex',          // Codex built-in tools — same names as CC, distinct UI grouping
+            'copilot_cli',    // GitHub Copilot CLI built-in tools (bash / view / edit / …)
             'browser_automation',
             'communication',
             'project_management',

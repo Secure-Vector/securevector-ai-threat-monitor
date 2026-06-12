@@ -3,6 +3,14 @@
  * Note: All content is static/hardcoded, no user input is rendered
  */
 
+// Load-scoped guard so the Guardian ML "sentinel" robot plays its 30s scan
+// orbit exactly ONCE per page load (on launch / hard reload), not again on
+// every in-app navigation. render() builds the nav once per load and a hard
+// reload re-runs this whole script, resetting the flag — which is precisely
+// the "every launch / hard reload" cadence we want.
+let _gmRoboPlayed = false;
+let _gmRoboTimer = null;
+
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -19,8 +27,10 @@ const Sidebar = {
             // item highlighted while the user switches to the Runs/Timeline tab
             // (those are separate page ids).
             { id: 'agent-map',      label: 'Agent Runs', aliases: ['agent-runs', 'agent-timeline'] },
-            { id: 'tool-activity',  label: 'Tool Activity' },
-            { id: 'bill-of-tools',  label: 'Tool Inventory' },
+            // Activity log + inventory (SBOM) are two lenses on the same
+            // tool_call_audit data — one destination, two tabs on the page.
+            // 'bill-of-tools' stays as an alias so deep links keep this row lit.
+            { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
             { id: 'redactions',     label: 'Secret Detections' },
             { id: 'costs',          label: 'Cost Tracking' },
         ]},
@@ -29,6 +39,11 @@ const Sidebar = {
         // surfaced under Agent Replay above.
         { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
+        // Guardian ML — local ML threat detection. A configure-time choice
+        // (on/off + what it does), so it sits in Configure and deep-links to
+        // the Guardian section on the Settings page. Lives here rather than as
+        // a sidebar pill so the bottom status zone stays single-purpose.
+        { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
         // MCP Policies — read-only viewer of cloud-synced policy bundles.
         // Lives next to Tool Permissions because the rules layered there
         // come from here. Separate sidebar entry keeps the trust artifact
@@ -56,6 +71,7 @@ const Sidebar = {
             { header: 'Plugins' },
             { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-codex', label: 'Codex' },
+            { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
             { header: 'Proxy' },
             { id: 'proxy-langchain', label: 'LangChain' },
@@ -66,10 +82,12 @@ const Sidebar = {
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             // Harness plugin guides grouped under one header — one section per
-            // harness that ships a native plugin (Claude Code, Codex, OpenClaw).
+            // harness that ships a native plugin (Claude Code, Codex, GitHub
+            // Copilot CLI, OpenClaw).
             { header: 'Plugin setup' },
             { id: 'guide-claude-code', label: 'Claude Code' },
             { id: 'guide-codex', label: 'Codex' },
+            { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
@@ -164,7 +182,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.5.0';
+        version.textContent = 'v4.6.0';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -229,8 +247,54 @@ const Sidebar = {
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             if (item.tooltip) navItem.title = item.tooltip;
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid on the icon
-            const iconSvg = this.createIcon(item.icon);
+            // Add icon (SVG) — core features get an orange badge dot overlaid on
+            // the icon. Guardian ML uses its animated "sentinel" robot AS the
+            // nav icon (in place of the generic chip) — the symbol that stands
+            // for the local ML model is the bot itself. It runs a 30s scan on
+            // each launch / hard reload (once per page load), then settles.
+            let iconSvg;
+            if (item.id === 'guardian-ml') {
+                iconSvg = document.createElement('span');
+                iconSvg.className = 'gm-robo';
+                // Title gives sighted users a hover hint; the SVG is aria-hidden
+                // and the nav row already owns the accessible name, so the bot is
+                // purely decorative (no aria-label → no double-announce).
+                iconSvg.title = 'Guardian ML — local AI threat detection, watching every call';
+                iconSvg.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
+                    <g class="gm-bot">
+                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
+                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
+                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="4.6"/>
+                        <circle class="gm-eye l" cx="17.2" cy="18.6" r="1.6"/>
+                        <circle class="gm-eye r" cx="22.8" cy="18.6" r="1.6"/>
+                        <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
+                    </g>
+                    <g class="gm-orbit">
+                        <!-- SMIL rotation (not CSS): rotates in SVG user units
+                             around the ring's exact center (20,18), identical
+                             in Blink and WebKit. CSS transform-box/view-box
+                             origin handling on SVG children is inconsistent in
+                             WebKit (pywebview), which made the dot orbit off
+                             the ring there. -->
+                        <animateTransform attributeName="transform" type="rotate"
+                            from="0 20 18" to="360 20 18" dur="2.4s" repeatCount="indefinite"/>
+                        <path class="gm-trail" d="M10.8 4.9 A 16 16 0 0 1 20 2" stroke-linecap="round"/>
+                        <circle class="gm-sat" cx="20" cy="2" r="2.3"/>
+                    </g>
+                </svg>`;
+                if (_gmRoboPlayed) {
+                    iconSvg.classList.add('gm-static');
+                } else {
+                    _gmRoboPlayed = true;
+                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
+                    _gmRoboTimer = setTimeout(() => iconSvg.classList.add('gm-static'), 30000);
+                }
+            } else {
+                iconSvg = this.createIcon(item.icon);
+            }
             if (CORE_BADGE.has(item.id)) {
                 const iconWrap = document.createElement('div');
                 iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
@@ -271,7 +335,9 @@ const Sidebar = {
                 navItem.appendChild(tier);
             }
 
-            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
+            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
+            // Guardian ML deliberately omitted: it gets the animated "sentinel"
+            // robot below instead of a NEW badge.
             const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
@@ -302,6 +368,7 @@ const Sidebar = {
                 navItem.appendChild(newBadge);
                 setTimeout(dismissBadge, 30000);
             }
+
 
 
             // Chevron for collapsible items
@@ -492,6 +559,64 @@ const Sidebar = {
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
 
+        // Collapsible status stack — the proxy / plugin / SIEM banners live
+        // in one foldable group (the user asked to be able to put them away).
+        // The header row renders only when at least one banner is visible,
+        // shows a live count, and the collapsed state persists across loads.
+        const statusToggle = document.createElement('button');
+        statusToggle.type = 'button';
+        statusToggle.id = 'sidebar-status-toggle';
+        statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 10px 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
+        const statusChevron = document.createElement('span');
+        statusChevron.setAttribute('aria-hidden', 'true');
+        statusChevron.style.cssText = 'font-size: 11px; flex-shrink: 0; line-height: 1;';
+        statusToggle.appendChild(statusChevron);
+        const statusLabel = document.createElement('span');
+        statusLabel.textContent = 'Active plugins';
+        statusToggle.appendChild(statusLabel);
+        const statusCount = document.createElement('span');
+        statusCount.style.cssText = 'margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 9px; line-height: 16px;';
+        statusToggle.appendChild(statusCount);
+        statusToggle.addEventListener('mouseenter', () => { statusToggle.style.color = 'var(--text-secondary)'; });
+        statusToggle.addEventListener('mouseleave', () => { statusToggle.style.color = 'var(--text-muted)'; });
+        bottomSection.appendChild(statusToggle);
+
+        const statusStack = document.createElement('div');
+        statusStack.id = 'sidebar-status-stack';
+        // Bottom inset so the last banner doesn't sit flush on the rail edge.
+        statusStack.style.cssText = 'padding-bottom: 10px;';
+        bottomSection.appendChild(statusStack);
+
+        const STATUS_COLLAPSE_KEY = 'sv-status-stack-collapsed';
+        const applyStatusCollapsed = (collapsed) => {
+            statusStack.style.display = collapsed ? 'none' : 'block';
+            statusChevron.textContent = collapsed ? '\u25b8' : '\u25be';
+            statusToggle.setAttribute('aria-expanded', String(!collapsed));
+            statusToggle.title = collapsed ? 'Show plugin status' : 'Hide plugin status';
+        };
+        statusToggle.addEventListener('click', () => {
+            const nowCollapsed = statusStack.style.display !== 'none';
+            try { localStorage.setItem(STATUS_COLLAPSE_KEY, nowCollapsed ? '1' : '0'); } catch (_) { /* private mode */ }
+            applyStatusCollapsed(nowCollapsed);
+        });
+        applyStatusCollapsed(localStorage.getItem(STATUS_COLLAPSE_KEY) === '1');
+        // Header visibility + count track the banners' own show/hide (each
+        // poller flips its banner's inline display) — observe instead of
+        // threading a callback through all five pollers.
+        const updateStatusToggle = () => {
+            const visible = Array.from(statusStack.children).filter(el => el.style.display !== 'none').length;
+            statusToggle.style.display = visible ? 'flex' : 'none';
+            statusCount.textContent = String(visible);
+        };
+        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true });
+        updateStatusToggle();
+
+        // Guardian ML lives in Settings (Configure section) — it's a
+        // configuration choice, not a sidebar control. Keeping it out of the
+        // bottom zone lets the proxy/plugin/SIEM status banners (which hide
+        // when inactive) read as a clean, single-purpose status stack.
+
         // Integration proxy status indicator — compact single line, anchored in bottom section
         const proxyBanner = document.createElement('div');
         proxyBanner.id = 'integration-proxy-banner';
@@ -508,7 +633,7 @@ const Sidebar = {
         bannerText.id = 'integration-banner-text';
         bannerText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         proxyBanner.appendChild(bannerText);
-        bottomSection.appendChild(proxyBanner);
+        statusStack.appendChild(proxyBanner);
 
         // Claude Code plugin indicator — same compact pattern as the
         // proxy/SIEM banners. Visible only when the plugin is staged
@@ -556,7 +681,7 @@ const Sidebar = {
         ccText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         ccPluginBanner.appendChild(ccText);
         ccPluginBanner.addEventListener('click', () => this.navigate('proxy-claude-code'));
-        bottomSection.appendChild(ccPluginBanner);
+        statusStack.appendChild(ccPluginBanner);
 
         // Codex plugin indicator — same compact pattern as the CC banner.
         // Visible only when the plugin is staged (or auto-installed in
@@ -591,7 +716,36 @@ const Sidebar = {
         codexText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         codexPluginBanner.appendChild(codexText);
         codexPluginBanner.addEventListener('click', () => this.navigate('proxy-codex'));
-        bottomSection.appendChild(codexPluginBanner);
+        statusStack.appendChild(codexPluginBanner);
+
+        // Copilot CLI plugin indicator — same compact pattern as the CC and
+        // Codex banners; polls /api/hooks/copilot-cli/status.
+        //
+        // Blue accent (#4a8fe7) — the bottom-section hue set is now:
+        // CC purple · Codex coral · Copilot blue · proxy cyan · SIEM green.
+        // GitHub's Copilot brand purple would collide with the CC banner,
+        // so blue (GitHub's own link/accent family) keeps the row
+        // distinguishable at a glance when several stack together.
+        const copilotPluginBanner = document.createElement('button');
+        copilotPluginBanner.type = 'button';
+        copilotPluginBanner.id = 'copilot-plugin-active-banner';
+        copilotPluginBanner.className = 'proxy-banner-pulse';
+        copilotPluginBanner.setAttribute('aria-label', 'Open Copilot CLI plugin settings');
+        copilotPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(74,143,231,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'rgba(74,143,231,0.06)'; });
+        copilotPluginBanner.addEventListener('mouseleave', () => { copilotPluginBanner.style.background = 'transparent'; });
+        const copilotDot = document.createElement('span');
+        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #4a8fe7; flex-shrink: 0;';
+        copilotDot.setAttribute('aria-hidden', 'true');
+        copilotPluginBanner.appendChild(copilotDot);
+        const copilotText = document.createElement('span');
+        copilotText.id = 'copilot-plugin-banner-text';
+        copilotText.setAttribute('aria-live', 'polite');
+        copilotText.setAttribute('aria-atomic', 'true');
+        copilotText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        copilotPluginBanner.appendChild(copilotText);
+        copilotPluginBanner.addEventListener('click', () => this.navigate('proxy-copilot-cli'));
+        statusStack.appendChild(copilotPluginBanner);
 
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
@@ -613,13 +767,7 @@ const Sidebar = {
         siemText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         siemBanner.appendChild(siemText);
         siemBanner.addEventListener('click', () => this.navigate('siem-export'));
-        bottomSection.appendChild(siemBanner);
-
-        // Check all four indicators on init; each polls its own interval.
-        this.checkProxyStatus();
-        this.checkSiemStatus();
-        this.checkClaudeCodePluginStatus();
-        this.checkCodexPluginStatus();
+        statusStack.appendChild(siemBanner);
 
         // Resume polling when the document becomes visible again. The
         // poll loops self-terminate when visibilityState !== 'visible'
@@ -637,28 +785,169 @@ const Sidebar = {
                     this.checkSiemStatus();
                     this.checkClaudeCodePluginStatus();
                     this.checkCodexPluginStatus();
+                    this.checkCopilotPluginStatus();
                 }
             });
         }
 
-        // Try SecureVector button — opens floating chat
-        const tryBtn = document.createElement('button');
-        tryBtn.className = 'try-it-trigger-btn';
-        const tryIcon = document.createElement('img');
-        tryIcon.src = '/images/favicon.png';
-        tryIcon.style.cssText = 'width:14px; height:14px; object-fit:contain; flex-shrink:0;';
-        const tryLabel = document.createElement('span');
-        tryLabel.textContent = 'Try SecureVector';
-        const tryArrow = document.createElement('span');
-        tryArrow.textContent = '↗';
-        tryArrow.style.cssText = 'font-size:10px; opacity:0.7;';
-        tryBtn.appendChild(tryIcon);
-        tryBtn.appendChild(tryLabel);
-        tryBtn.appendChild(tryArrow);
-        tryBtn.addEventListener('click', () => TryItChat.open());
-        bottomSection.appendChild(tryBtn);
-
         container.appendChild(bottomSection);
+
+        // Check all five indicators — AFTER the bottom section is attached.
+        // The pollers look themselves up via document.getElementById and exit
+        // (without rescheduling) when the node isn't in the document yet;
+        // kicking them off before appendChild meant every banner stayed
+        // hidden until a visibilitychange happened to restart them.
+        this.checkProxyStatus();
+        this.checkSiemStatus();
+        this.checkClaudeCodePluginStatus();
+        this.checkCodexPluginStatus();
+        this.checkCopilotPluginStatus();
+    },
+
+    // Guardian ML control — an accent-bordered pill in the sidebar bottom
+    // section (above "Try SecureVector"). It's the flagship local-detection
+    // toggle, so it gets a more substantial treatment than the slim status
+    // banners: a highlighted border + soft shadow that brighten when active,
+    // plus a status dot. Mirrors the page-level toggle (PUT /api/settings
+    // {guardian_ml_enabled}); enabling it pops a confirmation explaining what
+    // the model does before committing; disabling commits immediately. The
+    // label opens the full Guardian section on the Settings page.
+    renderGuardianToggle(parent) {
+        const pill = document.createElement('div');
+        pill.className = 'guardian-pill';
+        pill.dataset.guardianToggle = 'true';
+
+        // Status dot — muted when off, accent + halo when active (CSS-driven
+        // off the pill's data-active attribute).
+        const dot = document.createElement('span');
+        dot.className = 'gp-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        pill.appendChild(dot);
+
+        // Title + status sub-label, stacked. Clicking opens the full Guardian
+        // section in Settings (the one affordance that survives collapsed mode).
+        const textCol = document.createElement('div');
+        textCol.className = 'gp-text';
+        textCol.title = 'SecureVector Guardian — local ML threat detection. Click to open settings.';
+        const title = document.createElement('span');
+        title.className = 'gp-title';
+        title.textContent = 'Guardian ML';
+        // One-line description of what it is — the on/off state is carried by
+        // the toggle, the status dot, and the border glow, so this stays a
+        // fixed explainer rather than an "Active/Off" label.
+        const sub = document.createElement('span');
+        sub.className = 'gp-sub';
+        sub.textContent = 'Local ML threat detection';
+        textCol.appendChild(title);
+        textCol.appendChild(sub);
+        textCol.addEventListener('click', () => this.navigate('settings'));
+        pill.appendChild(textCol);
+
+        // Toggle switch — reuses the global .toggle / .toggle-slider markup so
+        // it matches the Settings page exactly, scaled down for the rail.
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle guardian-nav-toggle';
+        toggle.style.cssText = 'flex-shrink: 0; transform: scale(0.8); transform-origin: right center;';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-label', 'Toggle Guardian ML detection');
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(checkbox);
+        toggle.appendChild(slider);
+        pill.appendChild(toggle);
+
+        // Single place that keeps the visual state (active glow via the
+        // data-active attribute → dot + border) in sync with the checkbox.
+        const reflect = (on) => {
+            pill.dataset.active = on ? 'true' : 'false';
+        };
+
+        // Optimistic default ON (matches server default) so the pill doesn't
+        // flash "Off" before the settings fetch resolves.
+        checkbox.checked = true;
+        reflect(true);
+        API.getSettings().then(s => {
+            const on = (s && s.guardian_ml_enabled) !== false;
+            checkbox.checked = on;
+            reflect(on);
+        }).catch(() => { /* keep optimistic default */ });
+
+        // Guard against the change handler firing while we set state ourselves.
+        let suppress = false;
+        const setChecked = (val) => { suppress = true; checkbox.checked = val; reflect(val); suppress = false; };
+
+        const commit = async (enabled) => {
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                reflect(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (e) {
+                setChecked(!enabled);
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        };
+
+        checkbox.addEventListener('change', (e) => {
+            if (suppress) return;
+            const enabled = e.target.checked;
+            if (enabled) {
+                // Opt-in: hold the switch OFF until the user confirms, so
+                // dismissing the modal (Cancel / X / overlay) leaves it off
+                // with no extra wiring. Only an explicit confirm turns it on.
+                setChecked(false);
+                this.showGuardianEnableConfirm(() => { setChecked(true); commit(true); });
+            } else {
+                commit(false);
+            }
+        });
+
+        parent.appendChild(pill);
+    },
+
+    // Confirmation popup shown when the user flips Guardian ML on — explains
+    // what the model does so enabling is an informed opt-in. onConfirm commits
+    // the change. Dismissing the modal (Cancel / X / overlay) does nothing:
+    // the caller holds the switch off until confirmed, so no revert is needed.
+    showGuardianEnableConfirm(onConfirm) {
+        const content = document.createElement('div');
+
+        const lead = document.createElement('p');
+        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
+        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
+        content.appendChild(lead);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'Fully offline — nothing leaves your machine, no API key.',
+            'Fast — sub-millisecond on a typical prompt or tool call.',
+            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        content.appendChild(list);
+
+        const foot = document.createElement('p');
+        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
+        foot.textContent = 'You can turn it off anytime here or on the Settings page. Regex rules keep running either way.';
+        content.appendChild(foot);
+
+        Modal.show({
+            title: 'Enable Guardian ML detection?',
+            content,
+            size: 'small',
+            actions: [
+                { label: 'Cancel', primary: false },
+                { label: 'Enable Guardian', primary: true, onClick: onConfirm },
+            ],
+        });
     },
 
     toggleCollapse() {
@@ -1001,6 +1290,39 @@ const Sidebar = {
         }
     },
 
+    async checkCopilotPluginStatus() {
+        // Sidebar "Copilot CLI plugin" indicator. Mirrors the CC/Codex
+        // pollers — same three states (Active / Installed, not enabled /
+        // Staged), same cadence (2s while hidden, 10s once visible). The
+        // Copilot /status route reports installed/enabled from
+        // ~/.copilot/config.json's installedPlugins registration.
+        const banner = document.getElementById('copilot-plugin-active-banner');
+        const textEl = document.getElementById('copilot-plugin-banner-text');
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/copilot-cli/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Staged';
+            }
+        } catch (_) { /* ignore */ }
+        if (document.visibilityState === 'visible'
+            && document.getElementById('copilot-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            setTimeout(() => this.checkCopilotPluginStatus(), delay);
+        }
+    },
+
     async checkCodexPluginStatus() {
         // Sidebar "Codex plugin" indicator. Mirrors the CC poller — same
         // three states (Active / Installed, not enabled / Staged), same
@@ -1051,6 +1373,21 @@ const Sidebar = {
             ],
             shield: [
                 { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
+            ],
+            // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
+            // it visually distinct from the two shields (Threats / MCP Policies)
+            // so the nav doesn't read as a triplicated shield.
+            guardian: [
+                { tag: 'rect', attrs: { x: '4', y: '4', width: '16', height: '16', rx: '2' } },
+                { tag: 'rect', attrs: { x: '9', y: '9', width: '6', height: '6' } },
+                { tag: 'line', attrs: { x1: '9', y1: '1', x2: '9', y2: '4' } },
+                { tag: 'line', attrs: { x1: '15', y1: '1', x2: '15', y2: '4' } },
+                { tag: 'line', attrs: { x1: '9', y1: '20', x2: '9', y2: '23' } },
+                { tag: 'line', attrs: { x1: '15', y1: '20', x2: '15', y2: '23' } },
+                { tag: 'line', attrs: { x1: '20', y1: '9', x2: '23', y2: '9' } },
+                { tag: 'line', attrs: { x1: '20', y1: '14', x2: '23', y2: '14' } },
+                { tag: 'line', attrs: { x1: '1', y1: '9', x2: '4', y2: '9' } },
+                { tag: 'line', attrs: { x1: '1', y1: '14', x2: '4', y2: '14' } },
             ],
             rules: [
                 { tag: 'path', attrs: { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' } },

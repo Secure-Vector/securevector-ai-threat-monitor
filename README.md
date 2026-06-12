@@ -6,6 +6,7 @@
 
 </div>
 
+- **Guardian ML threat detection** *(new in v4.6.0)* — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
 - **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
@@ -14,12 +15,13 @@
 - **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
 - **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
 
-**Three native agent plugins — zero proxy, allow / deny / ask enforced inline:**
+**Four native agent plugins — zero proxy, allow / deny / ask enforced inline:**
 
 | Plugin | Runtime | Hooks | Audit `runtime_kind` |
 |---|---|---|---|
-| **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `claude-code` |
-| **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` | `codex` |
+| **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `claude-code` |
+| **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `codex` |
+| **SecureVector Guard for GitHub Copilot CLI** *(new in v4.6.0)* | GitHub Copilot CLI | `preToolUse` · `postToolUse` · `userPromptSubmitted` · `sessionStart` | `copilot-cli` |
 | **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
 
 All three plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
@@ -31,7 +33,8 @@ All three plugins share the same enforcement core: one rule on `tool_id="Bash"` 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
 [![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![Downloads](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads&color=orange)](https://pepy.tech/projects/securevector-ai-monitor)
+[![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
+[![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
 [Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
@@ -42,19 +45,19 @@ All three plugins share the same enforcement core: one rule on `tool_id="Bash"` 
 
 <div align="center">
   <h3>▶ Watch the Demo</h3>
-  <a href="https://www.youtube.com/watch?v=tLVDvHIm-0c">
-    <img src="https://img.youtube.com/vi/tLVDvHIm-0c/maxresdefault.jpg" alt="SecureVector Demo — AI firewall in action" width="480">
+  <a href="https://youtu.be/9RByIHSV95s">
+    <img src="https://img.youtube.com/vi/9RByIHSV95s/maxresdefault.jpg" alt="SecureVector Demo — AI firewall in action" width="480">
   </a>
   <p><em>Threat detection, tool permissions, and cost tracking — running locally in real time.</em></p>
 </div>
 
 <br>
 
-> **What's new in v4.5.0**
-> - **Agent Map & Runs — see every agent run at a glance** 🗺️ — a live, interactive map of your whole fleet: **device → harness → agent → tool**, rendered as tree, radial, shared-tool mesh, or Sankey. Blocked calls pop red, secret-touching agents wear a lock, active runs animate. Click any node to drill into **Agent Runs** — a turn-by-turn trace of every tool call with its allow / block / log-only verdict, risk, and reason. Rename agents inline, filter by harness, and the map auto-fits your screen (drag to resize). The fastest way to answer "what did my agents actually *do*?"
-> - **Case-insensitive policy matching** — a deny rule authored as `read` now correctly enforces against the canonical built-in `Read` across every runtime (Claude Code, Codex, OpenClaw) and in the dashboard's effective-permission view. A casing mismatch could previously let an intended deny silently fail open. Issue #138.
-> - **Clearer status-line setup** — the Integrations page and the `securevector-app --install-plugin claude-code` CLI now surface a clean, copy-paste `statusLine` block pinned to a version-stable path, so turning on the live threat / tool-call status bar is a single paste. Opt-in only — your existing `statusLine` is never overwritten.
+> **What's new in v4.6.0**
+> - **GitHub Copilot CLI — now guarded** — the SecureVector Guard plugin now covers **GitHub Copilot CLI** alongside Claude Code, OpenAI Codex, and OpenClaw: the same real-time tool-call enforcement, tamper-evident audit, and prompt-injection scanning, all on one Agent Map.
+> - **Guardian ML — local AI threat detection** — an optional, fully-offline ML model that runs alongside the regex rules and catches the obfuscated, paraphrased, and encoded attacks they miss — sub-millisecond, nothing leaves your machine. Every detection is tagged **Rule**, **ML**, or **Rule + ML**. Installed automatically with the app — `pip install securevector-ai-monitor[app]` pulls in the `securevector-guardian-model` package (pure-Python, zero ML deps), and `pip install -U` updates the model like any dependency.
 >
+> Already in v4.5.0: **Agent Map & Runs** — a live map of your fleet (device → harness → agent → tool; tree / radial / mesh / Sankey) with turn-by-turn run traces · case-insensitive policy matching (#138) · clearer status-line setup.
 > Already in v4.0.0–4.4.\*: Claude Code · OpenAI Codex · OpenClaw active-guard plugins (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · Bash/PowerShell tool-response scanning + expanded credential redaction (#131) · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · MCP Tool Inventory · Secret Detections audit log · bidirectional tool-response scanning · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
 
 ## How It Works
@@ -101,7 +104,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-v4.5.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-4.5.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/securevector_4.5.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/securevector-4.5.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-4.5.0-macOS.dmg) (signed binary coming soon)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-v4.6.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-4.6.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/securevector_4.6.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/securevector-4.6.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-4.6.0-macOS.dmg) (signed binary coming soon)
 
 **Step 2 — Open the app**
 
@@ -358,6 +361,16 @@ Built from real attack chains observed against production agent frameworks:
 - **MCP Tool Call Injection** — malicious payloads delivered through MCP tool calls
 - **Evasion techniques** (22 rules) — zero-width characters, encoding tricks, roleplay framing, leetspeak, semantic inversion, emotional manipulation, and more
 
+### Optional ML Detection Layer — SecureVector Guardian
+
+Alongside the 72 regex rules, the app ships an **optional ML detection layer** — [**SecureVector Guardian**](https://github.com/Secure-Vector/securevector-guardian-model), a stdlib-only semantic threat classifier. It runs in parallel with the rule engine and catches obfuscated, paraphrased, buried, or encoded attacks that literal patterns miss, folding its verdict into the same allow / alert / block decision. The model is fully local and runs offline — no cloud round-trip, no prompt text leaves your machine.
+
+**Install — comes with the app.** Guardian is the [`securevector-guardian-model`](https://github.com/Secure-Vector/securevector-guardian-model) package, installed automatically as a dependency: `pip install securevector-ai-monitor[app]` pulls it in (pure Python, zero ML dependencies). `pip install -U securevector-guardian-model` + restart updates the model independently of app releases, and the loaded version is shown in **Settings → Guardian ML Detection**. The model runtime (~1.8 MB) is fetched once on first use and cached locally for offline use thereafter; for air-gapped installs, pre-place it and point `SV_GUARDIAN_RUNTIME` at the file.
+
+**On by default.** Toggle it from **Settings → Guardian ML Detection** (default ON), or force it off globally with the `SECUREVECTOR_ML_ENABLED=false` environment flag. With Guardian disabled the regex rules keep running unchanged, and the layer is fail-open — any model error silently falls back to rules-only so it never breaks the analyze path.
+
+**What to expect when it's on.** The model is pure Python (zero dependencies, no GPU, no network), so it runs on any machine. It analyzes **in parallel** with the regex rules, adding roughly **~0.15 ms per typical analysis** (a prompt, tool call, or response — sub-millisecond), a few ms for ~1 KB of text, and up to ~100 ms only for very large documents (bounded, never unbounded). One-time startup is ~200 ms + ~34 MB RAM. Older/slower CPUs scale proportionally, but everyday inputs stay sub-millisecond. Full benchmark: [model performance](https://github.com/Secure-Vector/securevector-guardian-model#performance--what-to-expect).
+
 <br>
 
 ## Device Identity
@@ -516,17 +529,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.5.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-v4.5.0-Windows-Setup.exe) |
-| macOS | [SecureVector-4.5.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-4.5.0-macOS.dmg) (signed binary coming soon) |
-| Linux (AppImage) | [SecureVector-4.5.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SecureVector-4.5.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.5.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/securevector_4.5.0_amd64.deb) |
-| Linux (RPM) | [securevector-4.5.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/securevector-4.5.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.6.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-v4.6.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.6.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-4.6.0-macOS.dmg) (signed binary coming soon) |
+| Linux (AppImage) | [SecureVector-4.6.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SecureVector-4.6.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.6.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/securevector_4.6.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.6.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/securevector-4.6.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.5.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
+> **macOS binary note:** If you downloaded a previous `.dmg` release and macOS blocks it, we recommend installing via pip instead: `pip install securevector-ai-monitor[app]`. A signed macOS binary is coming soon. If you must use the `.dmg`, **only download from this official GitHub repository**, verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.6.0/SHA256SUMS.txt), then run `xattr -cr /Applications/SecureVector.app` in Terminal.
 
 ### Other install options
 

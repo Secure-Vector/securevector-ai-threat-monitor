@@ -69,6 +69,28 @@ async def list_redactions(
             runtime_kind=runtime_kind,
             limit=limit,
         )
+
+        # Detection-source label (Option 2). A secret match is intrinsically a
+        # Rule (regex) — Guardian ML doesn't detect credentials. But when the
+        # SAME request was independently flagged by the model (e.g. an exfil
+        # attempt that carried the secret), the event is Rule+ML, which is a
+        # stronger signal worth surfacing. ML-only never applies here. We reuse
+        # the request_id ↔ threat correlation built for Agent Runs/Map.
+        from securevector.app.database.repositories.custom_tools import (
+            CustomToolsRepository,
+        )
+
+        det = await CustomToolsRepository(db).get_detection_sources(
+            [e.get("request_id") for e in events]
+        )
+        for ev in events:
+            d = det.get(ev.get("request_id"))
+            has_ml = bool(d and d.get("source") in ("ml", "rule_ml"))
+            ev["detection_source"] = "rule_ml" if has_ml else "rule"
+            ev["ml_score"] = d.get("ml_score") if has_ml else None
+            # The secret type is the "rule" name for the "Detected by …" tooltip.
+            ev["detection_rules"] = [ev["secret_type"]] if ev.get("secret_type") else None
+
         return {"summary": summary, "events": events}
     except Exception as e:
         logger.error(f"Failed to list redactions: {e}")

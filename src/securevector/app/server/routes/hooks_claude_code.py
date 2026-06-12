@@ -54,11 +54,13 @@ PLUGIN_FILES = [
     # in user chat ("ignore previous instructions and …") never reaches
     # the rule engine.
     "hooks/user-prompt-submit.js",
-    # Temporary v4.2.x diagnostic probe: captures Stop-event payloads
-    # to ~/.securevector/cost-probes/ so we can determine empirically
-    # whether Claude Code exposes token usage to plugins. Removed once
-    # the cost-tracking gap is resolved (or confirmed unresolvable).
-    "hooks/stop-hook-probe.js",
+    # SessionStart hook — reachability/activation notice for cold installs
+    # (the local app may not be running, or — via a public marketplace —
+    # not installed at all). Writes a one-line "Guard inactive; install/
+    # start the app" note to stderr when the app is unreachable, and a
+    # session-open audit row. Replaced the temporary Stop diagnostic probe
+    # (removed in v4.6.0 for marketplace readiness, #147).
+    "hooks/session-start.js",
     # Optional statusline emitter — users wire this into their Claude
     # Code `statusLine` (or shell out from an existing statusline
     # script) to surface live SecureVector findings next to model /
@@ -71,6 +73,13 @@ PLUGIN_FILES = [
     # and user-prompt-submit.js so both hooks mask the same surfaces.
     "lib/redact.js",
     "README.md",
+    # Apache-2.0 LICENSE (canonical, byte-identical to repo root + sibling
+    # plugins) and the Claude-Code-tailored PRIVACY.md. Both ship in the
+    # installed tree so the plugin is legally self-contained + marketplace-ready,
+    # matching codex/copilot-cli. (LICENSE byte-equality is enforced by
+    # tests/unit/app/test_plugin_license_consistency.py.)
+    "LICENSE",
+    "PRIVACY.md",
 ]
 
 # Bundled plugin source directory (shipped with the package).

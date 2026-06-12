@@ -21,6 +21,8 @@ PLUGIN_FILES = [
     "lib/normalize.js",
     "lib/client.js",
     "README.md",
+    "LICENSE",
+    "PRIVACY.md",
 ]
 
 
