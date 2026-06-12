@@ -459,28 +459,6 @@ const DashboardPage = {
                     : Math.round(avgLatencyMs) + 'ms';
             }
 
-            // Compact status bar \u2014 just the live-state indicator. The counts
-            // it used to repeat (requests scanned / blocked / skills) live in
-            // the metric tiles directly below, so we don't double-print them.
-            const statusBar = document.createElement('div');
-            statusBar.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 14px; font-size: 12px;';
-            const statusDot = document.createElement('span');
-            statusDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
-            statusBar.appendChild(statusDot);
-            const statusLabel = document.createElement('span');
-            statusLabel.style.cssText = 'font-weight: 600; color: var(--text-primary);';
-            statusLabel.textContent = 'Monitoring active';
-            statusBar.appendChild(statusLabel);
-            const statusSep = document.createElement('span');
-            statusSep.style.cssText = 'color: var(--text-muted);';
-            statusSep.textContent = '\u00b7';
-            statusBar.appendChild(statusSep);
-            const statusHint = document.createElement('span');
-            statusHint.style.cssText = 'color: var(--text-secondary);';
-            statusHint.textContent = 'Last 7 days';
-            statusBar.appendChild(statusHint);
-            valueSection.appendChild(statusBar);
-
             // Value metrics grid
             const metricsGrid = document.createElement('div');
             metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;';
@@ -1433,6 +1411,7 @@ const DashboardPage = {
         const RUNTIMES = [
             { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
             { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
+            { key: 'copilot-cli', label: 'Copilot CLI', color: '#4a8fe7', url: '/api/hooks/copilot-cli/token-usage' },
         ];
 
         const dailyByRuntime = await Promise.all(RUNTIMES.map(r => fetchDaily(r.url)));

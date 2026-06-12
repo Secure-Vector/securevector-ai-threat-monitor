@@ -38,10 +38,13 @@ const App = {
         // Tool Permissions / Cost Settings are top-level configure entries.
         // Each nav entry maps to ONE tab — tab bar hidden so the nav stays
         // the single source of truth for which view is shown.
-        'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; ToolPermissionsPage.visibleTabs = null; return ToolPermissionsPage.render(c); } },
         'mcp-policies':      McpPoliciesPage,
-        'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
-        'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = true; return ToolPermissionsPage.render(c); } },
+        // Tool Activity + Tool Inventory — one merged destination, two tabs.
+        // Both legacy page ids stay routable (deep links / bookmarks); they
+        // differ only in which tab is active on landing.
+        'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
+        'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
         'redactions':        RedactionsPage,
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },

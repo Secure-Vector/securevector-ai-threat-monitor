@@ -27,8 +27,10 @@ const Sidebar = {
             // item highlighted while the user switches to the Runs/Timeline tab
             // (those are separate page ids).
             { id: 'agent-map',      label: 'Agent Runs', aliases: ['agent-runs', 'agent-timeline'] },
-            { id: 'tool-activity',  label: 'Tool Activity' },
-            { id: 'bill-of-tools',  label: 'Tool Inventory' },
+            // Activity log + inventory (SBOM) are two lenses on the same
+            // tool_call_audit data — one destination, two tabs on the page.
+            // 'bill-of-tools' stays as an alias so deep links keep this row lit.
+            { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
             { id: 'redactions',     label: 'Secret Detections' },
             { id: 'costs',          label: 'Cost Tracking' },
         ]},
@@ -271,6 +273,14 @@ const Sidebar = {
                         <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
                     </g>
                     <g class="gm-orbit">
+                        <!-- SMIL rotation (not CSS): rotates in SVG user units
+                             around the ring's exact center (20,18), identical
+                             in Blink and WebKit. CSS transform-box/view-box
+                             origin handling on SVG children is inconsistent in
+                             WebKit (pywebview), which made the dot orbit off
+                             the ring there. -->
+                        <animateTransform attributeName="transform" type="rotate"
+                            from="0 20 18" to="360 20 18" dur="2.4s" repeatCount="indefinite"/>
                         <path class="gm-trail" d="M10.8 4.9 A 16 16 0 0 1 20 2" stroke-linecap="round"/>
                         <circle class="gm-sat" cx="20" cy="2" r="2.3"/>
                     </g>
@@ -549,6 +559,59 @@ const Sidebar = {
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
 
+        // Collapsible status stack — the proxy / plugin / SIEM banners live
+        // in one foldable group (the user asked to be able to put them away).
+        // The header row renders only when at least one banner is visible,
+        // shows a live count, and the collapsed state persists across loads.
+        const statusToggle = document.createElement('button');
+        statusToggle.type = 'button';
+        statusToggle.id = 'sidebar-status-toggle';
+        statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 10px 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
+        const statusChevron = document.createElement('span');
+        statusChevron.setAttribute('aria-hidden', 'true');
+        statusChevron.style.cssText = 'font-size: 11px; flex-shrink: 0; line-height: 1;';
+        statusToggle.appendChild(statusChevron);
+        const statusLabel = document.createElement('span');
+        statusLabel.textContent = 'Active plugins';
+        statusToggle.appendChild(statusLabel);
+        const statusCount = document.createElement('span');
+        statusCount.style.cssText = 'margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 9px; line-height: 16px;';
+        statusToggle.appendChild(statusCount);
+        statusToggle.addEventListener('mouseenter', () => { statusToggle.style.color = 'var(--text-secondary)'; });
+        statusToggle.addEventListener('mouseleave', () => { statusToggle.style.color = 'var(--text-muted)'; });
+        bottomSection.appendChild(statusToggle);
+
+        const statusStack = document.createElement('div');
+        statusStack.id = 'sidebar-status-stack';
+        // Bottom inset so the last banner doesn't sit flush on the rail edge.
+        statusStack.style.cssText = 'padding-bottom: 10px;';
+        bottomSection.appendChild(statusStack);
+
+        const STATUS_COLLAPSE_KEY = 'sv-status-stack-collapsed';
+        const applyStatusCollapsed = (collapsed) => {
+            statusStack.style.display = collapsed ? 'none' : 'block';
+            statusChevron.textContent = collapsed ? '\u25b8' : '\u25be';
+            statusToggle.setAttribute('aria-expanded', String(!collapsed));
+            statusToggle.title = collapsed ? 'Show plugin status' : 'Hide plugin status';
+        };
+        statusToggle.addEventListener('click', () => {
+            const nowCollapsed = statusStack.style.display !== 'none';
+            try { localStorage.setItem(STATUS_COLLAPSE_KEY, nowCollapsed ? '1' : '0'); } catch (_) { /* private mode */ }
+            applyStatusCollapsed(nowCollapsed);
+        });
+        applyStatusCollapsed(localStorage.getItem(STATUS_COLLAPSE_KEY) === '1');
+        // Header visibility + count track the banners' own show/hide (each
+        // poller flips its banner's inline display) — observe instead of
+        // threading a callback through all five pollers.
+        const updateStatusToggle = () => {
+            const visible = Array.from(statusStack.children).filter(el => el.style.display !== 'none').length;
+            statusToggle.style.display = visible ? 'flex' : 'none';
+            statusCount.textContent = String(visible);
+        };
+        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true });
+        updateStatusToggle();
+
         // Guardian ML lives in Settings (Configure section) — it's a
         // configuration choice, not a sidebar control. Keeping it out of the
         // bottom zone lets the proxy/plugin/SIEM status banners (which hide
@@ -570,7 +633,7 @@ const Sidebar = {
         bannerText.id = 'integration-banner-text';
         bannerText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         proxyBanner.appendChild(bannerText);
-        bottomSection.appendChild(proxyBanner);
+        statusStack.appendChild(proxyBanner);
 
         // Claude Code plugin indicator — same compact pattern as the
         // proxy/SIEM banners. Visible only when the plugin is staged
@@ -618,7 +681,7 @@ const Sidebar = {
         ccText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         ccPluginBanner.appendChild(ccText);
         ccPluginBanner.addEventListener('click', () => this.navigate('proxy-claude-code'));
-        bottomSection.appendChild(ccPluginBanner);
+        statusStack.appendChild(ccPluginBanner);
 
         // Codex plugin indicator — same compact pattern as the CC banner.
         // Visible only when the plugin is staged (or auto-installed in
@@ -653,7 +716,36 @@ const Sidebar = {
         codexText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         codexPluginBanner.appendChild(codexText);
         codexPluginBanner.addEventListener('click', () => this.navigate('proxy-codex'));
-        bottomSection.appendChild(codexPluginBanner);
+        statusStack.appendChild(codexPluginBanner);
+
+        // Copilot CLI plugin indicator — same compact pattern as the CC and
+        // Codex banners; polls /api/hooks/copilot-cli/status.
+        //
+        // Blue accent (#4a8fe7) — the bottom-section hue set is now:
+        // CC purple · Codex coral · Copilot blue · proxy cyan · SIEM green.
+        // GitHub's Copilot brand purple would collide with the CC banner,
+        // so blue (GitHub's own link/accent family) keeps the row
+        // distinguishable at a glance when several stack together.
+        const copilotPluginBanner = document.createElement('button');
+        copilotPluginBanner.type = 'button';
+        copilotPluginBanner.id = 'copilot-plugin-active-banner';
+        copilotPluginBanner.className = 'proxy-banner-pulse';
+        copilotPluginBanner.setAttribute('aria-label', 'Open Copilot CLI plugin settings');
+        copilotPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(74,143,231,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'rgba(74,143,231,0.06)'; });
+        copilotPluginBanner.addEventListener('mouseleave', () => { copilotPluginBanner.style.background = 'transparent'; });
+        const copilotDot = document.createElement('span');
+        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #4a8fe7; flex-shrink: 0;';
+        copilotDot.setAttribute('aria-hidden', 'true');
+        copilotPluginBanner.appendChild(copilotDot);
+        const copilotText = document.createElement('span');
+        copilotText.id = 'copilot-plugin-banner-text';
+        copilotText.setAttribute('aria-live', 'polite');
+        copilotText.setAttribute('aria-atomic', 'true');
+        copilotText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        copilotPluginBanner.appendChild(copilotText);
+        copilotPluginBanner.addEventListener('click', () => this.navigate('proxy-copilot-cli'));
+        statusStack.appendChild(copilotPluginBanner);
 
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
@@ -675,13 +767,7 @@ const Sidebar = {
         siemText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
         siemBanner.appendChild(siemText);
         siemBanner.addEventListener('click', () => this.navigate('siem-export'));
-        bottomSection.appendChild(siemBanner);
-
-        // Check all four indicators on init; each polls its own interval.
-        this.checkProxyStatus();
-        this.checkSiemStatus();
-        this.checkClaudeCodePluginStatus();
-        this.checkCodexPluginStatus();
+        statusStack.appendChild(siemBanner);
 
         // Resume polling when the document becomes visible again. The
         // poll loops self-terminate when visibilityState !== 'visible'
@@ -699,11 +785,23 @@ const Sidebar = {
                     this.checkSiemStatus();
                     this.checkClaudeCodePluginStatus();
                     this.checkCodexPluginStatus();
+                    this.checkCopilotPluginStatus();
                 }
             });
         }
 
         container.appendChild(bottomSection);
+
+        // Check all five indicators — AFTER the bottom section is attached.
+        // The pollers look themselves up via document.getElementById and exit
+        // (without rescheduling) when the node isn't in the document yet;
+        // kicking them off before appendChild meant every banner stayed
+        // hidden until a visibilitychange happened to restart them.
+        this.checkProxyStatus();
+        this.checkSiemStatus();
+        this.checkClaudeCodePluginStatus();
+        this.checkCodexPluginStatus();
+        this.checkCopilotPluginStatus();
     },
 
     // Guardian ML control — an accent-bordered pill in the sidebar bottom
@@ -1189,6 +1287,39 @@ const Sidebar = {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
             setTimeout(() => this.checkClaudeCodePluginStatus(), delay);
+        }
+    },
+
+    async checkCopilotPluginStatus() {
+        // Sidebar "Copilot CLI plugin" indicator. Mirrors the CC/Codex
+        // pollers — same three states (Active / Installed, not enabled /
+        // Staged), same cadence (2s while hidden, 10s once visible). The
+        // Copilot /status route reports installed/enabled from
+        // ~/.copilot/config.json's installedPlugins registration.
+        const banner = document.getElementById('copilot-plugin-active-banner');
+        const textEl = document.getElementById('copilot-plugin-banner-text');
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/copilot-cli/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'Copilot CLI plugin · Staged';
+            }
+        } catch (_) { /* ignore */ }
+        if (document.visibilityState === 'visible'
+            && document.getElementById('copilot-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            setTimeout(() => this.checkCopilotPluginStatus(), delay);
         }
     },
 

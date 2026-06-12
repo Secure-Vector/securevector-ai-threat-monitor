@@ -154,6 +154,12 @@ async function audit(event, baseUrl) {
   } catch { /* swallow */ }
 
   const sessionId = (event && (event.sessionId || event.session_id)) || null;
+  // Per-call correlation key shared by the audit row and every /analyze POST
+  // for this tool call. The traces backend joins threat records AND redaction
+  // events to their span through this id — without it, Agent Runs can't show
+  // what a call detected and the Agent Map can't flag secret-touching tools.
+  // Same shape as the Claude Code hook's id, `cp-` prefixed.
+  const requestId = `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, {
     tool_id: toolId,
     function_name: toolName,
@@ -164,6 +170,7 @@ async function audit(event, baseUrl) {
     args_preview: argsPreview || null,
     runtime_kind: RUNTIME_KIND,
     session_id: sessionId,
+    request_id: requestId,
   });
 
   // Outgoing prose scan (task prompt etc.)
@@ -175,6 +182,8 @@ async function audit(event, baseUrl) {
         text: rawScanText.slice(0, THREAT_SCAN_TEXT_LIMIT),
         source: SOURCE,
         direction: 'outgoing',
+        request_id: requestId,
+        session_id: sessionId,
         metadata: { runtime_kind: RUNTIME_KIND, tool_name: toolName, tool_id: toolId },
       });
     }
@@ -199,6 +208,8 @@ async function audit(event, baseUrl) {
         text: rawResponseText.slice(0, THREAT_SCAN_RESPONSE_LIMIT),
         source: SOURCE,
         direction: 'incoming',
+        request_id: requestId,
+        session_id: sessionId,
         metadata: { runtime_kind: RUNTIME_KIND, tool_name: toolName, tool_id: toolId, scan_target: 'tool_response' },
       });
     }
