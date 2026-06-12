@@ -242,7 +242,7 @@ const App = {
         whatsNewHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
         const whatsNewLabel = document.createElement('span');
         whatsNewLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent-primary);';
-        whatsNewLabel.textContent = "What's new";
+        whatsNewLabel.textContent = 'Highlights';
         const whatsNewRule = document.createElement('div');
         whatsNewRule.style.cssText = 'flex:1;height:1px;background:var(--border-default);';
         whatsNewHead.appendChild(whatsNewLabel);
@@ -250,7 +250,13 @@ const App = {
         whatsNew.appendChild(whatsNewHead);
 
         const whatsNewList = document.createElement('div');
-        whatsNewList.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;';
+        // Fixed 2-up grid: with four cards, auto-fit picked 3 columns at
+        // modal width and orphaned the fourth card alone on row two. 2x2
+        // stays balanced; single column below ~480px via the minmax floor.
+        whatsNewList.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;';
+        if (window.matchMedia('(min-width: 520px)').matches) {
+            whatsNewList.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+        }
 
         const makeNewItem = (badge, title, desc, page, expandSection) => {
             const card = document.createElement('div');
@@ -284,46 +290,35 @@ const App = {
             return card;
         };
 
+        // Four cards max — the modal is the first thing a new user sees;
+        // a six-card wall buried the v4.6.0 headliners (Guardian ML and the
+        // Copilot CLI plugin) under older release notes.
         whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'Claude Code plugin',
-            'Native PreToolUse / PostToolUse hooks audit every Claude Code tool call — no proxy, no env vars.',
-            'proxy-claude-code',
-            'integrations'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'Codex plugin',
-            'Native hooks for OpenAI Codex CLI — same PreToolUse / PostToolUse contract, same tamper-evident audit, runtime_kind=codex.',
-            'proxy-codex',
-            'integrations'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'OpenClaw plugin',
-            'Native zero-latency integration with OpenClaw — full audit trail without env vars or proxy redirects.',
-            'proxy-openclaw',
-            'integrations'
+            'NEW',
+            'Guardian ML',
+            'Local AI threat detection alongside the regex rules — fully offline, nothing leaves your device, every catch labelled Rule / ML.',
+            'guardian-ml'
         ));
         whatsNewList.appendChild(makeNewItem(
             'NEW',
-            'Tool Inventory',
-            'Per-device SBOM — every (MCP server, tool) your agents called, with source, auth scope, and policy attribution.',
-            'bill-of-tools',
+            'GitHub Copilot CLI plugin',
+            'Copilot CLI joins the guarded harnesses — native hooks, tool-permission enforcement, tamper-evident audit.',
+            'proxy-copilot-cli',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'PLUGINS',
+            'Claude Code · Codex · OpenClaw',
+            'Native plugins for every major agent runtime — no proxy, no env vars, full audit trail.',
+            'integrations',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'OBSERVE',
+            'Agent Map, Runs & Secrets',
+            'Live device → agent → tool topology, step-by-step run traces, tool inventory (SBOM), and mid-flight secret detection.',
+            'agent-map',
             'agent-activity'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'NEW',
-            'Secret Detections',
-            'Credentials and PII caught and scrubbed mid-flight. SHA-256 hashes only — no raw secret values stored.',
-            'redactions',
-            'agent-activity'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'NEW',
-            'Reports on Dashboard',
-            'One-click weekly CSV exports for Tool Inventory, Secret Detections, and Threats — right below your activity feed.',
-            'dashboard'
         ));
 
         whatsNew.appendChild(whatsNewList);

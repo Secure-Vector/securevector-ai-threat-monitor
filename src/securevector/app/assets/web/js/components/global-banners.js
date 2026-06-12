@@ -9,21 +9,12 @@
 
 const GlobalBanners = {
     WHATS_NEW_VERSION: '4.6.0',
-    // Fresh key — the v4.2 revamp generalises the nudge (OpenClaw + Claude
-    // Code) so prior single-plugin dismissals shouldn't suppress it.
-    KEY_PLUGINS_NUDGE: 'sv-plugins-nudge-dismissed',
     KEY_WHATS_NEW: 'sv-whats-new-acked',
     // Guardian ML ships ENABLED by default (local-only, reversible) — the
     // one-time notice is what turns "enabled without asking" into "enabled
     // with informed consent": say what it is, where data goes (nowhere),
     // and offer the off switch right there. Acked once, never again.
     KEY_GUARDIAN_NOTICE: 'sv-guardian-notice-acked',
-    // Session-only flag — once the plugin nudge auto-dismisses (20s) or the
-    // user closes it within a session, don't re-render it on subsequent
-    // navigations. Cleared on browser-session end so the next launch shows it
-    // again until the user permanently dismisses via the × button.
-    SESSION_KEY_PLUGINS_NUDGE_HIDDEN: 'sv-plugins-nudge-session-hidden',
-    PLUGIN_NUDGE_AUTO_DISMISS_MS: 20000,
 
     async render() {
         // Inject keyframes once
@@ -62,20 +53,11 @@ const GlobalBanners = {
         }
         slot.textContent = '';
 
-        // Fetch both plugin states in parallel so the nudge knows whether
-        // either runtime is missing its plugin. Each fetch fails-open to
-        // null so a transient API issue never breaks the dashboard.
-        const [hooksStatus, ccStatus, appSettings] = await Promise.all([
-            fetch('/api/hooks/status').then(r => r.ok ? r.json() : null).catch(() => null),
-            fetch('/api/hooks/claude-code/status').then(r => r.ok ? r.json() : null).catch(() => null),
-            fetch('/api/settings').then(r => r.ok ? r.json() : null).catch(() => null),
-        ]);
+        // Fails-open to null so a transient API issue never breaks the
+        // dashboard (the Guardian notice just doesn't render that pass).
+        const appSettings = await fetch('/api/settings')
+            .then(r => r.ok ? r.json() : null).catch(() => null);
 
-        const dismissed = localStorage.getItem(this.KEY_PLUGINS_NUDGE) === '1';
-        const sessionHidden = sessionStorage.getItem(this.SESSION_KEY_PLUGINS_NUDGE_HIDDEN) === '1';
-        const ocActionable = !!(hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed);
-        const ccActionable = !!(ccStatus && ccStatus.claude_code_detected && !ccStatus.enabled);
-        const pluginNudgeRelevant = ocActionable || ccActionable;
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
         const guardianAcked = localStorage.getItem(this.KEY_GUARDIAN_NOTICE) === '1';
         // Only while Guardian is genuinely running: available (model loaded)
@@ -94,12 +76,6 @@ const GlobalBanners = {
             // The what's-new launch banner (v4.6.0) — shown on every fresh
             // install AND every update until acked.
             slot.appendChild(this._buildWhatsNew());
-        } else if (pluginNudgeRelevant && !dismissed && !sessionHidden) {
-            // Release already acked, but at least one runtime has a plugin
-            // available + not yet installed. The banner exposes both CTAs
-            // unconditionally; the one that isn't actionable is shown in a
-            // "done" state instead of being hidden.
-            slot.appendChild(this._buildPluginsNudge({ ocActionable, ccActionable }));
         }
 
         // Hide slot if empty (avoids extra padding)
@@ -204,182 +180,6 @@ const GlobalBanners = {
         banner.appendChild(dismissBtn);
 
         return banner;
-    },
-
-    _buildPluginsNudge({ ocActionable, ccActionable }) {
-        const banner = document.createElement('div');
-        banner.className = 'sv-global-banner';
-        banner.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap;';
-
-        // Plug icon — conveys "native integration" not just "speed"
-        const icon = document.createElement('div');
-        icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
-        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M7 8h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5v-3a2 2 0 0 1 2-2z"/><path d="M12 18v4"/></svg>';
-        banner.appendChild(icon);
-
-        const textCol = document.createElement('div');
-        textCol.style.cssText = 'flex: 1 1 280px; min-width: 220px;';
-
-        const titleRow = document.createElement('div');
-        titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
-        const title = document.createElement('div');
-        title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-        title.textContent = 'Run SecureVector natively with a plugin';
-        titleRow.appendChild(title);
-        const pill = document.createElement('span');
-        pill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
-        pill.textContent = 'Recommended';
-        titleRow.appendChild(pill);
-        textCol.appendChild(titleRow);
-
-        const desc = document.createElement('div');
-        desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'Native hooks. Tamper-evident audit. No proxy or env vars required. Available for OpenClaw and Claude Code.';
-        textCol.appendChild(desc);
-
-        banner.appendChild(textCol);
-
-        // Two install entry points side by side. Each renders in
-        // "actionable" or "installed" state per the per-runtime status
-        // fetched in render(); we still expose both so users see the
-        // full plugin lineup at a glance.
-        const ctaGroup = document.createElement('div');
-        ctaGroup.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;';
-
-        ctaGroup.appendChild(this._buildPluginCta({
-            label: 'OpenClaw',
-            actionable: ocActionable,
-            isNew: false,
-            // Primary visual weight goes to whichever plugin isn't yet
-            // installed; if Claude Code is also actionable, the launch
-            // (NEW) plugin takes the filled treatment instead.
-            primary: ocActionable && !ccActionable,
-            onInstall: () => {
-                if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); }
-            },
-        }));
-
-        ctaGroup.appendChild(this._buildPluginCta({
-            label: 'Claude Code',
-            actionable: ccActionable,
-            isNew: true,
-            // Claude Code is the v4.2 launch — when actionable it takes
-            // the primary (filled) treatment so the NEW plugin reads as
-            // the lede.
-            primary: ccActionable,
-            onInstall: () => {
-                // Send users to the integrations card (proxy-claude-code) —
-                // that's where the actual "Install Plugin" button lives.
-                // The in-app guide page (guide-claude-code) is documentation
-                // only; routing there would be a dead-end for the CTA.
-                if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-claude-code'); }
-            },
-        }));
-
-        banner.appendChild(ctaGroup);
-
-        const dismissBtn = document.createElement('button');
-        dismissBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 6px; transition: color 0.15s, background 0.15s;';
-        dismissBtn.title = 'Dismiss';
-        dismissBtn.setAttribute('aria-label', 'Dismiss');
-        dismissBtn.textContent = '\u00D7';
-        dismissBtn.addEventListener('mouseenter', () => { dismissBtn.style.color = 'var(--text-primary)'; dismissBtn.style.background = 'var(--bg-secondary)'; });
-        dismissBtn.addEventListener('mouseleave', () => { dismissBtn.style.color = 'var(--text-muted)'; dismissBtn.style.background = 'transparent'; });
-        dismissBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            localStorage.setItem(this.KEY_PLUGINS_NUDGE, '1');
-            this.render();
-        });
-        banner.appendChild(dismissBtn);
-
-        // Auto-dismiss after 20s — keeps the banner from following the user
-        // across every page once they've had a chance to see it. Uses
-        // sessionStorage (not localStorage) so the next browser session shows
-        // it again; only the × button is a permanent dismissal.
-        const autoTimer = setTimeout(() => {
-            sessionStorage.setItem(this.SESSION_KEY_PLUGINS_NUDGE_HIDDEN, '1');
-            if (banner.isConnected) {
-                banner.remove();
-                this._collapseSlotIfEmpty();
-            }
-        }, this.PLUGIN_NUDGE_AUTO_DISMISS_MS);
-        // Cancel auto-dismiss if user mouses into the banner — they're
-        // engaging with it, don't yank it out from under them.
-        banner.addEventListener('mouseenter', () => clearTimeout(autoTimer), { once: true });
-
-        return banner;
-    },
-
-    _buildPluginCta({ label, actionable, isNew, primary, onInstall }) {
-        const btn = document.createElement('button');
-        const filled = primary && actionable;
-        const actionableColor = filled ? '#fff' : 'var(--accent-primary)';
-        const actionableBg = filled ? 'var(--accent-primary)' : 'transparent';
-        const actionableBorder = filled ? 'none' : '1px solid rgba(94,173,184,0.45)';
-        // Installed-state styling — the button reads as a soft confirmation
-        // pill so the user still sees the lineup without it pretending
-        // there's anything left to do for it.
-        const installedColor = 'var(--text-muted)';
-        const installedBg = 'transparent';
-        const installedBorder = '1px solid var(--border-default)';
-        btn.style.cssText = 'font-size: 12px; font-weight: 600;'
-            + ' color: ' + (actionable ? actionableColor : installedColor) + ';'
-            + ' background: ' + (actionable ? actionableBg : installedBg) + ';'
-            + ' border: ' + (actionable ? actionableBorder : installedBorder) + ';'
-            + ' padding: 7px 12px; border-radius: 6px;'
-            + ' cursor: ' + (actionable ? 'pointer' : 'default') + ';'
-            + ' white-space: nowrap; transition: opacity 0.15s, transform 0.05s, background 0.15s;'
-            + ' display: inline-flex; align-items: center; gap: 6px; line-height: 1;';
-        btn.disabled = !actionable;
-
-        if (actionable) {
-            const verb = document.createElement('span');
-            verb.textContent = 'Install for';
-            verb.style.cssText = 'opacity: 0.85; font-weight: 500;';
-            btn.appendChild(verb);
-        } else {
-            // Checkmark glyph — same stroke style as the rest of the app.
-            const check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            check.setAttribute('viewBox', '0 0 24 24');
-            check.setAttribute('fill', 'none');
-            check.setAttribute('stroke', 'currentColor');
-            check.setAttribute('stroke-width', '2.5');
-            check.setAttribute('stroke-linecap', 'round');
-            check.setAttribute('stroke-linejoin', 'round');
-            check.style.cssText = 'width: 12px; height: 12px; flex-shrink: 0;';
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', 'M5 12l4 4L19 7');
-            check.appendChild(path);
-            btn.appendChild(check);
-        }
-
-        const labelEl = document.createElement('span');
-        labelEl.textContent = label;
-        btn.appendChild(labelEl);
-
-        if (isNew) {
-            const newPill = document.createElement('span');
-            // Warm peach NEW pill — distinct from the cyan SV brand so the
-            // launch reads as a separate signal at a glance.
-            newPill.style.cssText = 'font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px; padding: 2px 5px; border-radius: 3px; line-height: 1;'
-                + ' background: ' + (filled ? 'rgba(255,255,255,0.22)' : 'rgba(217,119,6,0.18)') + ';'
-                + ' color: ' + (filled ? '#fff' : '#d97706') + ';'
-                + ' border: 1px solid ' + (filled ? 'rgba(255,255,255,0.35)' : 'rgba(217,119,6,0.4)') + ';';
-            newPill.textContent = 'NEW';
-            btn.appendChild(newPill);
-        }
-
-        if (actionable) {
-            btn.addEventListener('mouseenter', () => { btn.style.opacity = '0.9'; });
-            btn.addEventListener('mouseleave', () => { btn.style.opacity = '1'; });
-            btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.98)'; });
-            btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
-            btn.addEventListener('click', (e) => { e.stopPropagation(); onInstall(); });
-        } else {
-            btn.title = 'Already installed';
-        }
-
-        return btn;
     },
 
     _buildWhatsNew() {
