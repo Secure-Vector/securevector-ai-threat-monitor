@@ -242,8 +242,46 @@ const Sidebar = {
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             if (item.tooltip) navItem.title = item.tooltip;
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid on the icon
-            const iconSvg = this.createIcon(item.icon);
+            // Add icon (SVG) — core features get an orange badge dot overlaid on
+            // the icon. Guardian ML uses its animated "sentinel" robot AS the
+            // nav icon (in place of the generic chip) — the symbol that stands
+            // for the local ML model is the bot itself. It runs a 30s scan on
+            // each launch / hard reload (once per page load), then settles.
+            let iconSvg;
+            if (item.id === 'guardian-ml') {
+                iconSvg = document.createElement('span');
+                iconSvg.className = 'gm-robo';
+                // Title gives sighted users a hover hint; the SVG is aria-hidden
+                // and the nav row already owns the accessible name, so the bot is
+                // purely decorative (no aria-label → no double-announce).
+                iconSvg.title = 'Guardian ML — local AI threat detection, watching every call';
+                iconSvg.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
+                    <g class="gm-bot">
+                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
+                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
+                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="4.6"/>
+                        <circle class="gm-eye l" cx="17.2" cy="18.6" r="1.6"/>
+                        <circle class="gm-eye r" cx="22.8" cy="18.6" r="1.6"/>
+                        <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
+                    </g>
+                    <g class="gm-orbit">
+                        <path class="gm-trail" d="M10.8 4.9 A 16 16 0 0 1 20 2" stroke-linecap="round"/>
+                        <circle class="gm-sat" cx="20" cy="2" r="2.3"/>
+                    </g>
+                </svg>`;
+                if (_gmRoboPlayed) {
+                    iconSvg.classList.add('gm-static');
+                } else {
+                    _gmRoboPlayed = true;
+                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
+                    _gmRoboTimer = setTimeout(() => iconSvg.classList.add('gm-static'), 30000);
+                }
+            } else {
+                iconSvg = this.createIcon(item.icon);
+            }
             if (CORE_BADGE.has(item.id)) {
                 const iconWrap = document.createElement('div');
                 iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
@@ -318,49 +356,6 @@ const Sidebar = {
                 setTimeout(dismissBadge, 30000);
             }
 
-            // Guardian ML — an animated "sentinel" robot in place of a NEW badge.
-            // A little guardian bot with a satellite orbiting it on a dashed
-            // scan-ring: it reads as "the local ML model is watching every call."
-            // On each launch / hard reload it runs the orbit for 30s, then
-            // retracts the orbit and settles into a slow breathing eye-glow so
-            // the sidebar doesn't stay busy. Plays once per page load (guard).
-            if (item.id === 'guardian-ml') {
-                const robo = document.createElement('span');
-                robo.className = 'gm-robo';
-                // Title gives sighted users a hover hint; the SVG is aria-hidden
-                // and the span carries NO aria-label — the nav row already owns
-                // the accessible name "Guardian ML", so labelling here would
-                // double-announce. The bot is purely decorative.
-                robo.title = 'Guardian ML — local AI threat detection, watching every call';
-                // Geometry is centered ~(20,18): the bot sits in the middle of
-                // its scan-ring and the satellite orbits OUTSIDE the antenna
-                // tips so the bright dot never collides with them at 26px.
-                robo.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
-                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
-                    <g class="gm-bot">
-                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
-                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
-                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
-                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
-                        <rect class="gm-ear" x="9.6" y="17.6" width="2" height="4.2" rx="1"/>
-                        <rect class="gm-ear" x="28.4" y="17.6" width="2" height="4.2" rx="1"/>
-                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="5.6"/>
-                        <circle class="gm-eye l" cx="16.9" cy="18.6" r="1.5"/>
-                        <circle class="gm-eye r" cx="23.1" cy="18.6" r="1.5"/>
-                        <path class="gm-smile" d="M17 22.2 Q20 24 23 22.2" stroke-linecap="round"/>
-                    </g>
-                    <g class="gm-orbit"><circle class="gm-sat" cx="20" cy="2" r="2.3"/></g>
-                </svg>`;
-                navItem.appendChild(robo);
-                if (_gmRoboPlayed) {
-                    // Already played this page load → show the calm settled state.
-                    robo.classList.add('gm-static');
-                } else {
-                    _gmRoboPlayed = true;
-                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
-                    _gmRoboTimer = setTimeout(() => robo.classList.add('gm-static'), 30000);
-                }
-            }
 
 
             // Chevron for collapsible items

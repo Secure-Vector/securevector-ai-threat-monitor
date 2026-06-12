@@ -7433,23 +7433,30 @@ thead tr:hover #records-select-all,
    launch / hard reload it runs a 30s "scanning" sequence — a satellite dot
    orbits a little guardian bot on a dashed scan-ring — then retracts the orbit
    and settles to a calm, slow eye-glow. Built on the app's teal accent. */
+/* Robot is the Guardian ML nav ICON (left side, replaces the chip). Its layout
+   box matches the other 20px nav icons so every label stays aligned, but the
+   SVG renders a bit bigger and overflows the box so the bot reads clearly. */
 .gm-robo {
     flex-shrink: 0;
-    margin-left: 6px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: 20px;
+    height: 20px;
     line-height: 0;
 }
-.gm-robo svg { width: 26px; height: 26px; display: block; overflow: visible; }
+/* Scoped to .nav-item so it beats `.nav-item svg{width:20px}` on SPECIFICITY,
+   not just source order (robust against CSS reordering/minification). */
+.nav-item .gm-robo svg { width: 32px; height: 32px; display: block; overflow: visible; }
+/* Collapsed icon-rail: pull the bot closer to the 20px neighbour glyphs so it
+   doesn't dominate the narrow strip (no label there to justify the size). */
+.sidebar.collapsed .nav-item .gm-robo svg { width: 24px; height: 24px; }
 
-/* robot body */
+/* robot body — two stroke tiers only: structure (head) 1.6, everything
+   secondary (antenna / smile / ring) 1.3, so nothing reads muddy at 26px. */
 .gm-robo .gm-head { fill: rgba(94, 173, 184, 0.16); stroke: var(--accent-primary); stroke-width: 1.6; }
-.gm-robo .gm-ear { fill: var(--accent-primary); opacity: 0.7; }
-.gm-robo .gm-ant { stroke: var(--accent-primary); stroke-width: 1.4; }
-.gm-robo .gm-smile { stroke: var(--accent-primary); stroke-width: 1.5; opacity: 0.85; fill: none; }
+.gm-robo .gm-ant { stroke: var(--accent-primary); stroke-width: 1.3; }
+.gm-robo .gm-smile { stroke: var(--accent-primary); stroke-width: 1.3; opacity: 1; fill: none; }
 /* Eyes: solid fill, NO drop-shadow — three glow sources (eyes + tips + sat)
    bloom into a blob at 26px, so glow is reserved for the antenna tips + the
    orbiting satellite. */
@@ -7470,6 +7477,9 @@ thead tr:hover #records-select-all,
     animation: gm-orbit 2.4s linear infinite;
 }
 .gm-robo .gm-sat { fill: #d4f7fb; filter: drop-shadow(0 0 3.5px var(--accent-primary)) drop-shadow(0 0 1px #d4f7fb); }
+/* a short fading arc behind the dot so the orbit reads as motion, not a stray
+   pixel — keeps the single shiny dot, just gives it a comet's tail */
+.gm-robo .gm-trail { fill: none; stroke: #d4f7fb; stroke-width: 1.6; opacity: 0.3; }
 
 /* whole-bot gentle vertical "float" while actively scanning (no rotation —
    keeps the origin dependency off the bot and reads cleaner than a wobble) */
@@ -7491,6 +7501,8 @@ thead tr:hover #records-select-all,
 .gm-robo.gm-static .gm-bot,
 .gm-robo.gm-static .gm-eye,
 .gm-robo.gm-static .gm-ant-tip { animation: none; opacity: 1; }
+/* one tip rests a touch dimmer — asymmetric "life" without any motion */
+.gm-robo.gm-static .gm-ant-tip.r { opacity: 0.82; }
 
 /* accessibility — no motion for users who ask for none; land on the calm bot
    cleanly (reset transforms + full opacity so nothing freezes mid-keyframe) */
