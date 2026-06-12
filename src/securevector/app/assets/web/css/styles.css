@@ -7514,3 +7514,17 @@ thead tr:hover #records-select-all,
     .gm-robo .gm-orbit, .gm-robo .gm-ring { opacity: 0 !important; }
 }
 
+/* Light theme — the "lit" parts (eyes / antenna tips / satellite / trail) are
+   near-white cyan: great glow on the dark sidebar, but invisible on the light
+   #f6f8fa rail. Swap them to saturated teal so the whole bot reads. The head
+   outline, ring (the circle), and smile already use --accent-primary (#2b8a97),
+   so they show in light unchanged — the circle stays. */
+[data-theme="light"] .gm-robo .gm-head { fill: rgba(43, 138, 151, 0.10); }
+[data-theme="light"] .gm-robo .gm-eye { fill: #176d78; }
+[data-theme="light"] .gm-robo .gm-ant-tip,
+[data-theme="light"] .gm-robo .gm-sat {
+    fill: #0c8a9b; filter: drop-shadow(0 0 2px rgba(12, 138, 155, 0.45));
+}
+[data-theme="light"] .gm-robo .gm-trail { stroke: #2b8a97; opacity: 0.5; }
+[data-theme="light"] .gm-robo .gm-ring { opacity: 0.7; }
+
