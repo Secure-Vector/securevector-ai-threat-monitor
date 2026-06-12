@@ -95,155 +95,13 @@ const App = {
         // Tool Inventory, Secret Detections, Reports on Dashboard). Bumping the
         // storage key so existing users see the updated welcome once.
         const hasSeenGeneric = localStorage.getItem('sv-welcome-seen-v2');
-        const hasSeenOpenClaw = localStorage.getItem('sv-openclaw-welcome-seen');
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.has('no-welcome')) return;
 
-        // Check OpenClaw detection first — its welcome is more specific and
-        // has a direct install CTA. If shown, we also mark the generic as seen
-        // so users only get one modal.
-        try {
-            const hooksStatus = await fetch('/api/hooks/status').then(r => r.ok ? r.json() : null).catch(() => null);
-            if (hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed && !hasSeenOpenClaw) {
-                this.showOpenClawWelcome();
-                return;
-            }
-        } catch (e) { /* fall through to generic */ }
-
+        // The OpenClaw-detected welcome modal was removed — an interrupting
+        // dialog on first launch was too aggressive for what the plugins
+        // nudge banner and the Integrations page already cover.
         if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
-    },
-
-    showOpenClawWelcome() {
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay';
-
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.style.cssText = 'max-width: 560px;';
-        modal.setAttribute('role', 'dialog');
-        modal.setAttribute('aria-modal', 'true');
-        modal.setAttribute('aria-labelledby', 'sv-oc-welcome-title');
-
-        const dismissAndMark = () => {
-            localStorage.setItem('sv-openclaw-welcome-seen', 'true');
-            localStorage.setItem('sv-welcome-seen', 'true');
-            overlay.classList.remove('active');
-            setTimeout(() => overlay.remove(), 150);
-        };
-
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = 'padding: 20px 22px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-default);';
-
-        const titleWrap = document.createElement('div');
-        titleWrap.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-        const iconBox = document.createElement('div');
-        iconBox.style.cssText = 'flex-shrink: 0; width: 32px; height: 32px; background: rgba(94,173,184,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
-        iconBox.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M7 8h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5v-3a2 2 0 0 1 2-2z"/><path d="M12 18v4"/></svg>';
-        titleWrap.appendChild(iconBox);
-        const title = document.createElement('h2');
-        title.id = 'sv-oc-welcome-title';
-        title.style.cssText = 'margin: 0; font-size: 16px; color: var(--text-primary);';
-        title.textContent = 'OpenClaw detected';
-        titleWrap.appendChild(title);
-        header.appendChild(titleWrap);
-
-        const closeBtn = document.createElement('button');
-        closeBtn.style.cssText = 'background: transparent; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; transition: background 0.15s;';
-        closeBtn.setAttribute('aria-label', 'Dismiss');
-        closeBtn.textContent = '\u00D7';
-        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'var(--bg-secondary)'; });
-        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; });
-        closeBtn.addEventListener('click', dismissAndMark);
-        header.appendChild(closeBtn);
-
-        modal.appendChild(header);
-
-        // Body
-        const body = document.createElement('div');
-        body.style.cssText = 'padding: 20px 22px;';
-
-        const lede = document.createElement('p');
-        lede.style.cssText = 'margin: 0 0 16px; font-size: 14px; color: var(--text-primary); line-height: 1.6;';
-        lede.textContent = 'Run SecureVector as a native OpenClaw plugin \u2014 zero latency, no proxy or env vars, full audit trail.';
-        body.appendChild(lede);
-
-        const steps = document.createElement('ol');
-        steps.style.cssText = 'margin: 0 0 16px; padding-left: 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.7;';
-        [
-            'Install the plugin (one click below).',
-            'The OpenClaw gateway picks it up automatically.',
-            'Every agent turn is scanned, tool calls audited, costs tracked.',
-        ].forEach(t => {
-            const li = document.createElement('li');
-            li.textContent = t;
-            steps.appendChild(li);
-        });
-        body.appendChild(steps);
-
-        // Status line (inline feedback after install)
-        const statusLine = document.createElement('div');
-        statusLine.style.cssText = 'display: none; font-size: 12px; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px;';
-        body.appendChild(statusLine);
-
-        modal.appendChild(body);
-
-        // Footer
-        const footer = document.createElement('div');
-        footer.style.cssText = 'padding: 14px 22px 18px; display: flex; gap: 10px; align-items: center; justify-content: flex-end; border-top: 1px solid var(--border-default);';
-
-        const skipBtn = document.createElement('button');
-        skipBtn.className = 'btn btn-secondary';
-        skipBtn.textContent = 'Skip for now';
-        skipBtn.addEventListener('click', dismissAndMark);
-        footer.appendChild(skipBtn);
-
-        const installBtn = document.createElement('button');
-        installBtn.style.cssText = 'font-size: 13px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: opacity 0.15s;';
-        installBtn.textContent = 'Install plugin';
-        installBtn.addEventListener('mouseenter', () => { installBtn.style.opacity = '0.9'; });
-        installBtn.addEventListener('mouseleave', () => { installBtn.style.opacity = '1'; });
-        installBtn.addEventListener('click', async () => {
-            installBtn.disabled = true;
-            installBtn.textContent = 'Installing\u2026';
-            try {
-                const res = await fetch('/api/hooks/install', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: '{}',
-                });
-                const data = await res.json();
-                if (data && (data.status === 'installed' || data.status === 'already_installed' || data.status === 'updated')) {
-                    statusLine.textContent = '\u2713 Plugin installed. The OpenClaw gateway should pick it up within a few seconds \u2014 restart it if monitoring doesn\u2019t start.';
-                    statusLine.style.background = 'rgba(16,185,129,0.10)';
-                    statusLine.style.color = 'var(--success-text)';
-                    statusLine.style.border = '1px solid rgba(16,185,129,0.35)';
-                    statusLine.style.display = 'block';
-                    installBtn.textContent = 'Done';
-                    skipBtn.textContent = 'Close';
-                    skipBtn.onclick = dismissAndMark;
-                    installBtn.onclick = dismissAndMark;
-                    installBtn.disabled = false;
-                } else {
-                    throw new Error((data && data.message) || 'Install failed');
-                }
-            } catch (e) {
-                statusLine.textContent = 'Install failed: ' + (e.message || 'unknown error') + '. Check the Integrations page for manual steps.';
-                statusLine.style.background = 'rgba(239,68,68,0.10)';
-                statusLine.style.color = 'var(--error)';
-                statusLine.style.border = '1px solid rgba(239,68,68,0.35)';
-                statusLine.style.display = 'block';
-                installBtn.disabled = false;
-                installBtn.textContent = 'Try again';
-            }
-        });
-        footer.appendChild(installBtn);
-
-        modal.appendChild(footer);
-
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-        requestAnimationFrame(() => overlay.classList.add('active'));
     },
 
     /**
@@ -261,6 +119,17 @@ const App = {
         const hasSeenWelcome = localStorage.getItem('sv-welcome-seen-v2');
         const urlParams = new URLSearchParams(window.location.search);
         if (hasSeenWelcome || urlParams.has('no-welcome')) return;
+
+        // Fresh install: the welcome modal IS the orientation, so the
+        // "what's new in vX.Y" upgrade banner is meaningless noise — mark it
+        // acked. Deliberately does NOT touch the Guardian consent notice:
+        // that must reach every user (fresh installs AND updaters) until
+        // they make an explicit keep-on / turn-off choice.
+        try {
+            if (window.GlobalBanners) {
+                localStorage.setItem(GlobalBanners.KEY_WHATS_NEW, GlobalBanners.WHATS_NEW_VERSION);
+            }
+        } catch (_) { /* private mode */ }
 
         // Create modal overlay
         const overlay = document.createElement('div');
@@ -373,7 +242,7 @@ const App = {
         whatsNewHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
         const whatsNewLabel = document.createElement('span');
         whatsNewLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent-primary);';
-        whatsNewLabel.textContent = "What's new";
+        whatsNewLabel.textContent = 'Highlights';
         const whatsNewRule = document.createElement('div');
         whatsNewRule.style.cssText = 'flex:1;height:1px;background:var(--border-default);';
         whatsNewHead.appendChild(whatsNewLabel);
@@ -381,7 +250,13 @@ const App = {
         whatsNew.appendChild(whatsNewHead);
 
         const whatsNewList = document.createElement('div');
-        whatsNewList.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;';
+        // Fixed 2-up grid: with four cards, auto-fit picked 3 columns at
+        // modal width and orphaned the fourth card alone on row two. 2x2
+        // stays balanced; single column below ~480px via the minmax floor.
+        whatsNewList.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;';
+        if (window.matchMedia('(min-width: 520px)').matches) {
+            whatsNewList.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+        }
 
         const makeNewItem = (badge, title, desc, page, expandSection) => {
             const card = document.createElement('div');
@@ -415,46 +290,35 @@ const App = {
             return card;
         };
 
+        // Four cards max — the modal is the first thing a new user sees;
+        // a six-card wall buried the v4.6.0 headliners (Guardian ML and the
+        // Copilot CLI plugin) under older release notes.
         whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'Claude Code plugin',
-            'Native PreToolUse / PostToolUse hooks audit every Claude Code tool call — no proxy, no env vars.',
-            'proxy-claude-code',
-            'integrations'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'Codex plugin',
-            'Native hooks for OpenAI Codex CLI — same PreToolUse / PostToolUse contract, same tamper-evident audit, runtime_kind=codex.',
-            'proxy-codex',
-            'integrations'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'PLUGIN',
-            'OpenClaw plugin',
-            'Native zero-latency integration with OpenClaw — full audit trail without env vars or proxy redirects.',
-            'proxy-openclaw',
-            'integrations'
+            'NEW',
+            'Guardian ML',
+            'Local AI threat detection alongside the regex rules — fully offline, nothing leaves your device, every catch labelled Rule / ML.',
+            'guardian-ml'
         ));
         whatsNewList.appendChild(makeNewItem(
             'NEW',
-            'Tool Inventory',
-            'Per-device SBOM — every (MCP server, tool) your agents called, with source, auth scope, and policy attribution.',
-            'bill-of-tools',
+            'GitHub Copilot CLI plugin',
+            'Copilot CLI joins the guarded harnesses — native hooks, tool-permission enforcement, tamper-evident audit.',
+            'proxy-copilot-cli',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'PLUGINS',
+            'Claude Code · Codex · OpenClaw',
+            'Native plugins for every major agent runtime — no proxy, no env vars, full audit trail.',
+            'integrations',
+            'integrations'
+        ));
+        whatsNewList.appendChild(makeNewItem(
+            'OBSERVE',
+            'Agent Map, Runs & Secrets',
+            'Live device → agent → tool topology, step-by-step run traces, tool inventory (SBOM), and mid-flight secret detection.',
+            'agent-map',
             'agent-activity'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'NEW',
-            'Secret Detections',
-            'Credentials and PII caught and scrubbed mid-flight. SHA-256 hashes only — no raw secret values stored.',
-            'redactions',
-            'agent-activity'
-        ));
-        whatsNewList.appendChild(makeNewItem(
-            'NEW',
-            'Reports on Dashboard',
-            'One-click weekly CSV exports for Tool Inventory, Secret Detections, and Threats — right below your activity feed.',
-            'dashboard'
         ));
 
         whatsNew.appendChild(whatsNewList);
