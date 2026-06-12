@@ -84,18 +84,16 @@ const GlobalBanners = {
         const guardianNoticeRelevant = !!(appSettings
             && appSettings.guardian_ml_available && appSettings.guardian_ml_enabled);
 
-        if (!whatsNewAcked) {
-            // The what's-new launch banner (v4.6.0 — Copilot CLI plugin) leads
-            // on every fresh install AND every update until acked. It carries
-            // its own "install the plugin" CTA, so it doubles as the plugin
-            // nudge for new users; the dedicated nudge below only takes over
-            // once this release has been acknowledged.
-            slot.appendChild(this._buildWhatsNew());
-        } else if (guardianNoticeRelevant && !guardianAcked) {
-            // One banner at a time: the release banner introduces v4.6.0,
-            // then this consent notice takes the slot until the user makes
-            // a keep-on / turn-off choice (or dismisses = keep on).
+        if (guardianNoticeRelevant && !guardianAcked) {
+            // Consent outranks promotion: a feature that's actively scanning
+            // by default gets disclosed BEFORE the release marketing. One
+            // banner at a time — the what's-new takes the slot once the user
+            // has made their keep-on / turn-off choice.
             slot.appendChild(this._buildGuardianNotice());
+        } else if (!whatsNewAcked) {
+            // The what's-new launch banner (v4.6.0) — shown on every fresh
+            // install AND every update until acked.
+            slot.appendChild(this._buildWhatsNew());
         } else if (pluginNudgeRelevant && !dismissed && !sessionHidden) {
             // Release already acked, but at least one runtime has a plugin
             // available + not yet installed. The banner exposes both CTAs
@@ -385,12 +383,9 @@ const GlobalBanners = {
     },
 
     _buildWhatsNew() {
-        // What's-new launch banner — v4.6.0's headline is the GitHub Copilot
-        // CLI plugin joining the guarded harnesses, with the Agent Map & Runs
-        // still the visual hero. Richer treatment than a plain text line:
-        // brand-accent left rail, a NEW pill, a topology icon, and two CTAs
-        // (explore the Map · install the Copilot plugin). Shown on every
-        // fresh install AND every update until acknowledged.
+        // What's-new launch banner — deliberately compact: one line of copy
+        // + one CTA. (The fuller two-CTA treatment read as too heavy next to
+        // the Guardian consent notice that now precedes it.)
         const card = document.createElement('div');
         card.className = 'sv-global-banner';
         card.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap;';
@@ -419,7 +414,7 @@ const GlobalBanners = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'SecureVector Guard now covers GitHub Copilot CLI alongside Claude Code, Codex, and OpenClaw \u2014 real-time tool-permission enforcement, tamper-evident audit, and prompt-injection scanning on every tool call. Every guarded run lands on the Agent Map: device \u2192 agent \u2192 tool across tree, radial, mesh, and Sankey views with step-by-step traces.';
+        desc.textContent = 'Copilot CLI joins the guarded harnesses, and Guardian ML adds local AI threat detection. See every guarded run on the Agent Map.';
         textCol.appendChild(desc);
 
         card.appendChild(textCol);
@@ -444,17 +439,6 @@ const GlobalBanners = {
             this._collapseSlotIfEmpty();
         });
         ctaGroup.appendChild(explore);
-
-        // Secondary CTA — install a plugin so the map has data to show.
-        const install = document.createElement('button');
-        install.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary); background: transparent; border: 1px solid rgba(94,173,184,0.45); padding: 7px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s; line-height: 1;';
-        install.textContent = 'Install the Copilot plugin \u2192';
-        install.addEventListener('mouseenter', () => { install.style.background = 'rgba(94,173,184,0.08)'; });
-        install.addEventListener('mouseleave', () => { install.style.background = 'transparent'; });
-        install.addEventListener('click', () => {
-            if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-copilot-cli'); }
-        });
-        ctaGroup.appendChild(install);
 
         card.appendChild(ctaGroup);
 
