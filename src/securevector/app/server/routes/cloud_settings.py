@@ -38,6 +38,12 @@ class GeneralSettingsResponse(BaseModel):
     retention_days: int = 30
     block_threats: bool = False
     tool_permissions_enabled: bool = True
+    guardian_ml_enabled: bool = True
+    # Loaded Guardian model version + availability — surfaced in Settings so the
+    # version is transparent and `pip install -U securevector-guardian-model`
+    # (once split out) + restart visibly bumps it.
+    guardian_model_version: Optional[str] = None
+    guardian_ml_available: bool = False
     config_file: Optional[str] = None
     config_updated: bool = False
     proxy_action: Optional[str] = None
@@ -51,6 +57,7 @@ class GeneralSettingsUpdate(BaseModel):
     retention_days: Optional[int] = None
     block_threats: Optional[bool] = None
     tool_permissions_enabled: Optional[bool] = None
+    guardian_ml_enabled: Optional[bool] = None
 
 
 class CloudSettingsResponse(BaseModel):
@@ -110,12 +117,17 @@ async def get_general_settings() -> GeneralSettingsResponse:
         settings_repo = SettingsRepository(db)
         settings = await settings_repo.get()
 
+        from securevector.app.services import guardian_service
+
         return GeneralSettingsResponse(
             scan_llm_responses=settings.scan_llm_responses,
             store_text_content=settings.store_text_content,
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
             tool_permissions_enabled=settings.tool_permissions_enabled,
+            guardian_ml_enabled=settings.guardian_ml_enabled,
+            guardian_model_version=guardian_service.model_version(),
+            guardian_ml_available=guardian_service.is_available(),
         )
 
     except Exception as e:
@@ -144,6 +156,8 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             updates["block_threats"] = request.block_threats
         if request.tool_permissions_enabled is not None:
             updates["tool_permissions_enabled"] = request.tool_permissions_enabled
+        if request.guardian_ml_enabled is not None:
+            updates["guardian_ml_enabled"] = request.guardian_ml_enabled
 
         if updates:
             await settings_repo.update(**updates)
@@ -234,6 +248,7 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             retention_days=settings.retention_days,
             block_threats=settings.block_threats,
             tool_permissions_enabled=settings.tool_permissions_enabled,
+            guardian_ml_enabled=settings.guardian_ml_enabled,
             config_file=str(config_path) if config_path else None,
             config_updated=config_updated,
         )

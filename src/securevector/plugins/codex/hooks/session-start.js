@@ -89,9 +89,10 @@ async function main() {
       && Object.prototype.hasOwnProperty.call(overrides, 'synced');
     if (!reachable) {
       process.stderr.write(
-        'SecureVector Guard: local app at ' + baseUrl + ' did not respond; '
-        + 'enforcement will fail-open this session. Start the SecureVector app to '
-        + 'restore policy enforcement and audit logging.\n',
+        'SecureVector Guard is installed but INACTIVE: the local SecureVector app at '
+        + baseUrl + ' is not reachable, so tool calls are NOT being enforced or audited '
+        + 'this session (failing open). Install and start the free SecureVector app to '
+        + 'activate policy enforcement + tamper-evident audit. See https://securevector.io\n',
       );
     }
   } catch { /* fail-open — never block session startup */ }

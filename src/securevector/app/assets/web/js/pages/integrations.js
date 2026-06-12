@@ -283,6 +283,12 @@ def chat_with_protection(user_input):
             description: 'OpenAI Codex CLI host — real-time policy enforcement + tamper-evident audit for MCP tool calls',
             isCodex: true,
             defaultProvider: 'openai'
+        },
+        'proxy-copilot-cli': {
+            name: 'GitHub Copilot CLI',
+            description: 'GitHub Copilot CLI host — real-time policy enforcement + tamper-evident audit for tool calls',
+            isCopilotCli: true,
+            defaultProvider: 'openai'
         }
     },
 
@@ -309,6 +315,9 @@ def chat_with_protection(user_input):
         } else if (integration.isCodex) {
             // Codex: Plugin card only (host-native plugin, no proxy/block-mode)
             container.appendChild(this.createCodexPluginCard());
+        } else if (integration.isCopilotCli) {
+            // GitHub Copilot CLI: Plugin card only (host-native plugin, no proxy/block-mode)
+            container.appendChild(this.createCopilotCliPluginCard());
         } else if (integration.isOpenClaw) {
             // OpenClaw: Plugin card + separate block mode card
             container.appendChild(this.createOpenClawPluginCard());
@@ -1143,7 +1152,7 @@ def chat_with_protection(user_input):
         // --- Capabilities grid ---
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.5)';
+        featuresLabel.textContent = 'Capabilities (v4.6)';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');
@@ -1258,6 +1267,264 @@ def chat_with_protection(user_input):
 
         guide.appendChild(guideBody);
         content.appendChild(guide);
+
+        card.appendChild(content);
+        return card;
+    },
+
+    createCopilotCliPluginCard() {
+        // SecureVector Guard for GitHub Copilot CLI — host-native plugin.
+        // Install stages the plugin tree (plugin.json at root) under
+        // ~/.securevector/staging/copilot-cli-plugin/ and — when Copilot CLI is
+        // present — copies it into ~/.copilot/installed-plugins/_direct/ and
+        // registers it enabled in ~/.copilot/config.json (parity with CC/Codex
+        // auto-install; verified interchangeable with `copilot plugin install`).
+        // Falls back to the documented `copilot plugin install <dir>` command
+        // only when ~/.copilot is absent (CLI not installed).
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for GitHub Copilot CLI';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for tool calls';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-copilot-cli-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-copilot-cli-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'copilot-cli-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'copilot-cli-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const commandsWrap = document.createElement('div');
+        commandsWrap.id = 'copilot-cli-plugin-commands';
+        commandsWrap.style.cssText = 'display: none; margin-bottom: 16px;';
+        const commandsHeading = document.createElement('div');
+        commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px;';
+        commandsHeading.textContent = 'Install command — run in your terminal';
+        commandsWrap.appendChild(commandsHeading);
+        const commandsSubhead = document.createElement('div');
+        commandsSubhead.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
+        commandsSubhead.textContent = 'Click Install Plugin to stage the files, then run this command to install the plugin into Copilot CLI and start a new session.';
+        commandsWrap.appendChild(commandsSubhead);
+        content.appendChild(commandsWrap);
+
+        const buildCommandBlock = (text) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+            const pre = document.createElement('code');
+            pre.style.cssText = 'flex: 1; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto;';
+            pre.textContent = text;
+            const copyBtn = document.createElement('button');
+            copyBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-default); color: var(--text-primary); cursor: pointer; font-size: 12px;';
+            copyBtn.textContent = 'Copy';
+            copyBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyBtn.textContent = 'Copied';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+                } catch {
+                    copyBtn.textContent = 'Copy failed';
+                }
+            };
+            wrap.appendChild(pre);
+            wrap.appendChild(copyBtn);
+            return wrap;
+        };
+
+        const renderCommands = (commands) => {
+            while (commandsWrap.childNodes.length > 2) commandsWrap.removeChild(commandsWrap.lastChild);
+            for (const cmd of commands || []) commandsWrap.appendChild(buildCommandBlock(cmd));
+            commandsWrap.style.display = (commands && commands.length) ? '' : 'none';
+        };
+
+        const setStatusPill = (state, opts = {}) => {
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · start a new Copilot session';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · run the install command below';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        const commandsFor = (stagingDir) => [`copilot plugin install ${stagingDir}`];
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/copilot-cli/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed) {
+                        // Wrote directly into Copilot's store + config.json — no command needed.
+                        showResult('success', `Installed and enabled in Copilot CLI (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        renderCommands([]);
+                        setStatusPill('installed');
+                    } else {
+                        // Copilot CLI not detected — staged only; surface the install command.
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || ''}`.trim());
+                        renderCommands(result.commands && result.commands.length ? result.commands : commandsFor(result.staging_dir));
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/copilot-cli/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed from Copilot CLI (deregistered from config.json and deleted from the store). Start a new Copilot session to drop the hooks.');
+                    renderCommands([]);
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. `auto_installed`+`enabled` mean we wrote into
+        // Copilot's store + config.json; `installed` (staged) without them is the
+        // CLI-absent fallback where the user must run the install command.
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/copilot-cli/status');
+                const status = await res.json();
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    renderCommands(commandsFor(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    renderCommands(commandsFor(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v4.6)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'Tool Permissions', desc: 'Allow / deny / ask, cloud-pushed rules (preToolUse)' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=copilot-cli' },
+            { name: 'Prompt-Injection Scan', desc: 'userPromptSubmitted + task input → /analyze' },
+            { name: 'Fail-Open on App Down', desc: 'Explicit allow + exit 0 (Copilot hooks fail closed)' },
+        ];
+        for (const f of features) {
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const fn = document.createElement('div');
+            fn.style.cssText = 'font-size: 12px; font-weight: 600;';
+            fn.textContent = f.name;
+            const fd = document.createElement('div');
+            fd.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+            fd.textContent = f.desc;
+            item.appendChild(fn);
+            item.appendChild(fd);
+            featuresGrid.appendChild(item);
+        }
+        content.appendChild(featuresGrid);
 
         card.appendChild(content);
         return card;
@@ -1514,7 +1781,7 @@ def chat_with_protection(user_input):
 
         const featuresLabel = document.createElement('div');
         featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
-        featuresLabel.textContent = 'Capabilities (v4.5)';
+        featuresLabel.textContent = 'Capabilities (v4.6)';
         content.appendChild(featuresLabel);
 
         const featuresGrid = document.createElement('div');

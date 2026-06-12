@@ -97,6 +97,13 @@ def _build_client(monkeypatch, engine_result):
     """Wire a FastAPI app around the analyze router with everything stubbed."""
     _SpyThreatIntelRepo.created = []
 
+    # These tests exercise the low-signal RULE gate in isolation. Force the
+    # Guardian ML layer off via its env kill-switch — otherwise the real
+    # model also scores the sample secrets and appends its own matched rule,
+    # coupling these assertions to model behaviour. The ML merge policy has
+    # its own suite (test_analyze_guardian_merge.py).
+    monkeypatch.setenv("SECUREVECTOR_ML_ENABLED", "false")
+
     settings = AppSettings()
     settings.cloud_mode_enabled = False
     settings.scan_llm_responses = True

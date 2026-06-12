@@ -22,12 +22,12 @@
         ]
       }
     ],
-    "Stop": [
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop-hook-probe.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start.js"
           }
         ]
       }

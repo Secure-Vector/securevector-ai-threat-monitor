@@ -147,7 +147,7 @@ const GuideClaudeCodePage = {
   "ok": true,
   "auto_installed": true,
   "enabled": true,
-  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.5.0",
+  "claude_install_path": "~/.claude/plugins/cache/securevector-local/securevector-guard/4.6.0",
   "files": [".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/pre-tool-use.js",
             "hooks/post-tool-use.js", "hooks/user-prompt-submit.js", "hooks/stop-hook-probe.js",
             "hooks/statusline.js", "lib/normalize.js", "lib/client.js", "lib/redact.js",
