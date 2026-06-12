@@ -1003,6 +1003,78 @@ html, body {
 .try-it-trigger-btn:hover { opacity: 0.88; }
 .sidebar.collapsed .try-it-trigger-btn { display: none; }
 
+/* Guardian ML pill — flagship local-detection toggle. Anchors the bottom
+   controls zone (above the proxy/plugin/SIEM banners). Highlighted-border
+   treatment that brightens when active: accent border + soft shadow + a status
+   dot with a halo. The divider above separates it from the nav. */
+.guardian-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 12px 4px;
+    padding: 8px 11px;
+    border-radius: 11px;
+    border: 1px solid rgba(94, 173, 184, 0.3);
+    background: var(--bg-secondary, rgba(94, 173, 184, 0.03));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+/* The self-contained lit pill is its own visual block; a little more top gap
+   when it opens the bottom zone is enough to separate it from the nav. */
+.sidebar-bottom > .guardian-pill:first-child {
+    margin-top: 12px;
+}
+.guardian-pill:hover { border-color: rgba(94, 173, 184, 0.5); }
+.guardian-pill[data-active="true"] {
+    border-color: rgba(94, 173, 184, 0.6);
+    background: rgba(94, 173, 184, 0.06);
+    box-shadow: 0 0 0 1px rgba(94, 173, 184, 0.22), 0 2px 12px rgba(94, 173, 184, 0.16);
+}
+.guardian-pill .gp-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted, #7d8590);
+    transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+.guardian-pill[data-active="true"] .gp-dot {
+    background: var(--accent-primary, #5eadb8);
+    box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.18);
+}
+.guardian-pill .gp-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: pointer;
+}
+.guardian-pill .gp-title {
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.1px;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.guardian-pill .gp-sub {
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.1px;
+    color: var(--text-muted, #7d8590);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Collapsed rail: keep the pill fully visible (never hidden) — just tighten
+   the horizontal padding so it fits the narrower rail. */
+.sidebar.collapsed .guardian-pill {
+    margin: 2px 8px 10px;
+    padding: 8px 8px;
+}
+
 /* ── Floating chat panel ─────────────────────────────────────── */
 .tryit-chat-panel {
     position: fixed;
@@ -2077,6 +2149,89 @@ html, body {
 .badge-success {
     background: rgba(16, 185, 129, 0.15);
     color: var(--success);
+}
+
+/* "New" pill beside a settings section title — flags a freshly shipped
+   feature (e.g. Guardian ML). Accent-tinted, uppercase, small caps-feel so
+   it reads as a label, not a status. Sized down from the heading so it sits
+   as a quiet adornment rather than competing with the title. */
+.section-new-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    color: var(--accent-primary, #5EADB8);
+    background: rgba(94, 173, 184, 0.14);
+    border: 1px solid rgba(94, 173, 184, 0.35);
+    vertical-align: middle;
+}
+
+/* Mechanism 1 — ML/rule agreement banner in the threat detail drawer.
+   Green = ML corroborated; amber = ML uncertain; red = likely false positive
+   (ML disagreed). Triage signal only; the verdict is unchanged. */
+.ml-assessment {
+    margin-top: 10px;
+    padding: 7px 11px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ml-assessment.mlassess-ok   { color: #10b981; background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.35); }
+.ml-assessment.mlassess-warn { color: #f59e0b; background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.35); }
+.ml-assessment.mlassess-fp   { color: #ef4444; background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.35); }
+
+/* Deep-link banner — shown on Threat Monitor / Secret Detections when arriving
+   from an Agent Runs detection ("view details →"), scoping to one record. */
+.deep-link-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin: 0 0 14px; padding: 9px 14px; border-radius: 8px; font-size: 13px;
+    color: var(--text-secondary, #b1bac4);
+    background: rgba(94, 173, 184, 0.10);
+    border: 1px solid rgba(94, 173, 184, 0.30);
+}
+.deep-link-banner code { font-size: 11.5px; color: var(--text-primary, #e6edf3); }
+.deep-link-clear {
+    cursor: pointer; font: 600 12px 'Avenir Next', Avenir, system-ui, sans-serif;
+    padding: 4px 11px; border-radius: 20px; white-space: nowrap;
+    color: var(--text-secondary, #b1bac4);
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-default, #30363d);
+}
+.deep-link-clear:hover { background: var(--bg-hover, #21262d); }
+
+/* Guardian model version chip in Settings — quiet, monospace, informational. */
+.guardian-model-ver {
+    font: 600 10.5px ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    color: var(--text-secondary, #b1bac4);
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-default, #30363d);
+    padding: 1px 7px;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+}
+
+/* Deep-link landing highlight — pulses a settings section when arrived at
+   via a nav deep-link (e.g. Configure → Guardian ML), then fades. */
+.section-focus-pulse {
+    animation: sectionFocusPulse 2s ease-out 1;
+    border-radius: 10px;
+}
+@keyframes sectionFocusPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(94, 173, 184, 0.0); }
+    15%  { box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.45); }
+    100% { box-shadow: 0 0 0 3px rgba(94, 173, 184, 0.0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .section-focus-pulse { animation: none; }
 }
 
 /* Toggle Switch */
@@ -3521,6 +3676,57 @@ html, body {
     background: var(--bg-primary);
     padding: 2px 8px;
     border-radius: 10px;
+}
+
+/* Detection-source badge — Rule / ML / Rule+ML. Shown on Threats, Agent Map,
+   and Agent Runs; hover tells you exactly what caught it (+ ML score). Three
+   distinct hues: rules = slate, ML = Guardian cyan, both = indigo. */
+.detection-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 5px;
+    white-space: nowrap;
+    line-height: 1.5;
+    cursor: default;
+    border: 1px solid transparent;
+}
+.detection-rule {
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.12);
+    border-color: rgba(100, 116, 139, 0.3);
+}
+.detection-ml {
+    color: var(--accent-primary, #5eadb8);
+    background: rgba(94, 173, 184, 0.13);
+    border-color: rgba(94, 173, 184, 0.4);
+}
+.detection-rule_ml {
+    color: #818cf8;
+    background: rgba(129, 140, 248, 0.13);
+    border-color: rgba(129, 140, 248, 0.4);
+}
+
+/* Per-rule origin chip inside the threat-detail matched-rules list. */
+.matched-rule-origin {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    cursor: default;
+}
+.matched-rule-origin.origin-ml {
+    color: var(--accent-primary, #5eadb8);
+    background: rgba(94, 173, 184, 0.13);
+}
+.matched-rule-origin.origin-rule {
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.12);
 }
 
 /* LLM Review Section in Threat Details */
@@ -7221,4 +7427,105 @@ thead tr:hover #records-select-all,
         padding: 3px 10px !important;
     }
 }
+
+/* ===== Guardian ML — animated "sentinel" robot (sidebar) =====
+   Replaces the static NEW badge on the Guardian ML nav item. On every app
+   launch / hard reload it runs a 30s "scanning" sequence — a satellite dot
+   orbits a little guardian bot on a dashed scan-ring — then retracts the orbit
+   and settles to a calm, slow eye-glow. Built on the app's teal accent. */
+/* Robot is the Guardian ML nav ICON (left side, replaces the chip). Its layout
+   box matches the other 20px nav icons so every label stays aligned, but the
+   SVG renders a bit bigger and overflows the box so the bot reads clearly. */
+.gm-robo {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    line-height: 0;
+}
+/* Scoped to .nav-item so it beats `.nav-item svg{width:20px}` on SPECIFICITY,
+   not just source order (robust against CSS reordering/minification). */
+.nav-item .gm-robo svg { width: 24px; height: 24px; display: block; overflow: visible; }
+/* Collapsed icon-rail: pull the bot closer to the 20px neighbour glyphs so it
+   doesn't dominate the narrow strip (no label there to justify the size). */
+.sidebar.collapsed .nav-item .gm-robo svg { width: 24px; height: 24px; }
+
+/* robot body — two stroke tiers only: structure (head) 1.6, everything
+   secondary (antenna / smile / ring) 1.3, so nothing reads muddy at 26px. */
+.gm-robo .gm-head { fill: rgba(94, 173, 184, 0.16); stroke: var(--accent-primary); stroke-width: 1.6; }
+.gm-robo .gm-ant { stroke: var(--accent-primary); stroke-width: 1.3; }
+.gm-robo .gm-smile { stroke: var(--accent-primary); stroke-width: 1.3; opacity: 1; fill: none; }
+/* Eyes: solid fill, NO drop-shadow — three glow sources (eyes + tips + sat)
+   bloom into a blob at 26px, so glow is reserved for the antenna tips + the
+   orbiting satellite. */
+.gm-robo .gm-eye { fill: #c7f4f9; animation: gm-eye 1.7s ease-in-out infinite; }
+.gm-robo .gm-eye.r { animation-delay: 0.14s; }
+.gm-robo .gm-ant-tip { fill: #aef0f7; filter: drop-shadow(0 0 3px var(--accent-primary)); animation: gm-blink 1.25s ease-in-out infinite; }
+.gm-robo .gm-ant-tip.r { animation-delay: 0.42s; }   /* two antennas blink alternately */
+
+/* orbit layer — the "circular motion" */
+.gm-robo .gm-ring {
+    fill: none; stroke: var(--accent-primary); stroke-width: 1.4;
+    stroke-dasharray: 2.5 3; opacity: 0.85;
+    transform-box: view-box; transform-origin: 20px 18px;
+    animation: gm-ring-spin 7s linear infinite;
+}
+.gm-robo .gm-orbit {
+    transform-box: view-box; transform-origin: 20px 18px;
+    animation: gm-orbit 2.4s linear infinite;
+}
+.gm-robo .gm-sat { fill: #d4f7fb; filter: drop-shadow(0 0 3.5px var(--accent-primary)) drop-shadow(0 0 1px #d4f7fb); }
+/* a short fading arc behind the dot so the orbit reads as motion, not a stray
+   pixel — keeps the single shiny dot, just gives it a comet's tail */
+.gm-robo .gm-trail { fill: none; stroke: #d4f7fb; stroke-width: 1.6; opacity: 0.3; }
+
+/* whole-bot gentle vertical "float" while actively scanning (no rotation —
+   keeps the origin dependency off the bot and reads cleaner than a wobble) */
+.gm-robo .gm-bot { animation: gm-bob 3.2s ease-in-out infinite; }
+
+@keyframes gm-orbit { to { transform: rotate(360deg); } }
+@keyframes gm-ring-spin { to { transform: rotate(-360deg); } }
+@keyframes gm-eye { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes gm-blink { 0%, 100% { opacity: 1; } 45% { opacity: 0.22; } }
+@keyframes gm-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.6px); } }
+
+/* settled state — after 30s the orbit retracts and ALL motion stops.
+   No perpetual pulse: a forever-twinkling nav icon is a WCAG 2.2.2
+   (Pause/Stop/Hide) snag, costs idle GPU on the always-visible filter, and
+   reads as fake activity since it doesn't track real Guardian state. The
+   bot just settles into a calm, fully static glow. */
+/* At settle the orbiting dot + trail retract, but the dashed circle STAYS
+   (just stops spinning) so the robot keeps its ring permanently. */
+.gm-robo.gm-static .gm-orbit { opacity: 0; animation: none; transition: opacity 0.6s ease; }
+.gm-robo.gm-static .gm-ring { animation: none; }
+.gm-robo.gm-static .gm-bot,
+.gm-robo.gm-static .gm-eye,
+.gm-robo.gm-static .gm-ant-tip { animation: none; opacity: 1; }
+/* one tip rests a touch dimmer — asymmetric "life" without any motion */
+.gm-robo.gm-static .gm-ant-tip.r { opacity: 0.82; }
+
+/* accessibility — no motion for users who ask for none; land on the calm bot
+   cleanly (reset transforms + full opacity so nothing freezes mid-keyframe) */
+@media (prefers-reduced-motion: reduce) {
+    .gm-robo .gm-orbit, .gm-robo .gm-ring, .gm-robo .gm-bot,
+    .gm-robo .gm-eye, .gm-robo .gm-ant-tip { animation: none !important; transform: none !important; }
+    .gm-robo .gm-eye, .gm-robo .gm-ant-tip { opacity: 1 !important; }
+    .gm-robo .gm-orbit { opacity: 0 !important; }   /* hide the moving dot; keep the static ring */
+}
+
+/* Light theme — match the sibling nav icons instead of standing out as a teal
+   mascot. The near-white "lit" glow is invisible on the light rail anyway, so
+   in light the bot becomes a monochrome `currentColor` glyph (outline head, no
+   fill, no glow) — same icon language as its neighbours, and it now tints on
+   hover/active exactly like them. The circle (ring) stays, also in currentColor. */
+[data-theme="light"] .gm-robo .gm-head { fill: none; stroke: currentColor; }
+[data-theme="light"] .gm-robo .gm-ant,
+[data-theme="light"] .gm-robo .gm-smile { stroke: currentColor; }
+[data-theme="light"] .gm-robo .gm-eye,
+[data-theme="light"] .gm-robo .gm-ant-tip,
+[data-theme="light"] .gm-robo .gm-sat { fill: currentColor; filter: none; }
+[data-theme="light"] .gm-robo .gm-ring { stroke: currentColor; opacity: 0.5; }
+[data-theme="light"] .gm-robo .gm-trail { stroke: currentColor; opacity: 0.4; }
 

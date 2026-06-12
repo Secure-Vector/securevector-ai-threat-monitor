@@ -794,6 +794,10 @@ class AuditLogRequest(BaseModel):
     # derive the per-run trace_id / turn_index that group the flat audit log
     # into runs/turns (story #141). Metadata only; not in the hash chain.
     session_id: Optional[str] = None
+    # Per-call correlation id, shared with the /analyze posts the same tool
+    # call produced — joins the span to its threat_intel_records so Agent
+    # Runs / Map can label detections Rule / ML / Rule+ML. Metadata only.
+    request_id: Optional[str] = Field(None, max_length=64)
 
 
 @router.post("/tool-permissions/call-audit")
@@ -835,6 +839,7 @@ async def record_call_audit(request: AuditLogRequest):
             args_preview=request.args_preview,
             runtime_kind=request.runtime_kind,
             session_id=request.session_id,
+            request_id=request.request_id,
         )
         return {"ok": True}
 

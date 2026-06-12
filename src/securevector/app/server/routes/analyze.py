@@ -4,13 +4,40 @@ Analysis API endpoint for threat detection.
 POST /api/v1/analyze - Analyze text for threats
 """
 
+import asyncio
 import logging
+import os
 import re
 import time
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+
+# SecureVector Guardian (local ML detection layer) — verdict policy.
+# ADDITIVE: the model can only raise/strengthen a verdict, never suppress a
+# rule. It folds into the existing calibrated gate at TWO bars:
+#   * ML ALONE (no rule fired) blocks only at high confidence.
+#   * ML CORROBORATES an already-firing rule at a lower bar.
+# High-precision: catches what rules miss without firing on weak model hunches.
+_ML_ALONE_BAR = 0.90
+_ML_CORROBORATE_BAR = 0.60
+# Mechanism 1 (FP triage): when a rule fires but Guardian's P(malicious) is
+# below this, the model is confidently benign — the detection is flagged a
+# likely false positive (metadata only; the verdict is never suppressed).
+_ML_DISAGREE_BAR = 0.20
+
+
+def _ml_enabled() -> bool:
+    """Environment kill-switch layered over the Settings toggle.
+
+    The user-facing on/off lives in app_settings.guardian_ml_enabled (Settings
+    page, default ON). SECUREVECTOR_ML_ENABLED=false force-disables Guardian
+    regardless of the UI — an operator escape hatch that needs no DB access.
+    Read per-request (cheap) so it can be toggled without a restart."""
+    return os.environ.get("SECUREVECTOR_ML_ENABLED", "on").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
 
 # Base64-encoded image blobs forwarded by the Claude Code plugin (e.g.
 # screenshots returned by a tool, image attachments in MCP responses) are
@@ -317,6 +344,23 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # "ghp_" appearing by chance in PNG/JPEG/GIF/WebP base64.
         scan_text = _strip_image_base64(scan_text)
 
+        # SecureVector Guardian (local ML layer) runs IN PARALLEL with the regex
+        # analysis below: kicked off here in a worker thread, awaited at the
+        # verdict merge. Fail-open — any setup error leaves rules untouched.
+        # Gated on the Settings toggle (default ON) AND the env kill-switch.
+        _guardian_task = None
+        if settings.guardian_ml_enabled and _ml_enabled():
+            try:
+                from securevector.app.services import guardian_service
+
+                _guardian_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        guardian_service.analyze, scan_text, direction=direction
+                    )
+                )
+            except Exception:  # noqa: BLE001 — never break analyze
+                _guardian_task = None
+
         result = await service.analyze(scan_text)
 
         # Drop rule hits below the noise floor. Engine occasionally returns very
@@ -440,6 +484,63 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     confidence=round(rule_conf, 3),
                 )
             )
+
+        # Fold in the PARALLEL Guardian (ML) result started before the regex run.
+        # ADDITIVE, never suppresses a rule. The bar depends on whether a rule
+        # already survived: ML ALONE must clear _ML_ALONE_BAR (0.90); if a rule
+        # fired, ML only needs _ML_CORROBORATE_BAR (0.60) to strengthen it. Its
+        # confidence then flows through the SAME calibrated gate below, so a
+        # qualifying ML hit raises or corroborates a threat exactly like a rule.
+        # Fail-open: any error leaves the rule verdict untouched.
+        # Guardian's raw P(malicious), captured for EVERY analyze where the
+        # model ran — even when it stays below the corroborate/alone bars and
+        # contributes nothing to the verdict. This is the signal mechanism 1
+        # (FP reduction) needs: a rule can fire on benign content that merely
+        # mentions security terms; if the model is confidently benign here, the
+        # detection is a likely false positive. Stored as metadata only — it
+        # never changes the verdict (additive-only invariant preserved).
+        ml_malicious_score = None
+        if _guardian_task is not None:
+            try:
+                gr = await _guardian_task
+            except Exception:  # noqa: BLE001
+                gr = None
+            if gr is not None:
+                try:
+                    ml_malicious_score = round(float(gr.get("risk_score") or 0) / 100.0, 3)
+                except (TypeError, ValueError):
+                    ml_malicious_score = None
+            if gr and gr.get("is_threat") and gr.get("matched_rules"):
+                ml_rule = gr["matched_rules"][0]
+                ml_conf = float(ml_rule.get("confidence") or 0.0)
+                ml_bar = _ML_CORROBORATE_BAR if surviving_confidences else _ML_ALONE_BAR
+                if ml_conf >= ml_bar:
+                    surviving_confidences.append(ml_conf)
+                    matched_rules.append(
+                        MatchedRule(
+                            rule_id=ml_rule.get("rule_id", "sv_guardian_model"),
+                            rule_name=ml_rule.get("rule_name", "SecureVector Guardian (ML)"),
+                            category=ml_rule.get("category", "unknown"),
+                            severity=ml_rule.get("severity", "medium"),
+                            source="model",
+                            matched_patterns=[],
+                            mitre_techniques=[],
+                            confidence=round(ml_conf, 3),
+                        )
+                    )
+                    # PROMOTE: the engine said benign but ML ALONE cleared its
+                    # high bar — raise the verdict here, because the calibrated
+                    # block below only demotes (it keys off result.is_threat)
+                    # and final_* fields inherit from result.
+                    if not result.is_threat and ml_conf >= _ML_ALONE_BAR:
+                        result.is_threat = True
+                        result.threat_type = (
+                            gr.get("threat_type") or ml_rule.get("category") or "unknown"
+                        )
+                        result.risk_score = float(
+                            gr.get("risk_score") or round(ml_conf * 100)
+                        )
+                        result.confidence = ml_conf
 
         # Calibrated verdict (issue #136). "Any rule matched = threat"
         # over-alarms: a lone low/medium-confidence heuristic should inform
@@ -665,6 +766,24 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
             # Use redacted text for storage
             text_to_store = redacted_text_result if redacted_text_result else request.text
+
+            # Mechanism 1 — ML/rule agreement tier for FP triage. The verdict
+            # above is already final; this only annotates HOW the model felt
+            # about it so the UI can flag likely false positives. Never demotes.
+            if ml_malicious_score is not None:
+                has_ml_rule = any(getattr(r, "source", None) == "model" for r in matched_rules)
+                has_regex_rule = any(getattr(r, "source", None) != "model" for r in matched_rules)
+                if has_ml_rule:
+                    ml_agreement = "corroborated"  # ML cleared its bar — agrees with the rules
+                elif has_regex_rule and ml_malicious_score < _ML_DISAGREE_BAR:
+                    ml_agreement = "ml_disagrees"  # rule fired, model confidently benign → likely FP
+                elif has_regex_rule:
+                    ml_agreement = "ml_uncertain"  # model below the bar but not clearly benign
+                else:
+                    ml_agreement = None
+                augmented_metadata["ml_malicious_score"] = ml_malicious_score
+                if ml_agreement:
+                    augmented_metadata["ml_agreement"] = ml_agreement
 
             record = await threat_intel_repo.create(
                 text=text_to_store,

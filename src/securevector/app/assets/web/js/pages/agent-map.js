@@ -44,11 +44,54 @@ const shade = (hex, amt) => {
 const GEAR_PATH = 'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z';
 const LOCK_PATH = 'M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 0 1 6 0z';
 const BAN_PATH = 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2c1.8 0 3.5.6 4.9 1.7L5.7 16.9A8 8 0 0 1 12 4zm0 16a8 8 0 0 1-4.9-1.7L18.3 7.1A8 8 0 0 1 12 20z';
+// Virus/pathogen glyph (body + radiating spikes) — marks a THREAT DETECTION,
+// kept deliberately distinct from the red BAN (blocked) and the amber LOCK
+// (secret leak) so "detected" never reads as "blocked".
+const VIRUS_SVG = (c, s) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px">`
+    + `<circle cx="12" cy="12" r="4.5" fill="${c}" fill-opacity="0.18"/>`
+    + `<line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>`
+    + `<line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>`
+    + `<line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/>`
+    + `<line x1="19.1" y1="4.9" x2="17" y2="7"/><line x1="7" y1="17" x2="4.9" y2="19.1"/></svg>`;
 const ICON = {
     lock: (c = '#f59e0b', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${LOCK_PATH}"/></svg>`,
     ban: (c = '#ef4444', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${BAN_PATH}"/></svg>`,
     gear: (c = '#e08a3c', s = 12) => `<svg class="sv-spin" viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="${GEAR_PATH}"/></svg>`,
+    virus: (c = '#ef4444', s = 13) => VIRUS_SVG(c, s),
 };
+// Threat-detection node colour — red. The virus *shape* (spiky body) keeps it
+// distinct from the red BLOCKED ring at a glance; the legend names both.
+const VIRUS_NODE_COLOR = '#ef4444';
+const SECRET_NODE_COLOR = '#f59e0b';
+
+// Draw a small virus glyph onto an SVG node group `g` (threat-detected marker).
+// Spikes are drawn first, the body circle on top, so it reads as a pathogen.
+// `transform` positions/scales it relative to the node centre.
+function appendVirusMarker(g, transform) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const vg = document.createElementNS(NS, 'g');
+    vg.setAttribute('transform', transform);
+    vg.setAttribute('pointer-events', 'none');
+    const SPIKES = [[0, -7], [0, 7], [-7, 0], [7, 0], [-5, -5], [5, 5], [5, -5], [-5, 5]];
+    SPIKES.forEach(([x, y]) => {
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', 0); ln.setAttribute('y1', 0);
+        ln.setAttribute('x2', x); ln.setAttribute('y2', y);
+        ln.setAttribute('stroke', VIRUS_NODE_COLOR); ln.setAttribute('stroke-width', 1.6);
+        ln.setAttribute('stroke-linecap', 'round'); vg.appendChild(ln);
+        const dot = document.createElementNS(NS, 'circle');
+        dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('r', 1.3);
+        dot.setAttribute('fill', VIRUS_NODE_COLOR); vg.appendChild(dot);
+    });
+    const body = document.createElementNS(NS, 'circle');
+    body.setAttribute('r', 4.4); body.setAttribute('fill', VIRUS_NODE_COLOR);
+    body.setAttribute('stroke', 'var(--bg-card,#161b22)'); body.setAttribute('stroke-width', 1.4);
+    body.setAttribute('paint-order', 'stroke'); vg.appendChild(body);
+    const core = document.createElementNS(NS, 'circle');
+    core.setAttribute('r', 1.5); core.setAttribute('fill', 'var(--bg-card,#161b22)');
+    core.setAttribute('fill-opacity', 0.55); vg.appendChild(core);
+    g.appendChild(vg);
+}
 
 const TOPOLOGIES = [
     { key: 'tree', label: 'Tree' },
@@ -399,7 +442,7 @@ const AgentMapPage = {
         ogrp.appendChild(olbl);
         const osel = document.createElement('select');
         osel.className = 'filter-select';
-        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Log-only'], ['threat', 'Threats']].forEach(([v, t]) => {
+        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Logged only'], ['threat', 'Threats']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v; o.textContent = t;
             if (v === this.outcomeFilter) o.selected = true;
@@ -829,13 +872,14 @@ const AgentMapPage = {
         const toolMap = {};
         perSessionTools.forEach(t => {
             const key = t.tool_id;
-            if (!toolMap[key]) toolMap[key] = { id: 'mtool:' + key, kind: 'tool', label: t.label, tool_id: key, ext: t.ext, blocked: false, calls: 0, cloud_managed: false, touched_secrets: false, last_used: null, last_blocked: null };
+            if (!toolMap[key]) toolMap[key] = { id: 'mtool:' + key, kind: 'tool', label: t.label, tool_id: key, ext: t.ext, blocked: false, calls: 0, cloud_managed: false, touched_secrets: false, last_used: null, last_blocked: null, detection_source: null, ml_score: null, detection_rules: null };
             toolMap[key].blocked = toolMap[key].blocked || t.blocked;
             toolMap[key].calls += (t.calls || 0);
             toolMap[key].cloud_managed = toolMap[key].cloud_managed || t.cloud_managed;
             toolMap[key].touched_secrets = toolMap[key].touched_secrets || t.touched_secrets;
             toolMap[key].last_used = maxStr(toolMap[key].last_used, t.last_used);
             toolMap[key].last_blocked = maxStr(toolMap[key].last_blocked, t.last_blocked);
+            DetectionLabel.mergeInto(toolMap[key], t);
         });
         const sharedTools = Object.values(toolMap).sort((a, b) => String(a.tool_id).localeCompare(String(b.tool_id)));
 
@@ -974,6 +1018,12 @@ const AgentMapPage = {
                 lock.setAttribute('paint-order', 'stroke'); lock.setAttribute('pointer-events', 'none');
                 lock.setAttribute('transform', 'translate(6,-16) scale(0.5)'); g.appendChild(lock);
             }
+            // Threat-detected marker (virus) — separate from the lock (secret)
+            // and from the red blocked ring, so an allowed-but-flagged agent
+            // reads as "threat detected", not "blocked". Top-left corner.
+            if (n.detection_source && !n.gray) {
+                appendVirusMarker(g, 'translate(-13,-13) scale(0.62)');
+            }
             const num = document.createElementNS(SVG_NS, 'text');
             num.setAttribute('text-anchor', 'middle'); num.setAttribute('y', 3);
             num.setAttribute('font-size', 8); num.setAttribute('font-weight', 700);
@@ -1018,6 +1068,11 @@ const AgentMapPage = {
                 lock.style.stroke = 'var(--bg-card,#161b22)'; lock.setAttribute('stroke-width', 2.5);
                 lock.setAttribute('paint-order', 'stroke'); lock.setAttribute('pointer-events', 'none');
                 lock.setAttribute('transform', 'translate(3,-13) scale(0.5)'); g.appendChild(lock);
+            }
+            // Threat-detected marker (virus) on the tool node — top-left so it
+            // doesn't collide with the lock (top-right). Distinct from blocked.
+            if (n.detection_source && !n.gray) {
+                appendVirusMarker(g, 'translate(-11,-11) scale(0.55)');
             }
             if (n._lbl) {
                 const tl = document.createElementNS(SVG_NS, 'text');
@@ -1084,11 +1139,12 @@ const AgentMapPage = {
         const toolMap = {};
         perTools.forEach(t => {
             const k = t.tool_id;
-            if (!toolMap[k]) toolMap[k] = { id: 'stool:' + k, kind: 'tool', label: t.label, tool_id: k, ext: t.ext, blocked: false, cloud_managed: false, touched_secrets: false, value: 0, calls: 0, last_used: null, last_blocked: null };
+            if (!toolMap[k]) toolMap[k] = { id: 'stool:' + k, kind: 'tool', label: t.label, tool_id: k, ext: t.ext, blocked: false, cloud_managed: false, touched_secrets: false, value: 0, calls: 0, last_used: null, last_blocked: null, detection_source: null, ml_score: null, detection_rules: null };
             const m = toolMap[k];
             m.value += (t.calls || 0); m.calls += (t.calls || 0); m.blocked = m.blocked || t.blocked;
             m.cloud_managed = m.cloud_managed || t.cloud_managed; m.touched_secrets = m.touched_secrets || t.touched_secrets;
             m.last_used = maxStr(m.last_used, t.last_used); m.last_blocked = maxStr(m.last_blocked, t.last_blocked);
+            DetectionLabel.mergeInto(m, t);
         });
         const sharedTools = Object.values(toolMap);
 
@@ -1260,6 +1316,25 @@ const AgentMapPage = {
         let title, typ, rows = '', openLbl, openFn;
         const kv = (k, v) => `<span>${this._esc(k)}</span><b>${v}</b>`;
         const kvBlk = (k, v) => `<span>${this._esc(k)}</span><b style="color:${v ? 'var(--danger,#ef4444)' : 'var(--text-primary,#e6edf3)'}">${v}</b>`;
+        // Detection-source row (Rule / ML / Rule+ML) rolled up across this
+        // node's calls; empty when none of them produced a threat.
+        // Detection shown as its OWN labelled row — a separate activity from
+        // the tool call's allow/block outcome, so a flagged-but-allowed call
+        // doesn't read as blocked. Virus = threat, lock = secret leak.
+        const detRow = (node) => {
+            if (!node.detection_source) return '';
+            const isSecret = node.touched_secrets || node.secret;
+            const icon = isSecret ? ICON.lock(SECRET_NODE_COLOR, 13) : ICON.virus(VIRUS_NODE_COLOR, 13);
+            const what = isSecret ? 'Secret touched' : 'Threat detected';
+            // FP-triage pill (mechanism 1) — same signal as Agent Runs, so a
+            // likely-FP detection is flagged in the map card too.
+            const fp = node.ml_agreement === 'ml_disagrees'
+                ? ' <span style="font:700 10px sans-serif;color:#f59e0b;background:rgba(245,158,11,0.16);padding:1px 6px;border-radius:10px;">likely FP · ML disagrees</span>'
+                : node.ml_agreement === 'ml_uncertain'
+                    ? ' <span style="font:700 10px sans-serif;color:#7d8590;background:rgba(125,133,144,0.16);padding:1px 6px;border-radius:10px;">ML uncertain</span>'
+                    : '';
+            return `<span>${icon} ${what}</span><b>${DetectionLabel.htmlFromFields(node.detection_source, node.ml_score, node.detection_rules)}${fp}</b>`;
+        };
 
         if (n.kind === 'device') {
             const hs = this._lnodes.filter(x => x.kind === 'harness');
@@ -1282,6 +1357,7 @@ const AgentMapPage = {
                 : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
             rows = kv('Status', sstatus) + kv('Last call', this._relTime(n.last_used))
                 + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
+                + detRow(n)
                 + (n.secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (fullSid ? `<span>Session</span><span class="sv-sid"><code>${this._esc(fullSid)}</code><button class="sv-copy" data-copy="${this._esc(fullSid)}" title="Copy session id">copy</button></span>` : '');
             openLbl = '▸ Open this agent’s run'; openFn = () => this._openAgent(n);
@@ -1308,6 +1384,7 @@ const AgentMapPage = {
                 + kv('Tool calls', calls) + kv('Used by', agents + (agents === 1 ? ' agent' : ' agents'))
                 + kv('Last call', `${this._esc(this._relTime(lastCall))}${lastCall ? ` <span style="color:var(--text-muted,#7d8590)">· ${this._esc(this._absTime(lastCall))}</span>` : ''}`)
                 + (lastBlocked ? kv('Last blocked', `<span style="color:var(--danger,#ef4444);font-weight:700">${this._esc(this._relTime(lastBlocked))}</span> <span style="color:var(--text-muted,#7d8590)">· ${this._esc(this._absTime(lastBlocked))}</span>`) : '')
+                + detRow(n)
                 + (secret ? kv('Secret access', '<span style="color:var(--warning,#f59e0b);font-weight:700">detected</span>') : '')
                 + (cloud ? kv('Cloud-managed', 'yes') : '');
             openLbl = '▸ Open runs for ' + this._esc(this._toolLabel(n)); openFn = () => this._openTool(n);
@@ -1412,7 +1489,12 @@ const AgentMapPage = {
             if (f === 'allow') return e.outcome === 'allow';
             if (f === 'blocked') return e.outcome === 'blocked' || e.blocked;
             if (f === 'log_only') return e.outcome === 'log_only' || (e.log_only || 0) > 0;
-            if (f === 'threat') return e.blocked || e.touched_secrets || e.risk === 'amber' || e.risk === 'red';
+            // "Threat" = edges carrying a real detection (Rule / ML / Rule+ML),
+            // the same signal that draws the virus glyph — so the filter, the
+            // glyph, and the Runs "Threats" filter all agree. (Was: blocked ||
+            // touched_secrets || risk amber/red, which disagreed with the glyph
+            // and conflated blocked/secret/high-risk into "threat".)
+            if (f === 'threat') return !!e.detection_source;
             return true;
         };
         const lit = new Set();
@@ -1552,6 +1634,10 @@ const AgentMapPage = {
         const harnesses = (this.data.nodes || []).filter(n => n.kind === 'harness');
         const active = sessions.filter(n => n.active).length;
         const blocked = (this.data.edges || []).reduce((s, e) => s + (e.blocked || 0), 0);
+        // distinct threat-detected tools (CISO needs this front-and-centre: a
+        // threat can be DETECTED yet still ALLOWED to run — "blocked" alone hides
+        // that exposure). Kept separate from the blocked counter on purpose.
+        const detected = new Set((this.data.nodes || []).filter(n => n.kind === 'tool' && n.detection_source).map(n => n.tool_id)).size;
         // distinct secret-touching tools across the fleet (posture at a glance)
         const secrets = new Set((this.data.nodes || []).filter(n => n.kind === 'tool' && n.touched_secrets).map(n => n.tool_id)).size;
         el.innerHTML =
@@ -1559,7 +1645,8 @@ const AgentMapPage = {
             `<span class="sv-stat"><b>${active}</b> active agents</span>` +
             `<span class="sv-stat"><b>${sessions.length}</b> total</span>` +
             `<span class="sv-stat-sep"></span>` +
-            `<span class="sv-stat ${blocked ? 'is-alert' : ''}">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>` +
+            `<span class="sv-stat ${detected ? 'is-alert' : ''}" title="Threats detected — may have been allowed to run, not necessarily blocked">${ICON.virus(detected ? VIRUS_NODE_COLOR : '#64748b', 13)} <b>${detected}</b> detected</span>` +
+            `<span class="sv-stat ${blocked ? 'is-alert' : ''}" title="Tool calls the policy actually blocked">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>` +
             `<span class="sv-stat ${secrets ? 'is-watch' : ''}">${ICON.lock(secrets ? '#f59e0b' : '#64748b', 13)} <b>${secrets}</b> secret</span>`;
         // "How to read this map" — its own pill at the FAR RIGHT of the same
         // line as the stats (the stats pill is pointer-events:none and capped at
@@ -1594,7 +1681,8 @@ const AgentMapPage = {
             `<span><i class="lg-dot" style="background:${TOOL_FILL}"></i>built-in tool</span>` +
             `<span>${ICON.gear(TOOL_FILL_EXT, 14)} external / MCP</span>` +
             `<span><i class="lg-ring" style="border-color:${OUTCOME_COLOR.blocked}"></i>blocked tool</span>` +
-            `<span>${ICON.lock('#f59e0b', 13)} secret / cloud</span>` +
+            `<span>${ICON.virus(VIRUS_NODE_COLOR, 14)} threat detected</span>` +
+            `<span>${ICON.lock('#f59e0b', 13)} secret leak</span>` +
             `<span><i class="lg-dot" style="background:${GRAY}"></i>inactive</span>`;
     },
 

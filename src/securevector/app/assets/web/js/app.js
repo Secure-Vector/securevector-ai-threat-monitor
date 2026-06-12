@@ -29,6 +29,10 @@ const App = {
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         settings: SettingsPage,
+        // Guardian ML deep-link — same Settings page, but flags the Guardian
+        // section to scroll into view + highlight on load. Lets the Configure
+        // nav entry land the user directly on the toggle.
+        'guardian-ml': { render: (c) => { SettingsPage.focusGuardian = true; return SettingsPage.render(c); } },
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
         // Tool Activity / Cost Tracking are sub-items under Agent Replay;
         // Tool Permissions / Cost Settings are top-level configure entries.

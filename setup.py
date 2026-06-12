@@ -75,6 +75,18 @@ setup(
             # annotations`. No-op on 3.10+.
             'eval_type_backport>=0.2.0; python_version<"3.10"',
         ],
+        "ml": [
+            # Guardian ML model as a separately-updatable package (OPT-IN).
+            # The app already BUNDLES the Guardian runtime and works fully
+            # offline WITHOUT this extra — so installing it is not required.
+            # `pip install securevector-ai-monitor[ml]` adds the model as a
+            # pip-managed dependency so you can `pip install -U
+            # securevector-guardian-model` for a fresher model independent of
+            # app releases. The range pins a compatible major (semver). The app
+            # loads the package only when it is >= the bundled version, else it
+            # falls back to the bundle (see guardian_service._try_load_from_package).
+            "securevector-guardian-model>=1.2,<2",
+        ],
         "dev": [
             "pytest>=6.0",
             "pytest-cov>=3.0",
@@ -119,6 +131,11 @@ setup(
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
             "pricing/*.yml",
+            # SecureVector Guardian — vendored local ML runtime bundle. The .py
+            # files ship automatically; the model bundle + integrity sidecar are
+            # data files that must be listed so they land in the wheel.
+            "app/services/guardian/*.json.gz",
+            "app/services/guardian/*.sha256",
             "app/assets/**/*",
             "app/assets/web/**/*",
             "app/assets/web/css/*",

@@ -24,6 +24,13 @@ const OUTCOME = {
 };
 const RISK_DOT = { red: '#ef4444', amber: '#f59e0b', green: '#10b981' };
 const BAN_SVG = (c, s = 11) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2c1.8 0 3.5.6 4.9 1.7L5.7 16.9A8 8 0 0 1 12 4zm0 16a8 8 0 0 1-4.9-1.7L18.3 7.1A8 8 0 0 1 12 20z"/></svg>`;
+// Threat (virus) + secret (lock) glyphs for the detection sub-row. Virus is
+// red to match the map; lock is amber. Distinct from the BAN (blocked) glyph.
+// Prefixed AR_ to avoid colliding with the map's global VIRUS_SVG — these are
+// plain <script> globals, not modules, so a bare `const VIRUS_SVG` would be a
+// duplicate-declaration SyntaxError that breaks this whole file.
+const AR_VIRUS_SVG = (c = '#ef4444', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="4.5" fill="${c}" fill-opacity="0.2"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="19.1" y1="4.9" x2="17" y2="7"/><line x1="7" y1="17" x2="4.9" y2="19.1"/></svg>`;
+const AR_LOCK_SVG = (c = '#f59e0b', s = 12) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="vertical-align:-2px"><path fill="${c}" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm3 8H9V6a3 3 0 0 1 6 0z"/></svg>`;
 
 const AgentRunsPage = {
     windowDays: 7,
@@ -160,6 +167,43 @@ const AgentRunsPage = {
             .ar-reason-inline { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
                 font-size:11.5px; color:var(--text-secondary,#b1bac4); }
             .ar-reason-inline.blk { color:var(--danger,#ef4444); }
+            /* Detection sub-row — nested under the tool-call span as its own
+               activity. Coloured left-rail (red threat / amber secret) so it
+               reads as a flag ON the call, never as the call's own verdict. */
+            .ar-span-detection { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+                margin:5px 0 0 6px; padding:4px 10px 4px 9px; border-radius:7px; font-size:12px;
+                border-left:2.5px solid; width:fit-content; max-width:100%; }
+            .ar-span-detection.det-threat { border-left-color:#ef4444; background:rgba(239,68,68,0.09); }
+            .ar-span-detection.det-secret { border-left-color:#f59e0b; background:rgba(245,158,11,0.09); }
+            .ar-det-what { font:700 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); }
+            .ar-det-rules { font-size:11px; color:var(--text-secondary,#b1bac4); }
+            /* Mechanism 1 FP-triage pill on the detection row. */
+            .ar-det-fp { font:700 10px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.2px;
+                padding:2px 7px; border-radius:20px; color:#f59e0b; background:rgba(245,158,11,0.15); }
+            .ar-det-fp.uncertain { color:var(--text-muted,#7d8590); background:rgba(125,133,144,0.15); }
+            .ar-det-clickable { cursor:pointer; }
+            .ar-det-clickable:hover { filter:brightness(1.15); }
+            .ar-det-view { font:600 11px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--accent-primary,#5eadb8); opacity:.85; }
+            .ar-det-clickable:hover .ar-det-view { opacity:1; text-decoration:underline; }
+            /* Allowed-vs-blocked outcome pill ON the detection — the key
+               "detected ≠ blocked" clarity fix. Amber = ran anyway (act on it),
+               muted green = stopped. */
+            .ar-det-outcome { font:700 10px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.3px;
+                padding:2px 7px; border-radius:20px; text-transform:uppercase; }
+            .ar-det-outcome.allowed { color:#f59e0b; background:rgba(245,158,11,0.15); }
+            .ar-det-outcome.blocked { color:#10b981; background:rgba(16,185,129,0.15); }
+            /* Flag strip — one-click jump-to-detections in a long run. */
+            .ar-flag-strip { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 4px; }
+            .ar-flag-chip { display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+                font:600 12px 'Avenir Next',Avenir,system-ui,sans-serif; padding:4px 11px; border-radius:20px;
+                border:1px solid var(--border-default,#30363d); background:var(--bg-secondary,#161b22);
+                color:var(--text-secondary,#b1bac4); transition:background .12s,border-color .12s; }
+            .ar-flag-chip b { color:var(--text-primary,#e6edf3); }
+            .ar-flag-chip:hover { background:var(--bg-hover,#21262d); }
+            .ar-flag-chip.threat.active { border-color:#ef4444; background:rgba(239,68,68,0.12); }
+            .ar-flag-chip.secret.active { border-color:#f59e0b; background:rgba(245,158,11,0.12); }
+            .ar-flag-chip.blocked.active { border-color:#10b981; background:rgba(16,185,129,0.12); }
+            .ar-flag-chip.clear { color:var(--text-muted,#7d8590); }
             .ar-empty { padding:60px 18px; text-align:center; color:var(--text-secondary,#94a3b8); }
             /* Runtime drill-down filter chip (set by a Map agent-node click) */
             .ar-filter-chip { display:inline-flex; align-items:center; gap:7px; cursor:pointer; align-self:flex-start;
@@ -269,7 +313,7 @@ const AgentRunsPage = {
         ogrp.appendChild(olbl);
         const osel = document.createElement('select');
         osel.className = 'filter-select';
-        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Log-only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
+        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Logged only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v; o.textContent = t;
             if (v === this.outcomeFilter) o.selected = true;
@@ -296,11 +340,21 @@ const AgentRunsPage = {
         if (f === 'blocked') return s.outcome === 'blocked' || act === 'block';
         if (f === 'log_only') return s.outcome === 'log_only' || act === 'log_only';
         if (f === 'secret') return this._isSecret(s);
-        if (f === 'threat') return s.outcome === 'blocked' || act === 'block' || this._isSecret(s)
-            || ['delete', 'admin', 'write'].includes(String(s.risk || '').toLowerCase());
+        // "Threats" = spans that actually carry a detection (Rule / ML / Rule+ML),
+        // keyed off the same `detection_source` signal that draws the virus glyph
+        // and the detection sub-row. The old definition (blocked OR reason-regex
+        // OR risk∈{delete,admin,write}) silently EXCLUDED real ML-only detections
+        // — which have no rule, no reason — and pulled in unflagged write calls.
+        if (f === 'threat') return !!s.detection_source;
         return true;
     },
     _isSecret(s) {
+        // Prefer the real detection signal (matched rule names) over a reason
+        // regex, so the secret filter agrees with the lock glyph and the map.
+        if (s.detection_source) {
+            return (s.detection_rules || []).some(
+                r => /credential|secret|api[_ ]?key|token|password|exfil|pii/i.test(String(r)));
+        }
         return /credential|secret|api[_ ]?key|token|password|exfil|pii/.test(String(s.reason || '').toLowerCase());
     },
 
@@ -328,7 +382,7 @@ const AgentRunsPage = {
     _exportPDF() {
         const t = this._trace;
         if (!t || !(t.spans || []).length) return;
-        const sub = `${t.runtime_kind || 'unknown'} · ${t.span_count} spans · ${t.blocked || 0} blocked · run ${String(t.trace_id).slice(0, 12)}…`;
+        const sub = `${t.runtime_kind || 'unknown'} · ${t.span_count} steps · ${t.blocked || 0} blocked · run ${String(t.trace_id).slice(0, 12)}…`;
         ObsTabs.printDoc('SecureVector — Agent Run',
             `<h1>Agent Run</h1><div class="sub">${sub}</div>` +
             ObsTabs.tableHTML(this._exportCols(), t.spans));
@@ -459,7 +513,7 @@ const AgentRunsPage = {
                 `<div class="ar-run-top"><span class="ar-run-dot" style="background:${color}"></span>` +
                 rtMain +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green}" title="risk: ${r.risk}"></span></div>` +
-                `<div class="ar-run-meta"><span><span class="ar-num">${r.spans}</span> spans</span>` +
+                `<div class="ar-run-meta"><span><span class="ar-num">${r.spans}</span> steps</span>` +
                 (r.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span> blocked</span>` : '') +
                 `<span>${this._fmtTime(r.ended_at)}</span></div>`;
             card.addEventListener('click', () => this.selectRun(r.trace_id));
@@ -499,7 +553,7 @@ const AgentRunsPage = {
         const sid = String(run.session_id || trace.trace_id || '');
         const sub = document.createElement('div');
         sub.className = 'ar-det-sub';
-        sub.innerHTML = `<span class="ar-num">${trace.span_count}</span> spans · ` +
+        sub.innerHTML = `<span class="ar-num">${trace.span_count}</span> steps · ` +
             `<span class="ar-num">${allSpans.length - extCount}</span> built-in · ` +
             `<span class="ar-num">${extCount}</span> external · ` +
             (trace.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${trace.blocked}</span> blocked</span> · ` : '') +
@@ -512,6 +566,42 @@ const AgentRunsPage = {
             if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => {});
             else { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { } document.body.removeChild(ta); }
         };
+
+        // Flag strip — in a 400-span run the few flagged steps are invisible.
+        // Surface the counts (from the FULL run) as one-click filters so an
+        // analyst jumps straight to the threats / secrets / blocks. Keyed off
+        // detection_source so it matches the virus/lock glyphs and the filter.
+        const nDetect = allSpans.filter(s => s.detection_source).length;
+        const nSecret = allSpans.filter(s => s.detection_source && this._isSecret(s)).length;
+        const nBlocked = allSpans.filter(s => s.outcome === 'blocked' || s.action === 'block').length;
+        if (nDetect || nBlocked) {
+            const strip = document.createElement('div');
+            strip.className = 'ar-flag-strip';
+            const chip = (cls, icon, n, label, filter) => {
+                if (!n) return;
+                const c = document.createElement('button');
+                c.type = 'button';
+                c.className = 'ar-flag-chip ' + cls + (this.outcomeFilter === filter ? ' active' : '');
+                c.innerHTML = `${icon}<b>${n}</b>&nbsp;${label}`;
+                c.onclick = () => {
+                    this.outcomeFilter = (this.outcomeFilter === filter ? 'all' : filter);
+                    if (this._outcomeSel) this._outcomeSel.value = this.outcomeFilter;
+                    this.renderWaterfall(this._trace);
+                };
+                strip.appendChild(c);
+            };
+            chip('threat', AR_VIRUS_SVG('#ef4444', 13), nDetect, `detected${nDetect > 1 ? '' : ''}`, 'threat');
+            chip('secret', AR_LOCK_SVG('#f59e0b', 13), nSecret, 'secret', 'secret');
+            chip('blocked', BAN_SVG('#ef4444', 12), nBlocked, 'blocked', 'blocked');
+            if (this.outcomeFilter !== 'all') {
+                const clr = document.createElement('button');
+                clr.type = 'button'; clr.className = 'ar-flag-chip clear';
+                clr.textContent = '✕ show all';
+                clr.onclick = () => { this.outcomeFilter = 'all'; if (this._outcomeSel) this._outcomeSel.value = 'all'; this.renderWaterfall(this._trace); };
+                strip.appendChild(clr);
+            }
+            detail.appendChild(strip);
+        }
 
         // Apply the built-in / external checkbox filter, then show NEWEST first
         // (the API returns spans oldest→newest by seq; reverse for display so
@@ -553,16 +643,83 @@ const AgentRunsPage = {
             const reason = s.reason
                 ? `<span class="ar-reason-inline ${s.outcome === 'blocked' ? 'blk' : ''}">${this._esc(s.reason)}</span>`
                 : '';
+            // The detection is its OWN activity, nested under the tool-call row
+            // (not merged into it) — so an allowed-but-flagged call doesn't read
+            // as blocked. Built by _detectionRow below.
             span.innerHTML = dot +
                 `<div class="ar-span-row">${caret}<span class="ar-turn">#${s.turn_index ?? '–'}</span>` +
                 `<span class="ar-span-tool">${this._esc(s.function_name || s.tool_id || 'tool')}</span>` +
                 kind + badge + reason +
                 `<span class="ar-time">${this._fmtTime(s.called_at)}</span></div>` +
+                this._detectionRow(s) +
                 this._spanDetail(s, external);
             const row = span.querySelector('.ar-span-row');
             row.addEventListener('click', () => span.classList.toggle('open'));
+            // Detection sub-row deep-links to the threat/secret page (doesn't
+            // toggle the span open).
+            const detEl = span.querySelector('.ar-span-detection');
+            if (detEl && detEl.dataset.rid) {
+                detEl.classList.add('ar-det-clickable');
+                detEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._openDetection(detEl.dataset.kind, detEl.dataset.rid);
+                });
+            }
             detail.appendChild(span);
         });
+    },
+
+    /** Detection sub-row nested under a tool-call span — a SEPARATE activity
+     *  from the call itself. Virus = threat, lock = secret leak. Secret is
+     *  inferred from the matched rule names (mirrors the backend heuristic).
+     *  Empty string when the step produced no correlated detection. */
+    _detectionRow(s) {
+        if (!s.detection_source) return '';
+        const rules = s.detection_rules || [];
+        const isSecret = rules.some(r => /credential|secret|leak|sensitive info|exfil|\bpii\b/i.test(String(r)));
+        const icon = isSecret ? AR_LOCK_SVG('#f59e0b', 12) : AR_VIRUS_SVG('#ef4444', 12);
+        // "Secret touched", not "Secret leak" — an allowed call that handled a
+        // credential hasn't necessarily exfiltrated it; "leak" overclaims.
+        const what = isSecret ? 'Secret touched' : 'Threat detected';
+        const cls = isSecret ? 'secret' : 'threat';
+        const badge = DetectionLabel.htmlFromFields(s.detection_source, s.ml_score, s.detection_rules);
+        // The single most important clarity fix from the CISO/indie/SOC review:
+        // a detection on an ALLOWED call must not read as "blocked". Say plainly
+        // whether the agent's call was stopped or ran anyway.
+        const blocked = s.outcome === 'blocked';
+        const outcome = blocked
+            ? '<span class="ar-det-outcome blocked">blocked — stopped</span>'
+            : '<span class="ar-det-outcome allowed">allowed — ran anyway</span>';
+        const ruleTxt = rules.length
+            ? `<span class="ar-det-rules">${this._esc(rules.slice(0, 3).join(', '))}</span>`
+            : '';
+        // Mechanism 1 FP-triage pill — let SOC deprioritise rule hits the model
+        // rated benign (likely FP) or wasn't sure about, right on the row.
+        const fp = s.ml_agreement === 'ml_disagrees'
+            ? '<span class="ar-det-fp">likely FP · ML disagrees</span>'
+            : s.ml_agreement === 'ml_uncertain'
+                ? '<span class="ar-det-fp uncertain">ML uncertain</span>'
+                : '';
+        // Deep-link affordance — click the detection to see WHAT was detected on
+        // its own page (Threat Monitor for threats, Secret Detections for secrets).
+        const rid = s.request_id || '';
+        const kind = isSecret ? 'secret' : 'threat';
+        const view = rid ? '<span class="ar-det-view">view details →</span>' : '';
+        return `<div class="ar-span-detection det-${cls}" data-rid="${this._esc(rid)}" data-kind="${kind}">${icon}` +
+            `<span class="ar-det-what">${what}</span>${outcome}${badge}${fp}${ruleTxt}${view}</div>`;
+    },
+
+    /** Deep-link from a Runs detection to the record that explains WHAT was
+     *  detected. Every detection (threat OR secret-flavored) is a
+     *  threat_intel_record, so Threat Monitor — filtered to this request_id —
+     *  always has it, with the redacted content + matched rules + ML assessment
+     *  in the detail drawer. (Secret Detections is the redaction-audit log, a
+     *  separate table that doesn't carry every credential-rule hit, so it isn't
+     *  a reliable deep-link target here.) */
+    _openDetection(kind, rid) {
+        if (!rid) return;
+        if (window.ThreatsPage) ThreatsPage.pendingRequestId = rid;
+        if (window.Sidebar) Sidebar.navigate('threats');
     },
 
     /** The collapsible per-step detail panel revealed when a span is clicked. */
@@ -571,6 +728,11 @@ const AgentRunsPage = {
         const args = s.args_preview
             ? `<div class="ar-args"><div class="ar-args-label">Arguments (redacted preview)</div><pre>${this._esc(s.args_preview)}</pre></div>`
             : '';
+        // Detected-by row: raw HTML (badge), not escaped text — only when the
+        // step is tied to a threat detection.
+        const det = s.detection_source
+            ? `<dt>Detected by</dt><dd>${DetectionLabel.htmlFromFields(s.detection_source, s.ml_score, s.detection_rules)}</dd>`
+            : '';
         return `<div class="ar-detail-body">` +
             `<dl class="ar-kv">` +
             kv('Tool', s.tool_id) +
@@ -578,6 +740,7 @@ const AgentRunsPage = {
             kv('Kind', external ? 'External MCP / plugin' : 'Built-in harness tool') +
             kv('Tool permission', s.verdict || (s.outcome || '').toUpperCase()) +
             kv('Risk', s.risk) +
+            det +
             kv('Time', this._fmtTime(s.called_at)) +
             kv('Reason', s.reason) +
             `</dl>${args}</div>`;

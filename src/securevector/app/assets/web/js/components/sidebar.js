@@ -3,6 +3,14 @@
  * Note: All content is static/hardcoded, no user input is rendered
  */
 
+// Load-scoped guard so the Guardian ML "sentinel" robot plays its 30s scan
+// orbit exactly ONCE per page load (on launch / hard reload), not again on
+// every in-app navigation. render() builds the nav once per load and a hard
+// reload re-runs this whole script, resetting the flag — which is precisely
+// the "every launch / hard reload" cadence we want.
+let _gmRoboPlayed = false;
+let _gmRoboTimer = null;
+
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -29,6 +37,11 @@ const Sidebar = {
         // surfaced under Agent Replay above.
         { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
+        // Guardian ML — local ML threat detection. A configure-time choice
+        // (on/off + what it does), so it sits in Configure and deep-links to
+        // the Guardian section on the Settings page. Lives here rather than as
+        // a sidebar pill so the bottom status zone stays single-purpose.
+        { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
         // MCP Policies — read-only viewer of cloud-synced policy bundles.
         // Lives next to Tool Permissions because the rules layered there
         // come from here. Separate sidebar entry keeps the trust artifact
@@ -232,8 +245,46 @@ const Sidebar = {
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             if (item.tooltip) navItem.title = item.tooltip;
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid on the icon
-            const iconSvg = this.createIcon(item.icon);
+            // Add icon (SVG) — core features get an orange badge dot overlaid on
+            // the icon. Guardian ML uses its animated "sentinel" robot AS the
+            // nav icon (in place of the generic chip) — the symbol that stands
+            // for the local ML model is the bot itself. It runs a 30s scan on
+            // each launch / hard reload (once per page load), then settles.
+            let iconSvg;
+            if (item.id === 'guardian-ml') {
+                iconSvg = document.createElement('span');
+                iconSvg.className = 'gm-robo';
+                // Title gives sighted users a hover hint; the SVG is aria-hidden
+                // and the nav row already owns the accessible name, so the bot is
+                // purely decorative (no aria-label → no double-announce).
+                iconSvg.title = 'Guardian ML — local AI threat detection, watching every call';
+                iconSvg.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
+                    <g class="gm-bot">
+                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
+                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
+                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
+                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="4.6"/>
+                        <circle class="gm-eye l" cx="17.2" cy="18.6" r="1.6"/>
+                        <circle class="gm-eye r" cx="22.8" cy="18.6" r="1.6"/>
+                        <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
+                    </g>
+                    <g class="gm-orbit">
+                        <path class="gm-trail" d="M10.8 4.9 A 16 16 0 0 1 20 2" stroke-linecap="round"/>
+                        <circle class="gm-sat" cx="20" cy="2" r="2.3"/>
+                    </g>
+                </svg>`;
+                if (_gmRoboPlayed) {
+                    iconSvg.classList.add('gm-static');
+                } else {
+                    _gmRoboPlayed = true;
+                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
+                    _gmRoboTimer = setTimeout(() => iconSvg.classList.add('gm-static'), 30000);
+                }
+            } else {
+                iconSvg = this.createIcon(item.icon);
+            }
             if (CORE_BADGE.has(item.id)) {
                 const iconWrap = document.createElement('div');
                 iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
@@ -274,7 +325,9 @@ const Sidebar = {
                 navItem.appendChild(tier);
             }
 
-            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy
+            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
+            // Guardian ML deliberately omitted: it gets the animated "sentinel"
+            // robot below instead of a NEW badge.
             const persistNewItems = ['rules'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
@@ -305,6 +358,7 @@ const Sidebar = {
                 navItem.appendChild(newBadge);
                 setTimeout(dismissBadge, 30000);
             }
+
 
 
             // Chevron for collapsible items
@@ -495,6 +549,11 @@ const Sidebar = {
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
 
+        // Guardian ML lives in Settings (Configure section) — it's a
+        // configuration choice, not a sidebar control. Keeping it out of the
+        // bottom zone lets the proxy/plugin/SIEM status banners (which hide
+        // when inactive) read as a clean, single-purpose status stack.
+
         // Integration proxy status indicator — compact single line, anchored in bottom section
         const proxyBanner = document.createElement('div');
         proxyBanner.id = 'integration-proxy-banner';
@@ -644,24 +703,153 @@ const Sidebar = {
             });
         }
 
-        // Try SecureVector button — opens floating chat
-        const tryBtn = document.createElement('button');
-        tryBtn.className = 'try-it-trigger-btn';
-        const tryIcon = document.createElement('img');
-        tryIcon.src = '/images/favicon.png';
-        tryIcon.style.cssText = 'width:14px; height:14px; object-fit:contain; flex-shrink:0;';
-        const tryLabel = document.createElement('span');
-        tryLabel.textContent = 'Try SecureVector';
-        const tryArrow = document.createElement('span');
-        tryArrow.textContent = '↗';
-        tryArrow.style.cssText = 'font-size:10px; opacity:0.7;';
-        tryBtn.appendChild(tryIcon);
-        tryBtn.appendChild(tryLabel);
-        tryBtn.appendChild(tryArrow);
-        tryBtn.addEventListener('click', () => TryItChat.open());
-        bottomSection.appendChild(tryBtn);
-
         container.appendChild(bottomSection);
+    },
+
+    // Guardian ML control — an accent-bordered pill in the sidebar bottom
+    // section (above "Try SecureVector"). It's the flagship local-detection
+    // toggle, so it gets a more substantial treatment than the slim status
+    // banners: a highlighted border + soft shadow that brighten when active,
+    // plus a status dot. Mirrors the page-level toggle (PUT /api/settings
+    // {guardian_ml_enabled}); enabling it pops a confirmation explaining what
+    // the model does before committing; disabling commits immediately. The
+    // label opens the full Guardian section on the Settings page.
+    renderGuardianToggle(parent) {
+        const pill = document.createElement('div');
+        pill.className = 'guardian-pill';
+        pill.dataset.guardianToggle = 'true';
+
+        // Status dot — muted when off, accent + halo when active (CSS-driven
+        // off the pill's data-active attribute).
+        const dot = document.createElement('span');
+        dot.className = 'gp-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        pill.appendChild(dot);
+
+        // Title + status sub-label, stacked. Clicking opens the full Guardian
+        // section in Settings (the one affordance that survives collapsed mode).
+        const textCol = document.createElement('div');
+        textCol.className = 'gp-text';
+        textCol.title = 'SecureVector Guardian — local ML threat detection. Click to open settings.';
+        const title = document.createElement('span');
+        title.className = 'gp-title';
+        title.textContent = 'Guardian ML';
+        // One-line description of what it is — the on/off state is carried by
+        // the toggle, the status dot, and the border glow, so this stays a
+        // fixed explainer rather than an "Active/Off" label.
+        const sub = document.createElement('span');
+        sub.className = 'gp-sub';
+        sub.textContent = 'Local ML threat detection';
+        textCol.appendChild(title);
+        textCol.appendChild(sub);
+        textCol.addEventListener('click', () => this.navigate('settings'));
+        pill.appendChild(textCol);
+
+        // Toggle switch — reuses the global .toggle / .toggle-slider markup so
+        // it matches the Settings page exactly, scaled down for the rail.
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle guardian-nav-toggle';
+        toggle.style.cssText = 'flex-shrink: 0; transform: scale(0.8); transform-origin: right center;';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-label', 'Toggle Guardian ML detection');
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(checkbox);
+        toggle.appendChild(slider);
+        pill.appendChild(toggle);
+
+        // Single place that keeps the visual state (active glow via the
+        // data-active attribute → dot + border) in sync with the checkbox.
+        const reflect = (on) => {
+            pill.dataset.active = on ? 'true' : 'false';
+        };
+
+        // Optimistic default ON (matches server default) so the pill doesn't
+        // flash "Off" before the settings fetch resolves.
+        checkbox.checked = true;
+        reflect(true);
+        API.getSettings().then(s => {
+            const on = (s && s.guardian_ml_enabled) !== false;
+            checkbox.checked = on;
+            reflect(on);
+        }).catch(() => { /* keep optimistic default */ });
+
+        // Guard against the change handler firing while we set state ourselves.
+        let suppress = false;
+        const setChecked = (val) => { suppress = true; checkbox.checked = val; reflect(val); suppress = false; };
+
+        const commit = async (enabled) => {
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                reflect(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (e) {
+                setChecked(!enabled);
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        };
+
+        checkbox.addEventListener('change', (e) => {
+            if (suppress) return;
+            const enabled = e.target.checked;
+            if (enabled) {
+                // Opt-in: hold the switch OFF until the user confirms, so
+                // dismissing the modal (Cancel / X / overlay) leaves it off
+                // with no extra wiring. Only an explicit confirm turns it on.
+                setChecked(false);
+                this.showGuardianEnableConfirm(() => { setChecked(true); commit(true); });
+            } else {
+                commit(false);
+            }
+        });
+
+        parent.appendChild(pill);
+    },
+
+    // Confirmation popup shown when the user flips Guardian ML on — explains
+    // what the model does so enabling is an informed opt-in. onConfirm commits
+    // the change. Dismissing the modal (Cancel / X / overlay) does nothing:
+    // the caller holds the switch off until confirmed, so no revert is needed.
+    showGuardianEnableConfirm(onConfirm) {
+        const content = document.createElement('div');
+
+        const lead = document.createElement('p');
+        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
+        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
+        content.appendChild(lead);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'Fully offline — nothing leaves your machine, no API key.',
+            'Fast — sub-millisecond on a typical prompt or tool call.',
+            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        content.appendChild(list);
+
+        const foot = document.createElement('p');
+        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
+        foot.textContent = 'You can turn it off anytime here or on the Settings page. Regex rules keep running either way.';
+        content.appendChild(foot);
+
+        Modal.show({
+            title: 'Enable Guardian ML detection?',
+            content,
+            size: 'small',
+            actions: [
+                { label: 'Cancel', primary: false },
+                { label: 'Enable Guardian', primary: true, onClick: onConfirm },
+            ],
+        });
     },
 
     toggleCollapse() {
@@ -1054,6 +1242,21 @@ const Sidebar = {
             ],
             shield: [
                 { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
+            ],
+            // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
+            // it visually distinct from the two shields (Threats / MCP Policies)
+            // so the nav doesn't read as a triplicated shield.
+            guardian: [
+                { tag: 'rect', attrs: { x: '4', y: '4', width: '16', height: '16', rx: '2' } },
+                { tag: 'rect', attrs: { x: '9', y: '9', width: '6', height: '6' } },
+                { tag: 'line', attrs: { x1: '9', y1: '1', x2: '9', y2: '4' } },
+                { tag: 'line', attrs: { x1: '15', y1: '1', x2: '15', y2: '4' } },
+                { tag: 'line', attrs: { x1: '9', y1: '20', x2: '9', y2: '23' } },
+                { tag: 'line', attrs: { x1: '15', y1: '20', x2: '15', y2: '23' } },
+                { tag: 'line', attrs: { x1: '20', y1: '9', x2: '23', y2: '9' } },
+                { tag: 'line', attrs: { x1: '20', y1: '14', x2: '23', y2: '14' } },
+                { tag: 'line', attrs: { x1: '1', y1: '9', x2: '4', y2: '9' } },
+                { tag: 'line', attrs: { x1: '1', y1: '14', x2: '4', y2: '14' } },
             ],
             rules: [
                 { tag: 'path', attrs: { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' } },

@@ -12,6 +12,8 @@ recursive-include src/securevector/plugins/claude-code/.claude-plugin *
 recursive-include src/securevector/plugins/codex *
 recursive-include src/securevector/plugins/codex/.codex-plugin *
 recursive-include src/securevector/plugins/copilot-cli *
+recursive-include src/securevector/app/services/guardian *.json.gz
+recursive-include src/securevector/app/services/guardian *.sha256
 global-exclude __pycache__
 global-exclude *.py[co]
 global-exclude *.pyo
