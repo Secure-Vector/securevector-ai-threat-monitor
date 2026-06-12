@@ -7447,7 +7447,7 @@ thead tr:hover #records-select-all,
 }
 /* Scoped to .nav-item so it beats `.nav-item svg{width:20px}` on SPECIFICITY,
    not just source order (robust against CSS reordering/minification). */
-.nav-item .gm-robo svg { width: 24px; height: 24px; display: block; overflow: visible; }
+.nav-item .gm-robo svg { width: 30px; height: 30px; display: block; overflow: visible; }
 /* Collapsed icon-rail: pull the bot closer to the 20px neighbour glyphs so it
    doesn't dominate the narrow strip (no label there to justify the size). */
 .sidebar.collapsed .nav-item .gm-robo svg { width: 24px; height: 24px; }
@@ -7466,16 +7466,14 @@ thead tr:hover #records-select-all,
 .gm-robo .gm-ant-tip.r { animation-delay: 0.42s; }   /* two antennas blink alternately */
 
 /* orbit layer — the "circular motion" */
+/* The dashed circle is a fixed frame — only the satellite dot moves around
+   it. (Counter-spinning the ring read as the whole icon rotating.) */
 .gm-robo .gm-ring {
     fill: none; stroke: var(--accent-primary); stroke-width: 1.4;
     stroke-dasharray: 2.5 3; opacity: 0.85;
-    transform-box: view-box; transform-origin: 20px 18px;
-    animation: gm-ring-spin 7s linear infinite;
 }
-.gm-robo .gm-orbit {
-    transform-box: view-box; transform-origin: 20px 18px;
-    animation: gm-orbit 2.4s linear infinite;
-}
+/* Orbit rotation is SVG-native (SMIL animateTransform in the markup) —
+   CSS only manages the settle/reduced-motion opacity fades. */
 .gm-robo .gm-sat { fill: #d4f7fb; filter: drop-shadow(0 0 3.5px var(--accent-primary)) drop-shadow(0 0 1px #d4f7fb); }
 /* a short fading arc behind the dot so the orbit reads as motion, not a stray
    pixel — keeps the single shiny dot, just gives it a comet's tail */
@@ -7485,8 +7483,6 @@ thead tr:hover #records-select-all,
    keeps the origin dependency off the bot and reads cleaner than a wobble) */
 .gm-robo .gm-bot { animation: gm-bob 3.2s ease-in-out infinite; }
 
-@keyframes gm-orbit { to { transform: rotate(360deg); } }
-@keyframes gm-ring-spin { to { transform: rotate(-360deg); } }
 @keyframes gm-eye { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 @keyframes gm-blink { 0%, 100% { opacity: 1; } 45% { opacity: 0.22; } }
 @keyframes gm-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.6px); } }
@@ -7499,7 +7495,6 @@ thead tr:hover #records-select-all,
 /* At settle the orbiting dot + trail retract, but the dashed circle STAYS
    (just stops spinning) so the robot keeps its ring permanently. */
 .gm-robo.gm-static .gm-orbit { opacity: 0; animation: none; transition: opacity 0.6s ease; }
-.gm-robo.gm-static .gm-ring { animation: none; }
 .gm-robo.gm-static .gm-bot,
 .gm-robo.gm-static .gm-eye,
 .gm-robo.gm-static .gm-ant-tip { animation: none; opacity: 1; }

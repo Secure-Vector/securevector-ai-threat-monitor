@@ -5,6 +5,10 @@
 
 const ToolPermissionsPage = {
     activeTab: 'permissions',
+    // When set (array of tab ids), the tab bar renders only that subset —
+    // lets the nav expose Activity + Inventory as one merged destination
+    // without surfacing the Permissions tab twice.
+    visibleTabs: null,
     tools: [],
     customTools: [],
     settings: null,
@@ -483,7 +487,7 @@ const ToolPermissionsPage = {
             { id: 'permissions', label: 'Tool Permissions' },
             { id: 'activity',    label: 'Tool Call History' },
             { id: 'bill',        label: 'Tool Inventory' },
-        ];
+        ].filter(d => !this.visibleTabs || this.visibleTabs.includes(d.id));
 
         defs.forEach(({ id, label }) => {
             const btn = document.createElement('button');
