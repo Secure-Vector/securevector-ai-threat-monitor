@@ -74,17 +74,11 @@ setup(
             # handle PEP 604 `X | None` strings produced by `from __future__ import
             # annotations`. No-op on 3.10+.
             'eval_type_backport>=0.2.0; python_version<"3.10"',
-        ],
-        "ml": [
-            # Guardian ML model as a separately-updatable package (OPT-IN).
-            # The app already BUNDLES the Guardian runtime and works fully
-            # offline WITHOUT this extra — so installing it is not required.
-            # `pip install securevector-ai-monitor[ml]` adds the model as a
-            # pip-managed dependency so you can `pip install -U
-            # securevector-guardian-model` for a fresher model independent of
-            # app releases. The range pins a compatible major (semver). The app
-            # loads the package only when it is >= the bundled version, else it
-            # falls back to the bundle (see guardian_service._try_load_from_package).
+            # SecureVector Guardian — the local ML detection model, installed as
+            # a normal pip dependency (no vendored runtime in this repo). The app
+            # imports it from `svguardian`; `pip install -U` updates the model
+            # like any other dependency. The runtime is pure-Python (zero ML
+            # deps). Range pins a compatible major (semver).
             "securevector-guardian-model>=1.2,<2",
         ],
         "dev": [
@@ -119,6 +113,7 @@ setup(
             "psutil>=5.8",
             "memory-profiler>=0.60",
             'eval_type_backport>=0.2.0; python_version<"3.10"',
+            "securevector-guardian-model>=1.2,<2",  # Guardian ML model
         ],
     },
     include_package_data=True,
@@ -131,11 +126,6 @@ setup(
             "rules/RULES_ATTRIBUTION.md",
             "rules/LICENSE_NOTICE.md",
             "pricing/*.yml",
-            # SecureVector Guardian — vendored local ML runtime bundle. The .py
-            # files ship automatically; the model bundle + integrity sidecar are
-            # data files that must be listed so they land in the wheel.
-            "app/services/guardian/*.json.gz",
-            "app/services/guardian/*.sha256",
             "app/assets/**/*",
             "app/assets/web/**/*",
             "app/assets/web/css/*",
