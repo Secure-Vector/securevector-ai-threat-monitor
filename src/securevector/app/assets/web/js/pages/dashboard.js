@@ -161,208 +161,239 @@ const DashboardPage = {
         container.appendChild(loading);
 
         try {
-            // Fetch analytics and recent threats
-            const [analytics, threats] = await Promise.all([
+            // Fetch analytics, recent threats, and settings (settings power the
+            // posture sentence — protection on/off — without a second paint).
+            const [analytics, threats, settings] = await Promise.all([
                 API.getThreatAnalytics(),
                 API.getThreats({ page_size: 50 }),
+                API.getSettings().catch(() => null),
             ]);
             this.data = analytics;
             this.threats = threats.items || [];
+            this.settings = settings;
             this.renderContent(container);
         } catch (error) {
             this.renderError(container, error);
         }
     },
 
+    /** Global dashboard lookback (days). Persisted; drives the posture
+     *  sentence and (progressively) the charts/feed windows. */
+    get rangeDays() {
+        const v = Number(localStorage.getItem('sv-dash-range') || 7);
+        return [1, 7, 30].includes(v) ? v : 7;
+    },
+    set rangeDays(v) {
+        try { localStorage.setItem('sv-dash-range', String(v)); } catch (_) { /* */ }
+    },
+
+    /**
+     * Posture header — the v3 redesign's first row: an OUTCOME-encoded status
+     * sentence ("All clear — last threat 2h ago, blocked" / "1 threat allowed
+     * through"), a global 24h/7d/30d range selector whose lookback the
+     * sentence itself respects, and an auto-refresh stamp. Red appears only
+     * when something actually got through or protection is off.
+     */
+    _renderPostureHeader(container) {
+        const days = this.rangeDays;
+        const cutoff = Date.now() - days * 86400000;
+        const parse = (iso) => {
+            const d = new Date(String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z'));
+            return isNaN(d) ? null : d;
+        };
+        const inRange = (this.threats || []).filter(t => {
+            const d = parse(t.created_at);
+            return t.is_threat && d && d.getTime() >= cutoff;
+        });
+        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block'));
+        const allowedThrough = inRange.length - blocked.length;
+        const latest = inRange[0];
+
+        const rel = (d) => {
+            const m = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+            if (m < 60) return `${m}m ago`;
+            if (m < 1440) return `${Math.round(m / 60)}h ago`;
+            return `${Math.round(m / 1440)}d ago`;
+        };
+
+        let tone = 'ok'; // ok | warn | alert
+        let sentence;
+        const rangeLabel = days === 1 ? 'last 24h' : `last ${days} days`;
+        if (!inRange.length) {
+            sentence = `All clear — no threats in the ${rangeLabel}`;
+        } else if (allowedThrough > 0) {
+            tone = 'alert';
+            sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel} — review now`;
+        } else {
+            sentence = `${blocked.length} threat${blocked.length === 1 ? '' : 's'} caught in the ${rangeLabel}` +
+                (latest && parse(latest.created_at) ? ` — last ${rel(parse(latest.created_at))}, blocked` : '');
+        }
+
+        const colors = { ok: 'var(--accent-primary, #5eadb8)', warn: '#f59e0b', alert: '#ef4444' };
+
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin: 2px 2px 16px;';
+
+        const dot = document.createElement('span');
+        dot.style.cssText = `width:10px; height:10px; border-radius:50%; flex-shrink:0; background:${colors[tone]};` +
+            (tone === 'ok' ? '' : ' box-shadow: 0 0 0 4px ' + (tone === 'alert' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)') + ';');
+        head.appendChild(dot);
+
+        const text = document.createElement('div');
+        text.style.cssText = "flex:1; min-width:240px; font: 600 15px 'Avenir Next',Avenir,system-ui,sans-serif; color: var(--text-primary);";
+        text.textContent = sentence;
+        head.appendChild(text);
+
+        // Range pills — one semantics everywhere: a rolling lookback window.
+        const pills = document.createElement('div');
+        pills.style.cssText = 'display:inline-flex; gap:2px; background: var(--bg-card,#161b22); border:1px solid var(--border-default,#30363d); border-radius:8px; padding:2px;';
+        [[1, '24h'], [7, '7 days'], [30, '30 days']].forEach(([v, label]) => {
+            const b = document.createElement('button');
+            const active = v === days;
+            b.style.cssText = "border:none; cursor:pointer; font: 600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; padding: 5px 11px; border-radius:6px;" +
+                (active
+                    ? 'background: var(--accent-primary,#5eadb8); color:#fff;'
+                    : 'background: transparent; color: var(--text-secondary,#b1bac4);');
+            b.textContent = label;
+            b.addEventListener('click', () => {
+                if (v === this.rangeDays) return;
+                this.rangeDays = v;
+                if (this.currentContainer) this.renderContent(this.currentContainer);
+            });
+            pills.appendChild(b);
+        });
+        head.appendChild(pills);
+
+        const stamp = document.createElement('div');
+        stamp.style.cssText = 'font: 500 11px ui-monospace,Menlo,monospace; color: var(--text-muted,#7d8590);';
+        stamp.textContent = `updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        head.appendChild(stamp);
+
+        container.appendChild(head);
+    },
+
+    /**
+     * Day-0 onboarding — shown ONLY when the install has never seen any
+     * traffic (no threats, no agent sessions). Three steps with live state:
+     * connect a harness → watch the first event arrive (polled every 10s,
+     * with a troubleshooting hint if nothing shows up within 10 minutes) →
+     * turn on Block Mode. The first observed event re-renders the real
+     * dashboard automatically.
+     */
+    _renderDayZeroChecklist(stack, syncVis) {
+        const card = document.createElement('div');
+        card.style.cssText = 'padding: 16px 18px; border-radius: 10px; border: 1px solid var(--border-default); background: var(--bg-card);';
+
+        const title = document.createElement('div');
+        title.textContent = 'Get protected in 3 steps';
+        title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 10px;';
+        card.appendChild(title);
+
+        const steps = document.createElement('div');
+        steps.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        card.appendChild(steps);
+
+        const makeStep = (n, text, done, actionLabel, onAction) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+            const badge = document.createElement('span');
+            badge.textContent = done ? '✓' : String(n);
+            badge.style.cssText = `width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; ${done ? 'background: rgba(16,185,129,0.18); color: #10b981;' : 'background: var(--bg-tertiary); color: var(--text-secondary);'}`;
+            row.appendChild(badge);
+            const txt = document.createElement('div');
+            txt.textContent = text;
+            txt.style.cssText = `flex: 1; font-size: 13px; ${done ? 'color: var(--text-muted); text-decoration: line-through;' : 'color: var(--text-primary);'}`;
+            row.appendChild(txt);
+            if (!done && actionLabel) {
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary btn-sm';
+                btn.textContent = actionLabel;
+                btn.addEventListener('click', onAction);
+                row.appendChild(btn);
+            }
+            return row;
+        };
+
+        steps.appendChild(makeStep(1, 'Connect an agent harness (Claude Code, Codex, OpenClaw…)', false,
+            'Open Integrations', () => { if (window.Sidebar) Sidebar.navigate('proxy-claude-code'); }));
+
+        const waitRow = document.createElement('div');
+        waitRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+        const waitBadge = document.createElement('span');
+        waitBadge.textContent = '2';
+        waitBadge.style.cssText = 'width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--bg-tertiary); color: var(--text-secondary);';
+        waitRow.appendChild(waitBadge);
+        const waitTxt = document.createElement('div');
+        waitTxt.style.cssText = 'flex: 1; font-size: 13px; color: var(--text-primary);';
+        waitTxt.textContent = 'Run your agent — waiting for the first event…';
+        waitRow.appendChild(waitTxt);
+        steps.appendChild(waitRow);
+
+        steps.appendChild(makeStep(3, 'Turn on Block Mode so threats are stopped, not just logged',
+            !!(this.settings && this.settings.block_threats),
+            'Show me', () => {
+                const sec = document.querySelector('.security-controls-section');
+                if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }));
+
+        // First-event poll. The stall hint appears after 10 minutes of
+        // silence measured from the FIRST time the checklist rendered, so
+        // re-visits don't reset the clock.
+        let since = Number(localStorage.getItem('sv-day0-since') || 0);
+        if (!since) {
+            since = Date.now();
+            try { localStorage.setItem('sv-day0-since', String(since)); } catch (_) { /* */ }
+        }
+        const poll = setInterval(async () => {
+            if (!card.isConnected) { clearInterval(poll); return; }
+            try {
+                const stats = await API.getToolCallAuditStats();
+                if (stats && stats.total > 0) {
+                    clearInterval(poll);
+                    try { localStorage.removeItem('sv-day0-since'); } catch (_) { /* */ }
+                    if (window.Toast) Toast.success('First event received — you are live');
+                    if (this.currentContainer) this.render(this.currentContainer);
+                    return;
+                }
+            } catch (_) { /* keep polling */ }
+            if (Date.now() - since > 600000 && !card.querySelector('.sv-day0-stall')) {
+                const stall = document.createElement('div');
+                stall.className = 'sv-day0-stall';
+                stall.style.cssText = 'margin-top: 10px; font-size: 12px; color: var(--text-secondary);';
+                stall.textContent = 'No events after 10 minutes? Check that your agent restarted after connecting, and that the proxy/plugin is active. ';
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = 'Troubleshooting guide →';
+                link.addEventListener('click', (e) => { e.preventDefault(); if (window.Sidebar) Sidebar.navigate('gs-troubleshoot'); });
+                stall.appendChild(link);
+                card.appendChild(stall);
+            }
+        }, 10000);
+
+        stack.appendChild(card);
+        if (syncVis) syncVis();
+    },
+
     async renderContent(container) {
         container.textContent = '';
 
-        // NOTE: OpenClaw plugin nudge + "What's new" card now live as app-level
-        // global banners (components/global-banners.js) so they appear on every
-        // page and persist across navigation. Don't add them here.
-        if (false) {  // eslint-disable-line no-constant-condition
+        // Posture header — outcome-encoded status sentence + global range
+        // selector (24h/7d/30d). Banners/what's-new live in GlobalBanners.
+        this._renderPostureHeader(container);
+
+
+        // Needs-attention stack — ONE prioritized home for everything that
+        // wants the operator's eyes: budget overruns first (financial, not
+        // dismissible), then protection gaps (dismissible, reappear after
+        // 24h, and suppressed entirely on day 0 — before any traffic has
+        // flowed, "block mode is off" is setup noise, not an alert).
         try {
-            const hooksStatus = await fetch('/api/hooks/status').then(r => r.ok ? r.json() : null).catch(() => null);
-            const dismissed = localStorage.getItem('sv-openclaw-banner-dismissed') === '1';
-            if (hooksStatus && hooksStatus.openclaw_detected && !hooksStatus.installed && !dismissed) {
-                const banner = document.createElement('div');
-                banner.className = 'sv-dash-banner';
-                banner.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px;';
+            const gd = await API.getBudgetGuardian().catch(() => null);
+            const stack = document.createElement('div');
+            stack.style.cssText = 'margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px;';
 
-                // Icon — compact, accent-tinted
-                const icon = document.createElement('div');
-                icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1;';
-                icon.textContent = '\u26A1';
-                icon.setAttribute('aria-hidden', 'true');
-                banner.appendChild(icon);
-
-                // Text column
-                const textCol = document.createElement('div');
-                textCol.style.cssText = 'flex: 1; min-width: 0;';
-
-                // Title row — headline + small "RECOMMENDED" pill
-                const titleRow = document.createElement('div');
-                titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
-
-                const title = document.createElement('div');
-                title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-                title.textContent = 'Run SecureVector natively inside OpenClaw';
-                titleRow.appendChild(title);
-
-                const pill = document.createElement('span');
-                pill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
-                pill.textContent = 'Recommended';
-                titleRow.appendChild(pill);
-
-                textCol.appendChild(titleRow);
-
-                const desc = document.createElement('div');
-                desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-                desc.textContent = 'Zero latency. Full audit trail. No proxy or env vars required.';
-                textCol.appendChild(desc);
-
-                banner.appendChild(textCol);
-
-                // Primary CTA — an actual button, not a text link
-                const cta = document.createElement('button');
-                cta.style.cssText = 'flex-shrink: 0; font-size: 12px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s, transform 0.05s;';
-                cta.textContent = 'Install plugin';
-                cta.addEventListener('mouseenter', () => { cta.style.opacity = '0.9'; });
-                cta.addEventListener('mouseleave', () => { cta.style.opacity = '1'; });
-                cta.addEventListener('mousedown', () => { cta.style.transform = 'scale(0.98)'; });
-                cta.addEventListener('mouseup', () => { cta.style.transform = 'scale(1)'; });
-                cta.addEventListener('click', () => {
-                    if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); }
-                });
-                banner.appendChild(cta);
-
-                // Dismiss — absolute-positioned in corner, visually out of the way
-                const dismissBtn = document.createElement('button');
-                dismissBtn.style.cssText = 'position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px; transition: color 0.15s, background 0.15s;';
-                dismissBtn.title = 'Dismiss';
-                dismissBtn.setAttribute('aria-label', 'Dismiss');
-                dismissBtn.textContent = '\u00D7';
-                dismissBtn.addEventListener('mouseenter', () => { dismissBtn.style.color = 'var(--text-primary)'; dismissBtn.style.background = 'var(--bg-secondary)'; });
-                dismissBtn.addEventListener('mouseleave', () => { dismissBtn.style.color = 'var(--text-muted)'; dismissBtn.style.background = 'transparent'; });
-                dismissBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    localStorage.setItem('sv-openclaw-banner-dismissed', '1');
-                    banner.remove();
-                });
-                banner.appendChild(dismissBtn);
-
-                container.appendChild(banner);
-            }
-        } catch (e) { /* banner is non-critical */ }
-
-        // What's New — one-time per-version announcement card
-        try {
-            const WHATS_NEW_VERSION = '3.4.0';
-            const ackKey = 'sv-whats-new-acked';
-            const ackedVersion = localStorage.getItem(ackKey);
-            if (ackedVersion !== WHATS_NEW_VERSION) {
-                const card = document.createElement('div');
-                card.className = 'sv-dash-banner';
-                card.style.cssText = 'position: relative; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 16px 44px 16px 18px; margin-bottom: 16px;';
-
-                // Header row — version tag + title
-                const header = document.createElement('div');
-                header.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;';
-
-                const tag = document.createElement('span');
-                tag.style.cssText = 'font-size: 10px; font-weight: 700; letter-spacing: 0.6px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 3px 8px; border-radius: 4px; text-transform: uppercase;';
-                tag.textContent = `v${WHATS_NEW_VERSION}`;
-                header.appendChild(tag);
-
-                const headerTitle = document.createElement('div');
-                headerTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary);';
-                headerTitle.textContent = 'What\u2019s new';
-                header.appendChild(headerTitle);
-
-                card.appendChild(header);
-
-                // Feature list
-                const list = document.createElement('div');
-                list.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 16px;';
-                const items = [
-                    { icon: '\u26A1', title: 'Native OpenClaw plugin',  body: 'Zero-latency input, output, tool, and cost monitoring \u2014 no proxy required.' },
-                    { icon: '\uD83D\uDEE0', title: 'Tool audit trail',   body: 'Every tool call your agent makes \u2014 allow, block, or log\u2011only \u2014 recorded automatically.' },
-                    { icon: '\uD83D\uDCB0', title: 'Cost tracking updates', body: 'Refreshed cost tracking for 76 models, incl. Opus 4.7, GPT\u20115.4, Gemini 3.x, MiniMax M2.7.' },
-                    { icon: '\uD83D\uDD0D', title: 'Skill Scanner + policy',   body: 'Static analysis for agent skills with trusted publishers and per-category rules.' },
-                ];
-                items.forEach(({ icon, title, body }) => {
-                    const row = document.createElement('div');
-                    row.style.cssText = 'display: flex; align-items: flex-start; gap: 10px;';
-                    const ico = document.createElement('div');
-                    ico.style.cssText = 'flex-shrink: 0; width: 28px; height: 28px; background: var(--bg-secondary); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1;';
-                    ico.textContent = icon;
-                    row.appendChild(ico);
-                    const col = document.createElement('div');
-                    col.style.cssText = 'min-width: 0;';
-                    const t = document.createElement('div');
-                    t.style.cssText = 'font-size: 12.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; line-height: 1.3;';
-                    t.textContent = title;
-                    col.appendChild(t);
-                    const b = document.createElement('div');
-                    b.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-                    b.textContent = body;
-                    col.appendChild(b);
-                    row.appendChild(col);
-                    list.appendChild(row);
-                });
-                card.appendChild(list);
-
-                // Footer row — "Open Guide" link + dismiss
-                const footer = document.createElement('div');
-                footer.style.cssText = 'display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-default);';
-
-                const guideLink = document.createElement('button');
-                guideLink.style.cssText = 'background: transparent; border: none; color: var(--accent-primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;';
-                guideLink.textContent = 'Open the Guide \u2192';
-                guideLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide'); });
-                footer.appendChild(guideLink);
-
-                const gotIt = document.createElement('button');
-                gotIt.style.cssText = 'margin-left: auto; background: var(--accent-primary); color: #fff; border: none; font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 6px; cursor: pointer; transition: opacity 0.15s;';
-                gotIt.textContent = 'Got it';
-                gotIt.addEventListener('mouseenter', () => { gotIt.style.opacity = '0.9'; });
-                gotIt.addEventListener('mouseleave', () => { gotIt.style.opacity = '1'; });
-                gotIt.addEventListener('click', () => {
-                    localStorage.setItem(ackKey, WHATS_NEW_VERSION);
-                    card.remove();
-                });
-                footer.appendChild(gotIt);
-
-                card.appendChild(footer);
-
-                // Corner dismiss (equivalent to "Got it")
-                const closeBtn = document.createElement('button');
-                closeBtn.style.cssText = 'position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1; border-radius: 4px; transition: color 0.15s, background 0.15s;';
-                closeBtn.title = 'Dismiss';
-                closeBtn.setAttribute('aria-label', 'Dismiss');
-                closeBtn.textContent = '\u00D7';
-                closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'var(--text-primary)'; closeBtn.style.background = 'var(--bg-secondary)'; });
-                closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'var(--text-muted)'; closeBtn.style.background = 'transparent'; });
-                closeBtn.addEventListener('click', () => {
-                    localStorage.setItem(ackKey, WHATS_NEW_VERSION);
-                    card.remove();
-                });
-                card.appendChild(closeBtn);
-
-                container.appendChild(card);
-            }
-        } catch (e) { /* whats-new is non-critical */ }
-        }  // end if (false) — legacy banner code superseded by GlobalBanners
-
-        // Budget guardian alerts — rendered first so they're impossible to miss
-        try {
-            const gd = await API.getBudgetGuardian();
-            if (gd) {
-                const hasGlobalAlert = gd.global_budget_usd != null && (gd.global_over_budget || gd.global_warning);
-                const hasAgentAlerts = gd.agent_alerts && gd.agent_alerts.some(a => a.over_budget || a.warning);
-                if (hasGlobalAlert || hasAgentAlerts) {
-                    const alertsBox = document.createElement('div');
-                    alertsBox.style.cssText = 'margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px;';
+            {
+                const alertsBox = stack;
 
                     const buildBudgetBar = (label, today, budget, pct, over, action) => {
                         const overColor = 'rgba(220,38,38,0.75)';
@@ -401,46 +432,125 @@ const DashboardPage = {
                         return bar;
                     };
 
-                    if (hasGlobalAlert) {
+                const hasGlobalAlert = gd && gd.global_budget_usd != null && (gd.global_over_budget || gd.global_warning);
+                const hasAgentAlerts = gd && gd.agent_alerts && gd.agent_alerts.some(a => a.over_budget || a.warning);
+                if (hasGlobalAlert) {
+                    alertsBox.appendChild(buildBudgetBar(
+                        'Global budget', gd.global_today_spend_usd,
+                        gd.global_budget_usd, gd.global_pct_used,
+                        gd.global_over_budget, gd.global_budget_action
+                    ));
+                }
+                if (hasAgentAlerts) {
+                    gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
                         alertsBox.appendChild(buildBudgetBar(
-                            'Global budget', gd.global_today_spend_usd,
-                            gd.global_budget_usd, gd.global_pct_used,
-                            gd.global_over_budget, gd.global_budget_action
+                            a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
+                            a.today_spend_usd, a.budget_usd, a.pct_used,
+                            a.over_budget, a.budget_action
                         ));
-                    }
-                    if (hasAgentAlerts) {
-                        gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
-                            alertsBox.appendChild(buildBudgetBar(
-                                a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
-                                a.today_spend_usd, a.budget_usd, a.pct_used,
-                                a.over_budget, a.budget_action
-                            ));
-                        });
-                    }
-                    container.appendChild(alertsBox);
+                    });
                 }
             }
-        } catch (e) { /* budget alerts are non-critical */ }
+
+            // Protection-gap items. Day-0 suppression: only nag once real
+            // traffic exists (any analyzed request ever). Dismissals live in
+            // localStorage with a timestamp and expire after 24h.
+            const dayZero = !((this.data && this.data.total_threats) || (this.threats || []).length);
+            const dismissedAt = (id) => {
+                try { return Number(localStorage.getItem('sv-attn-dismiss-' + id) || 0); } catch (_) { return 0; }
+            };
+            const buildGapItem = (id, text, cta, onRemove) => {
+                const bar = document.createElement('div');
+                bar.style.cssText = 'padding: 9px 14px; border-radius: 8px; border: 1px solid rgba(180,130,0,0.6); background: rgba(180,130,0,0.06); display: flex; align-items: center; gap: 12px;';
+                const txt = document.createElement('div');
+                txt.style.cssText = 'flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text-primary);';
+                txt.textContent = text;
+                bar.appendChild(txt);
+                const goBtn = document.createElement('button');
+                goBtn.className = 'btn btn-secondary btn-sm';
+                goBtn.textContent = cta;
+                goBtn.addEventListener('click', () => {
+                    const sec = document.querySelector('.security-controls-section');
+                    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+                bar.appendChild(goBtn);
+                const dismiss = document.createElement('button');
+                dismiss.setAttribute('aria-label', 'Dismiss for 24 hours');
+                dismiss.title = 'Dismiss for 24 hours';
+                dismiss.textContent = '×';
+                dismiss.style.cssText = 'background:none; border:none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1;';
+                dismiss.addEventListener('click', () => {
+                    try { localStorage.setItem('sv-attn-dismiss-' + id, String(Date.now())); } catch (_) { /* */ }
+                    bar.remove();
+                    if (onRemove) onRemove();
+                });
+                bar.appendChild(dismiss);
+                return bar;
+            };
+            const syncVis = () => { stack.style.display = stack.children.length ? 'flex' : 'none'; };
+            container.appendChild(stack);
+            syncVis();
+
+            const appendGaps = () => {
+                if (!this.settings) return;
+                const gaps = [];
+                if (!this.settings.block_threats) {
+                    gaps.push(['block-mode', 'Block mode is off — threats are detected and logged, but nothing is stopped', 'Turn on']);
+                }
+                if (!this.settings.scan_llm_responses) {
+                    gaps.push(['output-scan', 'Output scan is off — LLM responses are not checked or redacted', 'Turn on']);
+                }
+                if (this.settings.guardian_ml_available !== false && this.settings.guardian_ml_enabled === false) {
+                    gaps.push(['guardian-ml', 'Guardian ML is off — detection is running on rules only', 'Turn on']);
+                }
+                gaps.forEach(([id, text, cta]) => {
+                    if (Date.now() - dismissedAt(id) > 86400000) stack.appendChild(buildGapItem(id, text, cta, syncVis));
+                });
+                syncVis();
+            };
+            if (!dayZero) {
+                appendGaps();
+            } else {
+                // No threat records yet — but agents may still be running
+                // through us (tool traffic without findings). Check the
+                // session graph in the background; only a truly silent
+                // install stays nag-free — and a truly silent install gets
+                // the day-0 checklist instead of alerts.
+                API.getAgentSessionGraph({ window_days: 7 }).then((g) => {
+                    if ((g.nodes || []).some(n => n.kind === 'session')) appendGaps();
+                    else this._renderDayZeroChecklist(stack, syncVis);
+                }).catch(() => {});
+            }
+        } catch (e) { /* attention stack is non-critical */ }
 
         // ── Compact status bar + metrics grid ──────────────────────────────
         try {
             const valueSection = document.createElement('div');
             valueSection.style.cssText = 'margin-bottom: 18px;';
 
-            // Fetch additional data in parallel
-            const [toolsData, settings, scanHistory, costData] = await Promise.all([
-                API.getEssentialTools().catch(() => null),
-                API.getSettings().catch(() => null),
-                fetch('/api/skill-scans/history?limit=10&offset=0').then(r => r.ok ? r.json() : null).catch(() => null),
+            // 5-KPI band data — every count respects the global range where
+            // the backend can scope it (tool calls + secrets); spend is
+            // always "today" because that's what the budget is set against.
+            const kpiDays = this.rangeDays;
+            const [auditDaily, redactions, costData, guardian] = await Promise.all([
+                API.getToolCallAuditDaily(kpiDays).catch(() => null),
+                API.getRedactions(kpiDays, { limit: 1 }).catch(() => null),
                 API.getDashboardCostSummary().catch(() => null),
+                API.getBudgetGuardian().catch(() => null),
             ]);
 
-            const blockedTools = toolsData ? toolsData.tools.filter(t => t.effective_action === 'block').length : 0;
-            const totalTools = toolsData ? toolsData.tools.length : 0;
-            const toolEnforcement = settings && settings.tool_permissions_enabled;
-            const blockMode = settings && settings.block_threats;
-            const outputScan = settings && settings.scan_llm_responses;
-            const skillScans = scanHistory ? (scanHistory.total || (scanHistory.records || []).length) : 0;
+            // The daily endpoint buckets by calendar day and over-returns at
+            // the window edge (days=1 includes yesterday) — clamp to the
+            // last N calendar days client-side so 24h means "today".
+            const kpiSinceDay = (() => {
+                const d = new Date(Date.now() - (kpiDays - 1) * 86400000);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })();
+            const toolCalls = auditDaily && auditDaily.days
+                ? auditDaily.days.filter(d => d.day >= kpiSinceDay)
+                    .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
+                : 0;
+            const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
             // Format: $0.00 when zero or sub-cent (4-decimal precision feels
             // performative on a dashboard); $0.0123 only when the amount is
             // small but non-trivial. Two decimals once you've crossed $1.
@@ -451,13 +561,18 @@ const DashboardPage = {
             };
             const todayCost = costData ? _formatCost(costData.today_cost_usd || 0) : '$0.00';
 
-            const avgLatencyMs = this.data.avg_latency_ms;
-            let latencyStr = '\u2014';
-            if (avgLatencyMs != null) {
-                latencyStr = avgLatencyMs >= 1000
-                    ? (avgLatencyMs / 1000).toFixed(1) + 's'
-                    : Math.round(avgLatencyMs) + 'ms';
-            }
+            // In-range threat slices \u2014 same lookback the posture sentence uses.
+            const kpiCutoff = Date.now() - kpiDays * 86400000;
+            const kpiParse = (iso) => {
+                const d = new Date(String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z'));
+                return isNaN(d) ? null : d;
+            };
+            const kpiThreats = (this.threats || []).filter(t => {
+                const d = kpiParse(t.created_at);
+                return t.is_threat && d && d.getTime() >= kpiCutoff;
+            });
+            const kpiBlocked = kpiThreats.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
+            const kpiCritical = kpiThreats.filter(t => t.risk_score >= 80).length;
 
             // Value metrics grid
             const metricsGrid = document.createElement('div');
@@ -483,41 +598,47 @@ const DashboardPage = {
                 return card;
             };
 
+            const rangeTag = kpiDays === 1 ? '24h' : kpiDays + 'd';
             metricsGrid.appendChild(makeMetric(
-                this.data.total_threats.toLocaleString(),
-                'Requests scanned',
-                '#5eadb8', 'threats'
+                toolCalls.toLocaleString(),
+                `Tool calls · ${rangeTag}`,
+                '#5eadb8', 'tool-activity'
             ));
             metricsGrid.appendChild(makeMetric(
-                this.data.critical_count || 0,
-                'Critical threats',
-                this.data.critical_count > 0 ? '#ef4444' : '#10b981', 'threats'
+                kpiBlocked,
+                `Threats blocked · ${rangeTag}`,
+                kpiBlocked > 0 ? '#ef4444' : '#10b981', 'threats'
             ));
             metricsGrid.appendChild(makeMetric(
-                this.data.blocked_count || 0,
-                'Threats blocked',
-                this.data.blocked_count > 0 ? '#ef4444' : '#10b981', 'threats'
+                kpiCritical,
+                `Critical · ${rangeTag}`,
+                kpiCritical > 0 ? '#ef4444' : '#10b981', 'threats'
             ));
             metricsGrid.appendChild(makeMetric(
-                blockedTools + '/' + totalTools,
-                'Risky tools blocked',
-                blockedTools > 0 ? '#f59e0b' : '#94a3b8', 'tool-permissions'
+                secretsCaught,
+                `Secrets caught · ${rangeTag}`,
+                secretsCaught > 0 ? '#f59e0b' : '#10b981', 'redactions'
             ));
-            metricsGrid.appendChild(makeMetric(
-                skillScans,
-                'Skills scanned',
-                '#5eadb8', 'skill-scanner'
-            ));
-            metricsGrid.appendChild(makeMetric(
-                latencyStr,
-                'Avg analysis time',
-                '#8b5cf6', null
-            ));
-            metricsGrid.appendChild(makeMetric(
-                todayCost,
-                "Today's cost",
-                '#f59e0b', 'costs'
-            ));
+
+            // Spend today — with a budget progress bar ONLY when a budget is
+            // actually configured. No bar against an imaginary denominator.
+            const spendCard = makeMetric(todayCost, 'Spend today', '#f59e0b', 'costs');
+            const budgetUsd = guardian && guardian.global_budget_usd != null ? guardian.global_budget_usd : null;
+            if (budgetUsd) {
+                const pct = Math.min((guardian.global_pct_used || 0) * 100, 100);
+                const barColor = guardian.global_over_budget ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981';
+                const track = document.createElement('div');
+                track.style.cssText = 'height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; margin-top: 7px;';
+                const fill = document.createElement('div');
+                fill.style.cssText = `height: 100%; border-radius: 2px; width: ${pct}%; background: ${barColor};`;
+                track.appendChild(fill);
+                spendCard.appendChild(track);
+                const cap = document.createElement('div');
+                cap.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 3px;';
+                cap.textContent = `of $${Number(budgetUsd).toFixed(2)} budget`;
+                spendCard.appendChild(cap);
+            }
+            metricsGrid.appendChild(spendCard);
 
             valueSection.appendChild(metricsGrid);
 
@@ -533,11 +654,21 @@ const DashboardPage = {
         const chartsRow = document.createElement('div');
         chartsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;';
 
-        const trendCard = Card.create({ title: 'LLM Requests — Last 7 Days', gradient: true });
-        this.renderTrendChart(trendCard.querySelector('.card-body'));
-        chartsRow.appendChild(trendCard);
+        const chartDays = this.rangeDays;
+        const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
+        // Cost/token telemetry is day-grained — a 24h dollar chart would be
+        // a single point, so the cost card never narrows below 7 days.
+        const costDays = Math.max(chartDays, 7);
 
-        const costTrendCard = Card.create({ title: 'Provider Cost — Last 7 Days', gradient: true });
+        const trendCard = Card.create({ title: `LLM Requests — ${chartLabel}`, gradient: true });
+        const trendBody = trendCard.querySelector('.card-body');
+        trendBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
+        chartsRow.appendChild(trendCard);
+        this.renderTrendChart(trendBody, chartDays).catch(() => {
+            trendBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
+        });
+
+        const costTrendCard = Card.create({ title: `Provider Cost — Last ${costDays} Days`, gradient: true });
         const costBody = costTrendCard.querySelector('.card-body');
         // Show a lightweight placeholder and populate this chart WITHOUT
         // awaiting it. When there's no provider cost we fall back to the
@@ -548,7 +679,7 @@ const DashboardPage = {
         // interactive immediately; the chart fills in when its data arrives.
         costBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(costTrendCard);
-        this.renderCostTrendChart(costBody, costTrendCard).catch(() => {
+        this.renderCostTrendChart(costBody, costTrendCard, costDays).catch(() => {
             costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
         });
 
@@ -883,169 +1014,6 @@ const DashboardPage = {
         return 'success';
     },
 
-    renderRiskDistribution(container) {
-        // Group threats by risk level
-        const levels = { critical: 0, high: 0, medium: 0, low: 0 };
-
-        this.threats.forEach(t => {
-            const score = t.risk_score || 0;
-            if (score >= 80) levels.critical++;
-            else if (score >= 60) levels.high++;
-            else if (score >= 40) levels.medium++;
-            else levels.low++;
-        });
-
-        const total = Object.values(levels).reduce((a, b) => a + b, 0);
-
-        if (total === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'empty-state-inline';
-            empty.textContent = 'No threat data yet';
-            container.appendChild(empty);
-            return;
-        }
-
-        const chart = document.createElement('div');
-        chart.className = 'risk-donut-chart';
-
-        // Donut chart visualization
-        const donut = document.createElement('div');
-        donut.className = 'donut-container';
-
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 100 100');
-        svg.setAttribute('class', 'donut-svg');
-
-        let currentAngle = -90;
-        const colors = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#60a5fa' };
-        const radius = 40;
-        const cx = 50, cy = 50;
-
-        Object.entries(levels).forEach(([level, count]) => {
-            if (count === 0) return;
-
-            const angle = (count / total) * 360;
-            const startAngle = currentAngle;
-            const endAngle = currentAngle + angle;
-
-            const x1 = cx + radius * Math.cos((startAngle * Math.PI) / 180);
-            const y1 = cy + radius * Math.sin((startAngle * Math.PI) / 180);
-            const x2 = cx + radius * Math.cos((endAngle * Math.PI) / 180);
-            const y2 = cy + radius * Math.sin((endAngle * Math.PI) / 180);
-
-            const largeArc = angle > 180 ? 1 : 0;
-
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', 'M ' + cx + ' ' + cy + ' L ' + x1 + ' ' + y1 + ' A ' + radius + ' ' + radius + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2 + ' Z');
-            path.setAttribute('fill', colors[level]);
-            path.setAttribute('class', 'donut-segment');
-            svg.appendChild(path);
-
-            currentAngle = endAngle;
-        });
-
-        // Center hole
-        const hole = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        hole.setAttribute('cx', '50');
-        hole.setAttribute('cy', '50');
-        hole.setAttribute('r', '25');
-        hole.setAttribute('fill', 'var(--bg-secondary)');
-        svg.appendChild(hole);
-
-        // Center text
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '50');
-        text.setAttribute('y', '53');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('fill', 'var(--text-primary)');
-        text.setAttribute('font-size', '14');
-        text.setAttribute('font-weight', '600');
-        text.textContent = total;
-        svg.appendChild(text);
-
-        donut.appendChild(svg);
-        chart.appendChild(donut);
-
-        // Legend
-        const legend = document.createElement('div');
-        legend.className = 'chart-legend';
-
-        Object.entries(levels).forEach(([level, count]) => {
-            const item = document.createElement('div');
-            item.className = 'legend-item';
-
-            const dot = document.createElement('span');
-            dot.className = 'legend-dot';
-            dot.style.background = colors[level];
-            item.appendChild(dot);
-
-            const label = document.createElement('span');
-            label.className = 'legend-label';
-            label.textContent = level.charAt(0).toUpperCase() + level.slice(1);
-            item.appendChild(label);
-
-            const value = document.createElement('span');
-            value.className = 'legend-value';
-            value.textContent = count;
-            item.appendChild(value);
-
-            legend.appendChild(item);
-        });
-
-        chart.appendChild(legend);
-        container.appendChild(chart);
-    },
-
-    renderThreatTypes(container) {
-        const types = this.data.threat_types || {};
-
-        if (Object.keys(types).length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'empty-state-inline';
-            empty.textContent = 'No threat categories yet';
-            container.appendChild(empty);
-            return;
-        }
-
-        const entries = Object.entries(types).sort((a, b) => b[1] - a[1]);
-        const maxCount = Math.max(...entries.map(e => e[1]));
-
-        const chart = document.createElement('div');
-        chart.className = 'horizontal-bar-chart';
-
-        entries.slice(0, 5).forEach(([type, count], index) => {
-            const row = document.createElement('div');
-            row.className = 'bar-row';
-
-            const label = document.createElement('div');
-            label.className = 'bar-label';
-            label.textContent = this.formatType(type);
-            row.appendChild(label);
-
-            const barWrap = document.createElement('div');
-            barWrap.className = 'bar-wrap';
-
-            const bar = document.createElement('div');
-            bar.className = 'bar bar-' + (index % 4);
-            const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
-            bar.style.width = '0%';
-            // Animate bar
-            setTimeout(() => {
-                bar.style.width = percentage + '%';
-            }, 100 + index * 50);
-            barWrap.appendChild(bar);
-
-            const countEl = document.createElement('span');
-            countEl.className = 'bar-count';
-            countEl.textContent = count;
-            barWrap.appendChild(countEl);
-
-            row.appendChild(barWrap);
-            chart.appendChild(row);
-        });
-
-        container.appendChild(chart);
-    },
 
     /**
      * Reusable SVG line/area timeline chart.
@@ -1135,12 +1103,24 @@ const DashboardPage = {
             svg.appendChild(tick);
         });
 
-        // X-axis labels.
+        // X-axis labels. One tick per data point collides once the window
+        // grows (30 daily "MM/DD" or 24 hourly "HH:00" labels overrun 600px),
+        // so thin to a stride that targets ~8 evenly-spaced ticks. First and
+        // last are always shown; interior labels are dropped on the stride.
+        // The text-anchor on the edge ticks is nudged inward so they don't
+        // clip past the plot area.
+        const targetTicks = 8;
+        const stride = Math.max(1, Math.ceil(n / targetTicks));
         labels.forEach((lbl, i) => {
+            const isFirst = i === 0;
+            const isLast = i === n - 1;
+            // Show first, last, and every stride-th label; never render a tick
+            // adjacent to the last one (avoids a cramped final pair).
+            if (!isFirst && !isLast && (i % stride !== 0 || (n - 1 - i) < stride / 2)) return;
             const t = document.createElementNS(svgNS, 'text');
             t.setAttribute('x', xAt(i));
             t.setAttribute('y', height - 6);
-            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('text-anchor', isFirst ? 'start' : isLast ? 'end' : 'middle');
             t.setAttribute('font-size', '10');
             t.setAttribute('fill', 'var(--text-muted)');
             t.textContent = lbl;
@@ -1280,33 +1260,57 @@ const DashboardPage = {
         container.appendChild(legend);
     },
 
-    renderTrendChart(container) {
-        const days = 7;
+    /**
+     * Requests/threats trend, scoped to the global range. Fetches the
+     * window's records directly (up to 3 pages of 100) instead of reusing
+     * the page-level 50-row sample, so 30-day charts aren't lies built on
+     * the most recent 50 events. 24h renders hourly buckets.
+     */
+    async renderTrendChart(container, days = 7) {
+        const parseTs = ts => new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+        const hourly = days === 1;
         const buckets = [];
-        const toLocalDateStr = ts => {
-            const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
-            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-        };
-        for (let i = days - 1; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-            buckets.push({
-                label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'),
-                dateStr,
-                total: 0,
-                threats: 0,
-            });
+        const now = new Date();
+        if (hourly) {
+            for (let i = 23; i >= 0; i--) {
+                const d = new Date(now.getTime() - i * 3600000);
+                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, total: 0, threats: 0 });
+            }
+        } else {
+            for (let i = days - 1; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, total: 0, threats: 0 });
+            }
         }
-        (this.threats || []).forEach(t => {
-            const dateStr = toLocalDateStr(t.created_at || new Date().toISOString());
-            const bucket = buckets.find(b => b.dateStr === dateStr);
+        const keyOf = (d) => hourly
+            ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
+            : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+        // Pull the actual window from the API (start_date-scoped), not the
+        // dashboard's 50-row sample. 3×100 covers typical local volume;
+        // when there's more we say so instead of silently truncating.
+        const startIso = new Date(Date.now() - days * 86400000).toISOString();
+        let items = [];
+        let total = 0;
+        for (let page = 1; page <= 3; page++) {
+            const resp = await API.getThreats({ page, page_size: 100, start_date: startIso }).catch(() => null);
+            if (!resp) break;
+            items = items.concat(resp.items || []);
+            total = resp.total || items.length;
+            if (items.length >= total || !(resp.items || []).length) break;
+        }
+
+        items.forEach(t => {
+            const d = parseTs(t.created_at || new Date().toISOString());
+            const bucket = buckets.find(b => b.key === keyOf(d));
             if (bucket) {
                 bucket.total++;
                 if ((t.risk_score || 0) >= 60) bucket.threats++;
             }
         });
 
+        container.textContent = '';
         this._renderTimelineChart(container, {
             labels: buckets.map(b => b.label),
             series: [
@@ -1315,10 +1319,15 @@ const DashboardPage = {
             ],
             yFormat: n => Math.round(n).toLocaleString(),
         });
+        if (total > items.length) {
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
+            note.textContent = `Showing the most recent ${items.length.toLocaleString()} of ${total.toLocaleString()} events in this window`;
+            container.appendChild(note);
+        }
     },
 
-    async renderCostTrendChart(container, card) {
-        const days = 7;
+    async renderCostTrendChart(container, card, days = 7) {
         const buckets = [];
         const now = new Date();
         const toLocalDateStr2 = ts => {
@@ -1333,7 +1342,7 @@ const DashboardPage = {
         }
         try {
             const start = new Date(now);
-            start.setDate(start.getDate() - 7);
+            start.setDate(start.getDate() - days);
             const records = await API.getCostRecords({ start: start.toISOString(), page_size: 200 });
             (records.items || []).forEach(r => {
                 const dateStr = toLocalDateStr2(r.recorded_at || new Date().toISOString());
@@ -1418,7 +1427,7 @@ const DashboardPage = {
 
         if (card) {
             const titleEl = card.querySelector('.card-title');
-            if (titleEl) titleEl.textContent = 'Token Usage — Last 7 Days';
+            if (titleEl) titleEl.textContent = `Token Usage — Last ${buckets.length} Days`;
         }
 
         const fmtTokens = n => {
@@ -1489,17 +1498,51 @@ const DashboardPage = {
         });
         table.appendChild(header);
 
+        // Mask obvious secret material in previews — the dashboard feed is
+        // a glanceable surface; raw keys never belong on it even when the
+        // stored record retains them.
+        const maskSecrets = (s) => String(s)
+            .replace(/(AKIA|ASIA)[A-Z0-9]{12,}/g, '$1••••••••')
+            .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-••••••••')
+            .replace(/(ghp|gho|ghu|ghs)_[A-Za-z0-9]{8,}/g, '$1_••••••••')
+            .replace(/eyJ[A-Za-z0-9_-]{20,}/g, 'eyJ••••••••')
+            .replace(/\b[0-9a-f]{32,}\b/gi, '••••••••');
+
+        // Inline verdict — WHY this row exists: the first matched rule's
+        // name, or "Guardian ML · NN%" when the ML model made the call.
+        const verdictFor = (t) => {
+            const rules = t.matched_rules || [];
+            const first = rules[0] || {};
+            let why;
+            if (/guardian/i.test(first.rule_name || '') || first.rule_id === 'sv_guardian_model') {
+                const score = (t.metadata && t.metadata.ml_malicious_score) || t.confidence;
+                why = 'Guardian ML' + (score ? ` · ${Math.round(score * 100)}%` : '');
+            } else if (first.rule_name) {
+                why = first.rule_name;
+            } else {
+                why = 'Detected';
+            }
+            const action = String(t.action_taken || '').toLowerCase().includes('block') ? 'blocked' : 'logged';
+            return `${why} · ${action}`;
+        };
+
         // Rows
         threats.forEach(threat => {
             const row = document.createElement('div');
             row.className = 'activity-row';
 
-            // Content preview
+            // Content preview + inline verdict reason
             const contentCell = document.createElement('div');
             contentCell.className = 'activity-cell content-cell';
-            const content = threat.text_preview || threat.text_content || threat.indicator || threat.name || 'Analyzed content';
-            contentCell.textContent = content.length > 50 ? content.substring(0, 50) + '...' : content;
-            contentCell.title = content;
+            const content = maskSecrets(threat.text_preview || threat.text_content || threat.indicator || threat.name || 'Analyzed content');
+            const preview = document.createElement('div');
+            preview.textContent = content.length > 50 ? content.substring(0, 50) + '...' : content;
+            preview.title = content;
+            contentCell.appendChild(preview);
+            const verdict = document.createElement('div');
+            verdict.textContent = verdictFor(threat);
+            verdict.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 2px;';
+            contentCell.appendChild(verdict);
             row.appendChild(contentCell);
 
             // Type
@@ -1526,7 +1569,9 @@ const DashboardPage = {
             timeCell.textContent = this.formatTime(threat.created_at || threat.first_seen);
             row.appendChild(timeCell);
 
+            // Deep link straight to THIS record, not just the threats page.
             row.addEventListener('click', () => {
+                if (threat.request_id && window.ThreatsPage) ThreatsPage.pendingRequestId = threat.request_id;
                 if (window.Sidebar) Sidebar.navigate('threats');
             });
 
@@ -1587,178 +1632,194 @@ const DashboardPage = {
         }
     },
 
-    async renderCostWidget() {
-        const widget = document.createElement('div');
-        widget.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 20px; cursor: pointer;';
-        widget.title = 'Click to open Cost Tracking';
-        widget.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
 
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;';
-
-        const titleEl = document.createElement('div');
-        titleEl.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-primary);';
-        titleEl.textContent = '💰 Cost Tracking';
-        header.appendChild(titleEl);
-
-        const viewLink = document.createElement('span');
-        viewLink.style.cssText = 'font-size: 12px; color: var(--accent-primary); cursor: pointer;';
-        viewLink.textContent = 'View all →';
-        header.appendChild(viewLink);
-
-        widget.appendChild(header);
-
-        try {
-            const summary = await API.getDashboardCostSummary();
-
-            const grid = document.createElement('div');
-            grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;';
-
-            const items = [
-                { label: "Today's Cost", value: `$${(summary.today_cost_usd || 0).toFixed(4)}` },
-                { label: "Today's Requests", value: (summary.today_requests || 0).toLocaleString() },
-                { label: 'Top Agent', value: summary.top_agent || '—' },
-                { label: 'Top Model', value: summary.top_model || '—' },
-            ];
-
-            items.forEach(({ label, value }) => {
-                const cell = document.createElement('div');
-                cell.style.cssText = 'text-align: center;';
-                const v = document.createElement('div');
-                v.style.cssText = 'font-size: 18px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-                v.textContent = value;
-                v.title = value;
-                const l = document.createElement('div');
-                l.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
-                l.textContent = label;
-                cell.appendChild(v);
-                cell.appendChild(l);
-                grid.appendChild(cell);
-            });
-
-            widget.appendChild(grid);
-
-            if (summary.has_unknown_pricing) {
-                const warn = document.createElement('div');
-                warn.style.cssText = 'margin-top: 10px; font-size: 11px; color: var(--color-warning, #f59e0b);';
-                warn.textContent = '⚠ Some models have unknown pricing — costs may be understated.';
-                widget.appendChild(warn);
-            }
-        } catch (e) {
-            const err = document.createElement('div');
-            err.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
-            err.textContent = 'Cost data unavailable.';
-            widget.appendChild(err);
-        }
-
-        return widget;
-    },
-
+    // Protection card — one home for the enforcement switches (Block Mode /
+    // Output Scan / Guardian ML) plus a Rules shortcut and live agent chips.
+    // Confirmations go through Modal.confirm; the checkbox only flips after
+    // the user confirms AND the API write succeeds (no optimistic flip).
     async renderSecurityControls() {
-        const section = document.createElement('div');
-        section.className = 'security-controls-section';
-        section.style.cssText = 'display: flex; gap: 16px; margin-bottom: 24px;';
-
-        // Fetch current settings
-        let settings = { block_threats: false, scan_llm_responses: true };
+        let settings = { block_threats: false, scan_llm_responses: true, guardian_ml_enabled: false };
         try {
             settings = await API.getSettings();
         } catch (e) {}
 
-        // Block Mode Card
-        const blockCard = document.createElement('div');
-        blockCard.className = 'security-control-card';
-        blockCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
-        if (!settings.block_threats) blockCard.classList.add('flashing-border');
+        const card = document.createElement('div');
+        card.className = 'security-controls-section';
+        card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;';
 
-        const blockInfo = document.createElement('div');
-        const blockTitle = document.createElement('div');
-        blockTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        blockTitle.textContent = 'Block Mode';
-        blockInfo.appendChild(blockTitle);
-        const blockDesc = document.createElement('div');
-        blockDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        blockDesc.textContent = 'Block threats on input and output';
-        blockInfo.appendChild(blockDesc);
-        blockCard.appendChild(blockInfo);
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex; align-items:baseline; gap:10px; margin-bottom: 10px;';
+        const title = document.createElement('div');
+        title.textContent = 'Protection';
+        title.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary);';
+        head.appendChild(title);
+        const sub = document.createElement('span');
+        sub.textContent = 'What runs on every tool call and LLM response';
+        sub.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        head.appendChild(sub);
+        card.appendChild(head);
 
-        const blockToggle = document.createElement('label');
-        blockToggle.className = 'toggle';
-        const blockCheckbox = document.createElement('input');
-        blockCheckbox.type = 'checkbox';
-        blockCheckbox.checked = settings.block_threats;
-        blockCheckbox.addEventListener('change', async (e) => {
-            const newState = e.target.checked;
-            if (!confirm(newState ? 'Enable Block Mode?\n\nInput threats will be BLOCKED before reaching the LLM.\nOutput threats will be BLOCKED before reaching the client.' : 'Disable Block Mode?\n\nAll threats will be logged only.')) {
-                e.target.checked = !newState;
-                return;
+        const rows = document.createElement('div');
+        rows.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 24px;';
+        card.appendChild(rows);
+
+        // One toggle row. apply(newState) performs the API write; the
+        // checkbox reflects the SAVED state only.
+        const toggleRow = ({ name, desc, checked, attention, disabled, disabledNote, confirmTitle, confirmMsg, apply }) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:12px; padding: 8px 0; border-top: 1px solid var(--border-default);';
+
+            const info = document.createElement('div');
+            info.style.cssText = 'min-width: 0;';
+            const nm = document.createElement('div');
+            nm.style.cssText = 'font-weight: 600; font-size: 13.5px; color: var(--text-primary);';
+            nm.textContent = name;
+            if (attention && !checked) {
+                const pill = document.createElement('span');
+                pill.textContent = 'off';
+                pill.style.cssText = 'margin-left:8px; font-size:10px; font-weight:700; text-transform:uppercase; color:#f59e0b; border:1px solid rgba(245,158,11,0.5); border-radius:999px; padding:1px 7px; vertical-align:1px;';
+                nm.appendChild(pill);
             }
-            // Show modal immediately
-            if (newState) {
-                showOpenClawProxyModal();
-            } else {
-                showOpenClawProxyStopModal();
-            }
+            info.appendChild(nm);
+            const ds = document.createElement('div');
+            ds.style.cssText = 'color: var(--text-secondary); font-size: 12px;';
+            ds.textContent = disabled && disabledNote ? disabledNote : desc;
+            info.appendChild(ds);
+            row.appendChild(info);
 
-            // Save settings in background
-            API.updateSettings({ block_threats: newState }).then(() => {
-                Toast.success(newState ? 'Block mode enabled' : 'Block mode disabled');
-            }).catch(() => {
-                Toast.error('Failed to update');
-                e.target.checked = !newState;
+            const toggle = document.createElement('label');
+            toggle.className = 'toggle';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = checked;
+            cb.disabled = !!disabled;
+            cb.addEventListener('change', (e) => {
+                const newState = e.target.checked;
+                e.target.checked = !newState; // revert until confirmed + saved
+                Modal.confirm({
+                    title: confirmTitle(newState),
+                    message: confirmMsg(newState),
+                    confirmLabel: newState ? 'Enable' : 'Disable',
+                    onConfirm: () => {
+                        Promise.resolve(apply(newState)).then(() => {
+                            cb.checked = newState;
+                        }).catch(() => {
+                            Toast.error('Failed to update');
+                        });
+                    },
+                });
             });
-        });
-        blockToggle.appendChild(blockCheckbox);
-        const blockSlider = document.createElement('span');
-        blockSlider.className = 'toggle-slider';
-        blockToggle.appendChild(blockSlider);
-        blockCard.appendChild(blockToggle);
-        section.appendChild(blockCard);
+            toggle.appendChild(cb);
+            const slider = document.createElement('span');
+            slider.className = 'toggle-slider';
+            toggle.appendChild(slider);
+            row.appendChild(toggle);
+            return row;
+        };
 
-        // Output Scan Card
-        const outputCard = document.createElement('div');
-        outputCard.className = 'security-control-card';
-        outputCard.style.cssText = 'flex: 1; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 20px; display: flex; justify-content: space-between; align-items: center;';
-        if (!settings.scan_llm_responses) outputCard.classList.add('flashing-border');
+        rows.appendChild(toggleRow({
+            name: 'Block Mode',
+            desc: 'Stop threats before the LLM and before the client',
+            checked: !!settings.block_threats,
+            attention: true,
+            confirmTitle: (on) => on ? 'Enable Block Mode?' : 'Disable Block Mode?',
+            confirmMsg: (on) => on
+                ? 'Input threats will be blocked before reaching the LLM. Output threats will be blocked before reaching the client.'
+                : 'All threats will be logged only — nothing is stopped.',
+            apply: (on) => {
+                if (on) showOpenClawProxyModal(); else showOpenClawProxyStopModal();
+                return API.updateSettings({ block_threats: on }).then(() => {
+                    Toast.success(on ? 'Block mode enabled' : 'Block mode disabled');
+                });
+            },
+        }));
 
-        const outputInfo = document.createElement('div');
-        const outputTitle = document.createElement('div');
-        outputTitle.style.cssText = 'font-weight: 600; font-size: 15px; margin-bottom: 4px;';
-        outputTitle.textContent = 'Output Scan (Redact Sensitive Info)';
-        outputInfo.appendChild(outputTitle);
-        const outputDesc = document.createElement('div');
-        outputDesc.style.cssText = 'color: var(--text-secondary); font-size: 13px;';
-        outputDesc.textContent = 'Scan LLM responses, redact secrets when stored';
-        outputInfo.appendChild(outputDesc);
-        outputCard.appendChild(outputInfo);
+        rows.appendChild(toggleRow({
+            name: 'Output Scan',
+            desc: 'Scan LLM responses, redact secrets when stored',
+            checked: !!settings.scan_llm_responses,
+            attention: true,
+            confirmTitle: (on) => on ? 'Enable Output Scan?' : 'Disable Output Scan?',
+            confirmMsg: (on) => on
+                ? 'LLM responses will be scanned and sensitive values redacted at rest.'
+                : 'Responses will not be monitored or redacted.',
+            apply: (on) => API.updateSettings({ scan_llm_responses: on }).then(() => {
+                Toast.success(on ? 'Output scan enabled' : 'Output scan disabled');
+            }),
+        }));
 
-        const outputToggle = document.createElement('label');
-        outputToggle.className = 'toggle';
-        const outputCheckbox = document.createElement('input');
-        outputCheckbox.type = 'checkbox';
-        outputCheckbox.checked = settings.scan_llm_responses;
-        outputCheckbox.addEventListener('change', async (e) => {
-            const newState = e.target.checked;
-            if (!confirm(newState ? 'Enable Output Scan?\n\nLLM responses will be scanned.' : 'Disable Output Scan?\n\nResponses will not be monitored.')) {
-                e.target.checked = !newState;
-                return;
-            }
-            try {
-                await API.updateSettings({ scan_llm_responses: newState });
-                Toast.success(newState ? 'Output scan enabled' : 'Output scan disabled');
-            } catch (err) {
-                Toast.error('Failed to update');
-                e.target.checked = !newState;
-            }
-        });
-        outputToggle.appendChild(outputCheckbox);
-        const outputSlider = document.createElement('span');
-        outputSlider.className = 'toggle-slider';
-        outputToggle.appendChild(outputSlider);
-        outputCard.appendChild(outputToggle);
-        section.appendChild(outputCard);
+        rows.appendChild(toggleRow({
+            name: 'Guardian ML',
+            desc: 'Local ML threat detection' + (settings.guardian_model_version ? ` · v${settings.guardian_model_version}` : ''),
+            checked: !!settings.guardian_ml_enabled,
+            disabled: settings.guardian_ml_available === false,
+            disabledNote: 'Model not installed — see Guardian ML in the sidebar',
+            confirmTitle: (on) => on ? 'Enable Guardian ML?' : 'Disable Guardian ML?',
+            confirmMsg: (on) => on
+                ? 'The local ML model scores every prompt alongside the rule engine. Runs entirely on this machine.'
+                : 'Detection falls back to rules only.',
+            apply: (on) => API.updateSettings({ guardian_ml_enabled: on }).then(() => {
+                Toast.success(on ? 'Guardian ML enabled' : 'Guardian ML disabled');
+            }),
+        }));
 
-        return section;
+        // Rules shortcut row — same grid, button instead of a toggle.
+        const rulesRow = document.createElement('div');
+        rulesRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:12px; padding: 8px 0; border-top: 1px solid var(--border-default);';
+        const rulesInfo = document.createElement('div');
+        const rulesName = document.createElement('div');
+        rulesName.style.cssText = 'font-weight: 600; font-size: 13.5px; color: var(--text-primary);';
+        rulesName.textContent = 'Rules';
+        rulesInfo.appendChild(rulesName);
+        const rulesDesc = document.createElement('div');
+        rulesDesc.style.cssText = 'color: var(--text-secondary); font-size: 12px;';
+        rulesDesc.textContent = 'Auto-block or alert on threats matching custom criteria';
+        rulesInfo.appendChild(rulesDesc);
+        rulesRow.appendChild(rulesInfo);
+        const rulesBtn = document.createElement('button');
+        rulesBtn.className = 'btn btn-secondary btn-sm';
+        rulesBtn.textContent = 'Manage →';
+        rulesBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('rules'); });
+        rulesRow.appendChild(rulesBtn);
+        rows.appendChild(rulesRow);
+
+        // Live agent chips — who protection is watching right now. Filled in
+        // the background from the agent-session graph; row stays hidden when
+        // nothing has been observed.
+        const chipsWrap = document.createElement('div');
+        chipsWrap.style.cssText = 'display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-default);';
+        card.appendChild(chipsWrap);
+        API.getAgentSessionGraph({ window_days: 1 }).then((g) => {
+            const sessions = (g.nodes || []).filter(n => n.kind === 'session');
+            if (!sessions.length) return;
+            const byHarness = new Map();
+            sessions.forEach(s => {
+                const h = s.harness || 'unknown';
+                const cur = byHarness.get(h) || { total: 0, active: 0 };
+                cur.total += 1;
+                if (s.active) cur.active += 1;
+                byHarness.set(h, cur);
+            });
+            const lbl = document.createElement('span');
+            lbl.textContent = 'Watching now:';
+            lbl.style.cssText = 'font-size: 11.5px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em;';
+            chipsWrap.appendChild(lbl);
+            [...byHarness.entries()].sort((a, b) => b[1].total - a[1].total).forEach(([h, c]) => {
+                const chip = document.createElement('button');
+                chip.style.cssText = 'display:inline-flex; align-items:center; gap:6px; font-size:12px; color: var(--text-primary); background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 999px; padding: 3px 10px; cursor: pointer;';
+                const dot = document.createElement('span');
+                dot.style.cssText = `width:7px; height:7px; border-radius:50%; background:${c.active ? '#10b981' : 'var(--text-muted)'};`;
+                chip.appendChild(dot);
+                const txt = document.createElement('span');
+                txt.textContent = `${h} · ${c.total} agent${c.total === 1 ? '' : 's'}`;
+                chip.appendChild(txt);
+                chip.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('agent-map'); });
+                chipsWrap.appendChild(chip);
+            });
+            chipsWrap.style.display = 'flex';
+        }).catch(() => {});
+
+        return card;
     },
 
     renderError(container, error) {

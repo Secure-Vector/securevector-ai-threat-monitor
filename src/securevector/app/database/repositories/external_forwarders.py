@@ -164,6 +164,15 @@ _TOOL_AUDIT_STANDARD = _TOOL_AUDIT_MINIMAL | frozenset({
     # was hashed against, so we keep it in standard (not minimal).
     "prev_hash",
     "row_hash",
+    # #141/#144 run-correlation identity — pure metadata ids (no free text),
+    # needed by the cloud fleet ingest to build the Agent Map (agent→tool
+    # edges) and Agent Runs (per-trace span waterfalls). Carried at standard
+    # tier so the enrollment (cloud) destination forwards them.
+    "trace_id",
+    "session_id",
+    "turn_index",
+    "parent_span_id",
+    "runtime_kind",
 })
 
 _TOOL_AUDIT_FULL = _TOOL_AUDIT_STANDARD | frozenset({
@@ -343,6 +352,12 @@ def build_tool_audit_payload(
     actor_process: Optional[str] = None,
     finding_group_id: Optional[str] = None,
     mitre_techniques: Optional[list[str]] = None,
+    # #141/#144 run-correlation identity (metadata ids; standard tier).
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    turn_index: Optional[int] = None,
+    parent_span_id: Optional[str] = None,
+    runtime_kind: Optional[str] = None,
 ) -> dict[str, Any]:
     # Same 8KB cap as scans — tool-call args can be chatty too (a vector
     # with 20k embedded values, a base64 blob pasted into a tool payload).
@@ -368,6 +383,12 @@ def build_tool_audit_payload(
         "actor_process": actor_process,
         "finding_group_id": finding_group_id,
         "mitre_techniques": list(mitre_techniques) if mitre_techniques else None,
+        # #141/#144 run-correlation identity.
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "turn_index": turn_index,
+        "parent_span_id": parent_span_id,
+        "runtime_kind": runtime_kind,
     }
     _assert_metadata_only(payload, _TOOL_AUDIT_ALLOWED, kind="tool_audit")
     return payload
@@ -512,6 +533,7 @@ class ExternalForwardersRepository:
         enabled: bool = True,
         min_severity: MinSeverity = "review",
         rate_limit_per_minute: int = 0,
+        source: str = "user",
     ) -> dict[str, Any]:
         if kind not in ("webhook", "splunk_hec", "datadog", "otlp_http", "file"):
             raise ValueError(f"unknown forwarder kind: {kind!r}")
@@ -533,6 +555,12 @@ class ExternalForwardersRepository:
             raise ValueError(f"unknown min_severity: {min_severity!r}")
         if int(rate_limit_per_minute) < 0 or int(rate_limit_per_minute) > 10000:
             raise ValueError("rate_limit_per_minute must be between 0 and 10000")
+        # Provenance: 'user' (hand-added) or 'enrollment' (admin-supplied,
+        # registered from the cloud enrollment response). The UI badges
+        # 'enrollment' rows as managed (🔒). Unknown values are rejected so
+        # the badge logic can't be confused by a typo'd source.
+        if source not in ("user", "enrollment"):
+            raise ValueError(f"unknown forwarder source: {source!r}")
 
         secret_ref = forwarder_secrets.save_secret(secret) if secret else None
         headers_json = json.dumps(headers, separators=(",", ":")) if headers else None
@@ -543,15 +571,15 @@ class ExternalForwardersRepository:
             INSERT INTO external_forwarders
                 (kind, name, url, secret_ref, headers_json,
                  event_filter, include_tool_audits, redaction_level, enabled,
-                 min_severity, rate_limit_per_minute,
+                 min_severity, rate_limit_per_minute, source,
                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 kind, name.strip(), url.strip(), secret_ref, headers_json,
                 event_filter, 1 if include_tool_audits else 0, redaction_level,
                 1 if enabled else 0,
-                min_severity, int(rate_limit_per_minute),
+                min_severity, int(rate_limit_per_minute), source,
             ),
         )
         await conn.commit()
@@ -787,6 +815,11 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         # the column default; _row_get keeps the read safe if the column
         # somehow doesn't exist on a freshly-seeded dev DB.
         "events_sent": int(_row_get(row, "events_sent", 0) or 0),
+        # v38 — provenance. 'user' (hand-added) or 'enrollment' (admin-
+        # supplied, auto-registered from the cloud enrollment response).
+        # Column-safe fallback to 'user' for pre-v38 rows so the UI badge
+        # logic never sees a null source.
+        "source": _row_get(row, "source", "user") or "user",
     }
 
 

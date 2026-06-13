@@ -171,6 +171,50 @@ class ExternalForwarderService:
         url = fwd["url"]
         ids = [int(r["id"]) for r in batch]
 
+        # SecureVector cloud fleet destination (source="enrollment"): the cloud
+        # /ocsf/ingest expects FLAT metadata NDJSON (tool/decision/trace_id/
+        # session_id/harness/agent/row_hash), not the nested SIEM OCSF the
+        # translators below emit. Encode + POST directly; auth header is the
+        # per-device forwarder JWT in the destination's secret_ref.
+        if str(fwd.get("source") or "") == "enrollment":
+            body = siem_ocsf.encode_fleet_jsonl(batch)
+            if not body:
+                # Nothing forwardable (e.g. a batch of scan rows) — ack + move on.
+                await outbox_repo.mark_delivered(ids)
+                return
+            try:
+                headers = _build_auth_headers(fwd, "application/x-ndjson", {})
+            except ValueError as e:
+                await outbox_repo.mark_failed(ids, str(e))
+                await fwds_repo.mark_failure(fid, str(e))
+                logger.warning(f"external_forwarder: id={fid} skipped — {e}")
+                return
+            try:
+                async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+                    resp = await client.post(url, content=body, headers=headers)
+                status = resp.status_code
+                text_preview = resp.text[:200] if resp.text else ""
+            except Exception as e:
+                err = f"network: {type(e).__name__}: {e!s}"[:500]
+                await outbox_repo.mark_failed(ids, err)
+                await fwds_repo.mark_failure(fid, err)
+                self._maybe_trip_breaker(fid, int(fwd.get("consecutive_fails") or 0) + 1)
+                logger.debug(f"external_forwarder: id={fid} transient error: {err}")
+                return
+            if 200 <= status < 300:
+                await outbox_repo.mark_delivered(ids)
+                await fwds_repo.mark_success(fid, delivered=len(ids))
+                self._breaker_until.pop(fid, None)
+                logger.info("external_forwarder: fleet batch delivered")
+            else:
+                err = f"HTTP {status}: {text_preview}"
+                await outbox_repo.mark_failed(ids, err)
+                await fwds_repo.mark_failure(fid, err)
+                hard = 400 <= status < 500 and status not in (408, 429)
+                self._maybe_trip_breaker(fid, int(fwd.get("consecutive_fails") or 0) + 1, hard=hard)
+                logger.warning(f"external_forwarder: id={fid} fleet ingest {status}: {text_preview}")
+            return
+
         redaction = fwd.get("redaction_level") or "standard"
         events = siem_ocsf.encode_batch(batch, redaction=redaction)
 

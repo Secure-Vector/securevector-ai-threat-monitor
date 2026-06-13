@@ -201,6 +201,9 @@ const API = {
         if (params.source) queryParams.set('source', params.source);
         // Deep-link from an Agent Runs detection to the exact record.
         if (params.request_id) queryParams.set('request_id', params.request_id);
+        // Range-scoped fetches (dashboard charts). Server-side filter.
+        if (params.start_date) queryParams.set('start_date', params.start_date);
+        if (params.end_date) queryParams.set('end_date', params.end_date);
 
         const query = queryParams.toString();
         return this.request(`/api/threat-intel${query ? '?' + query : ''}`).catch(() => ({

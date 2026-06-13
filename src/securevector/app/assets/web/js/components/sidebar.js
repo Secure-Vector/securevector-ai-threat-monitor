@@ -43,15 +43,22 @@ const Sidebar = {
         // (on/off + what it does), so it sits in Configure and deep-links to
         // the Guardian section on the Settings page. Lives here rather than as
         // a sidebar pill so the bottom status zone stays single-purpose.
+        // (MCP Policies moved from this spot into the Cloud section below.)
         { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
-        // MCP Policies — read-only viewer of cloud-synced policy bundles.
-        // Lives next to Tool Permissions because the rules layered there
-        // come from here. Separate sidebar entry keeps the trust artifact
-        // (what's pushed to me, by whom) distinct from the operational
-        // surface (what does the proxy do for tool X).
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+        // ---- Cloud section (#151) ----
+        // The cloud-account surfaces get their own labelled section
+        // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
+        // features don't blend into the local Configure items.
+        // MCP Policies — read-only viewer of cloud-synced policy bundles.
+        // Kept distinct from Tool Permissions: the trust artifact (what's
+        // pushed to me, by whom) vs the operational surface.
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
+        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
+        // Listed in ENROLLED_ONLY below so it only appears in the rail once
+        // this device is enrolled (personal-mode installs never see it).
+        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
         // placed above Integrations (inbound pipes from agent
         // frameworks) because the SOC audit/compliance story is the
@@ -119,6 +126,35 @@ const Sidebar = {
         if (Number.isFinite(saved) && saved >= this.SIDEBAR_MIN_PX && saved <= this.SIDEBAR_MAX_PX) {
             document.documentElement.style.setProperty('--sidebar-width', saved + 'px');
         }
+    },
+
+    // Enrollment state cache for ENROLLED_ONLY nav items. null = not yet
+    // probed; true/false once /policy-sync/status answers.
+    _enrolled: null,
+    _enrollmentProbed: false,
+
+    /**
+     * Probe enrollment once per page load so enrolled-only nav items (Cloud
+     * Activity) can reveal themselves. Cheap idempotent GET. On resolution,
+     * if the answer flips the cached value, re-render the sidebar so the item
+     * appears/disappears without a full reload. Fails closed (hidden) on any
+     * error — a transient API hiccup never leaks an empty page into the rail.
+     */
+    _probeEnrollment() {
+        if (this._enrollmentProbed) return;
+        this._enrollmentProbed = true;
+        fetch('/api/v1/policy-sync/status')
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+                const enrolled = !!(data && data.enrolled);
+                if (enrolled !== this._enrolled) {
+                    this._enrolled = enrolled;
+                    // Only a re-render is needed; render() guards its own
+                    // one-time defaults so this is safe to call again.
+                    this.render();
+                }
+            })
+            .catch(() => { /* fail closed — item stays hidden */ });
     },
 
     render() {
@@ -208,7 +244,17 @@ const Sidebar = {
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
-        const CLOUD_TIER = new Set(['mcp-policies']);
+        const CLOUD_TIER = new Set(['mcp-policies', 'cloud-activity']);
+
+        // Enrolled-only items — hidden from the rail entirely until this
+        // device is enrolled in an org. Cloud Activity has nothing to show
+        // in personal mode (no synced policies down, nothing forwarded up),
+        // so it stays out of the nav rather than rendering an empty page.
+        // `_enrolled` is probed asynchronously once (see _probeEnrollment);
+        // until the probe resolves we treat enrollment as unknown and keep
+        // the item hidden, then re-render when the answer lands.
+        const ENROLLED_ONLY = new Set(['cloud-activity']);
+        this._probeEnrollment();
 
         // Section labels before nav items. SIEM Forwarder now anchors
         // the Connect section (it sits above Integrations) so the
@@ -216,14 +262,22 @@ const Sidebar = {
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
+            'mcp-policies':     'Cloud',
             'siem-export':      'Connect',
         };
 
         // Items that get a divider before them — keep the visual break
-        // at the Connect boundary too.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'siem-export']);
+        // at the Cloud and Connect boundaries too.
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'mcp-policies', 'siem-export']);
 
         this.navItems.forEach(item => {
+            // Enrolled-only gating — skip the item entirely until the device
+            // is known to be enrolled. `_enrolled === true` is the only state
+            // that reveals it; null (probe pending) or false keep it hidden.
+            if (ENROLLED_ONLY.has(item.id) && this._enrolled !== true) {
+                return;
+            }
+
             // Section label
             if (SECTION_BEFORE[item.id]) {
                 const sectionLbl = document.createElement('div');

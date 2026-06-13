@@ -82,7 +82,7 @@ def print_logo():
 ║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║     ║
 ║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝     ║
 ║                                                                   ║
-║              Runtime Firewall for AI Agents & LLMs                ║
+║              Security & Observability for AI Agents               ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """
@@ -1108,6 +1108,134 @@ def _handle_scan_skill() -> None:
     sys.exit(0)
 
 
+# Five-bullet enrollment disclosure (#114). Module-level so the wording can
+# be imported + asserted by a unit test without spawning a process. Each
+# bullet is anchored to a real, auditable code path.
+ENROLLMENT_DISCLOSURE_BULLETS = [
+    "Enrolling installs managed policies. Your org's signed tool-permission "
+    + "bundle is synced down and enforced on this device (see the MCP Policies page).",
+    "Opt-in audit forwarding may be enabled. If your admin opted in, this "
+    + "device forwards agent/tool audit + lifecycle events to their destinations.",
+    "What's forwarded is metadata only. Tool ids, decisions, device + app "
+    + "version, timestamps — never your prompt text, model output, or tool arguments.",
+    "Destinations come from your enrollment response. They are NOT hardcoded; "
+    + "they arrive from your enrollment authority and are badged 'managed' locally.",
+    "You can inspect everything, any time. Run `sv inspect-uplink` or open the "
+    + "Cloud Activity page to see exactly what flows in and out.",
+]
+
+
+def _confirm_enrollment_disclosure(auto_yes: bool = False) -> bool:
+    """Print the five-bullet enrollment disclosure and prompt for consent.
+
+    Returns True to proceed, False to abort. The prompt defaults to NO —
+    only a literal ``y`` / ``Y`` proceeds. ``auto_yes`` (from ``--yes``)
+    skips the interactive prompt for non-interactive / CI use, but the
+    disclosure block is ALWAYS printed regardless. There is no silent
+    auto-yes path.
+    """
+    print()
+    print("=" * 68)
+    print("  SecureVector device enrollment — what this does")
+    print("=" * 68)
+    for i, bullet in enumerate(ENROLLMENT_DISCLOSURE_BULLETS, start=1):
+        print(f"  {i}. {bullet}")
+    print("=" * 68)
+
+    if auto_yes:
+        print("Proceeding (--yes).")
+        return True
+
+    try:
+        answer = input("Continue? [y/N] ").strip()
+    except (EOFError, KeyboardInterrupt):
+        # No TTY / Ctrl-C — treat as a decline. Never assume consent.
+        print()
+        return False
+    return answer in ("y", "Y")
+
+
+def _handle_inspect_uplink() -> None:
+    """Handle the `securevector-app inspect-uplink` subcommand (#113).
+
+    Terminal-first parallel to the Cloud Activity page: prints the same
+    enrollment status + inbound (synced policies) + outbound (forwarding)
+    summary that the web page renders, by reusing the aggregated
+    ``/api/v1/cloud-activity`` route handler in-process.
+
+    Exit codes:
+      0 — printed successfully (enrolled or not)
+      2 — unexpected error
+    """
+    import argparse as _argparse
+    import asyncio
+
+    sub = _argparse.ArgumentParser(
+        prog="securevector-app inspect-uplink",
+        description="Show what flows in and out of this enrolled device.",
+    )
+    sub.parse_args(sys.argv[2:])
+
+    try:
+        from securevector.app.server.routes.device_admin import cloud_activity
+
+        snap = asyncio.run(cloud_activity())
+    except Exception as exc:  # noqa: BLE001
+        print(f"inspect-uplink failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    if not snap.enrolled:
+        print("This device is NOT enrolled — nothing flows to or from the cloud.")
+        print("Enroll with: securevector-app enroll <svet_token>")
+        sys.exit(0)
+
+    e = snap.enrollment
+    print("=" * 60)
+    print("  Cloud Activity — uplink inspection")
+    print("=" * 60)
+    print("Enrollment")
+    print(f"  Organization : {e.org_name or e.org_id or '—'}")
+    groups = ", ".join(e.group_memberships) if e.group_memberships else "—"
+    print(f"  Group(s)     : {groups}")
+    print(f"  Managed by   : {e.admin_email or '—'}")
+    print(f"  User         : {e.user_email or '—'}")
+    print(f"  Device ID    : {e.device_id or '—'}")
+    print(f"  Connection   : {e.connection_state}")
+    print(f"  Last sync    : {e.last_sync_at or '—'} ({e.last_sync_status or 'n/a'})")
+
+    inb = snap.inbound
+    print("\nInbound · synced policies  (cloud -> device)")
+    if not inb.any_active:
+        print("  No policy bundle applied yet (≤60s after enrollment).")
+    else:
+        ver = f"v{inb.bundle_version}" if inb.bundle_version is not None else "—"
+        print(f"  Bundle       : {ver}  ({inb.policy_count} policies, {inb.rule_count} rules)")
+        print(f"  Verification : {inb.verification_status}")
+        print(f"  Signing key  : {inb.signing_key_fingerprint or 'not captured'}")
+        print(f"  Last applied : {inb.last_applied_at or '—'}")
+        for r in inb.rules[:20]:
+            reason = f"  — {r.reason}" if r.reason else ""
+            print(f"    [{r.effect}] {r.tool_id} (priority {r.priority}){reason}")
+
+    out = snap.outbound
+    print("\nOutbound · forwarding  (device -> destinations)")
+    print("  Metadata only — never prompt text, output, or tool arguments.")
+    all_dests = list(out.enrollment_destinations) + list(out.user_destinations)
+    if not all_dests:
+        print("  No forwarding destinations configured. Nothing is pushed up.")
+    else:
+        for d in all_dests:
+            tag = "managed" if d.source == "enrollment" else "you added"
+            state = "" if d.enabled else " [disabled]"
+            print(f"    [{tag}]{state} {d.name}: {d.url}  (sent {d.events_sent})")
+    print("\n  OCSF event types emitted:")
+    for ev in out.event_types:
+        print(f"    {ev.event_code}  (class {ev.class_uid} {ev.class_name})")
+
+    print("=" * 60)
+    sys.exit(0)
+
+
 def _handle_enroll() -> None:
     """Handle the `securevector-app enroll <token>` subcommand.
 
@@ -1132,6 +1260,12 @@ def _handle_enroll() -> None:
         nargs="?",
         help="The svet_<...> enrollment token (or set SECUREVECTOR_ENROLL_TOKEN)",
     )
+    sub.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the interactive disclosure confirmation (for non-interactive / CI use).",
+    )
     args = sub.parse_args(sys.argv[2:])
 
     token = args.token or os.environ.get("SECUREVECTOR_ENROLL_TOKEN")
@@ -1150,6 +1284,18 @@ def _handle_enroll() -> None:
             file=sys.stderr,
         )
         sys.exit(2)
+
+    # ---- Enrollment disclosure (#114) ----
+    # Make the contract truthful and in-your-face BEFORE anything changes on
+    # disk. Each bullet maps to a real code path the user can audit:
+    #   1. managed policies  -> services/cloud_sync + MCP Policies page
+    #   2. opt-in forwarding  -> services/device_lifecycle.register_enrollment_destinations
+    #   3. metadata-only      -> services/device_lifecycle.encode_lifecycle_event (raw_data=None)
+    #   4. admin destinations -> enrollment response `forwarder_destinations`
+    #   5. inspectability     -> `sv inspect-uplink` / Cloud Activity page
+    if not _confirm_enrollment_disclosure(auto_yes=args.yes):
+        print("Enrollment cancelled. No changes were made.")
+        sys.exit(0)
 
     from securevector.app.services.enrollment import EnrollmentError, enroll
 
@@ -1280,6 +1426,11 @@ def main() -> None:
     # Dispatch scan-skill subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "scan-skill":
         _handle_scan_skill()
+        return
+
+    # Dispatch inspect-uplink subcommand (#113) before the main parser runs
+    if len(sys.argv) > 1 and sys.argv[1] == "inspect-uplink":
+        _handle_inspect_uplink()
         return
 
     parser = argparse.ArgumentParser(

@@ -2,7 +2,9 @@
 
 <h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
-<h3>Audit every tool. Catch the threats. All locally.</h3>
+<h3>Security &amp; Observability for AI Agents</h3>
+
+<p><em>Audit every tool. Catch the threats. All locally.</em></p>
 
 </div>
 
@@ -46,7 +48,7 @@ All three plugins share the same enforcement core: one rule on `tool_id="Bash"` 
 <div align="center">
   <h3>▶ Watch the Demo</h3>
   <a href="https://youtu.be/9RByIHSV95s">
-    <img src="https://img.youtube.com/vi/9RByIHSV95s/maxresdefault.jpg" alt="SecureVector Demo — AI firewall in action" width="480">
+    <img src="https://img.youtube.com/vi/9RByIHSV95s/maxresdefault.jpg" alt="SecureVector Demo — Security &amp; Observability for AI Agents, live" width="480">
   </a>
   <p><em>Threat detection, tool permissions, and cost tracking — running locally in real time.</em></p>
 </div>
