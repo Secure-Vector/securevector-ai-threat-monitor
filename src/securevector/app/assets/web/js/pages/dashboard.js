@@ -1103,12 +1103,24 @@ const DashboardPage = {
             svg.appendChild(tick);
         });
 
-        // X-axis labels.
+        // X-axis labels. One tick per data point collides once the window
+        // grows (30 daily "MM/DD" or 24 hourly "HH:00" labels overrun 600px),
+        // so thin to a stride that targets ~8 evenly-spaced ticks. First and
+        // last are always shown; interior labels are dropped on the stride.
+        // The text-anchor on the edge ticks is nudged inward so they don't
+        // clip past the plot area.
+        const targetTicks = 8;
+        const stride = Math.max(1, Math.ceil(n / targetTicks));
         labels.forEach((lbl, i) => {
+            const isFirst = i === 0;
+            const isLast = i === n - 1;
+            // Show first, last, and every stride-th label; never render a tick
+            // adjacent to the last one (avoids a cramped final pair).
+            if (!isFirst && !isLast && (i % stride !== 0 || (n - 1 - i) < stride / 2)) return;
             const t = document.createElementNS(svgNS, 'text');
             t.setAttribute('x', xAt(i));
             t.setAttribute('y', height - 6);
-            t.setAttribute('text-anchor', 'middle');
+            t.setAttribute('text-anchor', isFirst ? 'start' : isLast ? 'end' : 'middle');
             t.setAttribute('font-size', '10');
             t.setAttribute('fill', 'var(--text-muted)');
             t.textContent = lbl;
