@@ -1113,15 +1113,15 @@ def _handle_scan_skill() -> None:
 # bullet is anchored to a real, auditable code path.
 ENROLLMENT_DISCLOSURE_BULLETS = [
     "Enrolling installs managed policies. Your org's signed tool-permission "
-    "bundle is synced down and enforced on this device (see the MCP Policies page).",
+    + "bundle is synced down and enforced on this device (see the MCP Policies page).",
     "Opt-in audit forwarding may be enabled. If your admin opted in, this "
-    "device forwards agent/tool audit + lifecycle events to their destinations.",
+    + "device forwards agent/tool audit + lifecycle events to their destinations.",
     "What's forwarded is metadata only. Tool ids, decisions, device + app "
-    "version, timestamps — never your prompt text, model output, or tool arguments.",
+    + "version, timestamps — never your prompt text, model output, or tool arguments.",
     "Destinations come from your enrollment response. They are NOT hardcoded; "
-    "they arrive from your enrollment authority and are badged 'managed' locally.",
+    + "they arrive from your enrollment authority and are badged 'managed' locally.",
     "You can inspect everything, any time. Run `sv inspect-uplink` or open the "
-    "Cloud Activity page to see exactly what flows in and out.",
+    + "Cloud Activity page to see exactly what flows in and out.",
 ]
 
 

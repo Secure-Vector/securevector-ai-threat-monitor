@@ -632,6 +632,9 @@ async def cloud_activity() -> CloudActivityResponse:
 
         device_id = get_device_id()
     except Exception:
+        # Best-effort: the device id is only used to decorate the status
+        # banner. If it can't be resolved we leave it None and render the
+        # banner without it rather than failing the whole status endpoint.
         pass
 
     connection_state = "not_enrolled" if not enrolled else _derive_connection_state(health_raw)

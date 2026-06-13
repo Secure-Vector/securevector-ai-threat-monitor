@@ -209,6 +209,9 @@ async def _emit_to_destinations(
         if creds:
             org_id = creds.org_id
     except Exception:
+        # org_id is optional metadata on the lifecycle event; if credentials
+        # can't be read we still emit the event without it rather than block
+        # device shutdown/uninstall reporting.
         pass
 
     event = encode_lifecycle_event(
@@ -265,18 +268,19 @@ async def emit_lifecycle_to_enrollment_destinations(activity: str) -> int:
 # it. The server's graceful shutdown is the primary path; this is the
 # backstop for a hard exit / non-server invocation.
 
-_UNINSTALL_EMITTED = False
-_ATEXIT_REGISTERED = False
+# Module-level teardown state. Held in a mutable dict rather than rebindable
+# module globals so the idempotency flags are mutated in place (no `global`
+# rebinding) — clearer intent and avoids the false "unused global" lint.
+_STATE = {"uninstall_emitted": False, "atexit_registered": False}
 
 
 def _run_uninstalling_emit_sync() -> None:
     """Synchronous atexit entry point — drives the async emit on a fresh
     event loop. Idempotent + fully swallowed: a teardown hook must never
     raise into the interpreter's exit path."""
-    global _UNINSTALL_EMITTED
-    if _UNINSTALL_EMITTED:
+    if _STATE["uninstall_emitted"]:
         return
-    _UNINSTALL_EMITTED = True
+    _STATE["uninstall_emitted"] = True
     try:
         import asyncio
 
@@ -308,16 +312,15 @@ def register_preuninstall_hook() -> None:
     The server's lifespan shutdown is the primary emit path; this guards
     the case where the process exits without the graceful shutdown running
     (hard kill of the parent that still lets atexit fire, CLI teardown,
-    etc.). The shared `_UNINSTALL_EMITTED` flag prevents a double emit when
-    both paths run."""
-    global _ATEXIT_REGISTERED
-    if _ATEXIT_REGISTERED:
+    etc.). The shared `_STATE["uninstall_emitted"]` flag prevents a double
+    emit when both paths run."""
+    if _STATE["atexit_registered"]:
         return
     try:
         import atexit
 
         atexit.register(_run_uninstalling_emit_sync)
-        _ATEXIT_REGISTERED = True
+        _STATE["atexit_registered"] = True
     except Exception:  # pragma: no cover - defensive
         logger.debug("device_lifecycle: could not register atexit hook")
 
@@ -326,8 +329,7 @@ def mark_uninstall_emitted() -> None:
     """Let the server's async lifespan shutdown record that it already
     emitted the uninstalling event, so the atexit backstop won't fire a
     duplicate."""
-    global _UNINSTALL_EMITTED
-    _UNINSTALL_EMITTED = True
+    _STATE["uninstall_emitted"] = True
 
 
 async def register_enrollment_destinations(
