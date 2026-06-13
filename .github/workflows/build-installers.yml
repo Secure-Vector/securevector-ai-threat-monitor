@@ -311,9 +311,16 @@ jobs:
           xcrun stapler staple "$DMG"
           spctl -a -t open --context context:primary-signature -vv "$DMG"
 
-      - name: Delete ephemeral keychain
+      # Defense-in-depth: the inline `rm -f` after cert import / notarize only
+      # runs on the happy path — if `security import` or `notarytool` fails,
+      # `set -e` aborts the step before cleanup. This always() step guarantees
+      # the decoded signing material and keychain are gone regardless of outcome.
+      # (Runner is ephemeral, so this is belt-and-suspenders, not load-bearing.)
+      - name: Delete ephemeral keychain and signing material
         if: always()
-        run: security delete-keychain build.keychain 2>/dev/null || true
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true
+          rm -f /tmp/cert.p12 /tmp/asc.p8
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
