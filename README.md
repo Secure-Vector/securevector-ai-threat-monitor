@@ -8,7 +8,8 @@
 
 </div>
 
-- **Guardian ML threat detection** *(new in v4.7.0)* — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
+- **Fleet management** *(new in v4.7.0)* — enrolled devices forward agent/tool telemetry to your cloud account, consolidated into fleet-wide Agent Maps + Agent Runs. Metadata-only, opt-in, and fully inspectable from the Cloud Activity page.
+- **Guardian ML threat detection** *(new in v4.6.0)* — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
 - **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
@@ -17,16 +18,17 @@
 - **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
 - **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
 
-**Four native agent plugins — zero proxy, allow / deny / ask enforced inline:**
+**Five native agent plugins — zero proxy, allow / deny / ask enforced inline:**
 
 | Plugin | Runtime | Hooks | Audit `runtime_kind` |
 |---|---|---|---|
 | **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `claude-code` |
 | **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `codex` |
-| **SecureVector Guard for GitHub Copilot CLI** *(new in v4.7.0)* | GitHub Copilot CLI | `preToolUse` · `postToolUse` · `userPromptSubmitted` · `sessionStart` | `copilot-cli` |
+| **SecureVector Guard for GitHub Copilot CLI** *(new in v4.6.0)* | GitHub Copilot CLI | `preToolUse` · `postToolUse` · `userPromptSubmitted` · `sessionStart` | `copilot-cli` |
+| **SecureVector Guard for Cursor** *(new in v4.7.0)* | Cursor agent | `beforeSubmitPrompt` · `beforeShell` · `beforeReadFile` · `beforeMCP` · `afterFileEdit` · `stop` · `sessionStart` | `cursor` |
 | **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
 
-All three plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), and shell calls on OpenClaw. Install from the Integrations tab.
+All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), shell calls on Cursor (`beforeShell`), and shell calls on OpenClaw. Install from the Integrations tab.
 
 <div align="center">
 
@@ -56,9 +58,11 @@ All three plugins share the same enforcement core: one rule on `tool_id="Bash"` 
 <br>
 
 > **What's new in v4.7.0**
-> - **GitHub Copilot CLI — now guarded** — the SecureVector Guard plugin now covers **GitHub Copilot CLI** alongside Claude Code, OpenAI Codex, and OpenClaw: the same real-time tool-call enforcement, tamper-evident audit, and prompt-injection scanning, all on one Agent Map.
-> - **Guardian ML — local AI threat detection** — an optional, fully-offline ML model that runs alongside the regex rules and catches the obfuscated, paraphrased, and encoded attacks they miss — sub-millisecond, nothing leaves your machine. Every detection is tagged **Rule**, **ML**, or **Rule + ML**. Installed automatically with the app — `pip install securevector-ai-monitor[app]` pulls in the `securevector-guardian-model` package (pure-Python, zero ML deps), and `pip install -U` updates the model like any dependency.
+> - **Fleet management — enrolled-device consolidation** — devices enrolled to a cloud account forward agent/tool telemetry that's consolidated into **fleet-wide Agent Maps + Agent Runs**: one picture of every harness, agent session, and tool call across your whole fleet. Forwarding is **opt-in and metadata-only** (tool ids, decisions, device + app version, timestamps — never prompt text, model output, or tool arguments), and the new **Cloud Activity** page shows exactly what flows in and out. Nothing leaves a machine unless it's enrolled *and* the admin opted in.
+> - **SecureVector Guard for Cursor** — a native plugin + hooks for the **Cursor agent** (`beforeSubmitPrompt`, `beforeShell`, `beforeReadFile`, `beforeMCP`, `afterFileEdit`, `stop`, `sessionStart`): the same real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning as the other native plugins, all on one Agent Map.
+> - **Signed + notarized macOS binary** — the macOS `.dmg` is now signed with a Developer ID certificate (hardened runtime) and **notarized + stapled by Apple**, so it opens cleanly through Gatekeeper — no more `xattr` workaround.
 >
+> Already in v4.6.0: **GitHub Copilot CLI — now guarded** (same enforcement core as Claude Code / Codex / OpenClaw) · **Guardian ML** — optional, fully-offline local ML detection alongside the regex rules, every detection tagged **Rule**, **ML**, or **Rule + ML**.
 > Already in v4.5.0: **Agent Map & Runs** — a live map of your fleet (device → harness → agent → tool; tree / radial / mesh / Sankey) with turn-by-turn run traces · case-insensitive policy matching (#138) · clearer status-line setup.
 > Already in v4.0.0–4.4.\*: Claude Code · OpenAI Codex · OpenClaw active-guard plugins (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · Bash/PowerShell tool-response scanning + expanded credential redaction (#131) · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · MCP Tool Inventory · Secret Detections audit log · bidirectional tool-response scanning · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
 
