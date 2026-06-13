@@ -40,6 +40,10 @@ const App = {
         // the single source of truth for which view is shown.
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; ToolPermissionsPage.visibleTabs = null; return ToolPermissionsPage.render(c); } },
         'mcp-policies':      McpPoliciesPage,
+        // Cloud Activity (story #113) — full in/out visibility for enrolled
+        // devices. Sidebar gates its visibility on enrollment; the page also
+        // self-guards with a not-enrolled empty-state if deep-linked.
+        'cloud-activity':    CloudActivityPage,
         // Tool Activity + Tool Inventory — one merged destination, two tabs.
         // Both legacy page ids stay routable (deep links / bookmarks); they
         // differ only in which tab is active on landing.

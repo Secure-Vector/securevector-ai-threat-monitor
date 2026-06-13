@@ -15,6 +15,9 @@ const GlobalBanners = {
     // with informed consent": say what it is, where data goes (nowhere),
     // and offer the off switch right there. Acked once, never again.
     KEY_GUARDIAN_NOTICE: 'sv-guardian-notice-acked',
+    // One-time post-enrollment banner (#114) pointing the user at the new
+    // Cloud Activity page. Acked permanently once dismissed / clicked.
+    KEY_ENROLLED: 'sv-enrolled-banner-acked',
 
     async render() {
         // Inject keyframes once
@@ -53,10 +56,13 @@ const GlobalBanners = {
         }
         slot.textContent = '';
 
-        // Fails-open to null so a transient API issue never breaks the
-        // dashboard (the Guardian notice just doesn't render that pass).
-        const appSettings = await fetch('/api/settings')
-            .then(r => r.ok ? r.json() : null).catch(() => null);
+        // Fetch settings + enrollment state in parallel. Each fetch fails-open
+        // to null so a transient API issue never breaks the dashboard (the
+        // dependent banner just doesn't render that pass).
+        const [appSettings, enrollStatus] = await Promise.all([
+            fetch('/api/settings').then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch('/api/v1/policy-sync/status').then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
 
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
         const guardianAcked = localStorage.getItem(this.KEY_GUARDIAN_NOTICE) === '1';
@@ -66,12 +72,22 @@ const GlobalBanners = {
         const guardianNoticeRelevant = !!(appSettings
             && appSettings.guardian_ml_available && appSettings.guardian_ml_enabled);
 
+        // Post-enrollment first-run banner (#114) — one-time. Shown once
+        // after the device becomes enrolled; points at the new Cloud Activity
+        // page so the user immediately knows what's now flowing in and out.
+        const enrolledBannerAcked = localStorage.getItem(this.KEY_ENROLLED) === '1';
+        const isEnrolled = !!(enrollStatus && enrollStatus.enrolled);
+
         if (guardianNoticeRelevant && !guardianAcked) {
-            // Consent outranks promotion: a feature that's actively scanning
-            // by default gets disclosed BEFORE the release marketing. One
-            // banner at a time — the what's-new takes the slot once the user
-            // has made their keep-on / turn-off choice.
+            // Consent outranks everything: a feature that's actively scanning
+            // by default gets disclosed BEFORE enrollment pointers and release
+            // marketing. One banner at a time — the next banner takes the slot
+            // once the user has made their keep-on / turn-off choice.
             slot.appendChild(this._buildGuardianNotice());
+        } else if (isEnrolled && !enrolledBannerAcked) {
+            // Enrollment trust pointer beats marketing: it explains what is
+            // now flowing off this device.
+            slot.appendChild(this._buildEnrolledBanner(enrollStatus));
         } else if (!whatsNewAcked) {
             // The what's-new launch banner (v4.6.0) — shown on every fresh
             // install AND every update until acked.
@@ -251,6 +267,80 @@ const GlobalBanners = {
         closeBtn.addEventListener('click', () => {
             localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
             this.render();
+        });
+        card.appendChild(closeBtn);
+
+        return card;
+    },
+
+    /**
+     * Post-enrollment first-run banner (#114). One-time. Tells the user the
+     * device is enrolled, Cloud Connect is on, and links straight to the new
+     * Cloud Activity page where they can audit exactly what flows in and out.
+     */
+    _buildEnrolledBanner(enrollStatus) {
+        const card = document.createElement('div');
+        card.className = 'sv-global-banner';
+        card.style.cssText = 'position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 44px 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 8px; margin-bottom: 10px; flex-wrap: wrap;';
+
+        // Cloud icon — signals "you're now connected to your org cloud".
+        const icon = document.createElement('div');
+        icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8 6 6 0 1 0-11.1 3.6"/><path d="m9 15 2 2 4-4"/></svg>';
+        card.appendChild(icon);
+
+        const textCol = document.createElement('div');
+        textCol.style.cssText = 'flex: 1 1 300px; min-width: 240px;';
+
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
+        // org_name is admin-authored — textContent only, never innerHTML.
+        const orgName = (enrollStatus && enrollStatus.org_name) ? enrollStatus.org_name : null;
+        title.textContent = orgName
+            ? 'Your device is enrolled in ' + orgName
+            : 'Your device is enrolled';
+        titleRow.appendChild(title);
+        const pill = document.createElement('span');
+        pill.style.cssText = 'font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
+        pill.textContent = 'Cloud Connect on';
+        titleRow.appendChild(pill);
+        textCol.appendChild(titleRow);
+
+        const desc = document.createElement('div');
+        desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
+        desc.textContent = "Cloud Connect is on. Managed policies sync down and metadata-only audit flows up — here's exactly what's flowing in and out.";
+        textCol.appendChild(desc);
+        card.appendChild(textCol);
+
+        const ctaGroup = document.createElement('div');
+        ctaGroup.style.cssText = 'display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;';
+        const view = document.createElement('button');
+        view.style.cssText = 'font-size: 12px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 7px 13px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; line-height: 1;';
+        view.textContent = 'View Cloud Activity →';
+        view.addEventListener('mouseenter', () => { view.style.opacity = '0.9'; });
+        view.addEventListener('mouseleave', () => { view.style.opacity = '1'; });
+        view.addEventListener('click', () => {
+            localStorage.setItem(this.KEY_ENROLLED, '1');
+            if (window.Sidebar) Sidebar.navigate('cloud-activity');
+            card.remove();
+            this._collapseSlotIfEmpty();
+        });
+        ctaGroup.appendChild(view);
+        card.appendChild(ctaGroup);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; background: transparent; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; border-radius: 6px; transition: color 0.15s, background 0.15s;';
+        closeBtn.title = 'Dismiss';
+        closeBtn.setAttribute('aria-label', 'Dismiss');
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = 'var(--text-primary)'; closeBtn.style.background = 'var(--bg-secondary)'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = 'var(--text-muted)'; closeBtn.style.background = 'transparent'; });
+        closeBtn.addEventListener('click', () => {
+            localStorage.setItem(this.KEY_ENROLLED, '1');
+            card.remove();
+            this._collapseSlotIfEmpty();
         });
         card.appendChild(closeBtn);
 

@@ -281,7 +281,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 39
+CURRENT_SCHEMA_VERSION = 40
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -302,7 +302,11 @@ SCHEMA_DESCRIPTION = (
     "can target one agent runtime instead of governing all of them; "
     "v38: guardian_ml_enabled — Guardian ML detection kill-switch in app_settings (default ON); "
     "v39: request_id on tool_call_audit — per-call span/threat correlation for the "
-    "Rule / ML / Rule+ML detection-source labels on Agent Runs + Agent Map"
+    "Rule / ML / Rule+ML detection-source labels on Agent Runs + Agent Map; "
+    "v40: provenance `source` column on external_forwarders — 'user' (default, hand-added) vs "
+    "'enrollment' (admin-supplied destination registered at enrollment time; the UI badges these "
+    "as managed). Generic managed-device pattern — destination URL is never hardcoded, it always "
+    "comes from the cloud enrollment response at runtime"
 )
 
 # Migration SQL for v34 — redaction_events table.

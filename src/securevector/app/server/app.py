@@ -101,6 +101,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _e:
         logger.warning(f"Could not start external_forwarder: {_e}")
 
+    # Register the pre-uninstall backstop (#112). Idempotent. Emits
+    # device.lifecycle.uninstalling to enrollment-sourced destinations on a
+    # hard process exit that bypasses the graceful lifespan shutdown below.
+    try:
+        from securevector.app.services.device_lifecycle import register_preuninstall_hook
+        register_preuninstall_hook()
+    except Exception as _e:
+        logger.warning(f"Could not register pre-uninstall hook: {_e}")
+
     # Start the cloud-sync long-poll loop ONLY if this device is enrolled
     # against an org. No-op for personal-mode / never-enrolled installs —
     # zero cloud calls in that case (per acceptance criteria #8).
@@ -112,6 +121,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
     logger.info("API server shutting down...")
+
+    # Pre-teardown lifecycle hook (#112): emit a device.lifecycle.uninstalling
+    # OCSF event to any enrollment-sourced destinations BEFORE we stop the
+    # forwarder, so the managing org sees the device check out. No-op for
+    # personal / never-enrolled installs (no enrollment-sourced destinations).
+    # Best-effort with a short ack timeout — a slow/unreachable cloud must
+    # never wedge shutdown.
+    try:
+        from securevector.app.services.device_lifecycle import (
+            LIFECYCLE_UNINSTALLING,
+            emit_lifecycle_to_enrollment_destinations,
+            mark_uninstall_emitted,
+        )
+        await emit_lifecycle_to_enrollment_destinations(LIFECYCLE_UNINSTALLING)
+        # Tell the atexit backstop we already emitted, so it won't double-fire.
+        mark_uninstall_emitted()
+    except Exception as _e:
+        logger.warning(f"Could not emit device.lifecycle.uninstalling cleanly: {_e}")
 
     try:
         from securevector.app.services.cloud_sync import stop_cloud_sync

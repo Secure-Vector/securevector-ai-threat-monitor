@@ -153,21 +153,71 @@ jobs:
             exit 1
           fi
           VERSION="${RAW_VERSION#v}"  # Remove 'v' prefix if present
+          # Dev builds get their own bundle identifier so macOS LaunchServices
+          # treats SecureVector-dev.app and SecureVector.app as independent
+          # apps (separate "Open With" registration, notification permissions,
+          # defaults domain) instead of two copies of the same app.
           if [ "$IS_DEV" == "true" ]; then
             echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
             echo "suffix=-dev" >> $GITHUB_OUTPUT
             echo "app_name=SecureVector-dev" >> $GITHUB_OUTPUT
+            echo "bundle_id=io.securevector.threatmonitor.dev" >> $GITHUB_OUTPUT
           else
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "suffix=" >> $GITHUB_OUTPUT
             echo "app_name=SecureVector" >> $GITHUB_OUTPUT
+            echo "bundle_id=io.securevector.threatmonitor" >> $GITHUB_OUTPUT
           fi
 
+      # Imports the Developer ID cert into an ephemeral keychain when the
+      # secrets are configured; otherwise the build proceeds unsigned (adhoc)
+      # so forks and pre-secret branches still produce artifacts.
+      - name: Import signing certificate (ephemeral keychain)
+        id: cert
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "has_cert=false" >> "$GITHUB_OUTPUT"
+            echo "No MACOS_CERT_P12 secret - building unsigned (adhoc)."
+            exit 0
+          fi
+          KEYCHAIN_PW=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PW" build.keychain
+          security set-keychain-settings -lut 3600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PW" build.keychain
+          echo "$MACOS_CERT_P12" | base64 -d > /tmp/cert.p12
+          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f /tmp/cert.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain login.keychain
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "Cert imported but no valid Developer ID Application identity found" >&2
+            exit 1
+          fi
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      # PyInstaller's --windowed mode emits a correct .app bundle (proper
+      # Frameworks/Resources symlink farm, CFBundleIconFile wired to the
+      # generated .icns). Do NOT hand-assemble a bundle from the onedir tree:
+      # cp -r dereferences the symlinks, which both bloats the bundle and
+      # makes it unsignable (codesign treats loose files under Contents/MacOS
+      # as unsigned code). --codesign-identity signs every collected binary
+      # inside-out during the build.
       - name: Create macOS app bundle
         run: |
+          SIGN_FLAGS=()
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            SIGN_FLAGS=(--codesign-identity "${{ steps.cert.outputs.identity }}" \
+                        --osx-entitlements-file installers/macos/entitlements.plist)
+          fi
           pyinstaller --noconfirm --onedir --windowed \
+            "${SIGN_FLAGS[@]}" \
             --name "${{ steps.version.outputs.app_name }}" \
-            --osx-bundle-identifier "io.securevector.threatmonitor" \
+            --osx-bundle-identifier "${{ steps.version.outputs.bundle_id }}" \
             --icon "src/securevector/app/assets/favicon.png" \
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
@@ -200,43 +250,70 @@ jobs:
             --hidden-import platformdirs \
             src/securevector/app/main.py
 
-      - name: Create .app bundle structure
+      # Set the version on PyInstaller's own Info.plist (which keeps
+      # CFBundleIconFile and the rest intact), then re-seal the outer bundle —
+      # the plist edit invalidates the bundle signature PyInstaller created,
+      # but the nested binaries it signed stay valid.
+      - name: Finalize bundle metadata and seal signature
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
-          mkdir -p "dist/${APP_NAME}.app/Contents/MacOS"
-          mkdir -p "dist/${APP_NAME}.app/Contents/Resources"
-          cp -r "dist/${APP_NAME}/"* "dist/${APP_NAME}.app/Contents/MacOS/"
-          cat > "dist/${APP_NAME}.app/Contents/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleIdentifier</key>
-              <string>io.securevector.threatmonitor</string>
-              <key>CFBundleName</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleVersion</key>
-              <string>${VERSION}</string>
-              <key>CFBundleShortVersionString</key>
-              <string>${VERSION}</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>10.15</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
+          PLIST="dist/${APP_NAME}.app/Contents/Info.plist"
+          for kv in "CFBundleVersion ${VERSION}" "CFBundleShortVersionString ${VERSION}" "LSMinimumSystemVersion 11.0"; do
+            KEY="${kv%% *}"; VAL="${kv#* }"
+            /usr/libexec/PlistBuddy -c "Set :${KEY} ${VAL}" "$PLIST" 2>/dev/null || \
+              /usr/libexec/PlistBuddy -c "Add :${KEY} string ${VAL}" "$PLIST"
+          done
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            codesign --force --options runtime --timestamp \
+              --entitlements installers/macos/entitlements.plist \
+              --sign "${{ steps.cert.outputs.identity }}" "dist/${APP_NAME}.app"
+            codesign --verify --strict --deep -v "dist/${APP_NAME}.app"
+          fi
 
       - name: Create DMG
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
+          # create-dmg builds via hdiutil (symlinks preserved). It can exit
+          # non-zero on Finder-styling flakiness while still producing a valid
+          # image, so verify the artifact exists instead of trusting the code.
           create-dmg --volname "${APP_NAME} Installer" --window-pos 200 120 --window-size 600 400 --icon-size 100 --icon "${APP_NAME}.app" 175 190 --app-drop-link 425 190 "${APP_NAME}-${VERSION}-macOS.dmg" "dist/${APP_NAME}.app" || true
+          test -f "${APP_NAME}-${VERSION}-macOS.dmg" || { echo "DMG was not produced" >&2; exit 1; }
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            codesign --force --timestamp --sign "${{ steps.cert.outputs.identity }}" "${APP_NAME}-${VERSION}-macOS.dmg"
+          fi
+
+      # Notarization needs an App Store Connect API key. Skipped (with a log
+      # line) when the ASC secrets aren't configured, so unsigned/dev builds
+      # still pass. Stapling makes Gatekeeper validation work offline.
+      - name: Notarize and staple DMG
+        if: steps.cert.outputs.has_cert == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ steps.version.outputs.app_name }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          if [ -z "$ASC_API_KEY_P8" ]; then
+            echo "No ASC_API_KEY_P8 secret - skipping notarization (dmg is signed but not notarized)."
+            exit 0
+          fi
+          DMG="${APP_NAME}-${VERSION}-macOS.dmg"
+          echo "$ASC_API_KEY_P8" | base64 -d > /tmp/asc.p8
+          xcrun notarytool submit "$DMG" \
+            --key /tmp/asc.p8 --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --wait --timeout 30m
+          rm -f /tmp/asc.p8
+          xcrun stapler staple "$DMG"
+          spctl -a -t open --context context:primary-signature -vv "$DMG"
+
+      - name: Delete ephemeral keychain
+        if: always()
+        run: security delete-keychain build.keychain 2>/dev/null || true
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
