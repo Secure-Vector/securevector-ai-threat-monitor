@@ -58,7 +58,7 @@ All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers
 <br>
 
 > **What's new in v4.7.0**
-> - **Fleet management** *(cloud accounts, optional)* — fleet-wide Agent Maps + Agent Runs for devices enrolled via a mint token (SVET); opt-in and metadata-only. Local-only installs are unaffected.
+> - **Fleet management** *(cloud accounts, optional)* — fleet-wide Agent Maps + Agent Runs for devices enrolled via a mint token (SVET); opt-in and metadata-only. Non-enrolled (local-only) installs forward nothing.
 > - **SecureVector Guard for Cursor** — native plugin + hooks for the Cursor agent (see the plugins table above).
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
