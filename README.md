@@ -8,7 +8,7 @@
 
 </div>
 
-- **Fleet management** *(new in v4.7.0)* — enrolled devices forward agent/tool telemetry to your cloud account, consolidated into fleet-wide Agent Maps + Agent Runs. Metadata-only, opt-in, and fully inspectable from the Cloud Activity page.
+- **Fleet management** *(new in v4.7.0)* — for devices enrolled to a cloud account via a mint token (SVET), agent/tool telemetry is consolidated into fleet-wide Agent Maps + Agent Runs. Opt-in and metadata-only; free local-only usage forwards nothing.
 - **Guardian ML threat detection** *(new in v4.6.0)* — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
 - **Allow / deny / ask at agent runtime** — enforced via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy, not just on a proxy.
@@ -58,9 +58,8 @@ All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers
 <br>
 
 > **What's new in v4.7.0**
-> - **Fleet management — enrolled-device consolidation** — devices enrolled to a cloud account forward agent/tool telemetry that's consolidated into **fleet-wide Agent Maps + Agent Runs**: one picture of every harness, agent session, and tool call across your whole fleet. Forwarding is **opt-in and metadata-only** (tool ids, decisions, device + app version, timestamps — never prompt text, model output, or tool arguments), and the new **Cloud Activity** page shows exactly what flows in and out. Nothing leaves a machine unless it's enrolled *and* the admin opted in.
+> - **Fleet management** — for devices enrolled to a cloud account via a mint token (SVET), agent/tool telemetry is consolidated into **fleet-wide Agent Maps + Agent Runs** with a new **Cloud Activity** page. Opt-in and metadata-only (never prompt text, model output, or tool arguments). Free local-only usage forwards nothing.
 > - **SecureVector Guard for Cursor** — a native plugin + nine hooks for the **Cursor agent** (`beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `beforeSubmitPrompt`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `sessionStart`, `stop`): the same real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning as the other native plugins, all on one Agent Map.
-> - **Signed + notarized macOS binary** — the macOS `.dmg` is now signed with a Developer ID certificate (hardened runtime) and **notarized + stapled by Apple**, so it opens cleanly through Gatekeeper — no more `xattr` workaround.
 >
 > Already in v4.6.0: **GitHub Copilot CLI — now guarded** (same enforcement core as Claude Code / Codex / OpenClaw) · **Guardian ML** — optional, fully-offline local ML detection alongside the regex rules, every detection tagged **Rule**, **ML**, or **Rule + ML**.
 > Already in v4.5.0: **Agent Map & Runs** — a live map of your fleet (device → harness → agent → tool; tree / radial / mesh / Sankey) with turn-by-turn run traces · case-insensitive policy matching (#138) · clearer status-line setup.
@@ -110,7 +109,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-v4.7.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector_4.7.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector-4.7.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-macOS.dmg) (signed & notarized)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-v4.7.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector_4.7.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector-4.7.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-macOS.dmg)
 
 **Step 2 — Open the app**
 
@@ -494,7 +493,7 @@ No Python required. Download and run.
 | Platform | Download |
 |----------|----------|
 | Windows | [SecureVector-v4.7.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-v4.7.0-Windows-Setup.exe) |
-| macOS | [SecureVector-4.7.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-macOS.dmg) (signed & notarized) |
+| macOS | [SecureVector-4.7.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-macOS.dmg) |
 | Linux (AppImage) | [SecureVector-4.7.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SecureVector-4.7.0-x86_64.AppImage) |
 | Linux (DEB) | [securevector_4.7.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector_4.7.0_amd64.deb) |
 | Linux (RPM) | [securevector-4.7.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/securevector-4.7.0-1.x86_64.rpm) |
@@ -503,7 +502,7 @@ No Python required. Download and run.
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** As of v4.7.0 the macOS `.dmg` is **signed with a Developer ID certificate (hardened runtime) and notarized + stapled by Apple**, so it opens cleanly through Gatekeeper — no `xattr` workaround needed. **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
@@ -621,7 +620,7 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 | **PyPI** | `pip install --upgrade securevector-ai-monitor[app]` |
 | **Source** | `git pull && pip install -e ".[app]"` |
 | **Windows** | Download latest [.exe installer](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and run it (overwrites previous version) |
-| **macOS** | Download latest [.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), drag to Applications (signed & notarized) |
+| **macOS** | Download latest [.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest), drag to Applications |
 | **Linux AppImage** | Download latest [.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) and replace the old file |
 | **Linux DEB** | `sudo dpkg -i securevector_<version>_amd64.deb` |
 | **Linux RPM** | `sudo rpm -U securevector-<version>.x86_64.rpm` |
