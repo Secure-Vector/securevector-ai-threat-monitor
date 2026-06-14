@@ -238,9 +238,14 @@ def _atomic_write_json(path: Path, data: dict) -> None:
             f.write("\n")
         os.replace(tmp_path, resolved_parent / path.name)
     except Exception:
+        # Best-effort cleanup of the temp file before re-raising the real
+        # write error.
         try:
             os.unlink(tmp_path)
         except OSError:
+            # Temp file already gone or can't be removed — swallow this so the
+            # original write exception (re-raised below) is what surfaces, not
+            # a secondary cleanup error.
             pass
         raise
 
