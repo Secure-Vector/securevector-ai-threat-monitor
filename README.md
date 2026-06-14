@@ -58,12 +58,10 @@ All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers
 <br>
 
 > **What's new in v4.7.0**
-> - **Fleet management** — for devices enrolled to a cloud account via a mint token (SVET), agent/tool telemetry is consolidated into **fleet-wide Agent Maps + Agent Runs** with a new **Cloud Activity** page. Opt-in and metadata-only (never prompt text, model output, or tool arguments). Free local-only usage forwards nothing.
-> - **SecureVector Guard for Cursor** — a native plugin + nine hooks for the **Cursor agent** (`beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `beforeSubmitPrompt`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `sessionStart`, `stop`): the same real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning as the other native plugins, all on one Agent Map.
+> - **Fleet management** — fleet-wide Agent Maps + Agent Runs for devices enrolled to a cloud account via a mint token (SVET). Opt-in, metadata-only.
+> - **SecureVector Guard for Cursor** — native plugin + hooks for the Cursor agent (see the plugins table above).
 >
-> Already in v4.6.0: **GitHub Copilot CLI — now guarded** (same enforcement core as Claude Code / Codex / OpenClaw) · **Guardian ML** — optional, fully-offline local ML detection alongside the regex rules, every detection tagged **Rule**, **ML**, or **Rule + ML**.
-> Already in v4.5.0: **Agent Map & Runs** — a live map of your fleet (device → harness → agent → tool; tree / radial / mesh / Sankey) with turn-by-turn run traces · case-insensitive policy matching (#138) · clearer status-line setup.
-> Already in v4.0.0–4.4.\*: Claude Code · OpenAI Codex · OpenClaw active-guard plugins (PreToolUse / PostToolUse / UserPromptSubmit) + statusline + token telemetry · Bash/PowerShell tool-response scanning + expanded credential redaction (#131) · MCP Policy & Tool-Permission Sync (Cloud opt-in) · Agent Activity Timeline · Indirect Prompt Injection (IDPI) module · per-agent filter on Threats / Cost · SIEM Forwarder · tamper-evident tool-call audit hash chain · per-device ID · Skill Scanner · Tool Permissions · Cost Tracking & Budget Limits · MCP Tool Inventory · Secret Detections audit log · bidirectional tool-response scanning · SLSA Build Level 2+ attestations on every wheel. See [CHANGELOG](CHANGELOG.md) for the full history.
+> Full release history in the [CHANGELOG](CHANGELOG.md).
 
 ## How It Works
 
