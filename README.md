@@ -246,59 +246,17 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 
 <br>
 
-## Features
-
-| Section | Feature | Description |
-|---------|---------|-------------|
-| **Monitor** | Threat Monitor | Live feed of every detected threat — prompt injection, jailbreaks, data leaks, tool abuse |
-| | Tool Activity | Full audit log of every tool call your agents make, with args, decision, and timestamp |
-| | Cost Tracking | Per-agent, per-model token spend and USD cost in real time, with request history |
-| **Scan** | Skill Scanner | Static analysis of AI agent skills — detects shell exec, network access, env var reads, code injection, and 6 more categories |
-| | AI Review | Optional LLM-powered false-positive filtering — works with OpenAI, Anthropic, Ollama, Azure, Bedrock |
-| | Scan Policy | Risk scoring with per-category allow/block rules, trusted publishers, and severity thresholds |
-| **Configure** | Tool Permissions | Allow or block specific tools by name or category — per agent, per rule. How `allow` / `block` / `log_only` are decided: see [Tool Permissions guide](docs/TOOL_PERMISSIONS.md) |
-| | Cost Settings | Set daily budget limits and choose whether to warn or hard-block at the cap |
-| | Rules | Custom detection rules — auto-block or alert on threats matching your criteria |
-
-**Performance:** Rule-based analysis (default) adds ~10–50ms per request. Enabling optional AI analysis adds 1–3s per request depending on the model and provider — this is shown on the dashboard so you can measure it against your actual traffic.
-
-<br>
-
-## Why SecureVector?
-
-| ❌ Without SecureVector | ✅ With SecureVector |
-|---|---|
-| No audit trail of tool calls | Tamper-evident hash-chain audit, queryable per agent / device / runtime |
-| No control over what tools agents can use | Allow / deny / ask rules per tool, enforced at the agent runtime |
-| Prompt injections pass straight through | Detected and alerted by default (zero latency); blocked when you enable block mode |
-| Indirect injection hidden in RAG / fetched HTML / email content | 12-rule IDPI pack scans `direction=incoming` content before it reaches the LLM |
-| API keys and PII leak in prompts | Automatically redacted before scan and persistence |
-| Zero visibility into agent traffic | Live dashboard + Replay timeline showing every request, tool call, and threat |
-| No idea what agents are spending | Real-time per-agent token + USD tracking; hard budget caps with auto-stop |
-| Threats stay in a silo your SOC can't see | OCSF 1.3.0 forwarder to Splunk / Datadog / Sentinel / Chronicle / QRadar |
-| Every laptop drifts to its own tool-permission config | Cloud MCP Policy Sync — author once, every enrolled device pulls and enforces (opt-in) |
+**Performance:** Rule-based analysis (default) adds ~10–50ms per request. Optional AI analysis adds 1–3s depending on the model and provider — shown on the dashboard so you can measure it against your actual traffic. Tool-permission decisions (`allow` / `block` / `log_only`): see the [Tool Permissions guide](docs/TOOL_PERMISSIONS.md).
 
 <br>
 
 ## Works With Everything
 
-**Your AI Stack**
+**Your AI Stack** — LangChain · LlamaIndex · CrewAI · AutoGen · LangGraph · n8n · Dify · OpenClaw/ClawdBot — or any framework that makes HTTP calls to an LLM provider.
 
-LangChain · LlamaIndex · CrewAI · AutoGen · LangGraph · n8n · Dify · OpenClaw/ClawdBot *(LLM gateway agent framework)* — or any framework that makes HTTP calls to an LLM provider.
+**LLM Providers** — OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
 
-**LLM Providers**
-
-OpenAI · Anthropic · Ollama · Groq · and any OpenAI-compatible API.
-
-**Run Anywhere**
-
-| Environment | Details |
-|-------------|---------|
-| Local | macOS, Linux, Windows |
-| Cloud | AWS, GCP, Azure |
-| Containers | Docker & Kubernetes |
-| Virtual Machines | EC2, Droplets, VMs |
-| Edge / Serverless | Lambda, Workers, Vercel |
+**Run Anywhere** — macOS / Linux / Windows · Docker & Kubernetes · AWS / GCP / Azure · VMs · Lambda / Workers / Vercel.
 
 ## Agent Integrations
 
@@ -561,53 +519,16 @@ No Python required. Download and run.
 
 SecureVector writes `svconfig.yml` to your app data directory on first run with sensible defaults.
 
+The config path is printed at startup — `~/.local/share/securevector/threat-monitor/svconfig.yml` (Linux), `~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml` (macOS), `%LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml` (Windows). Key settings (all editable from the dashboard, which writes back to this file):
+
 ```yaml
-# SecureVector Configuration
-# Changes take effect on next restart.
-# The config path is printed to the console when you start the app.
-#
-# Linux:   ~/.local/share/securevector/threat-monitor/svconfig.yml
-# macOS:   ~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml
-# Windows: %LOCALAPPDATA%/SecureVector/ThreatMonitor/svconfig.yml
-
-server:
-  # Web UI / API server listen host and port.
-  # Change these if port 8741 is already in use on your machine.
-  # If running on a remote server, set host to the server's hostname or IP address.
-  host: 127.0.0.1
-  port: 8741
-
-security:
-  # Block detected threats (true) or log/warn only (false)
-  # Defaults to false — enable when you're confident in your rule tuning
-  block_mode: false
-  # Scan LLM responses for data leakage and PII
-  output_scan: true
-
-budget:
-  # Daily spend limit in USD (set to null to disable)
-  daily_limit: 5.00
-  # Warn in logs/headers when spend approaches the limit
-  warn: true
-  # Block requests when the daily budget is exceeded
-  block: true
-
-tools:
-  # Enforce tool permission rules (allow/block based on your rules)
-  enforcement: true           # default: true
-
-proxy:
-  # OpenClaw/ClawdBot: proxy only starts when block_mode is enabled (above).
-  #   Plugin-only mode handles monitoring with zero latency — no proxy needed.
-  # LangChain/CrewAI/Ollama/other: proxy auto-starts as the only integration path.
-  integration: openclaw       # or: langchain, langgraph, crewai, ollama
-  mode: multi-provider        # or: single (add provider: below)
-  provider: null              # required only when mode is "single"
-  host: 127.0.0.1             # proxy listen host — set to the server's hostname or IP if running remotely
-  port: 8742                  # proxy listen port (default: server.port + 1)
+server:   { host: 127.0.0.1, port: 8741 }        # change port if 8741 is taken
+security: { block_mode: false, output_scan: true } # log/warn by default; flip block_mode to hard-stop
+budget:   { daily_limit: 5.00, warn: true, block: true }  # USD/day; daily_limit null to disable
+tools:    { enforcement: true }                   # apply allow/block tool rules
+proxy:    { integration: openclaw, mode: multi-provider, host: 127.0.0.1, port: 8742 }
+          # integration: openclaw | langchain | langgraph | crewai | ollama; port defaults to server.port + 1
 ```
-
-The UI keeps this file in sync — changes in the dashboard are written back to `svconfig.yml` automatically.
 
 ### MCP Policies — Cloud Sync (optional)
 
