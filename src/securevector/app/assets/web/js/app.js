@@ -24,9 +24,11 @@ const App = {
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
+        'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
+        'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         settings: SettingsPage,
         // Guardian ML deep-link — same Settings page, but flags the Guardian
