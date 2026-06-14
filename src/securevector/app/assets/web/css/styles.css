@@ -1401,6 +1401,20 @@ html, body {
     box-shadow: inset 3px 0 0 #5eadb8;
 }
 
+/* Cloud-tier rows on a non-enrolled device: dimmed "locked, available"
+   treatment. Still clickable (lands on the page's enroll-CTA empty state),
+   just visually de-emphasised so it reads as off, not broken. The label/icon
+   fade but the "🔒 Cloud" pill keeps full opacity so the lock stays legible. */
+.nav-item.nav-item-locked {
+    opacity: 0.5;
+}
+.nav-item.nav-item-locked:hover {
+    opacity: 0.8;
+}
+.nav-item.nav-item-locked > span:last-child {
+    opacity: 1;
+}
+
 .nav-item svg {
     width: 20px;
     height: 20px;

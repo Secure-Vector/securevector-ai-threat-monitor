@@ -56,8 +56,8 @@ const Sidebar = {
         // pushed to me, by whom) vs the operational surface.
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
-        // Listed in ENROLLED_ONLY below so it only appears in the rail once
-        // this device is enrolled (personal-mode installs never see it).
+        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
+        // installs (clicking lands on its enroll-CTA empty state).
         { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
         // placed above Integrations (inbound pipes from agent
@@ -130,7 +130,7 @@ const Sidebar = {
         }
     },
 
-    // Enrollment state cache for ENROLLED_ONLY nav items. null = not yet
+    // Enrollment state cache for the CLOUD_TIER lock treatment. null = not yet
     // probed; true/false once /policy-sync/status answers.
     _enrolled: null,
     _enrollmentProbed: false,
@@ -156,7 +156,7 @@ const Sidebar = {
                     this.render();
                 }
             })
-            .catch(() => { /* fail closed — item stays hidden */ });
+            .catch(() => { /* fail closed — cloud rows stay dimmed/locked */ });
     },
 
     render() {
@@ -248,14 +248,16 @@ const Sidebar = {
         // pill rendered next to the label so users know up-front.
         const CLOUD_TIER = new Set(['mcp-policies', 'cloud-activity']);
 
-        // Enrolled-only items — hidden from the rail entirely until this
-        // device is enrolled in an org. Cloud Activity has nothing to show
-        // in personal mode (no synced policies down, nothing forwarded up),
-        // so it stays out of the nav rather than rendering an empty page.
-        // `_enrolled` is probed asynchronously once (see _probeEnrollment);
-        // until the probe resolves we treat enrollment as unknown and keep
-        // the item hidden, then re-render when the answer lands.
-        const ENROLLED_ONLY = new Set(['cloud-activity']);
+        // Cloud-section items stay VISIBLE but greyed-out until the device is
+        // enrolled, rather than being hidden. Hiding them means local-only
+        // users never discover that fleet/cloud surfaces exist — the dimmed
+        // row is the cheapest in-product "this is available, not yet on"
+        // signal. Both targets already render an honest enroll-CTA empty state
+        // when opened in personal mode, so the row stays clickable and lands
+        // there. `_enrolled` is probed asynchronously once (see
+        // _probeEnrollment); until it resolves we treat enrollment as unknown
+        // (`!== true`) and keep the row dimmed, then re-render when the answer
+        // lands. CLOUD_TIER (above) is the set that gets this treatment.
         this._probeEnrollment();
 
         // Section labels before nav items. SIEM Forwarder now anchors
@@ -273,12 +275,10 @@ const Sidebar = {
         const DIVIDER_BEFORE = new Set(['tool-permissions', 'mcp-policies', 'siem-export']);
 
         this.navItems.forEach(item => {
-            // Enrolled-only gating — skip the item entirely until the device
-            // is known to be enrolled. `_enrolled === true` is the only state
-            // that reveals it; null (probe pending) or false keep it hidden.
-            if (ENROLLED_ONLY.has(item.id) && this._enrolled !== true) {
-                return;
-            }
+            // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
+            // to be enrolled. The row still renders (discoverability) but gets
+            // a dimmed, "locked" treatment below instead of being hidden.
+            const isCloudLocked = CLOUD_TIER.has(item.id) && this._enrolled !== true;
 
             // Section label
             if (SECTION_BEFORE[item.id]) {
@@ -298,10 +298,16 @@ const Sidebar = {
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
             const isActive = item.id === this.currentPage && (!hasSubItems || item.collapsible);
-            navItem.className = 'nav-item' + (isActive ? ' active' : '');
+            navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
             if (item.collapsible) navItem.dataset.collapsible = 'true';
-            if (item.tooltip) navItem.title = item.tooltip;
+            // A locked cloud row gets an explicit "needs a cloud account"
+            // tooltip; otherwise fall back to the item's own tooltip.
+            if (isCloudLocked) {
+                navItem.title = 'Requires a SecureVector cloud account — enroll this device to turn this on.';
+            } else if (item.tooltip) {
+                navItem.title = item.tooltip;
+            }
 
             // Add icon (SVG) — core features get an orange badge dot overlaid on
             // the icon. Guardian ML uses its animated "sentinel" robot AS the
@@ -384,9 +390,11 @@ const Sidebar = {
 
             // Tier pill — features that require a SecureVector account get a
             // small "Cloud" marker so users know up-front before they click.
+            // When the device isn't enrolled the pill shows a tiny lock glyph
+            // so the dimmed row reads as "locked, available" rather than broken.
             if (CLOUD_TIER.has(item.id)) {
                 const tier = document.createElement('span');
-                tier.textContent = 'Cloud';
+                tier.textContent = isCloudLocked ? '🔒 Cloud' : 'Cloud';
                 tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
                 navItem.appendChild(tier);
             }

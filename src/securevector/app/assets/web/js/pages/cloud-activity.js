@@ -123,17 +123,35 @@ const CloudActivityPage = {
         tile.textContent = '☁';
         wrap.appendChild(tile);
         const h = document.createElement('h3');
-        h.textContent = 'This device is not enrolled';
+        h.textContent = 'Connect a cloud account';
         wrap.appendChild(h);
         const p = document.createElement('p');
+        // Reframed away from org/enrollment jargon: for an individual this is
+        // simply an optional cloud-account sign-up, not an admin action. Stays
+        // honest about local-first + metadata-only + reversible.
         p.textContent =
-            'Cloud Activity only has something to show once this device is enrolled in a SecureVector organization. Until then nothing is synced down and nothing is forwarded up — Cloud Connect behaves as a personal subscription.';
+            'Cloud Activity lights up once this device is connected to a SecureVector cloud account — optional, with a free tier. Until then SecureVector runs fully local: nothing is synced down and nothing is forwarded up. Connecting is metadata-only, and once connected you can pause forwarding anytime with the toggle on this page.';
         wrap.appendChild(p);
+
+        // Primary CTA — the same signup surface linked from the header, Getting
+        // Started, Rules and Settings. A quiet inline link, not a button/banner.
+        const cta = document.createElement('p');
+        cta.style.cssText = 'margin-top: 4px;';
+        const link = document.createElement('a');
+        link.href = 'https://app.securevector.io';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'Create a free cloud account → app.securevector.io';
+        link.style.cssText = 'color: var(--accent-primary); text-decoration: underline;';
+        cta.appendChild(link);
+        wrap.appendChild(cta);
+
+        // Demoted hint for users who already hold an org-minted enrollment token.
         const cmd = document.createElement('div');
         cmd.className = 'mcp-empty-cmd';
         const lbl = document.createElement('span');
         lbl.className = 'mcp-empty-cmd-label';
-        lbl.textContent = 'TO ENROLL';
+        lbl.textContent = 'ALREADY HAVE A TOKEN?';
         const code = document.createElement('code');
         code.textContent = 'securevector-app enroll <svet_token>';
         cmd.appendChild(lbl);
