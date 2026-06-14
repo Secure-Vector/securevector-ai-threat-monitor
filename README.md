@@ -25,10 +25,10 @@
 | **SecureVector Guard for Claude Code** | Anthropic Claude Code CLI | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `claude-code` |
 | **SecureVector Guard for OpenAI Codex** *(new in v4.4.0)* | OpenAI Codex CLI 0.133+ | `PreToolUse` · `PostToolUse` · `UserPromptSubmit` · `SessionStart` | `codex` |
 | **SecureVector Guard for GitHub Copilot CLI** *(new in v4.6.0)* | GitHub Copilot CLI | `preToolUse` · `postToolUse` · `userPromptSubmitted` · `sessionStart` | `copilot-cli` |
-| **SecureVector Guard for Cursor** *(new in v4.7.0)* | Cursor agent | `beforeSubmitPrompt` · `beforeShell` · `beforeReadFile` · `beforeMCP` · `afterFileEdit` · `stop` · `sessionStart` | `cursor` |
+| **SecureVector Guard for Cursor** *(new in v4.7.0)* | Cursor agent | `beforeShellExecution` · `beforeMCPExecution` · `beforeReadFile` · `beforeSubmitPrompt` · `afterShellExecution` · `afterMCPExecution` · `afterFileEdit` · `sessionStart` · `stop` | `cursor` |
 | **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
 
-All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), shell calls on Cursor (`beforeShell`), and shell calls on OpenClaw. Install from the Integrations tab.
+All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), shell calls on Cursor (`beforeShellExecution`), and shell calls on OpenClaw. Install from the Integrations tab.
 
 <div align="center">
 
@@ -59,7 +59,7 @@ All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers
 
 > **What's new in v4.7.0**
 > - **Fleet management — enrolled-device consolidation** — devices enrolled to a cloud account forward agent/tool telemetry that's consolidated into **fleet-wide Agent Maps + Agent Runs**: one picture of every harness, agent session, and tool call across your whole fleet. Forwarding is **opt-in and metadata-only** (tool ids, decisions, device + app version, timestamps — never prompt text, model output, or tool arguments), and the new **Cloud Activity** page shows exactly what flows in and out. Nothing leaves a machine unless it's enrolled *and* the admin opted in.
-> - **SecureVector Guard for Cursor** — a native plugin + hooks for the **Cursor agent** (`beforeSubmitPrompt`, `beforeShell`, `beforeReadFile`, `beforeMCP`, `afterFileEdit`, `stop`, `sessionStart`): the same real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning as the other native plugins, all on one Agent Map.
+> - **SecureVector Guard for Cursor** — a native plugin + nine hooks for the **Cursor agent** (`beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`, `beforeSubmitPrompt`, `afterShellExecution`, `afterMCPExecution`, `afterFileEdit`, `sessionStart`, `stop`): the same real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning as the other native plugins, all on one Agent Map.
 > - **Signed + notarized macOS binary** — the macOS `.dmg` is now signed with a Developer ID certificate (hardened runtime) and **notarized + stapled by Apple**, so it opens cleanly through Gatekeeper — no more `xattr` workaround.
 >
 > Already in v4.6.0: **GitHub Copilot CLI — now guarded** (same enforcement core as Claude Code / Codex / OpenClaw) · **Guardian ML** — optional, fully-offline local ML detection alongside the regex rules, every detection tagged **Rule**, **ML**, or **Rule + ML**.
