@@ -26,6 +26,7 @@ from securevector.app.server.routes.tool_permissions import (
     CLAUDE_CODE_BUILTINS,
     CODEX_BUILTINS,
     COPILOT_CLI_BUILTINS,
+    CURSOR_BUILTINS,
     router as tp_router,
 )
 from tests.fixtures.synced_rules import seed_synced_rules
@@ -35,6 +36,7 @@ REPO = Path(__file__).resolve().parents[3]
 NORMALIZE_JS = REPO / "src" / "securevector" / "plugins" / "claude-code" / "lib" / "normalize.js"
 NORMALIZE_JS_CODEX = REPO / "src" / "securevector" / "plugins" / "codex" / "lib" / "normalize.js"
 NORMALIZE_JS_COPILOT = REPO / "src" / "securevector" / "plugins" / "copilot-cli" / "lib" / "normalize.js"
+NORMALIZE_JS_CURSOR = REPO / "src" / "securevector" / "plugins" / "cursor" / "lib" / "normalize.js"
 
 
 def _builtins_from_js(path: Path) -> set[str]:
@@ -434,3 +436,53 @@ def test_override_endpoint_still_rejects_unknown_ids(client):
         json={"action": "block"},
     )
     assert resp.status_code == 404, resp.text
+
+
+def test_cursor_builtins_table_mirrors_cursor_normalize_js():
+    """Same drift-check for the Cursor copy of normalize.js. Cursor's tool
+    names are mostly SYNTHESIZED by our hook scripts from its event-typed
+    hooks ('shell', 'edit', 'read') plus the documented preToolUse enum, so
+    the table is small — but drift would still silently no-op rules."""
+    js_names = _builtins_from_js(NORMALIZE_JS_CURSOR)
+    py_names = {name for (name, _r, _d) in CURSOR_BUILTINS}
+    missing_in_py = js_names - py_names
+    missing_in_js = py_names - js_names
+    assert not missing_in_py, (
+        f"CURSOR_BUILTINS missing built-ins present in Cursor normalize.js: {missing_in_py}"
+    )
+    assert not missing_in_js, (
+        f"CURSOR_BUILTINS has names absent from Cursor normalize.js: {missing_in_js}"
+    )
+
+
+def _cursor_normalize(tool_name: str, opts: str = "undefined"):
+    """Invoke the Cursor plugin's normalize() via node. Skips without node."""
+    import json
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    script = (
+        f"const {{normalize}}=require({str(NORMALIZE_JS_CURSOR)!r});"
+        f"process.stdout.write(JSON.stringify(normalize({tool_name!r}, {opts})));"
+    )
+    out = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, timeout=20
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_cursor_normalize_builtin_and_mcp_candidates():
+    """Cursor built-ins (incl. the synthesized 'shell') normalize to their
+    lowercase name; MCP names from the beforeMCPExecution event context get
+    server-scoped candidates so rules can target tool, <server>:<tool>, or
+    the whole server."""
+    assert _cursor_normalize("shell") == ["shell"]
+    assert _cursor_normalize("Shell") == ["shell"]
+    cands = _cursor_normalize("echo", '{fromMcpEvent: true, serverSlug: "everything"}')
+    for expected in ("echo", "everything:echo", "everything"):
+        assert expected in cands, f"{expected!r} missing from {cands}"
+    # a bare unknown name with NO mcp event context is not governable
+    assert _cursor_normalize("some_internal_tool") == []

@@ -1,0 +1,22 @@
+{
+  "name": "securevector-guard",
+  "description": "Real-time policy enforcement and tamper-evident audit for the Cursor agent. Hooks shell commands, MCP tool calls, file edits, file reads, and prompts; forwards everything to a local SecureVector app for cloud-managed deny rules, threat scanning, and persistent audit logging. Requires the free SecureVector local app; fails open if it is unreachable.",
+  "version": "4.6.0",
+  "author": {
+    "name": "SecureVector",
+    "url": "https://securevector.io"
+  },
+  "homepage": "https://securevector.io",
+  "repository": "https://github.com/Secure-Vector/securevector-ai-threat-monitor",
+  "license": "Apache-2.0",
+  "logo": "./favicon.ico",
+  "category": "Security",
+  "keywords": [
+    "security",
+    "audit",
+    "policy-enforcement",
+    "mcp",
+    "guardrails"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -96,6 +97,12 @@ def stage_files(
     result is written to ``staging_dir``. Missing source files are
     logged but do not abort the rest of the copy.
 
+    Binary files (e.g. a plugin ``logo``/``favicon.ico``) are NOT valid UTF-8
+    text; a text read+rewrite would corrupt them. Such files are detected by a
+    ``UnicodeDecodeError`` on read and copied byte-for-byte instead (no
+    substitution — binary assets never contain the loopback URL). Text files
+    are unchanged by this fallback.
+
     Returns the list of filenames that were successfully written.
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +117,13 @@ def stage_files(
         # Create any nested parent directories the file path requires
         # (e.g. .claude-plugin/, hooks/, lib/ under the staging root).
         dst.parent.mkdir(parents=True, exist_ok=True)
-        content = src.read_text(encoding="utf-8")
+        try:
+            content = src.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # Binary asset (image, etc.) — copy verbatim, no substitution.
+            shutil.copyfile(src, dst)
+            written.append(filename)
+            continue
         for needle, replacement in substitutions.items():
             content = content.replace(needle, replacement)
         dst.write_text(content, encoding="utf-8")
