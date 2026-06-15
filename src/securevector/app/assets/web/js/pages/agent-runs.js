@@ -12,9 +12,11 @@
  */
 
 // Keep in sync with agent-map.js HARNESS_FIXED so a harness reads the same
-// colour on the Map and in Runs: claude-code orange, codex blue, openclaw red.
+// colour on the Map and in Runs: claude-code orange, codex blue, openclaw red,
+// cursor neutral gray (Cursor's monochrome black/white brand).
 const RUNTIME_COLOR = {
     'claude-code': '#fba35a', codex: '#3b82f6', openclaw: '#ef4444',
+    cursor: '#9ca3af',
     langchain: '#06b6d4', langgraph: '#0ea5e9', crewai: '#0d9488',
 };
 const OUTCOME = {

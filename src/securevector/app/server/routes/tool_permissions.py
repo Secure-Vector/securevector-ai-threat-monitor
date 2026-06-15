@@ -232,6 +232,26 @@ COPILOT_CLI_BUILTINS: list[tuple[str, str, str]] = [
     ("ask_user",        "read",  "Ask the user a clarifying question (interactive)."),
 ]
 
+# Cursor agent built-in tool inventory. Cursor splits enforcement across
+# event-typed hooks, so most of these names are SYNTHESIZED by our hook
+# scripts from the event type ('shell' from beforeShellExecution, 'edit'
+# from afterFileEdit, 'read' from beforeReadFile); the rest come from the
+# documented preToolUse tool_name enum (Shell|Read|Write|Grep|Delete|Task),
+# stored lowercase. KEEP IN LOCKSTEP with BUILTIN_TOOLS in
+# plugins/cursor/lib/normalize.js (drift-tested by
+# tests/unit/app/test_tool_permissions_builtins.py). MCP tools are NOT
+# listed — they arrive via beforeMCPExecution with their own names and are
+# governable per-tool / per-server through synced rules.
+CURSOR_BUILTINS: list[tuple[str, str, str]] = [
+    ("shell",  "admin", "Run a terminal command from the Cursor agent."),
+    ("read",   "read",  "Read file contents into the agent's context."),
+    ("write",  "write", "Write a file."),
+    ("edit",   "write", "Edit a file (string replacements)."),
+    ("grep",   "read",  "Search file contents."),
+    ("delete", "admin", "Delete a file."),
+    ("task",   "admin", "Launch a Cursor subagent."),
+]
+
 
 def _build_tool_response_row(
     tool_id: str,
@@ -423,6 +443,28 @@ async def list_essential_tools():
                 name, builtin_meta, overrides_map, synced_map, matches_last_resort,
             ))
 
+        # Cursor agent built-ins. Mostly names our hook scripts synthesize
+        # from Cursor's event-typed hooks ('shell', 'edit', 'read'), surfaced
+        # under category "cursor". Omitted only when the registry already
+        # claims the name.
+        for name, risk, description in CURSOR_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Cursor",
+                "category": "cursor",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
         # Sort by category, then by name
         tools.sort(key=lambda t: (t["category"], t["name"]))
 
@@ -603,6 +645,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         builtin_ids = {name for name, _r, _d in CLAUDE_CODE_BUILTINS}
         builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
         builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in CURSOR_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,

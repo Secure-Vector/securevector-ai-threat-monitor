@@ -43,15 +43,22 @@ const Sidebar = {
         // (on/off + what it does), so it sits in Configure and deep-links to
         // the Guardian section on the Settings page. Lives here rather than as
         // a sidebar pill so the bottom status zone stays single-purpose.
+        // (MCP Policies moved from this spot into the Cloud section below.)
         { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
-        // MCP Policies — read-only viewer of cloud-synced policy bundles.
-        // Lives next to Tool Permissions because the rules layered there
-        // come from here. Separate sidebar entry keeps the trust artifact
-        // (what's pushed to me, by whom) distinct from the operational
-        // surface (what does the proxy do for tool X).
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
         { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+        // ---- Cloud section (#151) ----
+        // The cloud-account surfaces get their own labelled section
+        // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
+        // features don't blend into the local Configure items.
+        // MCP Policies — read-only viewer of cloud-synced policy bundles.
+        // Kept distinct from Tool Permissions: the trust artifact (what's
+        // pushed to me, by whom) vs the operational surface.
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
+        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
+        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
+        // installs (clicking lands on its enroll-CTA empty state).
+        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
         // SIEM Forwarder is an outbound pipe to external SOC systems —
         // placed above Integrations (inbound pipes from agent
         // frameworks) because the SOC audit/compliance story is the
@@ -72,6 +79,7 @@ const Sidebar = {
             { id: 'proxy-claude-code', label: 'Claude Code' },
             { id: 'proxy-codex', label: 'Codex' },
             { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
+            { id: 'proxy-cursor', label: 'Cursor' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
             { header: 'Proxy' },
             { id: 'proxy-langchain', label: 'LangChain' },
@@ -88,6 +96,7 @@ const Sidebar = {
             { id: 'guide-claude-code', label: 'Claude Code' },
             { id: 'guide-codex', label: 'Codex' },
             { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
+            { id: 'guide-cursor', label: 'Cursor' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
@@ -119,6 +128,35 @@ const Sidebar = {
         if (Number.isFinite(saved) && saved >= this.SIDEBAR_MIN_PX && saved <= this.SIDEBAR_MAX_PX) {
             document.documentElement.style.setProperty('--sidebar-width', saved + 'px');
         }
+    },
+
+    // Enrollment state cache for the CLOUD_TIER lock treatment. null = not yet
+    // probed; true/false once /policy-sync/status answers.
+    _enrolled: null,
+    _enrollmentProbed: false,
+
+    /**
+     * Probe enrollment once per page load so enrolled-only nav items (Cloud
+     * Activity) can reveal themselves. Cheap idempotent GET. On resolution,
+     * if the answer flips the cached value, re-render the sidebar so the item
+     * appears/disappears without a full reload. Fails closed (hidden) on any
+     * error — a transient API hiccup never leaks an empty page into the rail.
+     */
+    _probeEnrollment() {
+        if (this._enrollmentProbed) return;
+        this._enrollmentProbed = true;
+        fetch('/api/v1/policy-sync/status')
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+                const enrolled = !!(data && data.enrolled);
+                if (enrolled !== this._enrolled) {
+                    this._enrolled = enrolled;
+                    // Only a re-render is needed; render() guards its own
+                    // one-time defaults so this is safe to call again.
+                    this.render();
+                }
+            })
+            .catch(() => { /* fail closed — cloud rows stay dimmed/locked */ });
     },
 
     render() {
@@ -182,7 +220,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.6.0';
+        version.textContent = 'v4.7.0';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -208,7 +246,19 @@ const Sidebar = {
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
-        const CLOUD_TIER = new Set(['mcp-policies']);
+        const CLOUD_TIER = new Set(['mcp-policies', 'cloud-activity']);
+
+        // Cloud-section items stay VISIBLE but greyed-out until the device is
+        // enrolled, rather than being hidden. Hiding them means local-only
+        // users never discover that fleet/cloud surfaces exist — the dimmed
+        // row is the cheapest in-product "this is available, not yet on"
+        // signal. Both targets already render an honest enroll-CTA empty state
+        // when opened in personal mode, so the row stays clickable and lands
+        // there. `_enrolled` is probed asynchronously once (see
+        // _probeEnrollment); until it resolves we treat enrollment as unknown
+        // (`!== true`) and keep the row dimmed, then re-render when the answer
+        // lands. CLOUD_TIER (above) is the set that gets this treatment.
+        this._probeEnrollment();
 
         // Section labels before nav items. SIEM Forwarder now anchors
         // the Connect section (it sits above Integrations) so the
@@ -216,14 +266,20 @@ const Sidebar = {
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
+            'mcp-policies':     'Cloud',
             'siem-export':      'Connect',
         };
 
         // Items that get a divider before them — keep the visual break
-        // at the Connect boundary too.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'siem-export']);
+        // at the Cloud and Connect boundaries too.
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'mcp-policies', 'siem-export']);
 
         this.navItems.forEach(item => {
+            // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
+            // to be enrolled. The row still renders (discoverability) but gets
+            // a dimmed, "locked" treatment below instead of being hidden.
+            const isCloudLocked = CLOUD_TIER.has(item.id) && this._enrolled !== true;
+
             // Section label
             if (SECTION_BEFORE[item.id]) {
                 const sectionLbl = document.createElement('div');
@@ -242,10 +298,16 @@ const Sidebar = {
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
             const isActive = item.id === this.currentPage && (!hasSubItems || item.collapsible);
-            navItem.className = 'nav-item' + (isActive ? ' active' : '');
+            navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
             if (item.collapsible) navItem.dataset.collapsible = 'true';
-            if (item.tooltip) navItem.title = item.tooltip;
+            // A locked cloud row gets an explicit "needs a cloud account"
+            // tooltip; otherwise fall back to the item's own tooltip.
+            if (isCloudLocked) {
+                navItem.title = 'Requires a SecureVector cloud account — enroll this device to turn this on.';
+            } else if (item.tooltip) {
+                navItem.title = item.tooltip;
+            }
 
             // Add icon (SVG) — core features get an orange badge dot overlaid on
             // the icon. Guardian ML uses its animated "sentinel" robot AS the
@@ -328,9 +390,11 @@ const Sidebar = {
 
             // Tier pill — features that require a SecureVector account get a
             // small "Cloud" marker so users know up-front before they click.
+            // When the device isn't enrolled the pill shows a tiny lock glyph
+            // so the dimmed row reads as "locked, available" rather than broken.
             if (CLOUD_TIER.has(item.id)) {
                 const tier = document.createElement('span');
-                tier.textContent = 'Cloud';
+                tier.textContent = isCloudLocked ? '🔒 Cloud' : 'Cloud';
                 tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
                 navItem.appendChild(tier);
             }

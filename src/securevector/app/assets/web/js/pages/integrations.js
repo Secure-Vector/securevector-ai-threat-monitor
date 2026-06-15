@@ -289,6 +289,12 @@ def chat_with_protection(user_input):
             description: 'GitHub Copilot CLI host — real-time policy enforcement + tamper-evident audit for tool calls',
             isCopilotCli: true,
             defaultProvider: 'openai'
+        },
+        'proxy-cursor': {
+            name: 'Cursor',
+            description: 'Cursor IDE agent — real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
+            isCursor: true,
+            defaultProvider: 'openai'
         }
     },
 
@@ -318,6 +324,9 @@ def chat_with_protection(user_input):
         } else if (integration.isCopilotCli) {
             // GitHub Copilot CLI: Plugin card only (host-native plugin, no proxy/block-mode)
             container.appendChild(this.createCopilotCliPluginCard());
+        } else if (integration.isCursor) {
+            // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
+            container.appendChild(this.createCursorPluginCard());
         } else if (integration.isOpenClaw) {
             // OpenClaw: Plugin card + separate block mode card
             container.appendChild(this.createOpenClawPluginCard());
@@ -1510,6 +1519,216 @@ def chat_with_protection(user_input):
             { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=copilot-cli' },
             { name: 'Prompt-Injection Scan', desc: 'userPromptSubmitted + task input → /analyze' },
             { name: 'Fail-Open on App Down', desc: 'Explicit allow + exit 0 (Copilot hooks fail closed)' },
+        ];
+        for (const f of features) {
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const fn = document.createElement('div');
+            fn.style.cssText = 'font-size: 12px; font-weight: 600;';
+            fn.textContent = f.name;
+            const fd = document.createElement('div');
+            fd.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+            fd.textContent = f.desc;
+            item.appendChild(fn);
+            item.appendChild(fd);
+            featuresGrid.appendChild(item);
+        }
+        content.appendChild(featuresGrid);
+
+        card.appendChild(content);
+        return card;
+    },
+
+    createCursorPluginCard() {
+        // SecureVector Guard for Cursor — a native Cursor PLUGIN
+        // (.cursor-plugin/plugin.json) that bundles its nine hooks. Install
+        // stages the tree under ~/.securevector/staging/cursor-plugin/, then
+        // copies it (real dir, not symlink) to
+        // ~/.cursor/plugins/local/securevector-guard/, the location Cursor
+        // scans for local plugins — so one click yields BOTH the Settings →
+        // Plugins entry and the active hooks (Settings → Hooks). Install also
+        // migrates off the old global-hooks.json model (strips our legacy
+        // entries + removes ~/.cursor/securevector-guard/) so hooks don't
+        // double-fire. Cursor reads plugins/hooks at startup, so activation =
+        // reload Cursor. If ~/.cursor is absent the user installs Cursor and
+        // clicks again.
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for Cursor';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for the Cursor agent';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-cursor-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-cursor-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'cursor-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'cursor-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const setStatusPill = (state, opts = {}) => {
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · reload Cursor to activate';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · install Cursor, then click Reinstall';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/cursor/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed) {
+                        showResult('success', `Installed and enabled (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        setStatusPill('installed');
+                    } else {
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || ''}`.trim());
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/cursor/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed: deleted ~/.cursor/plugins/local/securevector-guard/ (and any legacy global-hooks.json entries; your other hooks untouched). Reload Cursor to drop the plugin and its hooks.');
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. `auto_installed`+`enabled` mean the plugin dir
+        // (with its .cursor-plugin/plugin.json manifest) exists under
+        // ~/.cursor/plugins/local/securevector-guard/.
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/cursor/status');
+                const status = await res.json();
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v4.7)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'Tool Permissions', desc: 'Allow / deny / ask for shell + MCP (beforeShell/beforeMCP)' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=cursor' },
+            { name: 'Prompt & Content Scans', desc: 'Prompts, MCP results, file reads/edits → /analyze' },
+            { name: 'Fail-Open on App Down', desc: 'Explicit allow + exit 0 · never blocks your session' },
         ];
         for (const f of features) {
             const item = document.createElement('div');

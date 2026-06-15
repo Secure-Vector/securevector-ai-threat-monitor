@@ -1401,6 +1401,20 @@ html, body {
     box-shadow: inset 3px 0 0 #5eadb8;
 }
 
+/* Cloud-tier rows on a non-enrolled device: dimmed "locked, available"
+   treatment. Still clickable (lands on the page's enroll-CTA empty state),
+   just visually de-emphasised so it reads as off, not broken. The label/icon
+   fade but the "🔒 Cloud" pill keeps full opacity so the lock stays legible. */
+.nav-item.nav-item-locked {
+    opacity: 0.5;
+}
+.nav-item.nav-item-locked:hover {
+    opacity: 0.8;
+}
+.nav-item.nav-item-locked > span:last-child {
+    opacity: 1;
+}
+
 .nav-item svg {
     width: 20px;
     height: 20px;
@@ -7554,4 +7568,335 @@ thead tr:hover #records-select-all,
 [data-theme="light"] .gm-robo .gm-sat { fill: currentColor; filter: none; }
 [data-theme="light"] .gm-robo .gm-ring { stroke: currentColor; opacity: 0.5; }
 [data-theme="light"] .gm-robo .gm-trail { stroke: currentColor; opacity: 0.4; }
+/* ===================================================================
+   Cloud Activity page (story #113) — reuses the .mcp-* hero / chip /
+   empty idioms; .ca-* covers the page-specific section cards, tables,
+   and badges.
+   =================================================================== */
+.ca-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+}
+.ca-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.ca-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+.ca-dir {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+}
+.ca-dir-in {
+    color: var(--accent-primary, #5eadb8);
+    background: rgba(94, 173, 184, 0.12);
+    border: 1px solid rgba(94, 173, 184, 0.3);
+}
+.ca-dir-out {
+    color: #d97706;
+    background: rgba(217, 119, 6, 0.12);
+    border: 1px solid rgba(217, 119, 6, 0.32);
+}
+/* connection-state indicator */
+.ca-conn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+}
+.ca-conn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+/* enrollment definition list */
+.ca-dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 20px;
+    margin: 0;
+}
+.ca-dl dt {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted, #7d8590);
+    align-self: center;
+}
+.ca-dl dd {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+.ca-mono {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+}
+/* metric chips reuse .mcp-chip; group wrapper */
+.ca-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.ca-fingerprint {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 14px;
+}
+.ca-fingerprint-k {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #7d8590);
+}
+.ca-fingerprint code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+/* read-only tables */
+.ca-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin-bottom: 12px;
+}
+.ca-table th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted, #7d8590);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-default);
+}
+.ca-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-subtle, rgba(125, 133, 144, 0.18));
+    color: var(--text-primary);
+    vertical-align: top;
+}
+.ca-table code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11.5px;
+}
+.ca-reason {
+    color: var(--text-secondary);
+    max-width: 320px;
+}
+.ca-dest-url {
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+.ca-effect {
+    font-weight: 600;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 4px;
+}
+.ca-effect-block, .ca-effect-deny {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+.ca-effect-allow {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+}
+.ca-effect-log, .ca-effect-warn {
+    color: #d97706;
+    background: rgba(217, 119, 6, 0.12);
+}
+/* source provenance badge */
+.ca-source {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.ca-source-managed {
+    color: var(--accent-primary, #0891b2);
+    background: rgba(6, 182, 212, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+}
+.ca-source-user {
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+}
+.ca-disabled-pill {
+    margin-left: 6px;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted, #7d8590);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+/* metadata-only promise banner */
+.ca-promise {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    border-radius: 8px;
+    padding: 11px 14px;
+    margin-bottom: 16px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+.ca-promise svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: #10b981;
+}
+/* cloud-forwarding opt-out toggle (#151) */
+.ca-fwd-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 11px 14px;
+    margin-bottom: 16px;
+}
+.ca-fwd-toggle-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.ca-fwd-toggle-sub {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted, #7d8590);
+    margin-top: 2px;
+}
+.ca-fwd-switch {
+    flex-shrink: 0;
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-tertiary, #2a2f36);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    padding: 0;
+}
+.ca-fwd-switch .ca-fwd-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-muted, #7d8590);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.ca-fwd-switch.on {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: rgba(16, 185, 129, 0.5);
+}
+.ca-fwd-switch.on .ca-fwd-knob {
+    transform: translateX(18px);
+    background: #10b981;
+}
+.ca-fwd-switch:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+.ca-subhead {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #7d8590);
+    margin: 16px 0 8px;
+}
+/* OCSF event vocabulary list */
+.ca-events {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ca-event {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+}
+.ca-event-code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.ca-event-class {
+    font-size: 10.5px;
+    color: var(--text-muted, #7d8590);
+}
+.ca-event-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex: 1 1 240px;
+}
+.ca-empty-line {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 4px 0;
+}
+.ca-link {
+    background: none;
+    border: none;
+    color: var(--accent-primary, #0891b2);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+}
+.ca-link:hover { text-decoration: underline; }
 

@@ -510,6 +510,14 @@ def main():
         _handle_enroll()
         return 0
 
+    # `sv inspect-uplink` (#113) — terminal-first parallel of the Cloud
+    # Activity page. Forwards to the same handler as `securevector-app
+    # inspect-uplink` so both binaries print the in/out uplink summary.
+    if len(sys.argv) > 1 and sys.argv[1] == "inspect-uplink":
+        from securevector.app.main import _handle_inspect_uplink
+        _handle_inspect_uplink()
+        return 0
+
     handler = CLIHandler()
     parser = handler.create_parser()
     args = parser.parse_args()

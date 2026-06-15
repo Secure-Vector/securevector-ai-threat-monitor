@@ -307,7 +307,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 # input and output scans — local results are a real
                 # answer (regex-layer catches most PII / secrets /
                 # injection / harmful-content patterns), and a security
-                # firewall should never silently fail-open with
+                # layer should never silently fail-open with
                 # `is_threat=False` just because the ML uplift was
                 # unreachable. The `analysis_source="local_fallback"`
                 # string lets the caller see that the cloud leg didn't
