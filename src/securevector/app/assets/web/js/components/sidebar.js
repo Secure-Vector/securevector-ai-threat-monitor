@@ -220,7 +220,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.6.0';
+        version.textContent = 'v4.7.0';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
