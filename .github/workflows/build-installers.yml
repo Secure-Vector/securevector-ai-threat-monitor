@@ -73,7 +73,7 @@ jobs:
           fi
           pyinstaller --noconfirm --onefile $WINDOWED_FLAG \
             --name "SecureVector${{ steps.version.outputs.suffix }}" \
-            --icon "src/securevector/app/assets/favicon.ico" \
+            --icon "src/securevector/app/assets/AppIcon.ico" \
             --add-data "src/securevector/rules;securevector/rules" \
             --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
@@ -218,7 +218,7 @@ jobs:
             "${SIGN_FLAGS[@]}" \
             --name "${{ steps.version.outputs.app_name }}" \
             --osx-bundle-identifier "${{ steps.version.outputs.bundle_id }}" \
-            --icon "src/securevector/app/assets/favicon.png" \
+            --icon "src/securevector/app/assets/AppIcon.icns" \
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
@@ -440,8 +440,8 @@ jobs:
           cp "dist/${PKG_NAME}" package/usr/bin/
           chmod +x "package/usr/bin/${PKG_NAME}"
           # Copy app icon
-          cp src/securevector/app/assets/favicon.png package/usr/share/icons/hicolor/256x256/apps/securevector.png
-          cp src/securevector/app/assets/favicon.png package/usr/share/pixmaps/securevector.png
+          cp src/securevector/app/assets/AppIcon_256.png package/usr/share/icons/hicolor/256x256/apps/securevector.png
+          cp src/securevector/app/assets/AppIcon_256.png package/usr/share/pixmaps/securevector.png
           cat > "package/usr/share/applications/${PKG_NAME}.desktop" << DESKTOP_EOF
           [Desktop Entry]
           Name=SecureVector${{ steps.version.outputs.suffix }}
