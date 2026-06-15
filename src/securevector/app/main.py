@@ -1706,9 +1706,7 @@ Examples:
     # --port, and a stderr "port busy" line is invisible to a GUI user — so a
     # busy default port used to make the app SILENTLY fail to open. Instead:
     #   - port NOT set explicitly on the CLI  -> AUTO-FALLBACK to the next free
-    #     SERVER port, so the app "just works" on a clean nearby port. The
-    #     decision is driven by the Web UI (server) port ONLY; the proxy just
-    #     follows the server and never blocks the fallback.
+    #     (server, proxy) pair, so the app "just works" on a clean nearby port.
     #   - port set explicitly (--port)        -> respect it and error loudly if
     #     busy (the user may have pointed agents/integrations at that exact port;
     #     silently moving it would break them).
@@ -1724,8 +1722,13 @@ Examples:
         except Exception:
             return True  # can't probe -> assume free, let the real bind decide
 
-    _proxy_offset = args.proxy_port - args.port   # keep proxy adjacent to server
+    _proxy_offset = args.proxy_port - args.port   # preserve the server↔proxy gap
     _keep_offset = _proxy_offset >= 1
+
+    def _pair_free(_server: int) -> bool:
+        # Both the server port AND its proxy (server + offset) must be free.
+        _proxy = (_server + _proxy_offset) if _keep_offset else args.proxy_port
+        return _port_free(_server) and _port_free(_proxy)
 
     def _securevector_on(_p: int) -> bool:
         # True iff the occupant of this port is SecureVector itself, detected by
@@ -1744,7 +1747,7 @@ Examples:
         except Exception:
             return False
 
-    if not _port_free(args.port):
+    if not _pair_free(args.port):
         # If OUR app is already running on the server port, do NOT auto-fallback
         # and start a SECOND copy on another port — just tell the user it's
         # already up and surface the existing instance.
@@ -1760,18 +1763,20 @@ Examples:
             sys.exit(0)
 
         if "port" in explicit_args:
-            print(f"\n  ⚠  Port {args.port} already in use.")
+            _busy = [p for p in (args.port, args.proxy_port) if not _port_free(p)]
+            print(f"\n  ⚠  Port {' and '.join(map(str, _busy))} already in use.")
             print("     Start SecureVector on a different port:")
-            print("       securevector-app --web --port 8800\n")
+            print("       securevector-app --web --port 8800")
+            print("     (proxy starts automatically on 8801)\n")
             sys.exit(1)
 
-        # Auto-fallback: scan upward for the next free SERVER port, starting 4
-        # ports ABOVE the default so a fallback jumps clear of the whole
-        # 8741-8744 default block to 8745+. Proxy occupancy is not considered.
+        # Auto-fallback: scan upward for the next free (server, proxy) pair,
+        # starting 4 ports ABOVE the default so a fallback jumps clear of the
+        # whole 8741-8744 default block to 8745+.
         _orig_port = args.port
         _fallback_start = args.port + 4
         _new_port = next(
-            (c for c in range(_fallback_start, _fallback_start + 100) if _port_free(c)),
+            (c for c in range(_fallback_start, _fallback_start + 100) if _pair_free(c)),
             None,
         )
         if _new_port is None:
@@ -1782,7 +1787,8 @@ Examples:
         args.port = _new_port
         if _keep_offset:
             args.proxy_port = _new_port + _proxy_offset
-        print(f"\n  ⚠  Port {_orig_port} was in use — SecureVector switched to {args.port}.")
+        print(f"\n  ⚠  Port {_orig_port} was in use — SecureVector switched to "
+              f"{args.port} (proxy on {args.proxy_port}).")
         print(f"     App: http://{args.host}:{args.port}\n")
 
     # Check dependencies
