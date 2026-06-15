@@ -1625,7 +1625,6 @@ Examples:
             args.proxy_port = args.port + 1
 
     # Expose ports to the FastAPI process via env vars so proxy routes use the right ports
-    import os
     os.environ['SV_PROXY_PORT'] = str(args.proxy_port)
     os.environ['SV_WEB_PORT'] = str(args.port)
 
