@@ -38,6 +38,20 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
+
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
@@ -78,6 +92,8 @@ jobs:
             --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
             --add-data "src/securevector/plugins;securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz;models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import webview.platforms.winforms \
             --hidden-import clr \
@@ -140,6 +156,20 @@ jobs:
           pip install pyinstaller pillow
           pip install -e ".[app]"
           brew install create-dmg
+
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
 
       - name: Validate and set version with suffix
         id: version
@@ -223,6 +253,8 @@ jobs:
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --add-data "src/securevector/plugins:securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz:models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
@@ -371,6 +403,20 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
+
       - name: Validate and set version with suffix
         id: version
         env:
@@ -401,6 +447,8 @@ jobs:
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --add-data "src/securevector/plugins:securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz:models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \

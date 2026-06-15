@@ -1422,6 +1422,22 @@ def _handle_plugin_command(args) -> None:
 
 def main() -> None:
     """Main entry point."""
+    # Guardian ML runtime: installers (PyInstaller) bundle the model weights at
+    # models/guardian.runtime.json.gz inside the frozen tree (sys._MEIPASS). Point
+    # svguardian at it so the local ML layer works fully offline from first launch
+    # — no GitHub fetch, survives air-gapped machines. This only sets WHERE the
+    # weights are; whether Guardian actually runs is still gated by the Settings
+    # toggle (guardian_ml_enabled, default ON) and SECUREVECTOR_ML_ENABLED. An
+    # explicit SV_GUARDIAN_RUNTIME (air-gapped override) always wins.
+    if getattr(sys, "frozen", False) and not os.environ.get("SV_GUARDIAN_RUNTIME"):
+        _bundled_runtime = os.path.join(
+            getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)),
+            "models",
+            "guardian.runtime.json.gz",
+        )
+        if os.path.exists(_bundled_runtime):
+            os.environ["SV_GUARDIAN_RUNTIME"] = _bundled_runtime
+
     # Dispatch enroll subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "enroll":
         _handle_enroll()
