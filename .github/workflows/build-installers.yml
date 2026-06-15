@@ -304,12 +304,30 @@ jobs:
           fi
           DMG="${APP_NAME}-${VERSION}-macOS.dmg"
           echo "$ASC_API_KEY_P8" | base64 -d > /tmp/asc.p8
+
+          # Notarization is BEST-EFFORT. The DMG is already validly SIGNED, so a
+          # notary failure — Apple queue timeout, transient service issue, or a
+          # rejection — must NOT block producing the binary. Capture the result
+          # (set +e) instead of letting --wait's timeout abort the step; staple a
+          # ticket only when Apple accepts, otherwise ship the signed (un-notarized)
+          # DMG with a generic warning. We deliberately DO NOT run `notarytool log`
+          # — its detail can include internal bundle paths, and this is a public
+          # repo. The high-level status from `submit` is enough.
+          set +e
           xcrun notarytool submit "$DMG" \
             --key /tmp/asc.p8 --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
-            --wait --timeout 30m
+            --wait --timeout 45m
+          RC=$?
+          set -e
           rm -f /tmp/asc.p8
-          xcrun stapler staple "$DMG"
-          spctl -a -t open --context context:primary-signature -vv "$DMG"
+
+          if [ "$RC" -eq 0 ]; then
+            xcrun stapler staple "$DMG"
+            spctl -a -t open --context context:primary-signature -vv "$DMG"
+            echo "Notarized and stapled."
+          else
+            echo "::warning::Notarization did not complete (rc=$RC). DMG is SIGNED but not notarized — shipping it anyway. Re-run later to add a notary ticket."
+          fi
 
       # Defense-in-depth: the inline `rm -f` after cert import / notarize only
       # runs on the happy path — if `security import` or `notarytool` fails,
