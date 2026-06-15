@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="docs/app-icon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
+<h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
 <h3>Security &amp; Observability for AI Agents</h3>
 
