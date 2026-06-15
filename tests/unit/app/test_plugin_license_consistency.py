@@ -29,7 +29,7 @@ PLUGINS_DIR = REPO / "src" / "securevector" / "plugins"
 
 # Hook-based CLI plugins that ship as self-contained distributables. openclaw is
 # excluded: it's a TypeScript gateway (compiled), a different distribution model.
-SELF_CONTAINED_PLUGINS = ["claude-code", "codex", "copilot-cli"]
+SELF_CONTAINED_PLUGINS = ["claude-code", "codex", "copilot-cli", "cursor"]
 
 
 def _sha(path: Path) -> str:

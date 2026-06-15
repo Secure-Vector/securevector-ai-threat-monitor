@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required for PyInstaller/embedded-Python apps under the hardened
+         runtime: CPython allocates executable memory for ctypes/ffi
+         trampolines and the bootloader relies on DYLD environment paths for
+         the bundled frameworks. Library validation is disabled because the
+         bundle mixes our Developer ID signature with PyPI wheels' binaries. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- The app serves the dashboard on 127.0.0.1 and makes outbound calls
+         (PyPI version check, optional Cloud Connect). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

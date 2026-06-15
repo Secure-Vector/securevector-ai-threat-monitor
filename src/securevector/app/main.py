@@ -82,7 +82,7 @@ def print_logo():
 ║       ╚████╔╝  ███████╗ ╚██████╗    ██║    ╚██████╔╝ ██║  ██║     ║
 ║        ╚═══╝   ╚══════╝  ╚═════╝    ╚═╝     ╚═════╝  ╚═╝  ╚═╝     ║
 ║                                                                   ║
-║              Runtime Firewall for AI Agents & LLMs                ║
+║              Security & Observability for AI Agents               ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """
@@ -1108,6 +1108,134 @@ def _handle_scan_skill() -> None:
     sys.exit(0)
 
 
+# Five-bullet enrollment disclosure (#114). Module-level so the wording can
+# be imported + asserted by a unit test without spawning a process. Each
+# bullet is anchored to a real, auditable code path.
+ENROLLMENT_DISCLOSURE_BULLETS = [
+    "Enrolling installs managed policies. Your org's signed tool-permission "
+    + "bundle is synced down and enforced on this device (see the MCP Policies page).",
+    "Opt-in audit forwarding may be enabled. If your admin opted in, this "
+    + "device forwards agent/tool audit + lifecycle events to their destinations.",
+    "What's forwarded is metadata only. Tool ids, decisions, device + app "
+    + "version, timestamps — never your prompt text, model output, or tool arguments.",
+    "Destinations come from your enrollment response. They are NOT hardcoded; "
+    + "they arrive from your enrollment authority and are badged 'managed' locally.",
+    "You can inspect everything, any time. Run `sv inspect-uplink` or open the "
+    + "Cloud Activity page to see exactly what flows in and out.",
+]
+
+
+def _confirm_enrollment_disclosure(auto_yes: bool = False) -> bool:
+    """Print the five-bullet enrollment disclosure and prompt for consent.
+
+    Returns True to proceed, False to abort. The prompt defaults to NO —
+    only a literal ``y`` / ``Y`` proceeds. ``auto_yes`` (from ``--yes``)
+    skips the interactive prompt for non-interactive / CI use, but the
+    disclosure block is ALWAYS printed regardless. There is no silent
+    auto-yes path.
+    """
+    print()
+    print("=" * 68)
+    print("  SecureVector device enrollment — what this does")
+    print("=" * 68)
+    for i, bullet in enumerate(ENROLLMENT_DISCLOSURE_BULLETS, start=1):
+        print(f"  {i}. {bullet}")
+    print("=" * 68)
+
+    if auto_yes:
+        print("Proceeding (--yes).")
+        return True
+
+    try:
+        answer = input("Continue? [y/N] ").strip()
+    except (EOFError, KeyboardInterrupt):
+        # No TTY / Ctrl-C — treat as a decline. Never assume consent.
+        print()
+        return False
+    return answer in ("y", "Y")
+
+
+def _handle_inspect_uplink() -> None:
+    """Handle the `securevector-app inspect-uplink` subcommand (#113).
+
+    Terminal-first parallel to the Cloud Activity page: prints the same
+    enrollment status + inbound (synced policies) + outbound (forwarding)
+    summary that the web page renders, by reusing the aggregated
+    ``/api/v1/cloud-activity`` route handler in-process.
+
+    Exit codes:
+      0 — printed successfully (enrolled or not)
+      2 — unexpected error
+    """
+    import argparse as _argparse
+    import asyncio
+
+    sub = _argparse.ArgumentParser(
+        prog="securevector-app inspect-uplink",
+        description="Show what flows in and out of this enrolled device.",
+    )
+    sub.parse_args(sys.argv[2:])
+
+    try:
+        from securevector.app.server.routes.device_admin import cloud_activity
+
+        snap = asyncio.run(cloud_activity())
+    except Exception as exc:  # noqa: BLE001
+        print(f"inspect-uplink failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    if not snap.enrolled:
+        print("This device is NOT enrolled — nothing flows to or from the cloud.")
+        print("Enroll with: securevector-app enroll <svet_token>")
+        sys.exit(0)
+
+    e = snap.enrollment
+    print("=" * 60)
+    print("  Cloud Activity — uplink inspection")
+    print("=" * 60)
+    print("Enrollment")
+    print(f"  Organization : {e.org_name or e.org_id or '—'}")
+    groups = ", ".join(e.group_memberships) if e.group_memberships else "—"
+    print(f"  Group(s)     : {groups}")
+    print(f"  Managed by   : {e.admin_email or '—'}")
+    print(f"  User         : {e.user_email or '—'}")
+    print(f"  Device ID    : {e.device_id or '—'}")
+    print(f"  Connection   : {e.connection_state}")
+    print(f"  Last sync    : {e.last_sync_at or '—'} ({e.last_sync_status or 'n/a'})")
+
+    inb = snap.inbound
+    print("\nInbound · synced policies  (cloud -> device)")
+    if not inb.any_active:
+        print("  No policy bundle applied yet (≤60s after enrollment).")
+    else:
+        ver = f"v{inb.bundle_version}" if inb.bundle_version is not None else "—"
+        print(f"  Bundle       : {ver}  ({inb.policy_count} policies, {inb.rule_count} rules)")
+        print(f"  Verification : {inb.verification_status}")
+        print(f"  Signing key  : {inb.signing_key_fingerprint or 'not captured'}")
+        print(f"  Last applied : {inb.last_applied_at or '—'}")
+        for r in inb.rules[:20]:
+            reason = f"  — {r.reason}" if r.reason else ""
+            print(f"    [{r.effect}] {r.tool_id} (priority {r.priority}){reason}")
+
+    out = snap.outbound
+    print("\nOutbound · forwarding  (device -> destinations)")
+    print("  Metadata only — never prompt text, output, or tool arguments.")
+    all_dests = list(out.enrollment_destinations) + list(out.user_destinations)
+    if not all_dests:
+        print("  No forwarding destinations configured. Nothing is pushed up.")
+    else:
+        for d in all_dests:
+            tag = "managed" if d.source == "enrollment" else "you added"
+            state = "" if d.enabled else " [disabled]"
+            print(f"    [{tag}]{state} {d.name}: {d.url}  (sent {d.events_sent})")
+    print("\n  OCSF event types emitted:")
+    for ev in out.event_types:
+        print(f"    {ev.event_code}  (class {ev.class_uid} {ev.class_name})")
+
+    print("=" * 60)
+    sys.exit(0)
+
+
 def _handle_enroll() -> None:
     """Handle the `securevector-app enroll <token>` subcommand.
 
@@ -1132,6 +1260,12 @@ def _handle_enroll() -> None:
         nargs="?",
         help="The svet_<...> enrollment token (or set SECUREVECTOR_ENROLL_TOKEN)",
     )
+    sub.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the interactive disclosure confirmation (for non-interactive / CI use).",
+    )
     args = sub.parse_args(sys.argv[2:])
 
     token = args.token or os.environ.get("SECUREVECTOR_ENROLL_TOKEN")
@@ -1150,6 +1284,18 @@ def _handle_enroll() -> None:
             file=sys.stderr,
         )
         sys.exit(2)
+
+    # ---- Enrollment disclosure (#114) ----
+    # Make the contract truthful and in-your-face BEFORE anything changes on
+    # disk. Each bullet maps to a real code path the user can audit:
+    #   1. managed policies  -> services/cloud_sync + MCP Policies page
+    #   2. opt-in forwarding  -> services/device_lifecycle.register_enrollment_destinations
+    #   3. metadata-only      -> services/device_lifecycle.encode_lifecycle_event (raw_data=None)
+    #   4. admin destinations -> enrollment response `forwarder_destinations`
+    #   5. inspectability     -> `sv inspect-uplink` / Cloud Activity page
+    if not _confirm_enrollment_disclosure(auto_yes=args.yes):
+        print("Enrollment cancelled. No changes were made.")
+        sys.exit(0)
 
     from securevector.app.services.enrollment import EnrollmentError, enroll
 
@@ -1212,8 +1358,12 @@ def _handle_plugin_command(args) -> None:
         from securevector.app.server.routes import hooks_copilot_cli as mod
         handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
         result = asyncio.run(handler())
+    elif name == "cursor":
+        from securevector.app.server.routes import hooks_cursor as mod
+        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        result = asyncio.run(handler())
     else:
-        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli.", file=sys.stderr)
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor.", file=sys.stderr)
         sys.exit(1)
 
     # Response models are Pydantic — serialise consistently.
@@ -1272,6 +1422,22 @@ def _handle_plugin_command(args) -> None:
 
 def main() -> None:
     """Main entry point."""
+    # Guardian ML runtime: installers (PyInstaller) bundle the model weights at
+    # models/guardian.runtime.json.gz inside the frozen tree (sys._MEIPASS). Point
+    # svguardian at it so the local ML layer works fully offline from first launch
+    # — no GitHub fetch, survives air-gapped machines. This only sets WHERE the
+    # weights are; whether Guardian actually runs is still gated by the Settings
+    # toggle (guardian_ml_enabled, default ON) and SECUREVECTOR_ML_ENABLED. An
+    # explicit SV_GUARDIAN_RUNTIME (air-gapped override) always wins.
+    if getattr(sys, "frozen", False) and not os.environ.get("SV_GUARDIAN_RUNTIME"):
+        _bundled_runtime = os.path.join(
+            getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)),
+            "models",
+            "guardian.runtime.json.gz",
+        )
+        if os.path.exists(_bundled_runtime):
+            os.environ["SV_GUARDIAN_RUNTIME"] = _bundled_runtime
+
     # Dispatch enroll subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "enroll":
         _handle_enroll()
@@ -1280,6 +1446,11 @@ def main() -> None:
     # Dispatch scan-skill subcommand before the main parser runs
     if len(sys.argv) > 1 and sys.argv[1] == "scan-skill":
         _handle_scan_skill()
+        return
+
+    # Dispatch inspect-uplink subcommand (#113) before the main parser runs
+    if len(sys.argv) > 1 and sys.argv[1] == "inspect-uplink":
+        _handle_inspect_uplink()
         return
 
     parser = argparse.ArgumentParser(
@@ -1385,16 +1556,16 @@ Examples:
     parser.add_argument(
         "--install-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor"],
         metavar="NAME",
-        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, or copilot-cli) and exit",
+        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, or cursor) and exit",
     )
     parser.add_argument(
         "--uninstall-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor"],
         metavar="NAME",
-        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, or copilot-cli) and exit",
+        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, or cursor) and exit",
     )
 
     args = parser.parse_args()
@@ -1454,7 +1625,6 @@ Examples:
             args.proxy_port = args.port + 1
 
     # Expose ports to the FastAPI process via env vars so proxy routes use the right ports
-    import os
     os.environ['SV_PROXY_PORT'] = str(args.proxy_port)
     os.environ['SV_WEB_PORT'] = str(args.port)
 
@@ -1546,25 +1716,95 @@ Examples:
             run_llm_proxy(args.provider, args.proxy_port, args.port, args.verbose, args.mode, args.multi, args.openclaw, proxy_host=_proxy_host_cfg)
             return
 
-    # Check if required ports are already in use and warn early
-    _busy_ports = []
-    for _chk_port in [args.port, args.proxy_port]:
+    # Pre-flight port check. The Web UI binds `args.port` and the proxy binds
+    # `args.proxy_port` (default = port + 1). A double-clicked .app can't pass
+    # --port, and a stderr "port busy" line is invisible to a GUI user — so a
+    # busy default port used to make the app SILENTLY fail to open. Instead:
+    #   - port NOT set explicitly on the CLI  -> AUTO-FALLBACK to the next free
+    #     (server, proxy) pair, so the app "just works" on a clean nearby port.
+    #   - port set explicitly (--port)        -> respect it and error loudly if
+    #     busy (the user may have pointed agents/integrations at that exact port;
+    #     silently moving it would break them).
+    import socket as _sock
+
+    def _port_free(_p: int) -> bool:
+        if _p > 65534:
+            return False
         try:
-            import socket as _sock
             with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as _s:
                 _s.settimeout(0.2)
-                if _s.connect_ex(('127.0.0.1', _chk_port)) == 0:
-                    _busy_ports.append(_chk_port)
+                return _s.connect_ex(("127.0.0.1", _p)) != 0
         except Exception:
-            pass
-    if _busy_ports:
-        _busy_str = ' and '.join(str(p) for p in _busy_ports)
-        _alt = 8800
-        print(f"\n  ⚠  Port {_busy_str} already in use.")
-        print(f"     Start SecureVector on a different port:")
-        print(f"       securevector-app --web --port {_alt}")
-        print(f"     (proxy starts automatically on {_alt + 1})\n")
-        sys.exit(1)
+            return True  # can't probe -> assume free, let the real bind decide
+
+    _proxy_offset = args.proxy_port - args.port   # preserve the server↔proxy gap
+    _keep_offset = _proxy_offset >= 1
+
+    def _pair_free(_server: int) -> bool:
+        # Both the server port AND its proxy (server + offset) must be free.
+        _proxy = (_server + _proxy_offset) if _keep_offset else args.proxy_port
+        return _port_free(_server) and _port_free(_proxy)
+
+    def _securevector_on(_p: int) -> bool:
+        # True iff the occupant of this port is SecureVector itself, detected by
+        # its /health response shape (works across app versions — no new marker
+        # field required, so an already-running OLDER build is still recognised).
+        try:
+            import json as _json
+            import urllib.request as _url
+            with _url.urlopen(f"http://127.0.0.1:{_p}/health", timeout=0.8) as _r:
+                if getattr(_r, "status", 200) != 200:
+                    return False
+                _data = _json.loads(_r.read(4096).decode("utf-8", "replace"))
+            return isinstance(_data, dict) and (
+                "rules_loaded" in _data or ("database" in _data and "status" in _data)
+            )
+        except Exception:
+            return False
+
+    if not _pair_free(args.port):
+        # If OUR app is already running on the server port, do NOT auto-fallback
+        # and start a SECOND copy on another port — just tell the user it's
+        # already up and surface the existing instance.
+        if _securevector_on(args.port):
+            _url_str = f"http://{args.host}:{args.port}"
+            print(f"\n  ✓  SecureVector is already running at {_url_str}")
+            print("     Not starting a second copy. Opening the existing window…\n")
+            try:
+                import webbrowser
+                webbrowser.open(_url_str)
+            except Exception:
+                pass
+            sys.exit(0)
+
+        if "port" in explicit_args:
+            _busy = [p for p in (args.port, args.proxy_port) if not _port_free(p)]
+            print(f"\n  ⚠  Port {' and '.join(map(str, _busy))} already in use.")
+            print("     Start SecureVector on a different port:")
+            print("       securevector-app --web --port 8800")
+            print("     (proxy starts automatically on 8801)\n")
+            sys.exit(1)
+
+        # Auto-fallback: scan upward for the next free (server, proxy) pair,
+        # starting 4 ports ABOVE the default so a fallback jumps clear of the
+        # whole 8741-8744 default block to 8745+.
+        _orig_port = args.port
+        _fallback_start = args.port + 4
+        _new_port = next(
+            (c for c in range(_fallback_start, _fallback_start + 100) if _pair_free(c)),
+            None,
+        )
+        if _new_port is None:
+            print(f"\n  ⚠  Couldn't find a free port near {_orig_port}.")
+            print("     Close whatever is using it, or set server.port in svconfig.yml")
+            print(f"     (~/Library/Application Support/SecureVector/ThreatMonitor/svconfig.yml).\n")
+            sys.exit(1)
+        args.port = _new_port
+        if _keep_offset:
+            args.proxy_port = _new_port + _proxy_offset
+        print(f"\n  ⚠  Port {_orig_port} was in use — SecureVector switched to "
+              f"{args.port} (proxy on {args.proxy_port}).")
+        print(f"     App: http://{args.host}:{args.port}\n")
 
     # Check dependencies
     try:

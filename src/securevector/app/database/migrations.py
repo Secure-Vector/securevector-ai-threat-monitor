@@ -185,6 +185,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         37: migrate_to_v37,
         38: migrate_to_v38,
         39: migrate_to_v39,
+        40: migrate_to_v40,
     }
 
     if version in migrations:
@@ -1607,6 +1608,49 @@ async def migrate_to_v39(db: DatabaseConnection) -> None:
         "'request_id on tool_call_audit - span/threat correlation for detection-source labels')"
     )
     logger.info("Applied migration v39: tool_call_audit.request_id correlation key")
+
+
+async def migrate_to_v40(db: DatabaseConnection) -> None:
+    """v39 -> v40: provenance `source` column on external_forwarders.
+
+    fleet-local-push (story #112). Records WHERE a SIEM destination came
+    from so the UI can badge admin-managed destinations:
+
+      - 'user'        : hand-added by the operator in the Forwarders page
+                        (the historical default — every existing row).
+      - 'enrollment'  : auto-registered from the cloud enrollment response's
+                        `forwarder_destinations` when an admin opted in. The
+                        Forwarders page shows a 🔒 managed badge on these and
+                        the device emits device.lifecycle.* events to them.
+
+    Generic managed-device pattern: the destination URL is NEVER hardcoded
+    in this OSS source — it always arrives at runtime in the enrollment
+    response. This column is purely provenance metadata.
+
+    Simple ALTER — DEFAULT 'user' backfills every existing row, which is
+    correct: anything created before enrollment-sourced registration was
+    necessarily hand-added. Idempotent via PRAGMA table_info so a re-run
+    (restored backup / partial-state recovery) is a no-op.
+
+    (Authored as v38 on the pre-4.6 base; renumbered to v40 after rebasing
+    onto master, where v38/v39 were taken by guardian_ml_enabled and
+    tool_call_audit.request_id.)
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(external_forwarders)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if cols and "source" not in cols:
+        await conn.execute(
+            "ALTER TABLE external_forwarders "
+            "ADD COLUMN source TEXT NOT NULL DEFAULT 'user'"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (40, CURRENT_TIMESTAMP, "
+        "'provenance source column on external_forwarders (user vs enrollment)')"
+    )
+    await conn.commit()
+    logger.info("Applied migration v40: external_forwarders.source provenance column")
 
 
 # Future migration functions would be defined here:

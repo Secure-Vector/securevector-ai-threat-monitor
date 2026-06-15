@@ -1074,14 +1074,27 @@ const McpPoliciesPage = {
 
         const p = document.createElement('p');
         p.textContent =
-            "MCP Policies is how teams enforce tool rules across every enrolled device at once. This device isn't currently receiving any policies — either it isn't enrolled in an organization, or no policies have been assigned to it yet.";
+            "MCP Policies is how teams enforce tool rules across every connected device at once. This device isn't currently receiving any policies — either it isn't connected to a SecureVector cloud account, or no policies have been assigned to it yet.";
         wrap.appendChild(p);
+
+        // Same optional cloud-account signup linked elsewhere in the app — a
+        // quiet inline link, not a button/banner.
+        const cta = document.createElement('p');
+        cta.style.cssText = 'margin-top: 4px;';
+        const link = document.createElement('a');
+        link.href = 'https://app.securevector.io';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'Create a free cloud account → app.securevector.io';
+        link.style.cssText = 'color: var(--accent-primary); text-decoration: underline;';
+        cta.appendChild(link);
+        wrap.appendChild(cta);
 
         const cmd = document.createElement('div');
         cmd.className = 'mcp-empty-cmd';
         const cmdLabel = document.createElement('span');
         cmdLabel.className = 'mcp-empty-cmd-label';
-        cmdLabel.textContent = 'TO ENROLL';
+        cmdLabel.textContent = 'ALREADY HAVE A TOKEN?';
         const cmdCode = document.createElement('code');
         cmdCode.textContent = 'securevector-app enroll <svet_token>';
         cmd.appendChild(cmdLabel);

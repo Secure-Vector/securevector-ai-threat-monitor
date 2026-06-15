@@ -135,3 +135,31 @@ def test_stage_files_creates_staging_dir(tmp_path):
         substitutions={},
     )
     assert staging.is_dir()
+
+
+def test_stage_files_copies_binary_assets_byte_for_byte(tmp_path):
+    """A binary asset (e.g. a plugin logo / favicon.ico) is not valid UTF-8, so
+    a text read+rewrite would corrupt it. stage_files must detect the
+    UnicodeDecodeError and copy it verbatim — while still substituting in the
+    text file staged alongside it. Regression for the Cursor plugin logo."""
+    source = tmp_path / "src"
+    source.mkdir()
+    # Bytes that are NOT valid UTF-8 (0x89 PNG header, 0xff, etc.) and happen to
+    # contain the substitution needle — which must NOT be applied to binary.
+    blob = bytes([0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE, 0x00, 0x01]) + b"http://localhost:8741"
+    (source / "logo.ico").write_bytes(blob)
+    (source / "client.js").write_text('const u = "http://localhost:8741";')
+
+    staging = tmp_path / "stage"
+    written = _hooks_common.stage_files(
+        staging_dir=staging,
+        source_dir=source,
+        files=["logo.ico", "client.js"],
+        substitutions={"http://localhost:8741": "http://127.0.0.1:9000"},
+    )
+
+    assert sorted(written) == ["client.js", "logo.ico"]
+    # Binary survives byte-for-byte (no decode, no substitution).
+    assert (staging / "logo.ico").read_bytes() == blob
+    # Text file alongside it still gets the substitution.
+    assert (staging / "client.js").read_text() == 'const u = "http://127.0.0.1:9000";'

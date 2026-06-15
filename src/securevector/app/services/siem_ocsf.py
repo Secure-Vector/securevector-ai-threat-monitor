@@ -457,6 +457,86 @@ def encode_batch(batch: list[dict[str, Any]], *, redaction: str = "standard") ->
     return out
 
 
+# ---------------------------------------------------------------------------
+# SecureVector cloud fleet ingest (epic #151) — FLAT metadata JSONL.
+#
+# The cloud fleet receiver (llm-security-engine /ocsf/ingest) reads a
+# newline-delimited stream of FLAT metadata rows with top-level field names
+# (tool/tool_name, decision/action, trace_id, session_id, span_id,
+# parent_span_id, harness, agent, tool_kind, row_hash, timestamp). It builds
+# the fleet Agent Map (agent→tool edges) and Agent Runs (per-trace span
+# waterfalls) from these. This is a DIFFERENT shape from the SIEM OCSF
+# translators above (which nest fields under process/unmapped for a customer
+# SIEM) — so the enrollment (cloud) destination uses this encoder instead.
+#
+# Metadata only: ids, names, decisions, hashes — never args/reason/prompt text.
+# (The engine independently enforces a no-raw-text guard and rejects the whole
+# request on any forbidden field.)
+# ---------------------------------------------------------------------------
+
+
+def _fleet_tool_activity_row(p: dict[str, Any]) -> dict[str, Any]:
+    """Map a (standard-tier) tool_audit outbox payload to the flat fleet row
+    the cloud /ocsf/ingest expects."""
+    # Tool label parity with the LOCAL Map/Runs/Timeline. MCP detection
+    # mirrors ObsTabs.isExternalTool (':' in tool_id), and the label follows
+    # the local _toolLabel rule exactly:
+    #   - external MCP tool → the server segment of tool_id
+    #     ("mcp:github" → "github"), matching the local map node label;
+    #   - built-in tool   → function_name ("Read", "Bash"), tool_id fallback.
+    tool_id = str(p.get("tool_id") or "")
+    is_mcp = ":" in tool_id
+    tool = tool_id.split(":")[-1] if is_mcp else str(p.get("function_name") or tool_id or "")
+    tool_kind = "mcp" if is_mcp else "built-in"
+    return {
+        "ocsf_version": "1.3.0",
+        "category": "tool_activity",
+        "timestamp": p.get("called_at"),
+        "row_hash": p.get("row_hash"),
+        # tool identity — both keys for the engine's tool_name|tool fallback.
+        "tool_name": tool,
+        "tool": tool,
+        "tool_kind": tool_kind,
+        # decision — engine maps block→blocked, allow→allowed, log_only→log_only.
+        "action": p.get("action"),
+        "decision": p.get("action"),
+        "risk": p.get("risk"),
+        "is_essential": bool(p.get("is_essential") or False),
+        # run-correlation identity (#141/#144).
+        "trace_id": p.get("trace_id"),
+        "session_id": p.get("session_id"),
+        "turn_index": p.get("turn_index"),
+        "parent_span_id": p.get("parent_span_id"),
+        # each tool call is one span; row_hash is its unique id.
+        "span_id": p.get("row_hash"),
+        # agent identity — runtime_kind is the harness ("claude-code",
+        # "openclaw", "codex"). The AGENT tier is per-session, exactly like
+        # the local Agent Map (one "agent #N" node per run): a stable
+        # trace-scoped key the cloud read API renumbers by recency into
+        # "agent #N" per harness. Falls back to the harness when a row
+        # predates trace correlation.
+        "harness": p.get("runtime_kind") or "unknown",
+        "agent": (f"run-{str(p['trace_id'])[:12]}" if p.get("trace_id") else (p.get("runtime_kind") or "unknown")),
+        "device_id": p.get("device_id"),
+    }
+
+
+def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
+    """Encode outbox rows as newline-delimited flat fleet metadata (NDJSON).
+
+    Only tool_audit rows are forwarded to the fleet view (scan/output_scan
+    rows are SIEM-only and have no place in the agent map / runs). Returns
+    UTF-8 NDJSON bytes ready to POST to the cloud /ocsf/ingest endpoint.
+    """
+    lines: list[str] = []
+    for row in batch:
+        if row.get("kind") != "tool_audit":
+            continue
+        payload = row.get("payload") or {}
+        lines.append(json.dumps(_fleet_tool_activity_row(payload), separators=(",", ":")))
+    return ("\n".join(lines)).encode("utf-8")
+
+
 def _finding_title(payload: dict[str, Any]) -> str:
     verdict = str(payload.get("verdict") or "ALLOW").upper()
     types = payload.get("detected_types") or []

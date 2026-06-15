@@ -146,6 +146,12 @@ setup(
             # Copilot CLI plugin — manifest is plugin.json at the tree root
             # (no dot-dir), so the recursive glob covers everything.
             "plugins/copilot-cli/**/*",
+            # Cursor plugin — manifest is .cursor-plugin/plugin.json (the file
+            # Cursor reads to discover the local plugin). Same dot-dir gotcha as
+            # claude-code/codex: setuptools `**/*` skips dot-dirs, so list it
+            # explicitly or the wheel ships the plugin without its manifest.
+            "plugins/cursor/**/*",
+            "plugins/cursor/.cursor-plugin/*",
         ],
         "": ["NOTICE"],
     },

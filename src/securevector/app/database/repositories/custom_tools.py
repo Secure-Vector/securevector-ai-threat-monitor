@@ -41,6 +41,13 @@ async def _siem_enqueue_tool_audit(
     # at the repo layer before the outbox write.
     args_full: Optional[str] = None,
     reason_full: Optional[str] = None,
+    # #141/#144 run-correlation identity — forwarded to the cloud fleet
+    # ingest so it can build the Agent Map + Agent Runs. Metadata ids only.
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    turn_index: Optional[int] = None,
+    parent_span_id: Optional[str] = None,
+    runtime_kind: Optional[str] = None,
 ) -> None:
     """Fan a new audit row out to every enabled SIEM forwarder.
 
@@ -107,6 +114,12 @@ async def _siem_enqueue_tool_audit(
         actor_process=actor_process,
         finding_group_id=finding_group_id,
         mitre_techniques=None,
+        # #141/#144 run-correlation identity.
+        trace_id=trace_id,
+        session_id=session_id,
+        turn_index=turn_index,
+        parent_span_id=parent_span_id,
+        runtime_kind=runtime_kind,
     )
 
     outbox = ExternalForwardOutboxRepository(db)
@@ -496,6 +509,12 @@ class CustomToolsRepository:
                 # Standard/minimal destinations get these stripped.
                 args_full=args_preview,
                 reason_full=reason,
+                # #141/#144 run-correlation identity for the cloud fleet view.
+                trace_id=trace_id,
+                session_id=session_id,
+                turn_index=turn_index,
+                parent_span_id=parent_span_id,
+                runtime_kind=runtime_kind,
             )
         except Exception as _sie:
             logger.debug(f"siem enqueue (tool_audit) skipped: {_sie}")

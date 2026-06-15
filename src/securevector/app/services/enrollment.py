@@ -155,6 +155,27 @@ async def enroll(
             "Enrollment succeeded but credentials could not be persisted to disk",
         )
 
+    # Managed-device hook (#112): if the admin opted in, the enrollment
+    # response carries `forwarder_destinations` — admin-supplied SIEM
+    # destinations this device should push its agent-map / agent-run OCSF
+    # data to (the cloud's /ocsf/ingest). Register each one (source=
+    # "enrollment", so the UI badges them as managed) and emit a
+    # device.lifecycle.enrolled event. Generic managed-device pattern: the
+    # destination is NEVER hardcoded — it comes from the response at
+    # runtime. Absent/empty → no-op. Best-effort: registration must never
+    # error a successful enrollment.
+    try:
+        from securevector.app.services.device_lifecycle import (
+            register_enrollment_destinations,
+        )
+
+        await register_enrollment_destinations(data.get("forwarder_destinations"))
+    except Exception as exc:  # noqa: BLE001 - never fail enrollment on this
+        logger.warning(
+            "Enrollment succeeded but forwarder-destination registration failed: %s",
+            type(exc).__name__,
+        )
+
     logger.info(
         "Enrolled as %s (%s) — device_record %s",
         creds.user_email,

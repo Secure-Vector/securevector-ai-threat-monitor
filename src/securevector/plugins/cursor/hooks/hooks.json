@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/session-start.js\"",
+        "timeout": 10
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/before-shell.js\"",
+        "timeout": 10
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/before-mcp.js\"",
+        "timeout": 10
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/after-shell.js\"",
+        "timeout": 10
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/after-mcp.js\"",
+        "timeout": 10
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/after-file-edit.js\"",
+        "timeout": 10
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/before-submit-prompt.js\"",
+        "timeout": 10
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/before-read-file.js\"",
+        "timeout": 10
+      }
+    ],
+    "stop": [
+      {
+        "command": "node \"__SV_PLUGIN_ROOT__/hooks/stop.js\"",
+        "timeout": 10
+      }
+    ]
+  }
+}

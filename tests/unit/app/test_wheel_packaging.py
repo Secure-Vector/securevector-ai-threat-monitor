@@ -71,3 +71,29 @@ def test_setup_py_package_data_explicit_dot_claude_plugin_glob():
         'setup.py package_data is missing explicit "plugins/claude-code/.claude-plugin/*" '
         "glob — plugin.json would be excluded from the wheel."
     )
+
+
+def test_manifest_and_package_data_include_cursor_plugin():
+    """The Cursor plugin's non-Python assets must ship in the wheel — a
+    missing glob reproduces the install-route 500 ("staging produced 0
+    files") on pip-installed apps. Same defense as the claude-code checks."""
+    manifest = (REPO / "MANIFEST.in").read_text()
+    assert re.search(r"recursive-include\s+src/securevector/plugins/cursor\s+\*", manifest), (
+        "MANIFEST.in is missing: recursive-include src/securevector/plugins/cursor *"
+    )
+    # The Cursor manifest lives in .cursor-plugin/ (a dot-dir). setuptools'
+    # `**/*` glob skips dot-prefixed dirs (pypa/setuptools#3350), so without an
+    # explicit listing the wheel ships the plugin WITHOUT its plugin.json and
+    # Cursor never discovers it. Same defense as the claude-code/codex checks.
+    assert re.search(r"recursive-include\s+src/securevector/plugins/cursor/\.cursor-plugin\s+\*", manifest), (
+        "MANIFEST.in is missing the explicit .cursor-plugin/ recursive-include — "
+        "setuptools `**/*` skips dot-dirs, so .cursor-plugin/plugin.json would be dropped"
+    )
+    setup_py = (REPO / "setup.py").read_text()
+    assert "plugins/cursor/**/*" in setup_py, (
+        'setup.py package_data is missing "plugins/cursor/**/*"'
+    )
+    assert "plugins/cursor/.cursor-plugin/*" in setup_py, (
+        'setup.py package_data is missing explicit "plugins/cursor/.cursor-plugin/*" '
+        "(the `**/*` glob skips the dot-dir, dropping the manifest)"
+    )

@@ -38,6 +38,20 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
+
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
@@ -78,6 +92,8 @@ jobs:
             --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
             --add-data "src/securevector/plugins;securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz;models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import webview.platforms.winforms \
             --hidden-import clr \
@@ -141,6 +157,20 @@ jobs:
           pip install -e ".[app]"
           brew install create-dmg
 
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
+
       - name: Validate and set version with suffix
         id: version
         env:
@@ -153,26 +183,78 @@ jobs:
             exit 1
           fi
           VERSION="${RAW_VERSION#v}"  # Remove 'v' prefix if present
+          # Dev builds get their own bundle identifier so macOS LaunchServices
+          # treats SecureVector-dev.app and SecureVector.app as independent
+          # apps (separate "Open With" registration, notification permissions,
+          # defaults domain) instead of two copies of the same app.
           if [ "$IS_DEV" == "true" ]; then
             echo "version=${VERSION}-dev" >> $GITHUB_OUTPUT
             echo "suffix=-dev" >> $GITHUB_OUTPUT
             echo "app_name=SecureVector-dev" >> $GITHUB_OUTPUT
+            echo "bundle_id=io.securevector.threatmonitor.dev" >> $GITHUB_OUTPUT
           else
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "suffix=" >> $GITHUB_OUTPUT
             echo "app_name=SecureVector" >> $GITHUB_OUTPUT
+            echo "bundle_id=io.securevector.threatmonitor" >> $GITHUB_OUTPUT
           fi
 
+      # Imports the Developer ID cert into an ephemeral keychain when the
+      # secrets are configured; otherwise the build proceeds unsigned (adhoc)
+      # so forks and pre-secret branches still produce artifacts.
+      - name: Import signing certificate (ephemeral keychain)
+        id: cert
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "has_cert=false" >> "$GITHUB_OUTPUT"
+            echo "No MACOS_CERT_P12 secret - building unsigned (adhoc)."
+            exit 0
+          fi
+          KEYCHAIN_PW=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PW" build.keychain
+          security set-keychain-settings -lut 3600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PW" build.keychain
+          echo "$MACOS_CERT_P12" | base64 -d > /tmp/cert.p12
+          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f /tmp/cert.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain login.keychain
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "Cert imported but no valid Developer ID Application identity found" >&2
+            exit 1
+          fi
+          echo "has_cert=true" >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      # PyInstaller's --windowed mode emits a correct .app bundle (proper
+      # Frameworks/Resources symlink farm, CFBundleIconFile wired to the
+      # generated .icns). Do NOT hand-assemble a bundle from the onedir tree:
+      # cp -r dereferences the symlinks, which both bloats the bundle and
+      # makes it unsignable (codesign treats loose files under Contents/MacOS
+      # as unsigned code). --codesign-identity signs every collected binary
+      # inside-out during the build.
       - name: Create macOS app bundle
         run: |
+          SIGN_FLAGS=()
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            SIGN_FLAGS=(--codesign-identity "${{ steps.cert.outputs.identity }}" \
+                        --osx-entitlements-file installers/macos/entitlements.plist)
+          fi
           pyinstaller --noconfirm --onedir --windowed \
+            "${SIGN_FLAGS[@]}" \
             --name "${{ steps.version.outputs.app_name }}" \
-            --osx-bundle-identifier "io.securevector.threatmonitor" \
+            --osx-bundle-identifier "${{ steps.version.outputs.bundle_id }}" \
             --icon "src/securevector/app/assets/favicon.png" \
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --add-data "src/securevector/plugins:securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz:models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
@@ -200,43 +282,95 @@ jobs:
             --hidden-import platformdirs \
             src/securevector/app/main.py
 
-      - name: Create .app bundle structure
+      # Set the version on PyInstaller's own Info.plist (which keeps
+      # CFBundleIconFile and the rest intact), then re-seal the outer bundle —
+      # the plist edit invalidates the bundle signature PyInstaller created,
+      # but the nested binaries it signed stay valid.
+      - name: Finalize bundle metadata and seal signature
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
-          mkdir -p "dist/${APP_NAME}.app/Contents/MacOS"
-          mkdir -p "dist/${APP_NAME}.app/Contents/Resources"
-          cp -r "dist/${APP_NAME}/"* "dist/${APP_NAME}.app/Contents/MacOS/"
-          cat > "dist/${APP_NAME}.app/Contents/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleIdentifier</key>
-              <string>io.securevector.threatmonitor</string>
-              <key>CFBundleName</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleVersion</key>
-              <string>${VERSION}</string>
-              <key>CFBundleShortVersionString</key>
-              <string>${VERSION}</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>10.15</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
+          PLIST="dist/${APP_NAME}.app/Contents/Info.plist"
+          for kv in "CFBundleVersion ${VERSION}" "CFBundleShortVersionString ${VERSION}" "LSMinimumSystemVersion 11.0"; do
+            KEY="${kv%% *}"; VAL="${kv#* }"
+            /usr/libexec/PlistBuddy -c "Set :${KEY} ${VAL}" "$PLIST" 2>/dev/null || \
+              /usr/libexec/PlistBuddy -c "Add :${KEY} string ${VAL}" "$PLIST"
+          done
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            codesign --force --options runtime --timestamp \
+              --entitlements installers/macos/entitlements.plist \
+              --sign "${{ steps.cert.outputs.identity }}" "dist/${APP_NAME}.app"
+            codesign --verify --strict --deep -v "dist/${APP_NAME}.app"
+          fi
 
       - name: Create DMG
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APP_NAME: ${{ steps.version.outputs.app_name }}
         run: |
+          # create-dmg builds via hdiutil (symlinks preserved). It can exit
+          # non-zero on Finder-styling flakiness while still producing a valid
+          # image, so verify the artifact exists instead of trusting the code.
           create-dmg --volname "${APP_NAME} Installer" --window-pos 200 120 --window-size 600 400 --icon-size 100 --icon "${APP_NAME}.app" 175 190 --app-drop-link 425 190 "${APP_NAME}-${VERSION}-macOS.dmg" "dist/${APP_NAME}.app" || true
+          test -f "${APP_NAME}-${VERSION}-macOS.dmg" || { echo "DMG was not produced" >&2; exit 1; }
+          if [ "${{ steps.cert.outputs.has_cert }}" == "true" ]; then
+            codesign --force --timestamp --sign "${{ steps.cert.outputs.identity }}" "${APP_NAME}-${VERSION}-macOS.dmg"
+          fi
+
+      # Notarization needs an App Store Connect API key. Skipped (with a log
+      # line) when the ASC secrets aren't configured, so unsigned/dev builds
+      # still pass. Stapling makes Gatekeeper validation work offline.
+      - name: Notarize and staple DMG
+        if: steps.cert.outputs.has_cert == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_NAME: ${{ steps.version.outputs.app_name }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          if [ -z "$ASC_API_KEY_P8" ]; then
+            echo "No ASC_API_KEY_P8 secret - skipping notarization (dmg is signed but not notarized)."
+            exit 0
+          fi
+          DMG="${APP_NAME}-${VERSION}-macOS.dmg"
+          echo "$ASC_API_KEY_P8" | base64 -d > /tmp/asc.p8
+
+          # Notarization is BEST-EFFORT. The DMG is already validly SIGNED, so a
+          # notary failure — Apple queue timeout, transient service issue, or a
+          # rejection — must NOT block producing the binary. Capture the result
+          # (set +e) instead of letting --wait's timeout abort the step; staple a
+          # ticket only when Apple accepts, otherwise ship the signed (un-notarized)
+          # DMG with a generic warning. We deliberately DO NOT run `notarytool log`
+          # — its detail can include internal bundle paths, and this is a public
+          # repo. The high-level status from `submit` is enough.
+          set +e
+          xcrun notarytool submit "$DMG" \
+            --key /tmp/asc.p8 --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --wait --timeout 45m
+          RC=$?
+          set -e
+          rm -f /tmp/asc.p8
+
+          if [ "$RC" -eq 0 ]; then
+            xcrun stapler staple "$DMG"
+            spctl -a -t open --context context:primary-signature -vv "$DMG"
+            echo "Notarized and stapled."
+          else
+            echo "::warning::Notarization did not complete (rc=$RC). DMG is SIGNED but not notarized — shipping it anyway. Re-run later to add a notary ticket."
+          fi
+
+      # Defense-in-depth: the inline `rm -f` after cert import / notarize only
+      # runs on the happy path — if `security import` or `notarytool` fails,
+      # `set -e` aborts the step before cleanup. This always() step guarantees
+      # the decoded signing material and keychain are gone regardless of outcome.
+      # (Runner is ephemeral, so this is belt-and-suspenders, not load-bearing.)
+      - name: Delete ephemeral keychain and signing material
+        if: always()
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true
+          rm -f /tmp/cert.p12 /tmp/asc.p8
 
       - name: Upload macOS installers
         uses: actions/upload-artifact@v4
@@ -269,6 +403,20 @@ jobs:
           pip install pyinstaller
           pip install -e ".[app]"
 
+      - name: Fetch Guardian ML runtime (bundle for offline use)
+        shell: bash
+        run: |
+          # svguardian itself is pulled by the ".[app]" extra above. Its ~1.8 MB
+          # model weights, however, ship as a GitHub release asset (not in the
+          # wheel). Pre-fetch + SHA-256 verify them here so the installer bundles
+          # the model and the local ML layer works offline from first launch.
+          # curl -f fails the build on a missing asset (offline-first is explicit).
+          mkdir -p models
+          BASE="https://github.com/Secure-Vector/securevector-guardian-model/releases/latest/download"
+          curl -fsSL "$BASE/guardian.runtime.json.gz" -o models/guardian.runtime.json.gz
+          curl -fsSL "$BASE/guardian.runtime.json.gz.sha256" -o models/guardian.runtime.json.gz.sha256
+          python -c "import hashlib,sys; p='models/guardian.runtime.json.gz'; want=open(p+'.sha256').read().split()[0].strip().lower(); got=hashlib.sha256(open(p,'rb').read()).hexdigest(); print('Guardian runtime SHA OK' if got==want else f'SHA MISMATCH want {want} got {got}'); sys.exit(0 if got==want else 1)"
+
       - name: Validate and set version with suffix
         id: version
         env:
@@ -299,6 +447,8 @@ jobs:
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
             --add-data "src/securevector/plugins:securevector/plugins" \
+            --add-data "models/guardian.runtime.json.gz:models" \
+            --collect-all svguardian \
             --hidden-import webview \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \

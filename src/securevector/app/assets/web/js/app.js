@@ -24,9 +24,11 @@ const App = {
         'proxy-claude-code': { render: (c) => IntegrationPage.render(c, 'proxy-claude-code') },
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
+        'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
+        'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         settings: SettingsPage,
         // Guardian ML deep-link — same Settings page, but flags the Guardian
@@ -40,6 +42,10 @@ const App = {
         // the single source of truth for which view is shown.
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; ToolPermissionsPage.visibleTabs = null; return ToolPermissionsPage.render(c); } },
         'mcp-policies':      McpPoliciesPage,
+        // Cloud Activity (story #113) — full in/out visibility for enrolled
+        // devices. Sidebar gates its visibility on enrollment; the page also
+        // self-guards with a not-enrolled empty-state if deep-linked.
+        'cloud-activity':    CloudActivityPage,
         // Tool Activity + Tool Inventory — one merged destination, two tabs.
         // Both legacy page ids stay routable (deep links / bookmarks); they
         // differ only in which tab is active on landing.
