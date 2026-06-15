@@ -1769,9 +1769,16 @@ Examples:
             print("     (proxy starts automatically on 8801)\n")
             sys.exit(1)
 
-        # Auto-fallback: scan upward for the next free (server, proxy) pair.
+        # Auto-fallback: scan upward for the next free (server, proxy) pair, but
+        # START 4 ports ABOVE the default so a fallback never lands on the
+        # default proxy port (8742) or its immediate neighbours — jump clear of
+        # the whole 8741-8744 default block to 8745+.
         _orig_port = args.port
-        _new_port = next((c for c in range(args.port + 1, args.port + 101) if _pair_free(c)), None)
+        _fallback_start = args.port + 4
+        _new_port = next(
+            (c for c in range(_fallback_start, _fallback_start + 100) if _pair_free(c)),
+            None,
+        )
         if _new_port is None:
             print(f"\n  ⚠  Couldn't find a free port near {_orig_port}.")
             print("     Close whatever is using it, or set server.port in svconfig.yml")
