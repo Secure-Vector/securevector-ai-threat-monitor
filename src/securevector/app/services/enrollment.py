@@ -165,6 +165,20 @@ async def enroll(
     # runtime. Absent/empty → no-op. Best-effort: registration must never
     # error a successful enrollment.
     try:
+        # Fresh-install guard (#159): `securevector-app enroll` can run before
+        # the app server has EVER started (the documented `pip install … &&
+        # enroll && securevector-app` flow), so the SQLite schema — including
+        # `external_forwarders` — may not exist yet. Without this, the register
+        # below raises `OperationalError: no such table`, the managed cloud
+        # (ocsf) destination is silently dropped, and the device never forwards
+        # to Fleet. Initializing the schema here makes registration robust to
+        # ordering (it's a no-op when the app has already created the tables).
+        from securevector.app.database.connection import init_database
+        from securevector.app.database.migrations import init_database_schema
+
+        _db = await init_database()
+        await init_database_schema(_db)
+
         from securevector.app.services.device_lifecycle import (
             register_enrollment_destinations,
         )
