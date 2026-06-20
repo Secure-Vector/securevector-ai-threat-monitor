@@ -69,10 +69,12 @@ const Sidebar = {
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
-            // the plugin but its page also exposes a block-mode proxy. "Proxy" =
-            // tools you point at the local proxy's base URL (frameworks like
-            // LangChain/LangGraph/CrewAI, plus Ollama and n8n) — the shared
-            // mechanism is the proxy, not an SDK, so the label stays "Proxy".
+            // the plugin but its page also exposes a block-mode proxy.
+            // "Frameworks" = agent frameworks (LangChain/LangGraph/CrewAI) whose
+            // primary path is now the SecureVector SDK (tool-call layer); each
+            // page keeps an optional legacy base-URL proxy. "Proxy" = the
+            // remaining tools you point at the local proxy's base URL (n8n,
+            // Ollama). The left-nav labels stay framework-named (not "SDK").
             // (Page ids keep their historical `proxy-` prefix to avoid breaking
             // routes.)
             { header: 'Plugins' },
@@ -81,10 +83,11 @@ const Sidebar = {
             { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'proxy-cursor', label: 'Cursor' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
-            { header: 'Proxy' },
+            { header: 'Frameworks' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
+            { header: 'Proxy' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
@@ -98,6 +101,8 @@ const Sidebar = {
             { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'guide-cursor', label: 'Cursor' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
+            { header: 'Framework SDKs' },
+            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
             { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
