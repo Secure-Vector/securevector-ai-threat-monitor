@@ -30,6 +30,7 @@ const App = {
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
+        'guide-frameworks': { render: (c) => GuideFrameworksPage.render(c) },
         settings: SettingsPage,
         // Guardian ML deep-link — same Settings page, but flags the Guardian
         // section to scroll into view + highlight on load. Lets the Configure
