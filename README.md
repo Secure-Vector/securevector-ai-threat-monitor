@@ -275,9 +275,9 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 
 | Agent/Framework | Integration |
 |-----------------|-------------|
-| **LangChain** | **`securevector-sdk-langchain`** (tool-call SDK, recommended) or LLM Proxy |
-| **LangGraph** | **`securevector-sdk-langgraph`** (tool-call SDK, recommended) or LLM Proxy |
-| **CrewAI** | **`securevector-sdk-crewai`** (tool-call SDK, recommended) or LLM Proxy |
+| **LangChain** | [**`securevector-sdk-langchain`**](docs/USECASES.md#langchain) (tool-call SDK, recommended) or LLM Proxy |
+| **LangGraph** | [**`securevector-sdk-langgraph`**](docs/USECASES.md#langgraph) (tool-call SDK, recommended) or LLM Proxy |
+| **CrewAI** | [**`securevector-sdk-crewai`**](docs/USECASES.md#crewai) (tool-call SDK, recommended) or LLM Proxy |
 | **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
 | **OpenClaw / ClawdBot** *(LLM gateway agent)* | Native plugin (zero latency) — proxy only for block mode |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
