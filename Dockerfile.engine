@@ -1,0 +1,50 @@
+# SecureVector ENGINE — headless web-server image for self-host (BYOC / Terraform).
+# Built from the PUBLISHED PyPI package, pinned to a version (build-arg VERSION).
+# Multi-platform: linux/amd64, linux/arm64.
+# Published to: ghcr.io/secure-vector/securevector-ai-threat-monitor
+#
+# Contract expected by the terraform-<cloud>-securevector modules:
+#   - serves on $PORT (default 8741) bound to 0.0.0.0
+#   - data dir: $HOME/.local/share/securevector/threat-monitor (HOME=/home/securevector
+#     -> the modules' default persistence_mount_path)
+#   - if SECUREVECTOR_ENROLL_TOKEN (svet_*) is set, enrolls before serving
+FROM python:3.11-slim
+
+# VERSION must be a released securevector-ai-monitor version on PyPI (e.g. 4.7.1).
+# EXTRA is the install extra: "app" works for all releases; 4.8.0+ may offer a
+# leaner "server" extra (no pywebview/watchdog).
+ARG VERSION
+ARG EXTRA=app
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/home/securevector \
+    PORT=8741
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pinned install of the released engine. `--web` runs headless (no native window;
+# webview/watchdog are present with [app] but a window is never created).
+RUN test -n "${VERSION}" || (echo "ERROR: --build-arg VERSION=<x.y.z> is required" && exit 1) \
+    && pip install --no-cache-dir "securevector-ai-monitor[${EXTRA}]==${VERSION}"
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && useradd -m -u 1000 -d /home/securevector securevector \
+    && mkdir -p /home/securevector/.local/share/securevector/threat-monitor \
+    && chown -R securevector:securevector /home/securevector
+USER securevector
+WORKDIR /home/securevector
+
+EXPOSE 8741
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=5 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-8741}/health" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
+LABEL org.opencontainers.image.title="SecureVector Engine" \
+      org.opencontainers.image.description="SecureVector threat-monitor engine — headless server image for self-host (BYOC / Terraform)." \
+      org.opencontainers.image.source="https://github.com/Secure-Vector/securevector-ai-threat-monitor" \
+      org.opencontainers.image.licenses="Apache-2.0"
