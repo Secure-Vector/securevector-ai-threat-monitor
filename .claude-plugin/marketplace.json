@@ -1,23 +1,8 @@
 {
   "name": "securevector",
-  "owner": {
-    "name": "SecureVector",
-    "url": "https://securevector.io"
-  },
-  "metadata": {
-    "description": "Official SecureVector marketplace — security & observability plugins for AI agent runtimes.",
-    "version": "1.0.0"
-  },
+  "owner": { "name": "SecureVector", "url": "https://securevector.io" },
+  "metadata": { "description": "Official SecureVector marketplace — security & observability plugins for AI agent runtimes.", "version": "1.0.0" },
   "plugins": [
-    {
-      "name": "securevector-guard",
-      "source": "./src/securevector/plugins/claude-code",
-      "description": "Real-time policy enforcement and tamper-evident audit for tool calls in a Claude Code session. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Fails open if the local app is unreachable.",
-      "version": "4.6.0",
-      "author": { "name": "SecureVector", "url": "https://securevector.io" },
-      "homepage": "https://securevector.io",
-      "license": "Apache-2.0",
-      "keywords": ["security", "audit", "policy-enforcement", "mcp", "guardrails"]
-    }
+    { "name": "securevector-guard", "source": "./src/securevector/plugins/claude-code", "category": "security" }
   ]
 }
