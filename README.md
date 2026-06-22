@@ -8,6 +8,7 @@
 
 </div>
 
+- **Framework SDKs for LangChain · LangGraph · CrewAI** *(new in v4.8.0)* — `pip install securevector-sdk-langchain` (or `-langgraph` / `-crewai`) and a two-line middleware/tool wrapper secures every tool call your agent makes — permissions, secret/data-leak detection, and threat detection — written to the same tamper-evident audit chain and tagged on the Agent Map by `runtime_kind`. One install also pulls in this local app. [Details ↓](#framework-sdks-langchain--langgraph--crewai)
 - **SecureVector Guard for Cursor** *(new in v4.7.0)* — native plugin + hooks for the Cursor agent: real-time allow / deny / ask enforcement, tamper-evident audit, and prompt-injection scanning, on the same Agent Map as your other harnesses.
 - **Guardian ML threat detection** — a local, offline ML model runs alongside the regex rules and catches obfuscated, paraphrased, buried, or encoded attacks literal patterns miss. On by default, sub-millisecond, fail-open — nothing leaves your machine. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
 - **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
@@ -15,7 +16,7 @@
 - **72 detection rules** covering the OWASP LLM Top 10 + 28 agent-attack chains — prompt injection, jailbreaks, credential exfiltration, PII disclosure.
 - **Monitor by default, opt-in block mode** — drop-in observability with no breakage risk; flip block mode when ready.
 - **Token + cost tracking** — per-agent, per-model spend in real time.
-- **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
+- **Works with** Claude Code, OpenAI Codex, MCP, OpenClaw, LangChain, LangGraph, CrewAI, Ollama, n8n, and any HTTP-speaking LLM.
 - **Apache 2.0, no signup** — runs on your machine; `pip install` and you're covered in 60 seconds.
 
 **Five native agent plugins — zero proxy, allow / deny / ask enforced inline:**
@@ -27,6 +28,18 @@
 | **SecureVector Guard for GitHub Copilot CLI** *(new in v4.6.0)* | GitHub Copilot CLI | `preToolUse` · `postToolUse` · `userPromptSubmitted` · `sessionStart` | `copilot-cli` |
 | **SecureVector Guard for Cursor** *(new in v4.7.0)* | Cursor agent | `beforeShellExecution` · `beforeMCPExecution` · `beforeReadFile` · `beforeSubmitPrompt` · `afterShellExecution` · `afterMCPExecution` · `afterFileEdit` · `sessionStart` · `stop` | `cursor` |
 | **SecureVector Plugin for OpenClaw** | OpenClaw / ClawdBot agent framework | Input · Context · Tool · Output guards | `openclaw` |
+
+#### Framework SDKs (LangChain · LangGraph · CrewAI)
+
+For framework agents, a pip-installable SDK secures **tool calls** (not just LLM traffic) with a two-line wrapper — no proxy, no base-URL change. Each package also installs this local app and writes to the same audit chain. *(new in v4.8.0)*
+
+| SDK | Framework | Install | Wiring | Audit `runtime_kind` |
+|---|---|---|---|---|
+| **securevector-sdk-langchain** | LangChain | `pip install securevector-sdk-langchain` | `secure_middleware()` via `create_agent` (observe-only callback for legacy chains) | `langchain` |
+| **securevector-sdk-langgraph** | LangGraph | `pip install securevector-sdk-langgraph` | `secure_middleware()` via `create_agent` | `langgraph` |
+| **securevector-sdk-crewai** | CrewAI | `pip install securevector-sdk-crewai` | `secure_tools(tools)` or `install()` | `crewai` |
+
+`observe` mode logs an advisory verdict and the tool always runs; `enforce` mode short-circuits a denied tool. Open source (Apache 2.0) on PyPI; see each package for the two-line snippet.
 
 All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers Bash on Claude Code, `exec_command` on Codex (translated by Codex's hook engine), shell calls on Cursor (`beforeShellExecution`), and shell calls on OpenClaw. Install from the Integrations tab.
 
@@ -57,6 +70,9 @@ All plugins share the same enforcement core: one rule on `tool_id="Bash"` covers
 
 <br>
 
+> **What's new in v4.8.0**
+> - **Framework SDKs for LangChain, LangGraph, and CrewAI** — pip-installable middleware/tool wrappers that secure tool calls and stream them onto the Agent Map by `runtime_kind` (see the Framework SDKs table above).
+>
 > **What's new in v4.7.0**
 > - **Fleet management** *(cloud accounts, optional)* — fleet-wide Agent Maps + Agent Runs for devices enrolled via a mint token (SVET); opt-in and metadata-only. Non-enrolled (local-only) installs forward nothing.
 > - **SecureVector Guard for Cursor** — native plugin + hooks for the Cursor agent (see the plugins table above).
@@ -259,9 +275,9 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 
 | Agent/Framework | Integration |
 |-----------------|-------------|
-| **LangChain** | LLM Proxy or [SDK Callback](docs/USECASES.md#langchain) |
-| **LangGraph** | LLM Proxy or [Security Node](docs/USECASES.md#langgraph) |
-| **CrewAI** | LLM Proxy or [SDK Callback](docs/USECASES.md#crewai) |
+| **LangChain** | **`securevector-sdk-langchain`** (tool-call SDK, recommended) or LLM Proxy |
+| **LangGraph** | **`securevector-sdk-langgraph`** (tool-call SDK, recommended) or LLM Proxy |
+| **CrewAI** | **`securevector-sdk-crewai`** (tool-call SDK, recommended) or LLM Proxy |
 | **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
 | **OpenClaw / ClawdBot** *(LLM gateway agent)* | Native plugin (zero latency) — proxy only for block mode |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
