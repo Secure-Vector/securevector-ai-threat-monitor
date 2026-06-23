@@ -23,9 +23,9 @@
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
-| **LangChain** | SDK — `pip install securevector-sdk-langchain` | `langchain` |
-| **LangGraph** | SDK — `pip install securevector-sdk-langgraph` | `langgraph` |
-| **CrewAI** | SDK — `pip install securevector-sdk-crewai` | `crewai` |
+| **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
+| **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |
+| **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install`) | `crewai` |
 | **Ollama · n8n · any OpenAI-compatible app** | Multi-provider proxy (`OPENAI_BASE_URL`) | proxy |
 | **Claude Desktop & other MCP clients** | MCP server | `mcp` |
 | **Any HTTP client** | `POST http://localhost:8741/analyze` | — |
@@ -112,7 +112,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-v4.7.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-4.7.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/securevector_4.7.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/securevector-4.7.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-4.7.1-macOS.dmg) **(✅ signed & notarized — opens with no Gatekeeper warning)**
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-v4.8.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-4.8.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/securevector_4.8.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/securevector-4.8.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-4.8.0-macOS.dmg)
 
 **Step 2 — Open the app**
 
@@ -165,19 +165,10 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 <table>
 <tr>
-<td width="33%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
-<td width="33%"><img src="docs/screenshots/tool-permissions-light.png" alt="Agent Tool Permissions" width="100%"><br><em>Tool Permissions — allow or block tools by name or category</em></td>
-<td width="33%"><img src="docs/screenshots/tool-activity-detail.png" alt="Tool Call Detail" width="100%"><br><em>Tool Call Detail — decision, tool, args, and timestamp for every call</em></td>
-</tr>
-<tr>
-<td width="33%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
-<td width="33%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
-<td width="33%"><img src="docs/screenshots/custom-rules-light.png" alt="Custom Rules" width="100%"><br><em>Custom Rules — create and manage detection rules by category and severity</em></td>
-</tr>
-<tr>
-<td width="33%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static security analysis for AI agent skills with scan history and risk levels</em></td>
-<td width="33%"><img src="docs/screenshots/skill-policy.png" alt="Skill Policy" width="100%"><br><em>Skill Policy — network permissions, trusted publishers, and policy thresholds</em></td>
-<td width="33%"></td>
+<td width="25%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
+<td width="25%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
+<td width="25%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
+<td width="25%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static security analysis for AI agent skills</em></td>
 </tr>
 </table>
 
@@ -493,21 +484,19 @@ securevector-app --web
 
 No Python required. Download and run.
 
-> 🍎 **The macOS app is now Apple-notarized** (signed with a Developer ID certificate). Just open the `.dmg` and drag it to Applications — it launches straight away, **no Gatekeeper "unidentified developer" warning and no `xattr`/right-click workarounds**.
-
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.7.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-v4.7.1-Windows-Setup.exe) |
-| macOS | [SecureVector-4.7.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-4.7.1-macOS.dmg) — **✅ signed & notarized** |
-| Linux (AppImage) | [SecureVector-4.7.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SecureVector-4.7.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.7.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/securevector_4.7.1_amd64.deb) |
-| Linux (RPM) | [securevector-4.7.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/securevector-4.7.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.8.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-v4.8.0-Windows-Setup.exe) |
+| macOS | [SecureVector-4.8.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-4.8.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-4.8.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SecureVector-4.8.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.8.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/securevector_4.8.0_amd64.deb) |
+| Linux (RPM) | [securevector-4.8.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/securevector-4.8.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** The `.dmg` is **signed with a Developer ID certificate and notarized by Apple**, so it installs and opens cleanly on a stock Mac — no Gatekeeper bypass needed. Still, **only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.7.1/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.8.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
@@ -516,6 +505,21 @@ No Python required. Download and run.
 | `pip install securevector-ai-monitor` | **SDK only** — lightweight, for programmatic integration | ~18MB |
 | `pip install securevector-ai-monitor[app]` | **Full app** — web UI, LLM proxy, cost tracking, tool permissions | 453 KB wheel · ~16 MB total on disk (incl. dependencies) |
 | `pip install securevector-ai-monitor[mcp]` | **MCP server** — Claude Desktop, Cursor | ~38MB |
+
+<br>
+
+### Deploy to your own cloud (self-host)
+
+Want it as shared infrastructure instead of one laptop? Run the engine in **your own cloud tenant** — one `terraform apply` stands it up with a live HTTPS dashboard, so a whole team's agents point at a single instance. Open-source modules (Apache 2.0), one per provider:
+
+| Cloud | Terraform module |
+|---|---|
+| **AWS** | [terraform-aws-securevector](https://github.com/Secure-Vector/terraform-aws-securevector) |
+| **Azure** | [terraform-azurerm-securevector](https://github.com/Secure-Vector/terraform-azurerm-securevector) |
+| **Google Cloud** | [terraform-google-securevector](https://github.com/Secure-Vector/terraform-google-securevector) |
+| **Oracle Cloud** | [terraform-oci-securevector](https://github.com/Secure-Vector/terraform-oci-securevector) |
+
+Your data stays in your tenant. Pick a framework SDK or plugin and the module wires your agents to the deployed instance.
 
 <br>
 
