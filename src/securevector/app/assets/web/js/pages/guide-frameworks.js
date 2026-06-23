@@ -39,7 +39,7 @@ const GuideFrameworksPage = {
         const code = (text) => {
             const wrap = document.createElement('div'); wrap.style.cssText = 'position: relative; margin: 8px 0;';
             const pre = document.createElement('pre'); pre.style.cssText = 'padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto; margin: 0; white-space: pre; color: var(--text-primary);'; pre.textContent = text; wrap.appendChild(pre);
-            const copyBtn = document.createElement('button'); copyBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; padding: 4px 10px; font-size: 11px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; color: var(--text-secondary); cursor: pointer;'; copyBtn.textContent = 'Copy';
+            const copyBtn = document.createElement('button'); copyBtn.type = 'button'; copyBtn.setAttribute('aria-label', 'Copy code to clipboard'); copyBtn.style.cssText = 'position: absolute; top: 6px; right: 6px; padding: 4px 10px; font-size: 11px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; color: var(--text-secondary); cursor: pointer;'; copyBtn.textContent = 'Copy';
             copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'Copied'; setTimeout(() => copyBtn.textContent = 'Copy', 1200); } catch { copyBtn.textContent = 'Copy failed'; } };
             wrap.appendChild(copyBtn); return wrap;
         };
@@ -67,7 +67,7 @@ const GuideFrameworksPage = {
             ['Secret / data-leak detection', 'scans serialized args', 'scans the tool result'],
             ['Threat detection', 'prompt-injection / malicious content', 'indirect-injection in fetched data'],
         ]));
-        root.appendChild(p('Every decision is written to the tamper-evident audit chain with runtime_kind attribution, so the calls appear in the Agent Map and Runs alongside your CLI agents. This is exactly the action-layer logging EU AI Act Art. 12 / 15 asks for.'));
+        root.appendChild(p('Every decision is written to the tamper-evident audit chain with runtime_kind attribution, so the calls appear in the Agent Map and Runs alongside your CLI agents. This supports your EU AI Act Art. 12 / 15 record-keeping with attributed, tamper-evident action logs.'));
 
         // --- Install ---
         root.appendChild(h2('1. Install'));
@@ -136,11 +136,24 @@ install(mode="observe")`));
         });
         root.appendChild(ul);
 
-        const cta = document.createElement('button');
-        cta.style.cssText = 'margin-top: 12px; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent-primary); background: transparent; color: var(--accent-primary); font-size: 13px; font-weight: 600; cursor: pointer;';
-        cta.textContent = 'Open the LangChain integration →';
-        cta.onclick = () => { try { Sidebar.navigate('proxy-langchain'); } catch {} };
-        root.appendChild(cta);
+        // One shortcut per framework — symmetric, so LangGraph/CrewAI users get one too.
+        const ctaRow = document.createElement('div');
+        ctaRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;';
+        [['LangChain', 'proxy-langchain'], ['LangGraph', 'proxy-langgraph'], ['CrewAI', 'proxy-crewai']].forEach(([label, navId]) => {
+            const cta = document.createElement('button');
+            cta.type = 'button';
+            cta.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent-primary); background: transparent; color: var(--accent-primary); font-size: 13px; font-weight: 600; cursor: pointer;';
+            cta.textContent = 'Open ' + label + ' integration →';
+            cta.onclick = () => { try { Sidebar.navigate(navId); } catch (e) { console.error('navigate failed', e); } };
+            ctaRow.appendChild(cta);
+        });
+        root.appendChild(ctaRow);
+
+        // Non-affiliation disclaimer for the named third-party frameworks.
+        const disclaimer = document.createElement('p');
+        disclaimer.style.cssText = 'margin: 24px 0 0; padding-top: 12px; border-top: 1px solid var(--border-default); font-size: 11px; color: var(--text-secondary);';
+        disclaimer.textContent = 'SecureVector is an independent project and is not affiliated with or endorsed by Anthropic, LangChain, or CrewAI. Product names are used nominatively to identify the target framework.';
+        root.appendChild(disclaimer);
 
         container.appendChild(root);
     },

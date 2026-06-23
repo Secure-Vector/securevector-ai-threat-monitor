@@ -1,7 +1,7 @@
 {
   "name": "securevector",
   "owner": { "name": "SecureVector", "url": "https://securevector.io" },
-  "metadata": { "description": "Official SecureVector marketplace — security & observability plugins for AI agent runtimes.", "version": "1.0.0" },
+  "metadata": { "description": "Official SecureVector marketplace — security & observability plugins for AI agent runtimes. Independent third-party project; not affiliated with or endorsed by Anthropic; product names used nominatively.", "version": "1.0.0" },
   "plugins": [
     { "name": "securevector-guard", "source": "./src/securevector/plugins/claude-code", "category": "security" }
   ]
