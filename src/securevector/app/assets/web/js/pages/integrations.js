@@ -3091,8 +3091,8 @@ def chat_with_protection(user_input):
 
         card.appendChild(header);
 
-        // Code block
-        card.appendChild(this.createCodeBlock(integration.sdkCode));
+        // Code block (sdkSnippet is the current field; sdkCode kept for back-compat)
+        card.appendChild(this.createCodeBlock(integration.sdkSnippet || integration.sdkCode));
 
         return card;
     },
@@ -3102,6 +3102,10 @@ def chat_with_protection(user_input):
     // to "Active" with live counters the moment the app sees this runtime_kind.
     createSdkPrimaryCard(integration, integrationId) {
         const rk = integration.runtimeKind;
+        if (!rk) {
+            console.error('createSdkPrimaryCard called without runtimeKind', integration);
+            return document.createElement('div');
+        }
         const card = document.createElement('div');
         card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
 
@@ -3140,6 +3144,9 @@ def chat_with_protection(user_input):
 
         const status = document.createElement('div');
         status.id = 'sdk-status-' + rk;
+        // Status flips Waiting -> Active asynchronously; announce it to AT.
+        status.setAttribute('aria-live', 'polite');
+        status.setAttribute('aria-atomic', 'true');
         status.style.cssText = 'margin-top: 16px; padding: 14px; border-radius: 6px; border: 1px dashed var(--border-default); background: var(--bg-tertiary); font-size: 13px; color: var(--text-secondary);';
         status.textContent = '⏳ Waiting for the first ' + integration.name + ' tool call…';
         content.appendChild(status);
@@ -3157,7 +3164,7 @@ def chat_with_protection(user_input):
         try {
             const g = await fetch('/api/graph/agent-tool?window_days=30').then(r => r.json());
             node = (g.nodes || []).find(n => n.kind === 'agent' &&
-                (n.id === 'agent:' + rk || (n.label || '').toLowerCase() === rk));
+                (n.id === 'agent:' + rk || n.runtime_kind === rk));
         } catch {}
 
         el.textContent = '';
@@ -3197,7 +3204,7 @@ def chat_with_protection(user_input):
 
         const compliance = document.createElement('div');
         compliance.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;';
-        compliance.textContent = 'Tool-call-level, attributed, tamper-evident audit — EU AI Act Art. 12 / 15 action-layer logging.';
+        compliance.textContent = 'Tool-call-level, attributed, tamper-evident audit — supports your EU AI Act Art. 12 / 15 record-keeping.';
         el.appendChild(compliance);
 
         const actions = document.createElement('div');
@@ -3218,7 +3225,12 @@ def chat_with_protection(user_input):
             rows = all.filter(r => (r.runtime_kind || '').toLowerCase() === rk);
         } catch {}
         const cols = ['called_at', 'runtime_kind', 'tool_id', 'function_name', 'action', 'risk', 'reason', 'session_id', 'request_id'];
-        const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+        const esc = v => {
+            let s = String(v == null ? '' : v);
+            // Neutralize spreadsheet formula injection (=, +, -, @, tab, CR leads).
+            if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+            return '"' + s.replace(/"/g, '""') + '"';
+        };
         const csv = [cols.join(',')]
             .concat(rows.map(r => cols.map(c => esc(r[c])).join(',')))
             .join('\n');
@@ -3227,7 +3239,8 @@ def chat_with_protection(user_input):
         a.href = URL.createObjectURL(blob);
         a.download = 'securevector-evidence-' + rk + '.csv';
         a.click();
-        URL.revokeObjectURL(a.href);
+        // Revoke after the download has had time to start (click() is async for downloads).
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
     },
 
     // The legacy base-URL LLM proxy, demoted to a collapsed "optional" section.
