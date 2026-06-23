@@ -5,6 +5,12 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.0] - 2026-06-21
+
+### Added
+- **Framework SDKs for LangChain, LangGraph, and CrewAI** — three pip-installable adapters (`securevector-sdk-langchain`, `securevector-sdk-langgraph`, `securevector-sdk-crewai`, all Apache 2.0 on PyPI) that secure agent **tool calls** — tool-call permissions, secret / data-leak detection, and threat detection — with a two-line wrapper and no proxy or base-URL change. LangChain/LangGraph attach `secure_middleware()` via `create_agent` (a denied tool is short-circuited with a `ToolMessage`); legacy chains can use the observe-only callback handler. CrewAI wraps tools with `secure_tools()` or patches globally via `install()`. Every decision is written to the same tamper-evident audit chain with `runtime_kind` attribution (`langchain` / `langgraph` / `crewai`), so SDK tool calls appear in the **Agent Map** and **Agent Runs** alongside the native plugins. `observe` mode (default) logs an advisory verdict and always runs the tool; `enforce` mode blocks. Each SDK package also installs this local app.
+- **Integrations page — SDK-primary cards + Framework SDKs guide** — the LangChain / LangGraph / CrewAI entries now lead with the SDK install + wiring snippet and auto-detect the first tool call (flipping to **Active** with live counters), with the LLM proxy demoted to a collapsible "optional legacy proxy" section. New left-nav **Frameworks** group and a dedicated **Framework SDKs** setup guide page (install → wire → observe/enforce → see it in the app), plus client-side evidence (CSV) export from the integration card.
+
 ## [4.5.0] - 2026-06-04
 
 ### Added

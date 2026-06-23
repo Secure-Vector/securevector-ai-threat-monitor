@@ -124,91 +124,54 @@ const IntegrationPage = {
     integrations: {
         'proxy-langchain': {
             name: 'LangChain',
-            description: 'Python framework for building LLM applications',
+            description: 'Python framework for building LLM agents',
             defaultProvider: 'openai',
-            sdkCode: `from langchain_core.callbacks import BaseCallbackHandler
-from securevector import SecureVectorClient
+            runtimeKind: 'langchain',
+            sdkPackage: 'securevector-sdk-langchain',
+            sdkSnippet: `from langchain.agents import create_agent
+from securevector_sdk_langchain import secure_middleware
 
-class SecureVectorCallback(BaseCallbackHandler):
-    def __init__(self):
-        self.client = SecureVectorClient()
-
-    def on_chat_model_start(self, serialized, messages, **kwargs):
-        # Scan input for prompt injection
-        for msg_list in messages:
-            for msg in msg_list:
-                if self.client.analyze(msg.content).is_threat:
-                    raise ValueError("Blocked by SecureVector")
-
-    def on_llm_end(self, response, **kwargs):
-        # Scan output for data leakage
-        for gen in response.generations:
-            for g in gen:
-                result = self.client.analyze(g.text, direction="output")
-                if result.is_threat:
-                    print(f"Warning: {result.threat_type}")
-
-# Usage
-response = chain.invoke(input, config={
-    "callbacks": [SecureVectorCallback()]
-})`
+# Secures every tool call: permissions + secret/data-leak + threat scan,
+# all written to the tamper-evident audit chain. observe (default) = log;
+# enforce = block a denied tool with a ToolMessage before it runs.
+agent = create_agent(
+    model, tools,
+    middleware=[secure_middleware(mode="enforce")],
+)`
         },
         'proxy-langgraph': {
             name: 'LangGraph',
-            description: 'Build stateful multi-agent applications',
+            description: 'Stateful, multi-agent graphs',
             defaultProvider: 'openai',
-            sdkCode: `from langgraph.graph import StateGraph, START, END
-from securevector import SecureVectorClient
-from typing import TypedDict
+            runtimeKind: 'langgraph',
+            sdkPackage: 'securevector-sdk-langgraph',
+            sdkSnippet: `from langchain.agents import create_agent  # langgraph-backed
+from securevector_sdk_langgraph import secure_middleware
 
-class State(TypedDict):
-    messages: list
-    blocked: bool
+agent = create_agent(
+    model, tools,
+    middleware=[secure_middleware(mode="enforce")],
+)
 
-client = SecureVectorClient()
-
-def input_security(state: State) -> dict:
-    """Scan input for prompt injection"""
-    last_msg = state["messages"][-1].content
-    result = client.analyze(last_msg)
-    if result.is_threat:
-        raise ValueError("Blocked by SecureVector")
-    return state
-
-def output_security(state: State) -> dict:
-    """Scan output for data leakage"""
-    if "response" in state:
-        result = client.analyze(state["response"], direction="output")
-        if result.is_threat:
-            state["warning"] = result.threat_type
-    return state
-
-# Add security nodes to your graph
-graph.add_edge(START, "input_security")
-graph.add_edge("input_security", "llm")
-graph.add_edge("llm", "output_security")
-graph.add_edge("output_security", END)`
+# Note: langgraph.prebuilt.create_react_agent has no middleware arg — use
+# create_agent. For a raw StateGraph, gate tools with langgraph.types.interrupt()
+# (see the Guide).`
         },
         'proxy-crewai': {
             name: 'CrewAI',
-            description: 'Framework for orchestrating AI agents',
+            description: 'Orchestrate teams of AI agents',
             defaultProvider: 'openai',
-            sdkCode: `from crewai import Agent
-from securevector import SecureVectorClient
+            runtimeKind: 'crewai',
+            sdkPackage: 'securevector-sdk-crewai',
+            sdkSnippet: `from crewai import Agent
+from securevector_sdk_crewai import secure_tools
 
-client = SecureVectorClient()
-
-def security_callback(step_output):
-    """Scan each agent step for threats"""
-    result = client.analyze(str(step_output))
-    if result.is_threat:
-        print(f"Warning: {result.threat_type}")
-    return step_output
-
+# Wrap your tools — observe logs every call; enforce raises before the
+# tool runs. All three controls + tamper-evident audit, runtime_kind=crewai.
 agent = Agent(
     role="Researcher",
     goal="Research topics safely",
-    step_callback=security_callback
+    tools=secure_tools(my_tools),
 )`
         },
         'proxy-n8n': {
@@ -371,10 +334,11 @@ def chat_with_protection(user_input):
                 container.appendChild(this.createExampleCodeCard(integration));
             }
         } else {
-            // LangChain, LangGraph, CrewAI: Multi-Provider (recommended) + Single Proxy + SDK
-            container.appendChild(this.createMultiProviderCard());
-            container.appendChild(this.createProxyCard(integration, integrationId));
-            container.appendChild(this.createSdkCard(integration));
+            // LangChain, LangGraph, CrewAI: the SDK is the primary path (it
+            // secures tool calls, not just LLM traffic). The legacy base-URL
+            // LLM proxy is demoted to an optional, collapsed section.
+            container.appendChild(this.createSdkPrimaryCard(integration, integrationId));
+            container.appendChild(this.createOptionalProxySection(integration, integrationId));
         }
     },
 
@@ -3127,10 +3091,177 @@ def chat_with_protection(user_input):
 
         card.appendChild(header);
 
-        // Code block
-        card.appendChild(this.createCodeBlock(integration.sdkCode));
+        // Code block (sdkSnippet is the current field; sdkCode kept for back-compat)
+        card.appendChild(this.createCodeBlock(integration.sdkSnippet || integration.sdkCode));
 
         return card;
+    },
+
+    // SDK-primary card for LangChain / LangGraph / CrewAI. Two-state, auto-
+    // detecting: renders the real install + wiring, then flips from "waiting"
+    // to "Active" with live counters the moment the app sees this runtime_kind.
+    createSdkPrimaryCard(integration, integrationId) {
+        const rk = integration.runtimeKind;
+        if (!rk) {
+            console.error('createSdkPrimaryCard called without runtimeKind', integration);
+            return document.createElement('div');
+        }
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: space-between; gap: 12px;';
+        const titleDiv = document.createElement('div');
+        const titleText = document.createElement('div');
+        titleText.style.cssText = 'font-weight: 600; font-size: 15px;';
+        titleText.textContent = 'SecureVector SDK';
+        const subtitleText = document.createElement('div');
+        subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
+        subtitleText.textContent = 'Recommended — secures tool calls, not just LLM traffic';
+        titleDiv.appendChild(titleText);
+        titleDiv.appendChild(subtitleText);
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--accent-primary); border: 1px solid var(--accent-primary); border-radius: 999px; padding: 2px 10px; white-space: nowrap;';
+        badge.textContent = 'TOOL-CALL LAYER';
+        header.appendChild(titleDiv);
+        header.appendChild(badge);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const s1 = document.createElement('div');
+        s1.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
+        s1.textContent = '1. Install — one command also installs this local app';
+        content.appendChild(s1);
+        content.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage));
+
+        const s2 = document.createElement('div');
+        s2.style.cssText = 'font-weight: 600; font-size: 13px; margin: 16px 0 6px;';
+        s2.textContent = '2. Add it to your agent';
+        content.appendChild(s2);
+        content.appendChild(this.createCodeBlock(integration.sdkSnippet));
+
+        const status = document.createElement('div');
+        status.id = 'sdk-status-' + rk;
+        // Status flips Waiting -> Active asynchronously; announce it to AT.
+        status.setAttribute('aria-live', 'polite');
+        status.setAttribute('aria-atomic', 'true');
+        status.style.cssText = 'margin-top: 16px; padding: 14px; border-radius: 6px; border: 1px dashed var(--border-default); background: var(--bg-tertiary); font-size: 13px; color: var(--text-secondary);';
+        status.textContent = '⏳ Waiting for the first ' + integration.name + ' tool call…';
+        content.appendChild(status);
+
+        card.appendChild(content);
+        setTimeout(() => this.refreshSdkStatus(integration), 0);
+        return card;
+    },
+
+    async refreshSdkStatus(integration) {
+        const rk = integration.runtimeKind;
+        const el = document.getElementById('sdk-status-' + rk);
+        if (!el) return;
+        let node = null;
+        try {
+            const g = await fetch('/api/graph/agent-tool?window_days=30').then(r => r.json());
+            node = (g.nodes || []).find(n => n.kind === 'agent' &&
+                (n.id === 'agent:' + rk || n.runtime_kind === rk));
+        } catch {}
+
+        el.textContent = '';
+        if (!node) {
+            el.style.borderStyle = 'dashed';
+            el.style.borderColor = 'var(--border-default)';
+            el.style.color = 'var(--text-secondary)';
+            el.textContent = '⏳ Waiting for the first ' + integration.name +
+                ' tool call — run your agent with the SDK installed and this turns live automatically (no "connect" step).';
+            return;
+        }
+
+        el.style.border = '1px solid var(--success)';
+        el.style.color = 'var(--text-primary)';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 700; color: var(--success); margin-bottom: 10px;';
+        title.textContent = '✅ Active · runtime_kind=' + rk;
+        el.appendChild(title);
+
+        const stats = document.createElement('div');
+        stats.style.cssText = 'display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 12px;';
+        const mk = (n, label) => {
+            const d = document.createElement('div');
+            const num = document.createElement('div');
+            num.style.cssText = 'font-size: 20px; font-weight: 700;';
+            num.textContent = String(n);
+            const lab = document.createElement('div');
+            lab.style.cssText = 'font-size: 11px; color: var(--text-secondary);';
+            lab.textContent = label;
+            d.appendChild(num);
+            d.appendChild(lab);
+            return d;
+        };
+        stats.appendChild(mk(node.calls || 0, 'actions audited (30d)'));
+        stats.appendChild(mk(node.blocked || 0, 'blocked'));
+        el.appendChild(stats);
+
+        const compliance = document.createElement('div');
+        compliance.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;';
+        compliance.textContent = 'Tool-call-level, attributed, tamper-evident audit — supports your EU AI Act Art. 12 / 15 record-keeping.';
+        el.appendChild(compliance);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap;';
+        const csvBtn = document.createElement('button');
+        csvBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; border: 1px solid var(--accent-primary); background: transparent; color: var(--accent-primary); font-size: 12px; font-weight: 600; cursor: pointer;';
+        csvBtn.textContent = 'Generate evidence (CSV)';
+        csvBtn.addEventListener('click', () => this.exportRuntimeEvidence(rk, integration.name));
+        actions.appendChild(csvBtn);
+        el.appendChild(actions);
+    },
+
+    async exportRuntimeEvidence(rk, name) {
+        let rows = [];
+        try {
+            const d = await fetch('/api/tool-permissions/call-audit?limit=1000').then(r => r.json());
+            const all = Array.isArray(d) ? d : (d.entries || d.rows || []);
+            rows = all.filter(r => (r.runtime_kind || '').toLowerCase() === rk);
+        } catch {}
+        const cols = ['called_at', 'runtime_kind', 'tool_id', 'function_name', 'action', 'risk', 'reason', 'session_id', 'request_id'];
+        const esc = v => {
+            let s = String(v == null ? '' : v);
+            // Neutralize spreadsheet formula injection (=, +, -, @, tab, CR leads).
+            if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+            return '"' + s.replace(/"/g, '""') + '"';
+        };
+        const csv = [cols.join(',')]
+            .concat(rows.map(r => cols.map(c => esc(r[c])).join(',')))
+            .join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'securevector-evidence-' + rk + '.csv';
+        a.click();
+        // Revoke after the download has had time to start (click() is async for downloads).
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    },
+
+    // The legacy base-URL LLM proxy, demoted to a collapsed "optional" section.
+    // It captures LLM traffic only — the SDK above is what secures tool calls.
+    createOptionalProxySection(integration, integrationId) {
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom: 16px;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); user-select: none;';
+        summary.textContent = 'Optional — legacy LLM proxy (advanced)';
+        details.appendChild(summary);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding-top: 12px;';
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5;';
+        note.textContent = 'The proxy intercepts LLM traffic only (not tool calls). Prefer the SDK above for tool-call permissions, secret/threat scanning, and tamper-evident audit. Keep the proxy only if you specifically need base-URL LLM interception.';
+        body.appendChild(note);
+        body.appendChild(this.createMultiProviderCard());
+        body.appendChild(this.createProxyCard(integration, integrationId));
+        details.appendChild(body);
+        return details;
     },
 
     createNodeCard(integration) {
