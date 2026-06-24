@@ -163,6 +163,26 @@ class SecureVectorMCPServer:
 
         self.logger = get_logger(__name__)
 
+        # Local stdio transport (Claude Desktop and other local MCP hosts) is a
+        # trusted loopback channel — there is no inbound network surface and no
+        # request headers to carry a key, exactly like the app binding to
+        # 127.0.0.1. Requiring authentication there with no key configured just
+        # makes the server unusable (there is no way to supply the key), which
+        # contradicts the "local-only, no API key" design. So for stdio with no
+        # configured key, default to no-auth — keyless local detection works out
+        # of the box. HTTP/SSE transports keep auth, and an explicitly
+        # configured api_key still gates access on any transport.
+        if (
+            self.config.transport == "stdio"
+            and not self.config.security.api_key
+            and self.config.security.require_authentication
+        ):
+            self.config.security.require_authentication = False
+            self.logger.info(
+                "stdio transport with no configured API key — authentication "
+                "disabled for local use (keyless local detection enabled)"
+            )
+
         # Initialize FastMCP server with transport security settings
         # Get custom allowed hosts from environment variable (comma-separated)
         # Use SECUREVECTOR_ALLOWED_HOSTS to specify exact hostnames for your deployment

@@ -56,6 +56,16 @@ enable cloud/hybrid mode with an API key.
 | `get_threat_statistics` | Summary of detections over a time window (counts by threat type, action, and trend). |
 | `check_tool_permission` | Decide whether a tool/function call is permitted **before it runs**, and record the decision to the tamper-evident audit chain. |
 
+### Standalone vs companion — does this need the local app?
+
+| Capability | App **not** running | App running (companion) |
+|---|---|---|
+| **Threat + secret detection** (`analyze_prompt`, `batch_analyze`) | ✅ Works. The detection engine (195+ patterns) is bundled in the MCP package and runs **in-process, offline, no API key**. | ✅ Routed through the app's `/analyze`, so detections respect the app's Cloud Connect state and land in its timeline (and, when enrolled, the cloud fleet view). |
+| `get_threat_statistics` | ✅ Local stats | ✅ |
+| **Tool permissions** (`check_tool_permission`) | ⚠️ Fails open (allow-all) — the policy registry + audit chain live in the app. | ✅ Real allow/deny enforcement + tamper-evident audit. |
+
+In short: **detection works MCP-alone, offline and keyless; allow/deny governance needs the app.** Over **stdio** (Claude Desktop and other local hosts) the server needs no API key — authentication is for the HTTP/SSE transports. Set `SECUREVECTOR_API_KEY` only when you want standalone *cloud* detection without the app; when the app is running it decides cloud-vs-local for you.
+
 ### `check_tool_permission`
 
 This brings SecureVector's **tool-permission governance** to MCP hosts. Before an
