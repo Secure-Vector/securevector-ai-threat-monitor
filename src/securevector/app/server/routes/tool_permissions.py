@@ -1066,6 +1066,7 @@ _RUNTIME_LABELS = {
     "langchain":    "LangChain",
     "langgraph":    "LangGraph",
     "crewai":       "CrewAI",
+    "mcp":          "MCP",
     "n8n":          "n8n",
     "ollama":       "Ollama",
     # Proxy fallback when --integration isn't set on the subprocess.

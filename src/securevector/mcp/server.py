@@ -427,6 +427,7 @@ class SecureVectorMCPServer:
         from .tools.analyze_prompt import setup_analyze_prompt_tool
         from .tools.batch_analysis import setup_batch_analysis_tool
         from .tools.threat_stats import setup_threat_stats_tool
+        from .tools.tool_permissions import setup_tool_permissions_tool
 
         if "analyze_prompt" in self.config.enabled_tools:
             setup_analyze_prompt_tool(self.mcp, self)
@@ -436,6 +437,9 @@ class SecureVectorMCPServer:
 
         if "get_threat_statistics" in self.config.enabled_tools:
             setup_threat_stats_tool(self.mcp, self)
+
+        if "check_tool_permission" in self.config.enabled_tools:
+            setup_tool_permissions_tool(self.mcp, self)
 
         self.logger.info(f"MCP tools enabled: {self.config.enabled_tools}")
 

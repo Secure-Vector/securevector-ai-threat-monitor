@@ -337,7 +337,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['mcp', 'MCP only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -2855,6 +2855,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langchain') ? 'LangChain'
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
+                : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;
             const rtEl = document.createElement('span');
@@ -3035,6 +3036,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langchain') ? 'LangChain'
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
+                : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;
             const rtBadge = document.createElement('span');

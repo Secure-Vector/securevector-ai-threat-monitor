@@ -92,7 +92,8 @@ class MCPServerConfig:
     enabled_tools: List[str] = field(default_factory=lambda: [
         "analyze_prompt",
         "batch_analyze",
-        "get_threat_statistics"
+        "get_threat_statistics",
+        "check_tool_permission"
     ])
 
     # Resource settings
