@@ -5,15 +5,16 @@ Complete guide for setting up and using the SecureVector MCP server with Claude 
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Platform Integration](#platform-integration)
+2. [Available Tools](#available-tools)
+3. [Platform Integration](#platform-integration)
    - [Claude Desktop](#claude-desktop)
    - [Claude Code (CLI)](#claude-code-cli)
    - [Cursor IDE](#cursor-ide)
-3. [Docker Deployment](#docker-deployment)
-4. [Direct Installation](#direct-installation)
-5. [Configuration](#configuration)
-6. [Troubleshooting](#troubleshooting)
-7. [Advanced Topics](#advanced-topics)
+4. [Docker Deployment](#docker-deployment)
+5. [Direct Installation](#direct-installation)
+6. [Configuration](#configuration)
+7. [Troubleshooting](#troubleshooting)
+8. [Advanced Topics](#advanced-topics)
 
 ---
 
@@ -39,6 +40,59 @@ docker logs -f securevector-mcp
 
 **Available Images:**
 - `securevectorrepo/securevector-mcp-server:latest` - Production
+
+---
+
+## Available Tools
+
+The server exposes four MCP tools. All run locally against the SecureVector
+engine — no prompt or tool argument leaves the machine unless you explicitly
+enable cloud/hybrid mode with an API key.
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_prompt` | Analyze a single prompt for prompt-injection, jailbreaks, data-exfiltration and other threats. Returns `is_threat`, `risk_score` (0-100), `threat_types`, and a recommended action (`allow` / `warn` / `review` / `block`). |
+| `batch_analyze` | Analyze many prompts in one call; same verdict shape per item, with aggregate statistics. |
+| `get_threat_statistics` | Summary of detections over a time window (counts by threat type, action, and trend). |
+| `check_tool_permission` | Decide whether a tool/function call is permitted **before it runs**, and record the decision to the tamper-evident audit chain. |
+
+### `check_tool_permission`
+
+This brings SecureVector's **tool-permission governance** to MCP hosts. Before an
+agent runs a sensitive tool (a shell command, a file write, a web fetch), the
+host can ask SecureVector whether the call is allowed — and every call is logged
+for replay and audit, attributed to `runtime_kind="mcp"` so MCP traffic is
+distinguishable from SDK and plugin traffic on the Tool Permissions and Agent
+Map views.
+
+The decision is resolved against the running local app exactly the way the
+SecureVector SDKs and the OpenClaw hook resolve it, with this precedence:
+
+```
+cloud-synced policy  >  local user override  >  essential-tool registry  >  default-allow
+```
+
+**Arguments:**
+
+| Arg | Required | Description |
+|-----|----------|-------------|
+| `tool_id` | yes | Canonical tool identifier to check (e.g. `WebFetch`, `filesystem.write`, `shell.exec`). |
+| `function_name` | no | Human-facing function name for the audit row (defaults to `tool_id`). |
+| `args_preview` | no | Short, redaction-safe preview of the call arguments (truncated to 2 KB — never pass secrets). |
+| `session_id` | no | Conversation/session id used to group calls on the Agent Map. |
+| `record` | no | `true` (default) appends an audit row; set `false` for a dry-run policy lookup. |
+
+**Returns:** `allowed` (bool), `action` (`allow` / `block`), `tier`
+(`synced` / `override` / `essential` / `default`), `risk`, `reason`,
+`is_essential`, `audited`, and `app_reachable`.
+
+> **Fail-open by design:** if the local app is not reachable, the tool returns
+> `allowed: true` with `app_reachable: false` rather than hard-failing the host —
+> so a stopped app never blocks your agent. Start the app to enforce policy.
+
+This tool needs the local SecureVector app running (it serves the policy and the
+audit chain). Point the server at a non-default app URL with
+`SECUREVECTOR_SDK_APP_URL` (see [Configuration](#configuration)).
 
 ---
 
@@ -206,13 +260,21 @@ pip install -e ".[mcp]"
 
 ### Configuration
 
+With a direct (non-Docker) install you can launch the server two equivalent
+ways:
+
+- `securevector-mcp` — the installed console command, or
+- `python -m securevector.mcp` — the module form (handy when several Python
+  environments are on PATH and you want to pin the interpreter).
+
+Both run the same server; use whichever your host config prefers.
+
 **Claude Desktop:**
 ```json
 {
   "mcpServers": {
     "securevector": {
-      "command": "python",
-      "args": ["-m", "securevector.mcp"]
+      "command": "securevector-mcp"
     }
   }
 }
@@ -223,12 +285,16 @@ pip install -e ".[mcp]"
 {
   "mcpServers": {
     "securevector": {
-      "command": "python",
-      "args": ["-m", "securevector.mcp", "--direct-mode", "--mode", "production"]
+      "command": "securevector-mcp",
+      "args": ["--direct-mode", "--mode", "production"]
     }
   }
 }
 ```
+
+> Prefer to pin the interpreter? Swap `"command": "securevector-mcp"` for
+> `"command": "python", "args": ["-m", "securevector.mcp", ...]` — the module
+> form is equivalent.
 
 ---
 
@@ -242,6 +308,7 @@ pip install -e ".[mcp]"
 | `SECUREVECTOR_MCP_MODE` | `balanced` | Server mode: `development`, `balanced`, `production` |
 | `SECUREVECTOR_MCP_LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `SECUREVECTOR_MCP_TRANSPORT` | `stdio` | Transport: `stdio`, `http`, `sse` |
+| `SECUREVECTOR_SDK_APP_URL` | `http://127.0.0.1:8741` | Local SecureVector app URL used by `check_tool_permission` to resolve policy and write audit rows. Point this at a remote/self-hosted instance if the app runs elsewhere. |
 
 ### Using .env File
 
@@ -301,9 +368,16 @@ docker-compose build --no-cache
 
 **Cause:** Missing `--mode` flag in Claude Code/Cursor configuration
 
-**Solution:** Add `--mode production` or `--mode development` to your args:
+**Solution:** Add `--direct-mode` and `--mode production` (or `--mode development`) to your args:
 ```json
-"args": [..., "--direct-mode", "--mode", "production"]
+{
+  "mcpServers": {
+    "securevector": {
+      "command": "securevector-mcp",
+      "args": ["--direct-mode", "--mode", "production"]
+    }
+  }
+}
 ```
 
 ### Configuration Not Loading
