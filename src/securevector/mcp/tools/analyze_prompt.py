@@ -30,6 +30,101 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+# --------------------------------------------------------------------------- #
+# App-first detection (companion mode)                                         #
+# --------------------------------------------------------------------------- #
+# When the local SecureVector app is running, prefer its REST `/analyze` over
+# the engine embedded in this process. Two reasons, both about having ONE
+# source of truth instead of a split brain:
+#   * Cloud-vs-local is then decided by the app's Cloud Connect toggle — not by
+#     a separate API key on the MCP server. Companion deployments enforce policy
+#     and detect exactly as the app does.
+#   * Detected threats land in the app's threat-intel timeline (and, when the
+#     app is enrolled, federate to the cloud fleet view) — so MCP traffic is
+#     visible alongside SDK and plugin traffic.
+# If the app is not reachable we fall back to the embedded engine (standalone
+# mode), where the MCP server's own API key still selects local vs cloud.
+import json as _json
+import os as _os
+import urllib.error as _urlerr
+import urllib.request as _urlreq
+
+_APP_ANALYZE_RUNTIME = "mcp"
+
+
+def _app_base_url() -> str:
+    return (
+        _os.getenv("SECUREVECTOR_SDK_APP_URL")
+        or _os.getenv("SECUREVECTOR_APP_URL")
+        or "http://127.0.0.1:8741"
+    ).rstrip("/")
+
+
+class _AppAnalysisResult:
+    """Adapt the app's /analyze JSON to the attribute surface the response
+    builder below expects from an engine ``AnalysisResult``."""
+
+    def __init__(self, data: dict):
+        self.is_threat = bool(data.get("is_threat", False))
+        self.risk_score = int(data.get("risk_score") or 0)
+        self.confidence = float(data.get("confidence") or 0.0)
+        tt = data.get("threat_type")
+        self.threat_types = [tt] if tt else []
+        # analysis_source is "local" | "cloud" | "local_fallback"; map to the
+        # detection_method string the builder keys on (local -> upgrade nudge,
+        # cloud -> no nudge).
+        src = (data.get("analysis_source") or "local").lower()
+        self.detection_method = "cloud" if src == "cloud" else "local_rules"
+        self.metadata = {
+            "analysis_source": data.get("analysis_source"),
+            "action_taken": data.get("action_taken"),
+            "redacted": bool(data.get("redacted_text")),
+        }
+        # Minimal detections view for include_details, derived from matched rules.
+        self.detections = []
+        for r in (data.get("matched_rules") or []):
+            if not isinstance(r, dict):
+                continue
+            name = r.get("category") or r.get("rule_type") or r.get("name") or "rule"
+            desc = r.get("description") or r.get("name") or name
+            self.detections.append(type("D", (), {"threat_type": name, "description": desc})())
+
+
+def _try_app_analyze(prompt: str, mode: str, session_id: Optional[str],
+                     timeout: float) -> Optional["_AppAnalysisResult"]:
+    """POST to the running app's /analyze. Returns an adapted result, or None
+    if the app isn't reachable (caller then uses the embedded engine)."""
+    metadata = {"runtime_kind": _APP_ANALYZE_RUNTIME}
+    # mode="local" forces the app to skip cloud even when Cloud Connect is on;
+    # auto/api/hybrid defer to the app's own Cloud Connect setting.
+    if str(mode).lower() == "local":
+        metadata["skip_cloud"] = True
+    body = {
+        "text": str(prompt)[:102400],
+        "source": "mcp",
+        "session_id": session_id,
+        "metadata": metadata,
+        "direction": "outgoing",
+    }
+    url = f"{_app_base_url()}/analyze"
+    data = _json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    api_key = _os.getenv("SECUREVECTOR_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = _urlreq.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (loopback)
+            raw = resp.read()
+        parsed = _json.loads(raw) if raw else {}
+        if not isinstance(parsed, dict):
+            return None
+        return _AppAnalysisResult(parsed)
+    except (_urlerr.URLError, OSError, ValueError) as exc:
+        logger.debug("app /analyze unreachable, using embedded engine: %s", exc)
+        return None
+
+
 def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
     """Setup the analyze_prompt MCP tool."""
 
@@ -178,8 +273,24 @@ def setup_analyze_prompt_tool(mcp: "FastMCP", server: "SecureVectorMCPServer"):
             # If we retrieved an API key from session, use it to create a configured client
             # This enables remote API calls instead of local-only mode
             try:
-                # Determine which client to use
-                if api_key and api_key != server.config.security.api_key:
+                result = None
+                # Companion mode (preferred): when a caller hasn't supplied
+                # their own per-session key, route through the running local
+                # app so Cloud-vs-local is decided by its Cloud Connect toggle
+                # and detections land in its timeline/fleet. A caller who DID
+                # pass a distinct session key wants their own cloud detection
+                # (standalone), so we skip the app for them.
+                if not (api_key and api_key != server.config.security.api_key):
+                    app_timeout = float(timeout or server.config.performance.analysis_timeout_seconds or 5)
+                    app_result = _try_app_analyze(prompt, mode, session_id, max(app_timeout, 1.0))
+                    if app_result is not None:
+                        result = app_result
+                        logger.debug("Analysis served by local app /analyze (companion mode)")
+
+                # Determine which client to use (standalone / app-unreachable fallback)
+                if result is not None:
+                    pass
+                elif api_key and api_key != server.config.security.api_key:
                     # Use the retrieved API key to create a client for this request
                     # This enables multi-tenant support where each customer uses their own API key
                     logger.info(f"Creating SecureVector client with session API key for analysis")

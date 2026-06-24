@@ -159,7 +159,7 @@ setup(
         "console_scripts": [
             "sv-monitor=securevector.cli:main",
             "securevector-monitor=securevector.cli:main",
-            "securevector-mcp=securevector.mcp.__main__:main",
+            "securevector-mcp=securevector.mcp.__main__:sync_main",
             "securevector-app=securevector.app.main:main",
             "securevector-proxy=securevector.integrations.openclaw_llm_proxy:main",
         ],
