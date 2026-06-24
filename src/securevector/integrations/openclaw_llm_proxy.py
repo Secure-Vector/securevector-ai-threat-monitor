@@ -223,6 +223,9 @@ class LLMProxy:
         self._cloud_mode_enabled: Optional[bool] = None
         self._cloud_api_key: Optional[str] = None
         self._tool_permissions_enabled: Optional[bool] = None
+        # EU residency / local-only analysis — when True, keep prompts on-device
+        # (skip the direct cloud scan as well as the /analyze cloud hop).
+        self._local_only_analysis: Optional[bool] = None
         self._settings_checked_at: float = 0
 
         # Tool permissions engine (lazy-loaded)
@@ -442,6 +445,10 @@ class LLMProxy:
                 self._output_scan_enabled = settings.get("scan_llm_responses", True)
                 self._block_threats_enabled = settings.get("block_threats", False)
                 self._tool_permissions_enabled = settings.get("tool_permissions_enabled", True)
+                # Fail closed: default ON so prompts stay on-device unless the
+                # app explicitly reports local-only OFF (matches the backend's
+                # privacy-first default and never leaks on a missing field).
+                self._local_only_analysis = settings.get("local_only_analysis", True)
                 self._settings_checked_at = now
 
             # Check cloud mode and get API key directly from credentials file
@@ -462,12 +469,17 @@ class LLMProxy:
                 "cloud_mode_enabled": self._cloud_mode_enabled or False,
                 "cloud_api_key": self._cloud_api_key,
                 "tool_permissions_enabled": self._tool_permissions_enabled or False,
+                "local_only_analysis": (
+                    True if self._local_only_analysis is None else self._local_only_analysis
+                ),
             }
         except Exception as e:
             if self.verbose:
                 logger.warning(f"Could not check settings: {e}")
 
-        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": True}
+        # Fail closed on a settings-read error: keep prompts local (never leak
+        # to the cloud just because we couldn't read the toggle).
+        return {"scan_llm_responses": True, "block_threats": self.block_threats, "cloud_mode_enabled": False, "cloud_api_key": None, "tool_permissions_enabled": True, "local_only_analysis": True}
 
     async def _scan_cloud_direct(self, text: str, api_key: str, action_taken: str = "logged") -> Optional[dict]:
         """Scan directly via cloud API (scan.securevector.io), skipping localhost hop.
@@ -561,11 +573,14 @@ class LLMProxy:
                 logger.info(f"[llm-proxy] Text too long ({len(scan_text)} chars), truncating to {MAX_SCAN_LENGTH} for scan")
             scan_text = scan_text[:MAX_SCAN_LENGTH]
 
-        # When cloud mode is on, scan directly via cloud API (no localhost hop)
+        # When cloud mode is on, scan directly via cloud API (no localhost hop).
+        # EU residency / local-only analysis forces prompts to stay on-device:
+        # skip the direct cloud scan AND flag skip_cloud so the downstream
+        # /analyze hop never calls the cloud either.
         settings = await self.check_settings()
-        skip_cloud = False
+        skip_cloud = bool(settings.get("local_only_analysis"))
         cloud_api_key = settings.get("cloud_api_key")
-        if settings.get("cloud_mode_enabled") and cloud_api_key and not is_llm_response:
+        if settings.get("cloud_mode_enabled") and cloud_api_key and not is_llm_response and not skip_cloud:
             cloud_result = await self._scan_cloud_direct(scan_text, cloud_api_key, action_taken)
             if cloud_result is not None:
                 return cloud_result

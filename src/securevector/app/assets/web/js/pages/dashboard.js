@@ -691,6 +691,13 @@ const DashboardPage = {
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
 
+        // Governance posture (#187) — local score + quiet cloud teaser. Never
+        // blocks the page: if anything in it throws, the dashboard still renders.
+        try {
+            const governance = await this.renderGovernancePosture();
+            if (governance) container.appendChild(governance);
+        } catch (e) { /* non-fatal */ }
+
         // Recent activity
         const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
@@ -1637,6 +1644,129 @@ const DashboardPage = {
     // Output Scan / Guardian ML) plus a Rules shortcut and live agent chips.
     // Confirmations go through Modal.confirm; the checkbox only flips after
     // the user confirms AND the API write succeeds (no optimistic flip).
+    // Governance posture card (#187, local funnel). A 0–100 score computed
+    // ENTIRELY from on-device signals the app already has — no new data
+    // collection — plus a quiet, dismissible pointer to the cloud fleet-wide
+    // posture + EU AI Act orientation, shown ONLY when Cloud Connect is off
+    // (when it's on, the user already has the fleet view). The rubric is
+    // transparent (surfaced in the tooltip + factor rows) so the local number
+    // and the eventual cloud number share one honest methodology.
+    GOVERNANCE_TEASER_KEY: 'sv-governance-teaser-dismissed',
+
+    _computeGovernanceScore(settings, integrityOk, activeRules) {
+        // Each factor is an independent, transparent contribution summing to 100.
+        const s = settings || {};
+        const factors = [
+            { key: 'block',     label: 'Threat blocking enforced',         on: !!s.block_threats,                                   pts: 18 },
+            { key: 'scan',      label: 'Output / data-leak scanning on',   on: s.scan_llm_responses !== false,                      pts: 14 },
+            { key: 'guardian',  label: 'Guardian ML detection active',     on: !!s.guardian_ml_enabled && s.guardian_ml_available !== false, pts: 14 },
+            { key: 'tools',     label: 'Tool-permission governance on',    on: s.tool_permissions_enabled !== false,                pts: 14 },
+            { key: 'audit',     label: 'Audit chain intact (tamper-evident)', on: integrityOk === true,                             pts: 20 },
+            { key: 'rules',     label: 'Detection rules active',           on: (activeRules || 0) > 0,                              pts: 10 },
+            { key: 'residency', label: 'Prompts kept on this device',      on: s.local_only_analysis !== false,                     pts: 10 },
+        ];
+        const score = factors.reduce((a, f) => a + (f.on ? f.pts : 0), 0);
+        return { score, factors };
+    },
+
+    async renderGovernancePosture() {
+        // Reuse already-loaded settings/analytics; one cheap integrity call.
+        let settings = this.settings;
+        if (!settings) { try { settings = await API.getSettings(); } catch (e) { settings = {}; } }
+
+        let integrityOk = null;
+        try { const ig = await API.getToolCallAuditIntegrity(); integrityOk = !!(ig && ig.ok); } catch (e) { integrityOk = null; }
+
+        let cloud = { cloud_mode_enabled: false, credentials_configured: false };
+        try { cloud = await API.getCloudSettings(); } catch (e) {}
+        const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
+
+        const activeRules = (this.data && this.data.active_rules) || 0;
+        const blocked = (this.data && this.data.blocked_count) || 0;
+        const { score, factors } = this._computeGovernanceScore(settings, integrityOk, activeRules);
+
+        const tone = score >= 80 ? 'var(--success, #10b981)'
+                   : score >= 50 ? 'var(--warning, #f59e0b)'
+                   : 'var(--danger, #ef4444)';
+
+        const card = document.createElement('div');
+        card.className = 'governance-posture-section';
+        card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;';
+
+        // Header: title + the big score.
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom: 4px;';
+        const titleWrap = document.createElement('div');
+        titleWrap.style.cssText = 'display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;';
+        const title = document.createElement('div');
+        title.textContent = 'Governance posture';
+        title.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary);';
+        titleWrap.appendChild(title);
+        const sub = document.createElement('span');
+        sub.textContent = 'This device, scored from your live protection signals';
+        sub.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        titleWrap.appendChild(sub);
+        head.appendChild(titleWrap);
+
+        const scoreEl = document.createElement('div');
+        scoreEl.textContent = score + '/100';
+        scoreEl.style.cssText = 'font-weight: 800; font-size: 22px; color: ' + tone + '; white-space:nowrap;';
+        scoreEl.title = 'Score = sum of: ' + factors.map(f => f.label + ' (' + f.pts + ')').join(', ') + '. Computed locally — no data leaves this device.';
+        head.appendChild(scoreEl);
+        card.appendChild(head);
+
+        // Factor rows — show the rubric so the number is never a black box.
+        const list = document.createElement('div');
+        list.style.cssText = 'display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:4px 24px; margin-top:10px;';
+        factors.forEach(f => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12.5px; color: var(--text-secondary); padding:3px 0;';
+            const mark = document.createElement('span');
+            mark.textContent = f.on ? '✓' : '○';
+            mark.style.cssText = 'font-weight:700; color:' + (f.on ? 'var(--success, #10b981)' : 'var(--text-muted, #7d8590)') + ';';
+            row.appendChild(mark);
+            const txt = document.createElement('span');
+            txt.textContent = f.label + (f.key === 'audit' && integrityOk === null ? ' (unverified)' : '')
+                            + (f.key === 'block' && f.on ? ' · ' + blocked + ' blocked' : '');
+            row.appendChild(txt);
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+
+        // Cloud teaser — only when Cloud Connect is OFF and not dismissed.
+        let dismissed = false;
+        try { dismissed = localStorage.getItem(this.GOVERNANCE_TEASER_KEY) === '1'; } catch (e) {}
+        if (!cloudOn && !dismissed) {
+            const teaser = document.createElement('div');
+            teaser.style.cssText = 'margin-top:14px; padding-top:12px; border-top:1px solid var(--border-default); display:flex; align-items:flex-start; gap:12px; justify-content:space-between;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'font-size:12.5px; color: var(--text-secondary); line-height:1.5; max-width:60ch;';
+            const lead = document.createElement('div');
+            lead.innerHTML = 'This is one device. <a href="https://app.securevector.io/governance" target="_blank" rel="noopener noreferrer" style="color:var(--accent-primary); font-weight:600;">See your fleet-wide posture →</a> and <a href="https://app.securevector.io/governance/eu-ai-act" target="_blank" rel="noopener noreferrer" style="color:var(--accent-primary); font-weight:600;">EU AI Act orientation</a> by signing in.';
+            left.appendChild(lead);
+            const micro = document.createElement('div');
+            micro.textContent = 'Orientation only — not legal advice.';
+            micro.style.cssText = 'margin-top:4px; font-size:11px; color: var(--text-muted, #7d8590);';
+            left.appendChild(micro);
+            teaser.appendChild(left);
+
+            const dismiss = document.createElement('button');
+            dismiss.type = 'button';
+            dismiss.textContent = '✕';
+            dismiss.title = 'Dismiss';
+            dismiss.style.cssText = 'background:none; border:none; color:var(--text-muted, #7d8590); cursor:pointer; font-size:14px; line-height:1; padding:2px 4px; flex:none;';
+            dismiss.addEventListener('click', () => {
+                try { localStorage.setItem(this.GOVERNANCE_TEASER_KEY, '1'); } catch (e) {}
+                teaser.remove();
+            });
+            teaser.appendChild(dismiss);
+            card.appendChild(teaser);
+        }
+
+        return card;
+    },
+
     async renderSecurityControls() {
         let settings = { block_threats: false, scan_llm_responses: true, guardian_ml_enabled: false };
         try {

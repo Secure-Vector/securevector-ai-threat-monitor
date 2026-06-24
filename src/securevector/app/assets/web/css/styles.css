@@ -3641,7 +3641,23 @@ html, body {
 .threat-detail-risk {
     margin-bottom: 20px;
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+.threat-detail-risk-main {
+    display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+/* "ML-adjusted NN%" chip — neutral dashed outline so it reads as context next
+   to the authoritative rule risk score, not as a competing verdict. */
+.risk-badge.ml-adjusted {
+    background: transparent;
+    border: 1px dashed var(--border-color, #334155);
+    color: var(--text-secondary, #94a3b8);
+    font-weight: 600;
 }
 
 .threat-detail-section {

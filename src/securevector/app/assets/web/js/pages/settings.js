@@ -93,6 +93,7 @@ const SettingsPage = {
         const cloudCard = Card.create({ gradient: true });
         const cloudBody = cloudCard.querySelector('.card-body');
         this.renderCloudSettings(cloudBody);
+        this.renderLocalOnlyAnalysisToggle(cloudBody);
         cloudSection.appendChild(cloudCard);
         container.appendChild(cloudSection);
 
@@ -280,6 +281,149 @@ const SettingsPage = {
         provenance.appendChild(provLabel);
         provenance.appendChild(provText);
         container.appendChild(provenance);
+    },
+
+    // Local-only analysis ("EU residency") toggle, rendered inside Cloud
+    // Connect. ON by default → prompts/outputs never reach the cloud /analyze
+    // engine; everything else about Cloud Connect (rule/policy sync, fleet
+    // metadata, governance) still works. Turning it OFF is the risky direction
+    // (raw text would leave the device), so that path requires confirmation.
+    // When the org pushes a data-residency lock (residency_locked), the switch
+    // is disabled ON and cannot be turned off.
+    renderLocalOnlyAnalysisToggle(container) {
+        const locked = this.generalSettings.residency_locked === true;
+        // Default ON: treat anything but an explicit false as on.
+        const isOn = this.generalSettings.local_only_analysis !== false || locked;
+
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));';
+
+        const info = document.createElement('div');
+
+        const labelRow = document.createElement('div');
+        labelRow.style.cssText = 'display: flex; align-items: center; gap: 10px; flex-wrap: wrap;';
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.style.fontWeight = '600';
+        label.textContent = 'Keep prompts on this device';
+        labelRow.appendChild(label);
+
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        const setBadge = (on) => {
+            badge.classList.toggle('badge-success', on);
+            badge.textContent = on ? 'Local only' : 'Cloud analysis on';
+        };
+        setBadge(isOn);
+        labelRow.appendChild(badge);
+
+        if (locked) {
+            const lockChip = document.createElement('span');
+            lockChip.className = 'guardian-model-ver';
+            lockChip.textContent = '🔒 Enforced by org policy';
+            lockChip.title = "Your organization's data-residency policy requires local-only analysis. This cannot be turned off here.";
+            labelRow.appendChild(lockChip);
+        }
+        info.appendChild(labelRow);
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px; max-width: 52ch;';
+        note.textContent = locked
+            ? "Your organization requires that prompt and output text never leave this device. Detection runs locally; only metadata is shared with the cloud for governance."
+            : 'On by default. Your prompt input and output are analyzed on-device and are never sent to SecureVector Cloud. Rule sync, policy sync, fleet metadata, and governance keep working. Turn off only if you want cloud ML analysis — that sends your prompt text to scan.securevector.io.';
+        info.appendChild(note);
+
+        row.appendChild(info);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = isOn;
+        checkbox.disabled = locked;
+
+        const commit = async (enabled) => {
+            try {
+                await API.updateSettings({ local_only_analysis: enabled });
+                this.generalSettings.local_only_analysis = enabled;
+                setBadge(enabled);
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Local-only analysis on — prompts stay on this device'
+                        : 'Cloud analysis enabled — prompt text will be sent to SecureVector Cloud');
+                }
+            } catch (error) {
+                checkbox.checked = !enabled;
+                setBadge(!enabled);
+                if (window.Toast) Toast.error('Failed to update analysis setting');
+            }
+        };
+
+        checkbox.addEventListener('change', (e) => {
+            if (locked) { e.target.checked = true; return; }
+            if (e.target.checked) {
+                // Re-enabling local-only is the safe direction — commit directly.
+                commit(true);
+            } else {
+                // Turning OFF means raw prompt/output text will leave the device.
+                // Hold the switch ON and let the confirmation modal be the commit
+                // point; any dismissal leaves local-only on (no revert bookkeeping).
+                checkbox.checked = true;
+                setBadge(true);
+                this.showCloudAnalyzeConfirm(() => {
+                    checkbox.checked = false;
+                    commit(false);
+                });
+            }
+        });
+        toggle.appendChild(checkbox);
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(slider);
+        row.appendChild(toggle);
+
+        container.appendChild(row);
+    },
+
+    // Confirmation shown when the user turns OFF local-only analysis — i.e.
+    // opts into sending raw prompt/output text to the cloud. onConfirm commits
+    // the change; dismissing leaves prompts local (the caller holds the switch
+    // on until confirmed).
+    showCloudAnalyzeConfirm(onConfirm) {
+        const content = document.createElement('div');
+        const lead = document.createElement('p');
+        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
+        lead.textContent = 'Turning this off lets SecureVector Cloud run ML-grade analysis on your traffic — but to do that, your prompt input and the LLM output are sent off this device:';
+        content.appendChild(lead);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
+        [
+            'Raw prompt text and LLM output are POSTed to scan.securevector.io for analysis.',
+            'Use only where sending that text to the cloud is acceptable for your data-residency obligations.',
+            'Rule sync, fleet metadata, and governance do NOT require this — they already work with prompts kept local.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        content.appendChild(list);
+
+        const foot = document.createElement('p');
+        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
+        foot.textContent = 'You can switch back to local-only anytime. Local rules and Guardian ML keep running either way.';
+        content.appendChild(foot);
+
+        Modal.show({
+            title: 'Send prompts to SecureVector Cloud?',
+            content,
+            size: 'small',
+            actions: [
+                { label: 'Keep prompts local', primary: false },
+                { label: 'Enable cloud analysis', primary: true, onClick: onConfirm },
+            ],
+        });
     },
 
     // Confirmation popup shown when Guardian ML is flipped on from Settings —

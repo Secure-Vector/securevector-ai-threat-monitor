@@ -186,6 +186,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         38: migrate_to_v38,
         39: migrate_to_v39,
         40: migrate_to_v40,
+        41: migrate_to_v41,
+        42: migrate_to_v42,
     }
 
     if version in migrations:
@@ -1651,6 +1653,66 @@ async def migrate_to_v40(db: DatabaseConnection) -> None:
     )
     await conn.commit()
     logger.info("Applied migration v40: external_forwarders.source provenance column")
+
+
+async def migrate_to_v41(db: DatabaseConnection) -> None:
+    """v40 -> v41: ``local_only_analysis`` — keep prompts on-device ("EU residency mode").
+
+    When ON, the input ``/analyze`` and output ``/analyze/output`` cloud calls
+    are force-skipped (equivalent to ``metadata.skip_cloud=true`` on every
+    request) so the raw prompt/output text is NEVER sent to the cloud scan
+    engine — detection runs fully on the local ruleset + Guardian. The rest of
+    Cloud Connect is unaffected: rule sync, policy sync, fleet metadata
+    forwarding, and governance all keep working (those paths are metadata-only
+    and carry no prompt text). Default ON — prompts stay on-device by default;
+    the operator (or a future cloud-pushed residency lock) must explicitly opt
+    into cloud analysis, which sends raw prompt/output text off the machine.
+
+    Same boolean-flag-on-app_settings shape as v38's ``guardian_ml_enabled``.
+    Idempotent via PRAGMA table_info.
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "local_only_analysis" not in existing:
+        await conn.execute(
+            "ALTER TABLE app_settings "
+            "ADD COLUMN local_only_analysis INTEGER NOT NULL DEFAULT 1"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (41, CURRENT_TIMESTAMP, "
+        "'local_only_analysis — keep prompts on-device; force-skip cloud /analyze (EU residency)')"
+    )
+    logger.info("Applied migration v41: local_only_analysis flag")
+
+
+async def migrate_to_v42(db: DatabaseConnection) -> None:
+    """v41 -> v42: ``residency_locked`` — data-residency hard-lock.
+
+    When ON, ``local_only_analysis`` is forced ON and the user cannot turn it
+    off — for EU/regulated orgs that must never send prompt/output text to the
+    cloud. The lock is resolved from an env/config override
+    (``SV_DATA_RESIDENCY=eu`` or ``SV_RESIDENCY_LOCKED=1``) today, and can be
+    written here by the cloud enrollment response in future (llm-security-engine
+    #189). Default OFF.
+
+    Idempotent via PRAGMA table_info.
+    """
+    conn = await db.connect()
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "residency_locked" not in existing:
+        await conn.execute(
+            "ALTER TABLE app_settings "
+            "ADD COLUMN residency_locked INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (42, CURRENT_TIMESTAMP, "
+        "'residency_locked — data-residency hard-lock forcing local-only analysis')"
+    )
+    logger.info("Applied migration v42: residency_locked flag")
 
 
 # Future migration functions would be defined here:

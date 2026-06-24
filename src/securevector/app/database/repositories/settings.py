@@ -10,6 +10,7 @@ The settings table is a singleton (always id=1), storing:
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -17,6 +18,20 @@ from typing import Optional
 from securevector.app.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
+
+
+def _residency_locked_from_env() -> bool:
+    """Data-residency hard-lock from env/config (the enforcement source today).
+
+    EU / regulated deployments set this so the device can never send prompt or
+    output text to the cloud. ``SV_RESIDENCY_LOCKED`` is an explicit boolean;
+    ``SV_DATA_RESIDENCY`` locks when set to an EU/EEA region. The cloud
+    enrollment response will be able to set the persisted ``residency_locked``
+    column too (llm-security-engine #189) — either source enables the lock.
+    """
+    if os.environ.get("SV_RESIDENCY_LOCKED", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return os.environ.get("SV_DATA_RESIDENCY", "").strip().lower() in ("eu", "eea")
 
 
 @dataclass
@@ -50,6 +65,15 @@ class AppSettings:
     tool_permissions_enabled: bool = True
     # SecureVector Guardian — local ML detection layer (runs in parallel with rules)
     guardian_ml_enabled: bool = True
+    # Local-only analysis ("EU residency mode"): when True, prompts/outputs are
+    # never sent to the cloud /analyze engine — detection stays on-device. The
+    # rest of Cloud Connect (rule/policy sync, fleet metadata, governance) is
+    # unaffected. Default ON — prompts stay local unless explicitly opted out.
+    local_only_analysis: bool = True
+    # Data-residency hard-lock: when True, local_only_analysis is forced ON and
+    # cannot be turned off (EU/regulated orgs). Resolved from env/config or the
+    # persisted column (cloud enrollment, future). Default OFF.
+    residency_locked: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -76,6 +100,8 @@ class AppSettings:
             "scan_llm_responses": self.scan_llm_responses,
             "block_threats": self.block_threats,
             "guardian_ml_enabled": self.guardian_ml_enabled,
+            "local_only_analysis": self.local_only_analysis,
+            "residency_locked": self.residency_locked,
         }
 
 
@@ -156,7 +182,23 @@ class SettingsRepository:
             block_threats=bool(row_dict.get("block_threats", False)),
             tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", True)),
             guardian_ml_enabled=bool(row_dict.get("guardian_ml_enabled", True)),
+            **self._resolve_residency(row_dict),
         )
+
+    @staticmethod
+    def _resolve_residency(row_dict: dict) -> dict:
+        """Resolve the residency lock + local-only flag together.
+
+        The lock is True if EITHER the persisted column says so OR an env/config
+        override is set. When locked, ``local_only_analysis`` is force-coerced
+        ON — that's the whole point of the lock, so prompt text can never leave
+        the device regardless of what the stored toggle says.
+        """
+        locked = bool(row_dict.get("residency_locked", False)) or _residency_locked_from_env()
+        local_only = bool(row_dict.get("local_only_analysis", True))
+        if locked:
+            local_only = True
+        return {"local_only_analysis": local_only, "residency_locked": locked}
 
     async def update(self, **kwargs) -> AppSettings:
         """
@@ -193,6 +235,8 @@ class SettingsRepository:
             "block_threats",
             "tool_permissions_enabled",
             "guardian_ml_enabled",
+            "local_only_analysis",
+            "residency_locked",
         }
 
         updates = {}

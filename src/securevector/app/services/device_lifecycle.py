@@ -67,6 +67,8 @@ def encode_lifecycle_event(
     device_id: Optional[str] = None,
     app_version: Optional[str] = None,
     org_id: Optional[str] = None,
+    residency_locked: Optional[bool] = None,
+    local_only_analysis: Optional[bool] = None,
 ) -> dict[str, Any]:
     """Encode a device-lifecycle event as an OCSF 5001 Device Inventory Info
     event (category 5 Discovery). Activity-specific detail lands in
@@ -94,6 +96,14 @@ def encode_lifecycle_event(
         unmapped["app_version"] = str(app_version)
     if org_id:
         unmapped["org_id"] = str(org_id)
+    # Data-residency posture (metadata-only booleans — never prompt text). Lets
+    # a fleet admin see which devices keep prompts on-device and which are
+    # hard-locked by residency policy. Consumed by the cloud admin view in
+    # llm-security-engine #189.
+    if residency_locked is not None:
+        unmapped["residency_locked"] = bool(residency_locked)
+    if local_only_analysis is not None:
+        unmapped["local_only_analysis"] = bool(local_only_analysis)
 
     event: dict[str, Any] = {
         "metadata": metadata,
@@ -214,8 +224,29 @@ async def _emit_to_destinations(
         # device shutdown/uninstall reporting.
         pass
 
+    # Read the device's residency posture (best-effort, metadata-only). The
+    # settings repo already resolves the env/cloud lock and coerces local-only,
+    # so this reflects the enforced state, not just the stored toggle.
+    residency_locked = None
+    local_only_analysis = None
+    try:
+        from securevector.app.database.connection import get_database
+        from securevector.app.database.repositories.settings import SettingsRepository
+
+        _s = await SettingsRepository(get_database()).get()
+        residency_locked = bool(_s.residency_locked)
+        local_only_analysis = bool(_s.local_only_analysis)
+    except Exception:
+        # Posture is optional metadata; never block lifecycle reporting on it.
+        pass
+
     event = encode_lifecycle_event(
-        activity, device_id=device_id, app_version=app_version, org_id=org_id
+        activity,
+        device_id=device_id,
+        app_version=app_version,
+        org_id=org_id,
+        residency_locked=residency_locked,
+        local_only_analysis=local_only_analysis,
     )
 
     acked = 0
