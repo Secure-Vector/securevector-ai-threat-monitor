@@ -16,10 +16,14 @@ const Tour = {
     _i: 0,
     _open: false,
 
-    // Plugin-capable harnesses vs proxy-only frameworks — kept here so the
-    // copy stays accurate as integrations graduate from proxy → native plugin.
+    // Three integration paths, kept here so the copy stays accurate as
+    // integrations graduate proxy → SDK → native plugin:
+    //   • plugin harnesses — native one-click plugin
+    //   • SDK frameworks   — two-line pip SDK (LangChain/LangGraph/CrewAI)
+    //   • proxy-only        — everything else, via env-var routing
     PLUGIN_HARNESSES: 'Claude Code, Codex, and OpenClaw',
-    PROXY_ONLY: 'LangChain, LangGraph, CrewAI, n8n, and Ollama',
+    SDK_FRAMEWORKS: 'LangChain, LangGraph, and CrewAI',
+    PROXY_ONLY: 'n8n, Ollama, and any OpenAI-compatible app',
 
     steps() {
         return [
@@ -33,10 +37,13 @@ const Tour = {
             },
             {
                 nav: 'proxy-langgraph', sub: true, go: 'proxy-langgraph', expand: 'integrations',
-                badge: 'Set up', title: 'No plugin? Use the proxy',
-                body: `If there's <b>no SecureVector plugin</b> for your agent yet — ${this.PROXY_ONLY} — ` +
-                    `route it through the <b>proxy</b> instead. Open that agent's page here and apply the ` +
-                    `<b>environment-variable changes</b> shown for it; that's all it takes to start monitoring.`,
+                badge: 'Set up', title: 'Using a framework? Add the SDK',
+                body: `Building on <b>${this.SDK_FRAMEWORKS}</b>? Install the matching <b>SecureVector SDK</b> and ` +
+                    `wrap your agent in <b>two lines</b> — no proxy, no env vars. It secures every <b>tool call</b> ` +
+                    `(permissions + secret &amp; threat detection) and streams each onto the Agent Map tagged by ` +
+                    `framework. Open a framework's page here for the exact <b>pip install</b> + snippet. The ` +
+                    `<b>proxy</b> stays as an optional fallback for anything without a plugin or SDK ` +
+                    `(${this.PROXY_ONLY}) — just apply the env-var changes shown on its page.`,
             },
             {
                 nav: 'tool-permissions', go: 'tool-permissions',
