@@ -56,7 +56,7 @@ const Sidebar = {
         // pushed to me, by whom) vs the operational surface.
         // Governance leads the Cloud section — always-visible local posture
         // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
-        { id: 'governance', label: 'Agent Governance', icon: 'shield-check', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
         // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
@@ -1499,6 +1499,13 @@ const Sidebar = {
             lock: [
                 { tag: 'rect', attrs: { x: '3', y: '11', width: '18', height: '11', rx: '2', ry: '2' } },
                 { tag: 'path', attrs: { d: 'M7 11V7a5 5 0 0 1 10 0v4' } },
+            ],
+            // Speedometer dial (needle + arc) — reads as a posture "level",
+            // matching the Agent Governance band (Minimal / Partial / Strong)
+            // and keeping it distinct from the MCP Policies shield-check.
+            gauge: [
+                { tag: 'path', attrs: { d: 'm12 14 4-4' } },
+                { tag: 'path', attrs: { d: 'M3.34 19a10 10 0 1 1 17.32 0' } },
             ],
             // Shield with a checkmark inside — distinguishes MCP Policies
             // (cloud-pushed verified rules) from the bare 'shield' (Threat
