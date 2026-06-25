@@ -137,20 +137,46 @@ const CloudActivityPage = {
 
         const ul = document.createElement('ul');
         ul.className = 'ca-empty-points';
+        // inline-block so the list centers as a unit inside the text-align:center
+        // empty-state, while the bullet text itself stays left-aligned (most legible).
         ul.style.cssText =
-            'margin: 8px 0 4px; padding-left: 18px; text-align: left; ' +
+            'display: inline-block; margin: 8px auto 4px; padding-left: 18px; ' +
+            'text-align: left; max-width: 460px; ' +
             'color: var(--text-secondary); line-height: 1.55; font-size: 13px;';
+        // Each entry is plain text, except the EU-residency line which carries a
+        // {pre, hi, post} shape so the load-bearing compliance guarantee
+        // ('hard-locked under EU residency') renders as a highlighted pill —
+        // it's the phrase a privacy/compliance buyer scans for.
         [
             'Until then it runs fully local — nothing synced down, nothing forwarded up.',
-            'Your prompt and output text never leaves this device, connected or not (hard-locked under EU residency).',
+            {
+                pre: 'Your prompt and output text never leaves this device, connected or not (',
+                hi: 'hard-locked under EU residency',
+                post: ').',
+            },
             'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
             'After that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture.',
             'Pause forwarding anytime with the toggle on this page.',
             'Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.',
         ].forEach((t) => {
             const li = document.createElement('li');
-            li.textContent = t;
             li.style.marginBottom = '5px';
+            if (typeof t === 'string') {
+                li.textContent = t;
+            } else {
+                li.appendChild(document.createTextNode(t.pre));
+                const lock = document.createElement('span');
+                lock.className = 'ca-eu-lock';
+                lock.textContent = '\uD83D\uDD12 ' + t.hi; // 🔒 prefix
+                lock.style.cssText =
+                    'display: inline-block; padding: 0 6px; border-radius: 5px; ' +
+                    'font-weight: 600; font-size: 12px; white-space: nowrap; ' +
+                    'color: var(--accent-primary); ' +
+                    'background: rgba(8,145,178,0.12); ' +
+                    'border: 1px solid rgba(8,145,178,0.30);';
+                li.appendChild(lock);
+                li.appendChild(document.createTextNode(t.post));
+            }
             ul.appendChild(li);
         });
         wrap.appendChild(ul);
