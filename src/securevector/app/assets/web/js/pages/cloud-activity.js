@@ -229,17 +229,28 @@ const CloudActivityPage = {
         wrap.appendChild(ul);
 
         // Primary CTA — the same signup surface linked from the header, Getting
-        // Started, Rules and Settings. A quiet inline link, not a button/banner.
+        // Started, Rules and Settings. Promoted from a quiet inline link to a
+        // proper primary button: this is THE conversion action on a gated page,
+        // so it should read as the obvious next step rather than body copy.
         const cta = document.createElement('p');
-        cta.style.cssText = 'margin-top: 4px;';
+        cta.style.cssText = 'margin-top: 14px;';
         const link = document.createElement('a');
+        link.className = 'btn btn-primary';
         link.href = 'https://app.securevector.io';
         link.target = '_blank';
         link.rel = 'noopener';
-        link.textContent = 'Create a free cloud account → app.securevector.io';
-        link.style.cssText = 'color: var(--accent-primary); text-decoration: underline;';
+        link.textContent = 'Create a free cloud account →';
+        link.style.cssText = 'display: inline-flex; text-decoration: none;';
         cta.appendChild(link);
         wrap.appendChild(cta);
+
+        // Keep the bare domain visible as a quiet caption beneath the button so
+        // power users still see exactly where it goes.
+        const ctaHint = document.createElement('div');
+        ctaHint.textContent = 'app.securevector.io';
+        ctaHint.style.cssText =
+            'margin-top: 6px; font-size: 11.5px; color: var(--text-muted, var(--text-secondary));';
+        wrap.appendChild(ctaHint);
 
         // Demoted hint for users who already hold an org-minted enrollment token.
         const cmd = document.createElement('div');
