@@ -125,13 +125,35 @@ const CloudActivityPage = {
         const h = document.createElement('h3');
         h.textContent = 'Connect a cloud account';
         wrap.appendChild(h);
-        const p = document.createElement('p');
         // Reframed away from org/enrollment jargon: for an individual this is
         // simply an optional cloud-account sign-up, not an admin action. Stays
-        // honest about local-first + metadata-only + reversible.
-        p.textContent =
-            'Cloud Activity lights up once this device connects to a SecureVector cloud account (optional, free tier). Until then it runs fully local — nothing synced down, nothing forwarded up. Your prompt and output text never leaves this device, connected or not (hard-locked under EU residency). Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org; after that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture. Pause forwarding anytime with the toggle on this page. Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.';
-        wrap.appendChild(p);
+        // honest about local-first + metadata-only + reversible. Bulleted so the
+        // load-bearing claims (content never leaves, metadata-only, reversible)
+        // are scannable instead of buried in a paragraph.
+        const lead = document.createElement('p');
+        lead.textContent =
+            'Cloud Activity lights up once this device connects to a SecureVector cloud account (optional, free tier).';
+        wrap.appendChild(lead);
+
+        const ul = document.createElement('ul');
+        ul.className = 'ca-empty-points';
+        ul.style.cssText =
+            'margin: 8px 0 4px; padding-left: 18px; text-align: left; ' +
+            'color: var(--text-secondary); line-height: 1.55; font-size: 13px;';
+        [
+            'Until then it runs fully local — nothing synced down, nothing forwarded up.',
+            'Your prompt and output text never leaves this device, connected or not (hard-locked under EU residency).',
+            'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
+            'After that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture.',
+            'Pause forwarding anytime with the toggle on this page.',
+            'Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.',
+        ].forEach((t) => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            li.style.marginBottom = '5px';
+            ul.appendChild(li);
+        });
+        wrap.appendChild(ul);
 
         // Primary CTA — the same signup surface linked from the header, Getting
         // Started, Rules and Settings. A quiet inline link, not a button/banner.
