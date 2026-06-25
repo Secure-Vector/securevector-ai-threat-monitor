@@ -373,7 +373,7 @@ const GovernancePage = {
             cta.appendChild(cLead);
             const cMicro = document.createElement('div');
             cMicro.textContent = (settings.local_only_analysis !== false && settings.residency_locked)
-                ? 'EU data-residency is enforced: prompt analysis stays on-device and cannot be sent to the cloud.'
+                ? 'On-device analysis is enforced by your org’s residency policy — prompt text cannot be sent to the cloud.'
                 : 'Connecting syncs rules, policies, and fleet metadata (and enables org MCP policy). Your prompts stay on-device by default.';
             cMicro.style.cssText = 'margin-top: 4px; font-size: 11.5px; color: var(--text-muted, #7d8590);';
             cta.appendChild(cMicro);
