@@ -30,7 +30,7 @@ const GovernancePage = {
         {
             key: 'block', label: 'Threat blocking (Block Mode)', required: false, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 15 · OWASP LLM01 · NIST MANAGE',
-            extra: 'Tool calls are blocked natively by the PreToolUse hook (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw), the SDK middleware (LangChain · LangGraph · CrewAI), and MCP (check_tool_permission) — no Block Mode needed. Block Mode governs whether detected prompt-injection / data-leak threats are blocked (vs only logged) on the analyze path; OpenClaw is the only integration that also runs a block-mode proxy.',
+            extra: 'Tool calls are blocked natively by hooks / SDKs / MCP — no Block Mode needed. Block Mode only matters for the OpenClaw proxy, the one integration that runs one.',
             evaluate: (s, c) => {
                 // "Action needed" applies ONLY to OpenClaw: it's the one integration
                 // whose threats are merely logged unless its block-mode proxy (or
@@ -111,7 +111,7 @@ const GovernancePage = {
         // Native gets its OWN teal identity (not the same green as Enforced) so
         // "blocked by your runtime, not by SecureVector's engine" can't be misread.
         if (r.state === 'on')      return { glyph: '✓', label: 'Enforced', color: 'var(--success, #10b981)', bg: 'rgba(16,185,129,0.14)' };
-        if (r.state === 'native')  return { glyph: '✓', label: 'Native',   color: 'var(--accent-primary, #5eadb8)', bg: 'rgba(94,173,184,0.16)' };
+        if (r.state === 'native')  return { glyph: '◆', label: 'Native',   color: 'var(--accent-primary, #5eadb8)', bg: 'rgba(94,173,184,0.16)' };
         if (r.state === 'partial') return { glyph: '~', label: 'Partial',  color: 'var(--warning, #f59e0b)', bg: 'rgba(245,158,11,0.14)' };
         return r.gap
             ? { glyph: '✗', label: 'Action needed', color: 'var(--danger, #ef4444)', bg: 'rgba(239,68,68,0.14)' }
@@ -132,7 +132,8 @@ const GovernancePage = {
             '.gov-meter{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--border-default);margin-top:14px;}',
             '.gov-meter>span{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1);}',
             // control row
-            '.gov-ctrl{position:relative;display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;background:transparent;border:none;border-top:1px solid var(--border-default);padding:15px 12px 15px 18px;cursor:pointer;color:inherit;transition:background .15s ease;animation:gov-in .4s ease both;}',
+            '.gov-ctrl{position:relative;display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;background:transparent;border:none;border-top:1px solid var(--border-default);padding:15px 12px 15px 18px;cursor:pointer;color:inherit;transition:background .15s ease;}',
+            '.gov-ctrl.gov-animate{animation:gov-in .4s ease both;}',
             '.gov-ctrl:first-of-type{border-top:none;}',
             '.gov-ctrl::before{content:"";position:absolute;left:2px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--rail);opacity:.55;transition:opacity .15s ease;}',
             '.gov-ctrl:hover{background:var(--bg-hover,rgba(255,255,255,0.035));}',
@@ -193,6 +194,10 @@ const GovernancePage = {
     async render(container) {
         this._injectStyle();
         container.textContent = '';
+        // First view this session → play the entrance animations once; on
+        // subsequent visits the page renders instantly (no replayed motion).
+        let firstView = true;
+        try { firstView = sessionStorage.getItem('sv-governance-flashed') !== '1'; } catch (e) {}
 
         let settings = {};   try { settings = (await API.getSettings()) || {}; } catch (e) {}
         let integrityOk = null, auditCount = 0;
@@ -263,7 +268,7 @@ const GovernancePage = {
         const counts = { on: 0, native: 0, partial: 0, gap: 0, off: 0 };
         rows.forEach(r => { if (r.state === 'on') counts.on++; else if (r.state === 'native') counts.native++; else if (r.state === 'partial') counts.partial++; else if (r.gap) counts.gap++; else counts.off++; });
 
-        const bandCard = card(); bandCard.className = 'gov-card sv-gov-flash';
+        const bandCard = card(); bandCard.className = 'gov-card' + (firstView ? ' sv-gov-flash' : '');
         const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;';
         const hLeft = document.createElement('div');
         const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-weight: 700; font-size: 16px; color: var(--text-primary);'; hLeft.appendChild(hTitle);
@@ -299,9 +304,9 @@ const GovernancePage = {
 
         rows.forEach((r, idx) => {
             const m = this._mark(r);
-            const row = document.createElement('button'); row.type = 'button'; row.className = 'gov-ctrl';
+            const row = document.createElement('button'); row.type = 'button'; row.className = 'gov-ctrl' + (firstView ? ' gov-animate' : '');
             row.style.setProperty('--rail', m.color);
-            row.style.animationDelay = (idx * 45) + 'ms';
+            if (firstView) row.style.animationDelay = (idx * 45) + 'ms';
             row.addEventListener('click', () => this._go(r.nav));
 
             const badge = document.createElement('span'); badge.className = 'gov-badge'; badge.textContent = m.glyph; badge.style.color = m.color; badge.style.background = m.bg; row.appendChild(badge);
@@ -340,7 +345,7 @@ const GovernancePage = {
         const meta = card();
         const mTitle = document.createElement('div'); mTitle.textContent = 'How this is measured & which documents drive the baseline'; mTitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 6px;'; meta.appendChild(mTitle);
         const mBody = document.createElement('p'); mBody.style.cssText = 'margin: 0 0 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;';
-        mBody.textContent = 'Each control is assessed from a live signal and against what is currently active (e.g. threat blocking is "native" when your hook/SDK/MCP integration blocks tool calls itself). The band: no gaps = Strong; any off/partial/gap = Partial; most required off = Minimal.';
+        mBody.textContent = 'Each control is assessed from a live signal and against what is currently active — e.g. threat blocking is “native” when your hook / SDK / MCP integration blocks tool calls itself.';
         meta.appendChild(mBody);
         const fwBody = document.createElement('p'); fwBody.style.cssText = 'margin: 0 0 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
         fwBody.textContent = this.FRAMEWORKS;
@@ -377,10 +382,7 @@ const GovernancePage = {
 
         container.appendChild(wrap);
 
-        try {
-            if (sessionStorage.getItem('sv-governance-flashed') === '1') bandCard.classList.remove('sv-gov-flash');
-            else sessionStorage.setItem('sv-governance-flashed', '1');
-        } catch (e) {}
+        if (firstView) { try { sessionStorage.setItem('sv-governance-flashed', '1'); } catch (e) {} }
     },
 };
 
