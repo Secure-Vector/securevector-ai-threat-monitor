@@ -50,8 +50,8 @@ const GovernancePage = {
             key: 'scan', label: 'Output / data-leak scanning', required: true, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 15 · OWASP LLM05/LLM02 · SOC 2 Confidentiality',
             evaluate: (s) => s.scan_llm_responses
-                ? { state: 'on', note: 'LLM output is scanned for secrets/PII before storage.' }
-                : { state: 'off', gap: true, note: 'Output scanning is off — responses are not checked for data leakage.' },
+                ? { state: 'on', note: 'Tool & LLM output from your connected integrations is scanned by SecureVector for secrets/PII and redacted before storage.' }
+                : { state: 'off', gap: true, note: 'Output scanning is off — tool/LLM responses are not checked for data leakage.' },
         },
         {
             key: 'guardian', label: 'Guardian ML detection', required: false, nav: 'guardian-ml',
