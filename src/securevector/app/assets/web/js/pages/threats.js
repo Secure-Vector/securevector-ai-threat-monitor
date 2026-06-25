@@ -726,22 +726,83 @@ const ThreatsPage = {
         return pagination;
     },
 
+    // Extract the Guardian ML signal for a threat record. Prefers the
+    // analyze-pipeline metadata (ml_agreement / ml_malicious_score); falls
+    // back to the Guardian entry inside matched_rules for older records that
+    // only carried the per-rule score. Returns {agree, score} or null when
+    // no ML signal is available (rule-only / pre-Guardian rows).
+    _mlSignal(threat) {
+        const md = (threat && threat.metadata) || {};
+        let agree = md.ml_agreement || null;
+        let score = (typeof md.ml_malicious_score === 'number') ? md.ml_malicious_score : null;
+        if (score === null && Array.isArray(threat.matched_rules)) {
+            const g = threat.matched_rules.find(r => r.source === 'model' || r.rule_id === 'sv_guardian_model');
+            if (g && typeof g.confidence === 'number') score = g.confidence;
+        }
+        // Derive the agreement tier from the score if metadata didn't carry it.
+        // Bars mirror the engine: <0.20 disagrees, >=0.60 corroborates, else uncertain.
+        if (!agree && score !== null) {
+            agree = (score < 0.20) ? 'ml_disagrees' : (score >= 0.60 ? 'corroborated' : 'ml_uncertain');
+        }
+        return (agree || score !== null) ? { agree, score } : null;
+    },
+
     showThreatDetails(threat) {
         const content = document.createElement('div');
         content.className = 'threat-details';
 
-        // Risk badge at top
+        // Risk header: rule-driven risk score on top, with the Guardian ML
+        // signal shown alongside (an "ML-adjusted" chip) and below (the
+        // corroborate / likely-FP badge). The ML view never overrides the
+        // stored verdict — it's surfaced so the analyst sees both numbers.
+        const ml = this._mlSignal(threat);
         const riskHeader = document.createElement('div');
         riskHeader.className = 'threat-detail-risk';
+
+        const riskMain = document.createElement('div');
+        riskMain.className = 'threat-detail-risk-main';
+
         const riskBadge = document.createElement('span');
         riskBadge.className = 'risk-badge risk-' + this.getRiskLevel(threat.risk_score);
-        riskBadge.textContent = (threat.risk_score || 0) + '% Risk';
-        riskHeader.appendChild(riskBadge);
+        // When an ML number sits next to it, label the rule score explicitly so
+        // "Rule risk 90%" vs "ML-adjusted 12%" reads as a contrast, not a glitch.
+        riskBadge.textContent = (ml ? 'Rule risk ' : '') + (threat.risk_score || 0) + '%' + (ml ? '' : ' Risk');
+        riskMain.appendChild(riskBadge);
+
+        if (ml && typeof ml.score === 'number') {
+            const mlPct = Math.round(ml.score * 100);
+            const mlAdj = document.createElement('span');
+            mlAdj.className = 'risk-badge ml-adjusted';
+            mlAdj.textContent = 'ML-adjusted ' + mlPct + '%';
+            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context — it does not change the stored verdict.';
+            riskMain.appendChild(mlAdj);
+        }
+
         const typeBadge = document.createElement('span');
         typeBadge.className = 'type-badge';
         typeBadge.textContent = threat.threat_type || 'No Threat Detected';
-        typeBadge.style.marginLeft = '8px';
-        riskHeader.appendChild(typeBadge);
+        riskMain.appendChild(typeBadge);
+
+        riskHeader.appendChild(riskMain);
+
+        // ML corroborate / likely-false-positive badge, promoted to the top
+        // (below the risk row) so the triage signal is the first thing seen.
+        if (ml && ml.agree) {
+            const TIER = {
+                corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
+                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain — worth a review' },
+                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive — ML disagrees' },
+            };
+            const t = TIER[ml.agree];
+            if (t) {
+                const assess = document.createElement('div');
+                assess.className = 'ml-assessment ' + t.cls + ' threat-detail-ml-badge';
+                const scoreTxt = (typeof ml.score === 'number') ? ' · model score ' + ml.score.toFixed(2) : '';
+                assess.textContent = t.icon + ' ' + t.text + scoreTxt;
+                riskHeader.appendChild(assess);
+            }
+        }
+
         content.appendChild(riskHeader);
 
         // LLM Review Analytics (if LLM review was performed) - at top for visibility
@@ -980,7 +1041,9 @@ const ThreatsPage = {
         detailsSection.appendChild(detailsLabel);
 
         const fields = [
-            { label: 'Confidence', value: (threat.confidence || 0) + '%' },
+            // confidence is a 0..1 float; render it as a percentage. Guard the
+            // rare legacy row that stored an already-0..100 value (> 1).
+            { label: 'Confidence', value: Math.round((threat.confidence > 1 ? threat.confidence : (threat.confidence || 0) * 100)) + '%' },
             { label: 'First Seen', value: this.formatDate(threat.first_seen || threat.created_at) },
             { label: 'Processing Time', value: (threat.processing_time_ms || 0) + 'ms' },
             { label: 'Source', value: threat.source_identifier || 'Local' },
@@ -1075,25 +1138,9 @@ const ThreatsPage = {
 
             rulesSection.appendChild(rulesList);
 
-            // Mechanism 1 — ML/rule agreement tier (from analyze metadata).
-            // Tells the analyst whether Guardian corroborated this rule-driven
-            // hit or rated it benign (a likely false positive). Triage signal
-            // only — it never changed the verdict.
-            const mlAgree = threat.metadata && threat.metadata.ml_agreement;
-            const mlScore = threat.metadata && threat.metadata.ml_malicious_score;
-            const TIER = {
-                corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
-                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain — worth a review' },
-                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive — ML disagrees' },
-            };
-            if (mlAgree && TIER[mlAgree]) {
-                const t = TIER[mlAgree];
-                const assess = document.createElement('div');
-                assess.className = 'ml-assessment ' + t.cls;
-                const scoreTxt = (typeof mlScore === 'number') ? ' · model score ' + mlScore.toFixed(2) : '';
-                assess.textContent = t.icon + ' ' + t.text + scoreTxt;
-                rulesSection.appendChild(assess);
-            }
+            // (The ML corroborate / likely-false-positive badge that used to
+            // live here has been promoted to the risk header at the top of the
+            // drawer — see showThreatDetails() above — so it isn't duplicated.)
 
             content.appendChild(rulesSection);
         }

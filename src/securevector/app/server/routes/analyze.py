@@ -223,6 +223,13 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # "skipped because cloud is off".
 
         skip_cloud = (request.metadata or {}).get("skip_cloud", False)
+        # Local-only analysis ("EU residency mode"): force-skip the cloud
+        # /analyze + /analyze/output calls so the raw prompt/output text never
+        # leaves the machine. Cloud Connect can stay on for rule/policy sync,
+        # fleet metadata forwarding, and governance — those carry no prompt
+        # text — but detection here runs purely on the local ruleset + Guardian.
+        if getattr(settings, "local_only_analysis", True):
+            skip_cloud = True
         # Cloud analysis is ONLY invoked when Cloud Connect is turned on
         # (``settings.cloud_mode_enabled``) and the caller hasn't set
         # ``metadata.skip_cloud=true``. With Cloud Connect off, we never
