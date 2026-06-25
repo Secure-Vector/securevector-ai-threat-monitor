@@ -172,9 +172,34 @@ class ForwarderUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+async def _guard_full_redaction_for_eu(db, redaction_level) -> None:
+    """EU data-residency hard-lock: the FULL (forensic) tier carries raw prompt
+    text + LLM output, so it must not be selectable when residency is locked.
+    No-op for any other tier, or when residency is not locked."""
+    if redaction_level != "full":
+        return
+    try:
+        from securevector.app.database.repositories.settings import SettingsRepository
+
+        settings = await SettingsRepository(db).get()
+        locked = bool(getattr(settings, "residency_locked", False))
+    except Exception:
+        locked = False
+    if locked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The FULL (forensic) tier forwards raw prompt and output text and "
+                "cannot be enabled under your organization's EU data-residency "
+                "policy. Use Standard or Minimal."
+            ),
+        )
+
+
 @router.post("/siem-forwarders")
 async def create_forwarder(req: ForwarderCreate) -> dict[str, Any]:
     db = get_database()
+    await _guard_full_redaction_for_eu(db, req.redaction_level)
     repo = ExternalForwardersRepository(db)
     try:
         row = await repo.create(
@@ -249,6 +274,7 @@ async def get_forwarder(forwarder_id: int) -> dict[str, Any]:
 @router.put("/siem-forwarders/{forwarder_id}")
 async def update_forwarder(forwarder_id: int, req: ForwarderUpdate) -> dict[str, Any]:
     db = get_database()
+    await _guard_full_redaction_for_eu(db, req.redaction_level)
     repo = ExternalForwardersRepository(db)
     try:
         row = await repo.update(

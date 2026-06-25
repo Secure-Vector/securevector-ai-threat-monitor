@@ -413,7 +413,7 @@ const SiemExportPage = {
 
         const intro = document.createElement('div');
         intro.style.cssText = 'font-size:12.5px;color:var(--text-secondary);line-height:1.55;margin:10px 0 12px;';
-        intro.innerHTML = 'The forwarder strips fields at <em>enqueue time</em> — a <code>standard</code> destination never has prompt text in its outbox rows even momentarily. Full tier requires explicit confirmation.';
+        intro.innerHTML = 'The forwarder strips fields at <em>enqueue time</em> — a <code>standard</code> destination never has prompt text in its outbox rows even momentarily. Full tier requires explicit confirmation, and is <strong>blocked under EU data-residency policy</strong> (it carries raw prompt/output text).';
         body.appendChild(intro);
 
         const grid = document.createElement('div');
@@ -475,7 +475,7 @@ const SiemExportPage = {
 
         grid.appendChild(card({
             name: 'Full · Forensic',
-            subtitle: 'Opt-in with confirmation',
+            subtitle: 'Opt-in with confirmation · not available under EU residency',
             accent: '#f59e0b',
             ships: [
                 'Everything from Standard, plus:',
