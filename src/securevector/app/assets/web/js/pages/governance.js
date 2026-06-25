@@ -49,9 +49,19 @@ const GovernancePage = {
         {
             key: 'scan', label: 'Output / data-leak scanning', required: true, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 15 · OWASP LLM05/LLM02 · SOC 2 Confidentiality',
-            evaluate: (s) => s.scan_llm_responses
-                ? { state: 'on', note: 'Tool & LLM output from your connected integrations is scanned by SecureVector for secrets/PII and redacted before storage.' }
-                : { state: 'off', gap: true, note: 'Output scanning is off — tool/LLM responses are not checked for data leakage.' },
+            extra: 'Secret/PII redaction runs on every scan for connected integrations (always on, server-side). The Output Scan toggle only adds scanning of the LLM’s own response, which only the OpenClaw proxy can see.',
+            evaluate: (s, c) => {
+                // scan_llm_responses ONLY gates LLM-response (is_llm_response) scans
+                // on the proxy path. Hook/SDK tool I/O is redacted on every /analyze
+                // regardless of the toggle, so a gap exists only for OpenClaw-off.
+                if (c.openclawActive && !s.scan_llm_responses) {
+                    return { state: 'off', gap: true, note: 'OpenClaw is active but Output Scan is off — LLM responses on the proxy are not scanned for data leakage (tool I/O is still redacted).' };
+                }
+                if (c.toolCallsSeen) {
+                    return { state: 'native', note: 'Tool input & output from your connected integrations is redacted for secrets/PII on every scan — always on, server-side.' + (c.openclawActive ? ' LLM responses are also scanned via the OpenClaw proxy.' : ' Scanning the LLM’s own response additionally needs the OpenClaw proxy.') };
+                }
+                return { state: 'off', note: 'No agent connected — nothing to scan yet.' };
+            },
         },
         {
             key: 'guardian', label: 'Guardian ML detection', required: false, nav: 'guardian-ml',
