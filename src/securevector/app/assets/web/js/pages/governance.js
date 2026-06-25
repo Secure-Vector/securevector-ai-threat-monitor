@@ -28,7 +28,7 @@ const GovernancePage = {
     // evaluate(s, ctx) -> { state: 'on'|'native'|'partial'|'off', note }
     CONTROLS: [
         {
-            key: 'block', label: 'Threat blocking (Block Mode)', required: false, nav: 'toggle:block-mode-toggle-btn',
+            key: 'block', label: 'Threat blocking (Block Mode)', required: false, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 15 · OWASP LLM01 · NIST MANAGE',
             extra: 'Tool calls are blocked natively by the PreToolUse hook (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw), the SDK middleware (LangChain · LangGraph · CrewAI), and MCP (check_tool_permission) — no Block Mode needed. Block Mode governs whether detected prompt-injection / data-leak threats are blocked (vs only logged) on the analyze path; OpenClaw is the only integration that also runs a block-mode proxy.',
             evaluate: (s, c) => {
@@ -40,7 +40,7 @@ const GovernancePage = {
             },
         },
         {
-            key: 'scan', label: 'Output / data-leak scanning', required: true, nav: 'toggle:output-scan-toggle-btn',
+            key: 'scan', label: 'Output / data-leak scanning', required: true, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 10/15 · OWASP LLM05/LLM02 · SOC 2 Confidentiality',
             evaluate: (s) => s.scan_llm_responses
                 ? { state: 'on', note: 'LLM output is scanned for secrets/PII before storage.' }
@@ -119,7 +119,31 @@ const GovernancePage = {
         document.head.appendChild(st);
     },
 
+    _scrollTo(selector) {
+        // Poll for the element (the target page renders async), then scroll +
+        // briefly highlight it. Reuses the page's flash keyframes.
+        let tries = 0;
+        const tick = () => {
+            const el = document.querySelector(selector);
+            if (el) {
+                try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+                el.classList.add('sv-gov-flash');
+                setTimeout(() => el.classList.remove('sv-gov-flash'), 2200);
+                return;
+            }
+            if (tries++ < 16) setTimeout(tick, 150);
+        };
+        tick();
+    },
+
     _go(nav) {
+        // 'dashboard#protection' → open the dashboard Protection card (the home
+        // of the Block Mode / Output Scan switches) and highlight it.
+        if (nav === 'dashboard#protection') {
+            try { if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('dashboard'); else if (window.App && App.loadPage) App.loadPage('dashboard'); } catch (e) {}
+            this._scrollTo('.security-controls-section');
+            return;
+        }
         // 'toggle:<id>' actuates a header toggle (its own confirm runs); else navigate.
         if (typeof nav === 'string' && nav.indexOf('toggle:') === 0) {
             const el = document.getElementById(nav.slice(7));
