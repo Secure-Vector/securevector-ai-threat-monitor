@@ -327,11 +327,26 @@ const SettingsPage = {
         }
         info.appendChild(labelRow);
 
-        const note = document.createElement('div');
-        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px; max-width: 52ch;';
-        note.textContent = locked
-            ? "Your organization requires that prompt and output text never leave this device. Detection runs locally; only metadata is shared with the cloud for governance."
-            : 'On by default. Your prompt input and output are analyzed on-device and are never sent to SecureVector Cloud. Rule sync, policy sync, fleet metadata, and governance keep working. Turn off only if you want cloud ML analysis — that sends your prompt text to scan.securevector.io.';
+        const note = document.createElement('ul');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: 6px 0 0; padding-left: 18px; line-height: 1.6; max-width: 60ch;';
+        const bullets = locked
+            ? [
+                "Enforced by your organization's EU data-residency policy.",
+                'Prompt input and output are analyzed on-device and never leave this machine.',
+                'Local-only analysis is hard-locked on and cannot be disabled here — prompt text can never be sent to the cloud.',
+                'Rule sync, policy sync, fleet metadata, and governance keep working (metadata only).',
+              ]
+            : [
+                'On by default — prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
+                'Rule sync, policy sync, fleet metadata, and governance keep working.',
+                'Turn off only if you want cloud ML analysis — that sends your prompt text to scan.securevector.io.',
+                'EU data-residency: when your organization enforces EU residency, this is hard-locked on — local-only analysis cannot be disabled and prompt text can never be sent to the cloud.',
+              ];
+        bullets.forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            note.appendChild(li);
+        });
         info.appendChild(note);
 
         row.appendChild(info);

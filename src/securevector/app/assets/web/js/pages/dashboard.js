@@ -691,12 +691,8 @@ const DashboardPage = {
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
 
-        // Governance posture (#187) — local score + quiet cloud teaser. Never
-        // blocks the page: if anything in it throws, the dashboard still renders.
-        try {
-            const governance = await this.renderGovernancePosture();
-            if (governance) container.appendChild(governance);
-        } catch (e) { /* non-fatal */ }
+        // Governance posture moved to its own Cloud-section page
+        // (GovernancePage) — kept off the dashboard to reduce clutter.
 
         // Recent activity
         const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });

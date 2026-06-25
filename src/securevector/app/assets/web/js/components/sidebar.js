@@ -54,6 +54,9 @@ const Sidebar = {
         // MCP Policies — read-only viewer of cloud-synced policy bundles.
         // Kept distinct from Tool Permissions: the trust artifact (what's
         // pushed to me, by whom) vs the operational surface.
+        // Governance leads the Cloud section — always-visible local posture
+        // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
+        { id: 'governance', label: 'Governance', icon: 'shield-check', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
         // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
@@ -271,13 +274,13 @@ const Sidebar = {
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
-            'mcp-policies':     'Cloud',
+            'governance':       'Cloud',
             'siem-export':      'Connect',
         };
 
         // Items that get a divider before them — keep the visual break
         // at the Cloud and Connect boundaries too.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'mcp-policies', 'siem-export']);
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'governance', 'siem-export']);
 
         this.navItems.forEach(item => {
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
@@ -407,7 +410,7 @@ const Sidebar = {
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
             // Guardian ML deliberately omitted: it gets the animated "sentinel"
             // robot below instead of a NEW badge.
-            const persistNewItems = ['rules'];
+            const persistNewItems = ['rules', 'governance'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
             const sessionNewItems = ['siem-export', 'integrations'];
