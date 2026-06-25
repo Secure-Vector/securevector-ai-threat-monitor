@@ -1135,7 +1135,7 @@ const Header = {
         content.appendChild(highlight);
 
         const intro = document.createElement('p');
-        intro.textContent = 'Connect to SecureVector Cloud for advanced ML-powered threat detection, real-time dashboard, and centralized rule management.';
+        intro.textContent = 'Connect to SecureVector Cloud for centralized rule & policy management, fleet visibility, and a real-time dashboard. Your prompt text stays on this device by default — cloud ML analysis is a separate, optional opt-in.';
         intro.style.marginBottom = '20px';
         content.appendChild(intro);
 
@@ -1143,7 +1143,7 @@ const Header = {
             { num: '1', title: 'Create Account', desc: 'Sign up at app.securevector.io (free tier available)' },
             { num: '2', title: 'Get API Key', desc: 'Go to Access Management -> Create a new key' },
             { num: '3', title: 'Add API Key', desc: 'Go to Settings and add your API key' },
-            { num: '4', title: 'Connect', desc: 'Click Cloud Connect to enable cloud analysis' },
+            { num: '4', title: 'Connect', desc: 'Click Cloud Connect to sync rules, policies & fleet metadata. Your prompts stay on-device by default.' },
         ];
 
         const stepsList = document.createElement('div');
@@ -1205,12 +1205,31 @@ const Header = {
         localNote.appendChild(noteIcon);
 
         const noteText = document.createElement('span');
-        noteText.textContent = 'The desktop app works 100% locally without cloud. Cloud mode is optional and adds ML-powered detection.';
+        noteText.textContent = 'The desktop app works 100% locally. Even with Cloud Connect on, your prompts stay on this device by default:';
         localNote.appendChild(noteText);
 
-        cta.appendChild(localNote);
+        const noteList = document.createElement('ul');
+        noteList.style.cssText = 'margin: 8px 0 0; padding-left: 18px; line-height: 1.6;';
+        [
+            'Prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
+            'Rule sync, policy sync, fleet metadata, and governance keep working — none of them send your prompts.',
+            'Cloud ML analysis is a separate opt-in that sends prompt text to scan.securevector.io.',
+            'EU data-residency: when your organization enforces it, local-only analysis is hard-locked on and cannot be disabled — prompt text can never leave this device.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            noteList.appendChild(li);
+        });
+        localNote.appendChild(noteList);
 
         content.appendChild(cta);
+
+        // Privacy note moved to the TOP of the modal so the local-only /
+        // EU-residency guarantees are the first thing the user reads, before
+        // the connection steps.
+        localNote.style.marginTop = '0';
+        localNote.style.marginBottom = '20px';
+        content.insertBefore(localNote, content.firstChild);
 
         Modal.show({
             title: 'Connect to SecureVector Cloud',
@@ -1717,15 +1736,16 @@ graph.add_edge("output_security", END)`,
         'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called — two tabs, one dataset' },
         'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called — two tabs, one dataset' },
         'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log — credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
+        governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture — operational, not a legal/compliance assessment' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection — runs offline alongside the regex rules' },
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
         settings:          { title: 'Settings',            subtitle: 'Configure SecureVector for your environment' },
-        'proxy-langchain': { title: 'LangChain Proxy',     subtitle: 'Proxy setup for LangChain agents' },
-        'proxy-langgraph': { title: 'LangGraph Proxy',     subtitle: 'Proxy setup for LangGraph agents' },
-        'proxy-crewai':    { title: 'CrewAI Proxy',        subtitle: 'Proxy setup for CrewAI agents' },
+        'proxy-langchain': { title: 'LangChain',           subtitle: 'SecureVector SDK for LangChain tool calls — optional legacy proxy' },
+        'proxy-langgraph': { title: 'LangGraph',           subtitle: 'SecureVector SDK for LangGraph tool calls — optional legacy proxy' },
+        'proxy-crewai':    { title: 'CrewAI',              subtitle: 'SecureVector SDK for CrewAI tool calls — optional legacy proxy' },
         'proxy-ollama':    { title: 'Ollama Proxy',        subtitle: 'Proxy setup for Ollama agents' },
         'proxy-openclaw':  { title: 'OpenClaw Proxy',      subtitle: 'Proxy setup for OpenClaw agents' },
         'proxy-n8n':       { title: 'n8n Proxy',           subtitle: 'Proxy setup for n8n workflows' },

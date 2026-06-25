@@ -39,6 +39,12 @@ class GeneralSettingsResponse(BaseModel):
     block_threats: bool = False
     tool_permissions_enabled: bool = True
     guardian_ml_enabled: bool = True
+    # Local-only analysis ("EU residency mode") — prompts never leave the device.
+    # Default ON; a future cloud enrollment policy can hard-lock it (residency_locked).
+    local_only_analysis: bool = True
+    # When True, the org's cloud data-residency policy forces local-only analysis
+    # and the UI must render the toggle disabled (user cannot opt into cloud).
+    residency_locked: bool = False
     # Loaded Guardian model version + availability — surfaced in Settings so the
     # version is transparent and `pip install -U securevector-guardian-model`
     # (once split out) + restart visibly bumps it.
@@ -58,6 +64,7 @@ class GeneralSettingsUpdate(BaseModel):
     block_threats: Optional[bool] = None
     tool_permissions_enabled: Optional[bool] = None
     guardian_ml_enabled: Optional[bool] = None
+    local_only_analysis: Optional[bool] = None
 
 
 class CloudSettingsResponse(BaseModel):
@@ -126,6 +133,10 @@ async def get_general_settings() -> GeneralSettingsResponse:
             block_threats=settings.block_threats,
             tool_permissions_enabled=settings.tool_permissions_enabled,
             guardian_ml_enabled=settings.guardian_ml_enabled,
+            local_only_analysis=settings.local_only_analysis,
+            # Forward-compat: stays False until the cloud enrollment response
+            # pushes a data-residency lock (handled in a cloud-side follow-up).
+            residency_locked=getattr(settings, "residency_locked", False),
             guardian_model_version=guardian_service.model_version(),
             guardian_ml_available=guardian_service.is_available(),
         )
@@ -144,6 +155,9 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
         db = get_database()
         settings_repo = SettingsRepository(db)
 
+        # Current state — needed to enforce the data-residency hard-lock below.
+        current = await settings_repo.get()
+
         # Build update dict from non-None values
         updates = {}
         if request.scan_llm_responses is not None:
@@ -158,6 +172,18 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             updates["tool_permissions_enabled"] = request.tool_permissions_enabled
         if request.guardian_ml_enabled is not None:
             updates["guardian_ml_enabled"] = request.guardian_ml_enabled
+        if request.local_only_analysis is not None:
+            # Data-residency hard-lock: an EU/regulated org can NEVER disable
+            # local-only analysis. Reject the downgrade server-side (defence in
+            # depth — the UI also disables the toggle, but the API must not be
+            # bypassable). Re-enabling local-only is always allowed.
+            if current.residency_locked and request.local_only_analysis is False:
+                raise HTTPException(
+                    status_code=409,
+                    detail="local_only_analysis is locked on by your organization's "
+                           "data-residency policy and cannot be disabled.",
+                )
+            updates["local_only_analysis"] = request.local_only_analysis
 
         if updates:
             await settings_repo.update(**updates)
@@ -249,6 +275,7 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             block_threats=settings.block_threats,
             tool_permissions_enabled=settings.tool_permissions_enabled,
             guardian_ml_enabled=settings.guardian_ml_enabled,
+            local_only_analysis=settings.local_only_analysis,
             config_file=str(config_path) if config_path else None,
             config_updated=config_updated,
         )
@@ -256,6 +283,10 @@ async def update_general_settings(request: GeneralSettingsUpdate) -> GeneralSett
             response.proxy_action = proxy_action
         return response
 
+    except HTTPException:
+        # Deliberate responses (e.g. the 409 residency-lock rejection) must
+        # propagate unchanged, not be reframed as a 500 below.
+        raise
     except Exception as e:
         logger.error(f"Failed to update general settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))

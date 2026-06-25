@@ -54,6 +54,9 @@ const Sidebar = {
         // MCP Policies — read-only viewer of cloud-synced policy bundles.
         // Kept distinct from Tool Permissions: the trust artifact (what's
         // pushed to me, by whom) vs the operational surface.
+        // Governance leads the Cloud section — always-visible local posture
+        // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
         // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
@@ -69,10 +72,12 @@ const Sidebar = {
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
-            // the plugin but its page also exposes a block-mode proxy. "Proxy" =
-            // tools you point at the local proxy's base URL (frameworks like
-            // LangChain/LangGraph/CrewAI, plus Ollama and n8n) — the shared
-            // mechanism is the proxy, not an SDK, so the label stays "Proxy".
+            // the plugin but its page also exposes a block-mode proxy.
+            // "Frameworks" = agent frameworks (LangChain/LangGraph/CrewAI) whose
+            // primary path is now the SecureVector SDK (tool-call layer); each
+            // page keeps an optional legacy base-URL proxy. "Proxy" = the
+            // remaining tools you point at the local proxy's base URL (n8n,
+            // Ollama). The left-nav labels stay framework-named (not "SDK").
             // (Page ids keep their historical `proxy-` prefix to avoid breaking
             // routes.)
             { header: 'Plugins' },
@@ -81,10 +86,11 @@ const Sidebar = {
             { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'proxy-cursor', label: 'Cursor' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
-            { header: 'Proxy' },
+            { header: 'Frameworks' },
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
+            { header: 'Proxy' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
@@ -98,6 +104,8 @@ const Sidebar = {
             { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'guide-cursor', label: 'Cursor' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
+            { header: 'Framework SDKs' },
+            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
             { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
@@ -220,7 +228,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.7.1';
+        version.textContent = 'v4.8.0';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -266,13 +274,13 @@ const Sidebar = {
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
-            'mcp-policies':     'Cloud',
+            'governance':       'Governance & Audit',
             'siem-export':      'Connect',
         };
 
         // Items that get a divider before them — keep the visual break
         // at the Cloud and Connect boundaries too.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'mcp-policies', 'siem-export']);
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'governance', 'siem-export']);
 
         this.navItems.forEach(item => {
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
@@ -402,7 +410,7 @@ const Sidebar = {
             // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
             // Guardian ML deliberately omitted: it gets the animated "sentinel"
             // robot below instead of a NEW badge.
-            const persistNewItems = ['rules'];
+            const persistNewItems = ['rules', 'governance'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
             const sessionNewItems = ['siem-export', 'integrations'];
@@ -1491,6 +1499,13 @@ const Sidebar = {
             lock: [
                 { tag: 'rect', attrs: { x: '3', y: '11', width: '18', height: '11', rx: '2', ry: '2' } },
                 { tag: 'path', attrs: { d: 'M7 11V7a5 5 0 0 1 10 0v4' } },
+            ],
+            // Speedometer dial (needle + arc) — reads as a posture "level",
+            // matching the Agent Governance band (Minimal / Partial / Strong)
+            // and keeping it distinct from the MCP Policies shield-check.
+            gauge: [
+                { tag: 'path', attrs: { d: 'm12 14 4-4' } },
+                { tag: 'path', attrs: { d: 'M3.34 19a10 10 0 1 1 17.32 0' } },
             ],
             // Shield with a checkmark inside — distinguishes MCP Policies
             // (cloud-pushed verified rules) from the bare 'shield' (Threat
