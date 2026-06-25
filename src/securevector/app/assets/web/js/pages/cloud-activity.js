@@ -52,6 +52,7 @@ const CloudActivityPage = {
         }
         this._data = data;
         container.removeChild(loading);
+        this._applyHeroState(!!data.enrolled);
 
         if (!data.enrolled) {
             container.appendChild(this._buildNotEnrolled());
@@ -96,11 +97,34 @@ const CloudActivityPage = {
 
         const sub = document.createElement('p');
         sub.className = 'mcp-hero-sub';
-        sub.textContent = 'Exactly what flows in and out of this device since it enrolled — synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
         text.appendChild(sub);
         hero.appendChild(text);
 
+        // Keep refs so the hero can be made state-aware once enrollment is known.
+        // Default to the not-enrolled (future-tense) framing + hidden pill so the
+        // loading state and any deep-link to the gated page never claim an
+        // enrolled state the device isn't in.
+        this._heroSub = sub;
+        this._heroPill = pill;
+        this._applyHeroState(false);
+
         return hero;
+    },
+
+    // Switch the hero copy + 'Cloud-managed' pill to match enrollment state.
+    // Not enrolled: future tense, no pill (nothing is flowing yet). Enrolled:
+    // present tense + pill (the pipe is live).
+    _applyHeroState(enrolled) {
+        if (!this._heroSub) return;
+        if (enrolled) {
+            this._heroSub.textContent =
+                'Exactly what flows in and out of this device since it enrolled — synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+            this._heroPill.style.display = '';
+        } else {
+            this._heroSub.textContent =
+                'What will flow in and out of this device once it connects to a SecureVector cloud account — policies syncing down, metadata-only audit going up. Nothing flows until then. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+            this._heroPill.style.display = 'none';
+        }
     },
 
     _buildError(err) {
@@ -154,7 +178,10 @@ const CloudActivityPage = {
                 hi: 'hard-locked under EU residency',
                 post: ').',
             },
-            'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
+            {
+                text: 'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
+                eu: 'This identity metadata is the only data that crosses to our cloud (today hosted outside the EU); no prompt or output content is ever included.',
+            },
             'After that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture.',
             'Pause forwarding anytime with the toggle on this page.',
             'Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.',
@@ -163,6 +190,26 @@ const CloudActivityPage = {
             li.style.marginBottom = '5px';
             if (typeof t === 'string') {
                 li.textContent = t;
+            } else if (t.eu) {
+                // Bullet body + an EU-tagged sub-note that scopes what enrollment
+                // means for an EU customer (identity metadata only, cloud is
+                // non-EU, never content).
+                li.appendChild(document.createTextNode(t.text));
+                const note = document.createElement('div');
+                note.style.cssText =
+                    'margin-top: 4px; font-size: 11.5px; line-height: 1.5; ' +
+                    'color: var(--text-muted, var(--text-secondary));';
+                const tag = document.createElement('span');
+                tag.textContent = 'EU';
+                tag.style.cssText =
+                    'display: inline-block; margin-right: 6px; padding: 0 5px; ' +
+                    'border-radius: 4px; font-weight: 700; font-size: 10px; ' +
+                    'letter-spacing: 0.3px; color: var(--accent-primary); ' +
+                    'background: rgba(8,145,178,0.12); ' +
+                    'border: 1px solid rgba(8,145,178,0.30);';
+                note.appendChild(tag);
+                note.appendChild(document.createTextNode(t.eu));
+                li.appendChild(note);
             } else {
                 li.appendChild(document.createTextNode(t.pre));
                 const lock = document.createElement('span');
