@@ -37,10 +37,11 @@ const GovernancePage = {
                 // Only claim "native" with REAL evidence a runtime is active (it has
                 // sent tool-call traffic). With no detected integration we do NOT
                 // assert enforcement — that would be over-claiming on a fresh device.
-                if (c.activeRuntimes && c.activeRuntimes.length) {
-                    return { state: 'native', note: 'Not needed for your active integration(s) — ' + c.activeRuntimes.join(', ') + ' block tool calls natively. Block Mode is optional unless you run the OpenClaw proxy.' };
+                if (c.toolCallsSeen) {
+                    const who = (c.activeRuntimes && c.activeRuntimes.length) ? c.activeRuntimes.join(', ') : 'your connected integration';
+                    return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (enforced via your hook / SDK / MCP). Block Mode only adds prompt/output threat blocking on the analyze + proxy path — optional unless you run the OpenClaw proxy.' };
                 }
-                return { state: 'off', gap: true, note: 'No active integration detected and Block Mode is off — nothing is blocking tool calls or threats yet. Install a hook/SDK/MCP (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw · framework SDK), or turn on Block Mode for the analyze/proxy path.' };
+                return { state: 'off', gap: true, note: 'No tool-call activity seen and Block Mode is off — nothing is blocking tool calls or threats on this device yet. Connect a hook/SDK/MCP (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw · framework SDK), or turn on Block Mode for the analyze/proxy path.' };
             },
         },
         {
@@ -201,14 +202,19 @@ const GovernancePage = {
         // Context: is the OpenClaw proxy actually running? which runtimes are active?
         let proxyRunning = false;
         try { const ps = await API.request('/api/proxy/status'); proxyRunning = !!(ps && (ps.running || ps.active || ps.enabled)); } catch (e) {}
-        let activeRuntimes = [];
+        // Tool-call audit activity is the reliable "an integration is actively
+        // enforcing tool calls" signal (the stats endpoint has no per-runtime
+        // breakdown, so we key on total activity, not specific runtime names).
+        let activeRuntimes = [], toolCallsSeen = false;
         try {
             const st = await API.getCallAuditStats();
-            const by = (st && (st.by_runtime || st.runtimes)) || {};
-            activeRuntimes = Object.keys(by).filter(k => (by[k] && (by[k].total || by[k]) > 0));
+            const total = (st && (st.total != null ? st.total : ((st.allowed || 0) + (st.blocked || 0) + (st.log_only || 0)))) || 0;
+            toolCallsSeen = total > 0;
+            const by = (st && (st.by_runtime || st.runtimes)) || null;
+            if (by) activeRuntimes = Object.keys(by).filter(k => (by[k] && (by[k].total || by[k]) > 0));
         } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
-        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes };
+        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen };
 
         const rows = this.CONTROLS.map(c => Object.assign({}, c, c.evaluate(settings, ctx)));
         const band = this._band(rows);
@@ -259,6 +265,21 @@ const GovernancePage = {
         legend.textContent = 'Strong = no gaps · Partial = some off / partial / gap · Minimal = most required controls off. An operational band, not a compliance score.';
         bandCard.appendChild(legend);
         wrap.appendChild(bandCard);
+
+        // Scope boundary — be explicit that this only covers CONNECTED integrations.
+        // SecureVector cannot see agents that aren't instrumented, so the posture
+        // must never imply complete / org-wide coverage.
+        const scope = card(); scope.style.borderColor = 'var(--warning, #f59e0b)';
+        const scTitle = document.createElement('div'); scTitle.textContent = 'Scope — what this covers (and what it can’t)'; scTitle.style.cssText = 'font-weight:700; font-size:13px; color: var(--text-primary); margin-bottom:6px;'; scope.appendChild(scTitle);
+        const scBody = document.createElement('p'); scBody.style.cssText = 'margin:0; font-size:12px; color: var(--text-secondary); line-height:1.55;';
+        scBody.textContent = 'This posture reflects ONLY the agents and harnesses connected to SecureVector on this device — via a plugin (Claude Code · Codex · Copilot CLI · Cursor), an OpenClaw proxy, a framework SDK (LangChain · LangGraph · CrewAI), or MCP. Agents you run WITHOUT a SecureVector integration — e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire — are not visible here and are NOT included. A “Strong” band means the controls are enforced for your connected integrations; it does not attest that every agent you run is governed.';
+        scope.appendChild(scBody);
+        if (!ctx.toolCallsSeen) {
+            const scWarn = document.createElement('div'); scWarn.style.cssText = 'margin-top:8px; font-size:11.5px; font-weight:600; color: var(--warning, #f59e0b);';
+            scWarn.textContent = 'No connected integration has reported activity on this device yet — so there is nothing for this posture to govern.';
+            scope.appendChild(scWarn);
+        }
+        wrap.appendChild(scope);
 
         // Controls
         const list = card();
