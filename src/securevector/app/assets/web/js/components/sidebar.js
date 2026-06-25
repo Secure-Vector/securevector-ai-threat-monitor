@@ -274,7 +274,7 @@ const Sidebar = {
         const SECTION_BEFORE = {
             'threats':          'Monitor',
             'tool-permissions': 'Configure',
-            'governance':       'Cloud',
+            'governance':       'Governance',
             'siem-export':      'Connect',
         };
 

@@ -32,21 +32,23 @@ const GovernancePage = {
             fw: 'EU AI Act Art. 15 · OWASP LLM01 · NIST MANAGE',
             extra: 'Tool calls are blocked natively by the PreToolUse hook (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw), the SDK middleware (LangChain · LangGraph · CrewAI), and MCP (check_tool_permission) — no Block Mode needed. Block Mode governs whether detected prompt-injection / data-leak threats are blocked (vs only logged) on the analyze path; OpenClaw is the only integration that also runs a block-mode proxy.',
             evaluate: (s, c) => {
-                if (s.block_threats) return { state: 'on', note: 'Detected prompt-injection / data-leak threats are blocked on input and output.' };
-                if (c.proxyRunning) return { state: 'off', gap: true, note: 'The OpenClaw proxy is running but Block Mode is OFF — proxy threats are logged, not blocked. Turn on Block Mode to enforce.' };
-                // Only claim "native" with REAL evidence a runtime is active (it has
-                // sent tool-call traffic). With no detected integration we do NOT
-                // assert enforcement — that would be over-claiming on a fresh device.
-                if (c.toolCallsSeen) {
-                    const who = (c.activeRuntimes && c.activeRuntimes.length) ? c.activeRuntimes.join(', ') : 'your connected integration';
-                    return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (enforced via your hook / SDK / MCP). Block Mode only adds prompt/output threat blocking on the analyze + proxy path — optional unless you run the OpenClaw proxy.' };
+                // "Action needed" applies ONLY to OpenClaw: it's the one integration
+                // whose threats are merely logged unless its block-mode proxy (or
+                // Block Mode) is on. Hook/SDK/MCP runtimes block tool calls natively.
+                if (c.openclawActive && !(c.proxyRunning || s.block_threats)) {
+                    return { state: 'off', gap: true, note: 'OpenClaw is active but its block-mode proxy is off (and Block Mode is off) — OpenClaw threats are logged, not blocked. Start the proxy or turn on Block Mode.' };
                 }
-                return { state: 'off', gap: true, note: 'No tool-call activity seen and Block Mode is off — nothing is blocking tool calls or threats on this device yet. Connect a hook/SDK/MCP (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw · framework SDK), or turn on Block Mode for the analyze/proxy path.' };
+                if (s.block_threats) return { state: 'on', note: 'Block Mode is on — detected prompt-injection / data-leak threats are blocked on input and output.' };
+                if (c.toolCallsSeen) {
+                    const who = (c.activeRuntimes && c.activeRuntimes.length) ? c.activeRuntimes.join(', ') : 'your connected runtime';
+                    return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (via your hook / SDK / MCP). Block Mode only matters for the OpenClaw proxy — not needed here.' };
+                }
+                return { state: 'off', note: 'No agent connected yet — nothing to block. Block Mode applies only if you run the OpenClaw proxy.' };
             },
         },
         {
             key: 'scan', label: 'Output / data-leak scanning', required: true, nav: 'dashboard#protection',
-            fw: 'EU AI Act Art. 10/15 · OWASP LLM05/LLM02 · SOC 2 Confidentiality',
+            fw: 'EU AI Act Art. 15 · OWASP LLM05/LLM02 · SOC 2 Confidentiality',
             evaluate: (s) => s.scan_llm_responses
                 ? { state: 'on', note: 'LLM output is scanned for secrets/PII before storage.' }
                 : { state: 'off', gap: true, note: 'Output scanning is off — responses are not checked for data leakage.' },
@@ -100,7 +102,7 @@ const GovernancePage = {
         const gaps = rows.filter(r => r.gap || (r.required && r.state === 'partial'));
         const required = rows.filter(r => r.required);
         const okReq = required.filter(r => r.state === 'on' || r.state === 'native').length;
-        if (gaps.length === 0) return { name: 'Strong',  color: 'var(--success, #10b981)', def: 'every required control is enforced and no gaps detected' };
+        if (gaps.length === 0) return { name: 'Strong',  color: 'var(--success, #10b981)', def: 'every required control is enforced for your connected integrations' };
         if (okReq >= Math.ceil(required.length / 2)) return { name: 'Partial', color: 'var(--warning, #f59e0b)', def: 'some controls are off, partial, or have a gap' };
         return { name: 'Minimal', color: 'var(--danger, #ef4444)', def: 'most required controls are off' };
     },
@@ -202,19 +204,28 @@ const GovernancePage = {
         // Context: is the OpenClaw proxy actually running? which runtimes are active?
         let proxyRunning = false;
         try { const ps = await API.request('/api/proxy/status'); proxyRunning = !!(ps && (ps.running || ps.active || ps.enabled)); } catch (e) {}
-        // Tool-call audit activity is the reliable "an integration is actively
-        // enforcing tool calls" signal (the stats endpoint has no per-runtime
-        // breakdown, so we key on total activity, not specific runtime names).
-        let activeRuntimes = [], toolCallsSeen = false;
+        // Coverage signal: the agent-session graph emits a "harness" node per
+        // connected integration and a "session" node per agent session. We count
+        // running sessions + harnesses (and detect OpenClaw) so the posture's
+        // scope is explicit and threat-blocking is judged against the REAL
+        // active runtime — not assumed.
+        let activeRuntimes = [], sessionCount = 0, openclawActive = false, toolCallsSeen = false;
         try {
-            const st = await API.getCallAuditStats();
-            const total = (st && (st.total != null ? st.total : ((st.allowed || 0) + (st.blocked || 0) + (st.log_only || 0)))) || 0;
-            toolCallsSeen = total > 0;
-            const by = (st && (st.by_runtime || st.runtimes)) || null;
-            if (by) activeRuntimes = Object.keys(by).filter(k => (by[k] && (by[k].total || by[k]) > 0));
+            const g = await API.getAgentSessionGraph({ window_days: 30 });
+            const nodes = (g && g.nodes) || [];
+            const hs = nodes.filter(n => (n.kind || n.type) === 'harness');
+            const ss = nodes.filter(n => (n.kind || n.type) === 'session');
+            activeRuntimes = Array.from(new Set(hs.map(h => h.label).filter(Boolean)));
+            sessionCount = ss.filter(x => x.active !== false).length || ss.length;
+            openclawActive = activeRuntimes.some(r => /openclaw/i.test(r));
+            toolCallsSeen = hs.length > 0 || ss.length > 0;
         } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
-        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen };
+        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive };
+        // One canonical scope phrase reused in the band + scope + warnings.
+        const agentTxt = sessionCount === 0
+            ? 'no agent sessions connected via SV Guard / SDK yet'
+            : (sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' across ' + activeRuntimes.length + ' harness' + (activeRuntimes.length === 1 ? '' : 'es') + ' connected via SV Guard / SDK' + (activeRuntimes.length ? ' (' + activeRuntimes.join(', ') + ')' : ''));
 
         const rows = this.CONTROLS.map(c => Object.assign({}, c, c.evaluate(settings, ctx)));
         const band = this._band(rows);
@@ -225,14 +236,27 @@ const GovernancePage = {
         const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
         const card = (mb) => { const d = document.createElement('div'); d.className = 'gov-card'; if (mb != null) d.style.marginBottom = mb + 'px'; return d; };
 
-        // What is this?
-        const explain = card();
-        const exTitle = document.createElement('div'); exTitle.textContent = 'What is this?'; exTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 6px;'; explain.appendChild(exTitle);
-        const exBody = document.createElement('p'); exBody.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
-        exBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your active agent runtime. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. '
-                           + 'It is computed locally — nothing leaves your machine — and reflects your operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
-        explain.appendChild(exBody);
-        wrap.appendChild(explain);
+        // Combined "what this is + what it covers" — ONE yellow-highlighted block
+        // so the scope boundary is always read together with the explanation.
+        const intro = card();
+        intro.style.borderColor = 'var(--warning, #f59e0b)';
+        intro.style.background = 'linear-gradient(0deg, rgba(245,158,11,0.07), rgba(245,158,11,0.07)), var(--bg-card)';
+        const inTitle = document.createElement('div'); inTitle.textContent = 'What this is — and what it covers'; inTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 6px;'; intro.appendChild(inTitle);
+        const inBody = document.createElement('p'); inBody.style.cssText = 'margin: 0 0 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
+        inBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your connected agent runtimes. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. Computed locally — nothing leaves your machine — it is an operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
+        intro.appendChild(inBody);
+        const inCount = document.createElement('div'); inCount.style.cssText = 'font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;';
+        inCount.textContent = 'This device · ' + agentTxt.charAt(0).toUpperCase() + agentTxt.slice(1) + '.';
+        intro.appendChild(inCount);
+        const inScope = document.createElement('p'); inScope.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
+        inScope.textContent = 'Scope: this covers ONLY agents/harnesses connected to SecureVector here (plugin · OpenClaw proxy · framework SDK · MCP). Agents you run WITHOUT a SecureVector integration — e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire — are invisible and NOT included. A “Strong” band means the controls are enforced for these connected integrations; it does not attest that every agent you run is governed.';
+        intro.appendChild(inScope);
+        if (!ctx.toolCallsSeen) {
+            const inWarn = document.createElement('div'); inWarn.style.cssText = 'margin-top: 8px; font-size: 11.5px; font-weight: 700; color: var(--warning, #f59e0b);';
+            inWarn.textContent = 'No connected integration has reported activity on this device yet — so there is nothing for this posture to govern.';
+            intro.appendChild(inWarn);
+        }
+        wrap.appendChild(intro);
 
         // Band + segmented posture meter
         const C = { on: 'var(--success, #10b981)', native: 'var(--accent-primary, #5eadb8)', partial: 'var(--warning, #f59e0b)', gap: 'var(--danger, #ef4444)', off: 'var(--text-muted, #7d8590)' };
@@ -243,7 +267,7 @@ const GovernancePage = {
         const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;';
         const hLeft = document.createElement('div');
         const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-weight: 700; font-size: 16px; color: var(--text-primary);'; hLeft.appendChild(hTitle);
-        const hSub = document.createElement('div'); hSub.textContent = 'Operational posture across ' + rows.length + ' controls'; hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;'; hLeft.appendChild(hSub);
+        const hSub = document.createElement('div'); hSub.textContent = (sessionCount === 0 ? 'No agent sessions connected' : sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' connected') + ' · ' + rows.length + ' controls assessed'; hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;'; hLeft.appendChild(hSub);
         head.appendChild(hLeft);
         const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:9px; padding:7px 16px; border-radius:999px; border:1px solid ' + band.color + '; color:' + band.color + '; font-weight:800; font-size:16px; letter-spacing:.2px;';
         const dot = document.createElement('span'); dot.style.cssText = 'width:9px; height:9px; border-radius:50%; background:' + band.color + ';'; pill.appendChild(dot);
@@ -266,20 +290,7 @@ const GovernancePage = {
         bandCard.appendChild(legend);
         wrap.appendChild(bandCard);
 
-        // Scope boundary — be explicit that this only covers CONNECTED integrations.
-        // SecureVector cannot see agents that aren't instrumented, so the posture
-        // must never imply complete / org-wide coverage.
-        const scope = card(); scope.style.borderColor = 'var(--warning, #f59e0b)';
-        const scTitle = document.createElement('div'); scTitle.textContent = 'Scope — what this covers (and what it can’t)'; scTitle.style.cssText = 'font-weight:700; font-size:13px; color: var(--text-primary); margin-bottom:6px;'; scope.appendChild(scTitle);
-        const scBody = document.createElement('p'); scBody.style.cssText = 'margin:0; font-size:12px; color: var(--text-secondary); line-height:1.55;';
-        scBody.textContent = 'This posture reflects ONLY the agents and harnesses connected to SecureVector on this device — via a plugin (Claude Code · Codex · Copilot CLI · Cursor), an OpenClaw proxy, a framework SDK (LangChain · LangGraph · CrewAI), or MCP. Agents you run WITHOUT a SecureVector integration — e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire — are not visible here and are NOT included. A “Strong” band means the controls are enforced for your connected integrations; it does not attest that every agent you run is governed.';
-        scope.appendChild(scBody);
-        if (!ctx.toolCallsSeen) {
-            const scWarn = document.createElement('div'); scWarn.style.cssText = 'margin-top:8px; font-size:11.5px; font-weight:600; color: var(--warning, #f59e0b);';
-            scWarn.textContent = 'No connected integration has reported activity on this device yet — so there is nothing for this posture to govern.';
-            scope.appendChild(scWarn);
-        }
-        wrap.appendChild(scope);
+        // (Scope + explainer are merged into the yellow intro block at the top.)
 
         // Controls
         const list = card();
