@@ -34,9 +34,13 @@ const GovernancePage = {
             evaluate: (s, c) => {
                 if (s.block_threats) return { state: 'on', note: 'Detected prompt-injection / data-leak threats are blocked on input and output.' };
                 if (c.proxyRunning) return { state: 'off', gap: true, note: 'The OpenClaw proxy is running but Block Mode is OFF — proxy threats are logged, not blocked. Turn on Block Mode to enforce.' };
-                return { state: 'native', note: (c.activeRuntimes && c.activeRuntimes.length
-                    ? 'Not needed for your active integration(s) — ' + c.activeRuntimes.join(', ') + ' block tool calls natively. Block Mode is optional unless you run the OpenClaw proxy.'
-                    : 'No proxy running — hook/SDK/MCP integrations block tool calls natively. Block Mode is optional unless you run the OpenClaw proxy.') };
+                // Only claim "native" with REAL evidence a runtime is active (it has
+                // sent tool-call traffic). With no detected integration we do NOT
+                // assert enforcement — that would be over-claiming on a fresh device.
+                if (c.activeRuntimes && c.activeRuntimes.length) {
+                    return { state: 'native', note: 'Not needed for your active integration(s) — ' + c.activeRuntimes.join(', ') + ' block tool calls natively. Block Mode is optional unless you run the OpenClaw proxy.' };
+                }
+                return { state: 'off', gap: true, note: 'No active integration detected and Block Mode is off — nothing is blocking tool calls or threats yet. Install a hook/SDK/MCP (Claude Code · Codex · Copilot CLI · Cursor · OpenClaw · framework SDK), or turn on Block Mode for the analyze/proxy path.' };
             },
         },
         {
@@ -59,10 +63,10 @@ const GovernancePage = {
             key: 'tools', label: 'Tool-permission governance', required: true, nav: 'tool-permissions',
             fw: 'EU AI Act Art. 14 (human oversight) · OWASP LLM06 (Excessive Agency) · SOC 2 CC6',
             evaluate: (s, c) => {
-                if (s.tool_permissions_enabled === false) return { state: 'off', gap: true, note: 'Tool/function calls are not checked against a permission policy.' };
+                if (s.tool_permissions_enabled === false) return { state: 'off', gap: true, note: 'Tool/function calls are NOT checked against a permission policy — turn on Tool Permissions.' };
                 return c.enrolled
-                    ? { state: 'on', note: 'Local enforcement is on AND org/cloud MCP policy is synced to this device.' }
-                    : { state: 'partial', note: 'Local enforcement only — no org/cloud MCP policy is synced (this device is not enrolled). Connect cloud to centralize policy.' };
+                    ? { state: 'on', note: 'Enforced locally, and your org/cloud MCP policy is synced to this device — centralized, fleet-wide governance.' }
+                    : { state: 'on', note: 'Enforced locally by your hooks / SDK / MCP. A centralized org-wide MCP policy (one policy pushed to every device) is an optional add-on — available when you connect cloud. Not a gap.' };
             },
         },
         {
@@ -101,21 +105,50 @@ const GovernancePage = {
     },
 
     _mark(r) {
-        if (r.state === 'on')      return { glyph: '✓', label: 'On',      color: 'var(--success, #10b981)' };
-        if (r.state === 'native')  return { glyph: '◆', label: 'Native',  color: 'var(--success, #10b981)' };
-        if (r.state === 'partial') return { glyph: '~', label: 'Partial', color: 'var(--warning, #f59e0b)' };
-        // off: red only when it's a real gap; otherwise neutral (optional, off)
+        // Native gets its OWN teal identity (not the same green as Enforced) so
+        // "blocked by your runtime, not by SecureVector's engine" can't be misread.
+        if (r.state === 'on')      return { glyph: '✓', label: 'Enforced', color: 'var(--success, #10b981)', bg: 'rgba(16,185,129,0.14)' };
+        if (r.state === 'native')  return { glyph: '✓', label: 'Native',   color: 'var(--accent-primary, #5eadb8)', bg: 'rgba(94,173,184,0.16)' };
+        if (r.state === 'partial') return { glyph: '~', label: 'Partial',  color: 'var(--warning, #f59e0b)', bg: 'rgba(245,158,11,0.14)' };
         return r.gap
-            ? { glyph: '✗', label: 'Off', color: 'var(--danger, #ef4444)' }
-            : { glyph: '○', label: 'Off', color: 'var(--text-muted, #7d8590)' };
+            ? { glyph: '✗', label: 'Action needed', color: 'var(--danger, #ef4444)', bg: 'rgba(239,68,68,0.14)' }
+            : { glyph: '○', label: 'Off',           color: 'var(--text-muted, #7d8590)', bg: 'rgba(125,133,144,0.12)' };
     },
 
     _injectStyle() {
         if (document.getElementById('sv-governance-style')) return;
         const st = document.createElement('style');
         st.id = 'sv-governance-style';
-        st.textContent = '@keyframes sv-gov-flash{0%,100%{box-shadow:0 0 0 0 rgba(94,173,184,0);}50%{box-shadow:0 0 0 3px rgba(94,173,184,0.30);}}'
-                       + '.sv-gov-flash{animation:sv-gov-flash 0.6s ease-in-out 3;}';
+        st.textContent = [
+            '@keyframes sv-gov-flash{0%,100%{box-shadow:0 0 0 0 rgba(94,173,184,0);}50%{box-shadow:0 0 0 3px rgba(94,173,184,0.30);}}',
+            '.sv-gov-flash{animation:sv-gov-flash 0.6s ease-in-out 3;}',
+            '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
+            '.gov-wrap{max-width:920px;}',
+            '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;}',
+            // posture meter (segmented bar)
+            '.gov-meter{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--border-default);margin-top:14px;}',
+            '.gov-meter>span{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1);}',
+            // control row
+            '.gov-ctrl{position:relative;display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;background:transparent;border:none;border-top:1px solid var(--border-default);padding:15px 12px 15px 18px;cursor:pointer;color:inherit;transition:background .15s ease;animation:gov-in .4s ease both;}',
+            '.gov-ctrl:first-of-type{border-top:none;}',
+            '.gov-ctrl::before{content:"";position:absolute;left:2px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--rail);opacity:.55;transition:opacity .15s ease;}',
+            '.gov-ctrl:hover{background:var(--bg-hover,rgba(255,255,255,0.035));}',
+            '.gov-ctrl:hover::before{opacity:1;}',
+            '.gov-ctrl:hover .gov-chev{opacity:.9;transform:translateX(0);}',
+            '.gov-badge{flex:none;width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;line-height:1;}',
+            '.gov-body{flex:1;min-width:0;}',
+            '.gov-labrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+            '.gov-lab{font-size:13.5px;font-weight:650;color:var(--text-primary);}',
+            '.gov-req{font-size:9.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:2px 6px;border-radius:5px;color:var(--text-muted,#7d8590);border:1px solid var(--border-default);}',
+            '.gov-note{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
+            '.gov-extra{font-size:11px;color:var(--text-muted,#7d8590);margin-top:5px;line-height:1.5;}',
+            '.gov-fw{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:var(--text-muted,#7d8590);margin-top:7px;letter-spacing:.2px;opacity:.85;}',
+            '.gov-chip{flex:none;font-size:10.5px;font-weight:700;padding:4px 11px;border-radius:999px;letter-spacing:.3px;white-space:nowrap;}',
+            '.gov-chev{flex:none;color:var(--text-muted,#7d8590);opacity:0;transform:translateX(-4px);transition:all .15s ease;font-size:20px;line-height:1;align-self:center;}',
+            '.gov-statline{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}',
+            '.gov-stat{font-size:11px;font-weight:600;color:var(--text-secondary);display:inline-flex;align-items:center;gap:6px;}',
+            '.gov-stat i{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal;}',
+        ].join('');
         document.head.appendChild(st);
     },
 
@@ -183,34 +216,47 @@ const GovernancePage = {
         const partialCount = rows.filter(r => r.state === 'partial').length;
         const gapCount = rows.filter(r => r.gap).length;
 
-        const wrap = document.createElement('div'); wrap.style.cssText = 'max-width: 900px;';
-        const card = (mb) => { const d = document.createElement('div'); d.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 20px; margin-bottom: ' + (mb == null ? 16 : mb) + 'px;'; return d; };
+        const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
+        const card = (mb) => { const d = document.createElement('div'); d.className = 'gov-card'; if (mb != null) d.style.marginBottom = mb + 'px'; return d; };
 
         // What is this?
         const explain = card();
         const exTitle = document.createElement('div'); exTitle.textContent = 'What is this?'; exTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 6px;'; explain.appendChild(exTitle);
         const exBody = document.createElement('p'); exBody.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
-        exBody.textContent = 'A live, on-device summary of which SecureVector protection controls are actually enforced here, assessed against what is currently active. Each control is read from a real signal and shown as enforced (✓), native to the active runtime (◆), partial (~), or off (✗ when it is a real gap). '
+        exBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your active agent runtime. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. '
                            + 'It is computed locally — nothing leaves your machine — and reflects your operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
         explain.appendChild(exBody);
         wrap.appendChild(explain);
 
-        // Band
-        const bandCard = card(); bandCard.className = 'sv-gov-flash';
+        // Band + segmented posture meter
+        const C = { on: 'var(--success, #10b981)', native: 'var(--accent-primary, #5eadb8)', partial: 'var(--warning, #f59e0b)', gap: 'var(--danger, #ef4444)', off: 'var(--text-muted, #7d8590)' };
+        const counts = { on: 0, native: 0, partial: 0, gap: 0, off: 0 };
+        rows.forEach(r => { if (r.state === 'on') counts.on++; else if (r.state === 'native') counts.native++; else if (r.state === 'partial') counts.partial++; else if (r.gap) counts.gap++; else counts.off++; });
+
+        const bandCard = card(); bandCard.className = 'gov-card sv-gov-flash';
         const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;';
         const hLeft = document.createElement('div');
-        const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary);'; hLeft.appendChild(hTitle);
-        const hSub = document.createElement('div');
-        hSub.textContent = onCount + ' enforced · ' + partialCount + ' partial · ' + gapCount + ' gap(s)';
-        hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;'; hLeft.appendChild(hSub);
+        const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-weight: 700; font-size: 16px; color: var(--text-primary);'; hLeft.appendChild(hTitle);
+        const hSub = document.createElement('div'); hSub.textContent = 'Operational posture across ' + rows.length + ' controls'; hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;'; hLeft.appendChild(hSub);
         head.appendChild(hLeft);
-        const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px; border:1px solid ' + band.color + '; color:' + band.color + '; font-weight:800; font-size:15px;';
-        const dot = document.createElement('span'); dot.style.cssText = 'width:8px; height:8px; border-radius:50%; background:' + band.color + ';'; pill.appendChild(dot);
+        const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:9px; padding:7px 16px; border-radius:999px; border:1px solid ' + band.color + '; color:' + band.color + '; font-weight:800; font-size:16px; letter-spacing:.2px;';
+        const dot = document.createElement('span'); dot.style.cssText = 'width:9px; height:9px; border-radius:50%; background:' + band.color + ';'; pill.appendChild(dot);
         pill.appendChild(document.createTextNode(band.name));
         pill.title = band.name + ' — ' + band.def + '. Operational posture, not a compliance score.';
         head.appendChild(pill); bandCard.appendChild(head);
-        const legend = document.createElement('div'); legend.style.cssText = 'margin-top:10px; font-size:11.5px; color: var(--text-muted, #7d8590);';
-        legend.textContent = 'Strong = no gaps · Partial = some off/partial/gap · Minimal = most required off. ✓ enforced · ◆ native to the active runtime · ~ partial · ✗ gap. Operational band, not a compliance score.';
+
+        const meter = document.createElement('div'); meter.className = 'gov-meter';
+        const seg = (n, color) => { if (!n) return; const s = document.createElement('span'); s.style.width = (n / rows.length * 100) + '%'; s.style.background = color; meter.appendChild(s); };
+        seg(counts.on, C.on); seg(counts.native, C.native); seg(counts.partial, C.partial); seg(counts.gap, C.gap); seg(counts.off, C.off);
+        bandCard.appendChild(meter);
+
+        const statline = document.createElement('div'); statline.className = 'gov-statline';
+        const stat = (n, label, color) => { if (!n) return; const s = document.createElement('span'); s.className = 'gov-stat'; const i = document.createElement('i'); i.style.background = color; s.appendChild(i); s.appendChild(document.createTextNode(n + ' ' + label)); statline.appendChild(s); };
+        stat(counts.on, 'enforced', C.on); stat(counts.native, 'native', C.native); stat(counts.partial, 'partial', C.partial); stat(counts.gap, counts.gap === 1 ? 'gap' : 'gaps', C.gap); stat(counts.off, 'off', C.off);
+        bandCard.appendChild(statline);
+
+        const legend = document.createElement('div'); legend.style.cssText = 'margin-top:12px; font-size:11px; color: var(--text-muted, #7d8590); line-height:1.5;';
+        legend.textContent = 'Strong = no gaps · Partial = some off / partial / gap · Minimal = most required controls off. An operational band, not a compliance score.';
         bandCard.appendChild(legend);
         wrap.appendChild(bandCard);
 
@@ -219,35 +265,34 @@ const GovernancePage = {
         const lTitle = document.createElement('div'); lTitle.textContent = 'Controls'; lTitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 4px;'; list.appendChild(lTitle);
         const lHint = document.createElement('div'); lHint.textContent = 'Read from live signals + your active integration. Each row links to the control that changes it.'; lHint.style.cssText = 'font-size: 11.5px; color: var(--text-muted, #7d8590); margin-bottom: 8px;'; list.appendChild(lHint);
 
-        rows.forEach(r => {
+        rows.forEach((r, idx) => {
             const m = this._mark(r);
-            const row = document.createElement('button'); row.type = 'button';
-            row.style.cssText = 'width:100%; text-align:left; display:flex; align-items:flex-start; gap:10px; padding:10px 8px; background:none; border:none; border-top:1px solid var(--border-default); cursor:pointer; color:inherit;';
-            row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-hover, rgba(255,255,255,0.03))'; });
-            row.addEventListener('mouseleave', () => { row.style.background = 'none'; });
+            const row = document.createElement('button'); row.type = 'button'; row.className = 'gov-ctrl';
+            row.style.setProperty('--rail', m.color);
+            row.style.animationDelay = (idx * 45) + 'ms';
             row.addEventListener('click', () => this._go(r.nav));
 
-            const mark = document.createElement('span'); mark.textContent = m.glyph; mark.style.cssText = 'font-weight:800; font-size:15px; line-height:1.35; flex:none; width:14px; text-align:center; color:' + m.color + ';'; row.appendChild(mark);
+            const badge = document.createElement('span'); badge.className = 'gov-badge'; badge.textContent = m.glyph; badge.style.color = m.color; badge.style.background = m.bg; row.appendChild(badge);
 
-            const txt = document.createElement('div'); txt.style.cssText = 'flex:1; min-width:0;';
-            const labRow = document.createElement('div'); labRow.style.cssText = 'display:flex; align-items:center; gap:8px; flex-wrap:wrap;';
-            const lab = document.createElement('span'); lab.textContent = r.label; lab.style.cssText = 'font-size:13px; font-weight:600; color: var(--text-primary);'; labRow.appendChild(lab);
-            if (r.required) { const req = document.createElement('span'); req.textContent = 'required'; req.style.cssText = 'font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px; color: var(--text-muted, #7d8590); border:1px solid var(--border-default);'; labRow.appendChild(req); }
-            txt.appendChild(labRow);
-            const dsc = document.createElement('div'); dsc.textContent = r.note; dsc.style.cssText = 'font-size:12px; color: var(--text-secondary); margin-top:2px; line-height:1.45;'; txt.appendChild(dsc);
-            if (r.extra) { const ex = document.createElement('div'); ex.textContent = r.extra; ex.style.cssText = 'font-size:11px; color: var(--text-muted, #7d8590); margin-top:4px; line-height:1.45;'; txt.appendChild(ex); }
-            const fw = document.createElement('div'); fw.textContent = r.fw; fw.style.cssText = 'font-size:10.5px; color: var(--text-muted, #7d8590); margin-top:3px;'; txt.appendChild(fw);
-            row.appendChild(txt);
+            const body = document.createElement('div'); body.className = 'gov-body';
+            const labRow = document.createElement('div'); labRow.className = 'gov-labrow';
+            const lab = document.createElement('span'); lab.className = 'gov-lab'; lab.textContent = r.label; labRow.appendChild(lab);
+            if (r.required) { const req = document.createElement('span'); req.className = 'gov-req'; req.textContent = 'required'; req.title = 'Required for the Strong band — an operational baseline, not a legal obligation.'; labRow.appendChild(req); }
+            body.appendChild(labRow);
+            const dsc = document.createElement('div'); dsc.className = 'gov-note'; dsc.textContent = r.note; body.appendChild(dsc);
+            if (r.extra) { const ex = document.createElement('div'); ex.className = 'gov-extra'; ex.textContent = r.extra; body.appendChild(ex); }
+            const fw = document.createElement('div'); fw.className = 'gov-fw'; fw.textContent = r.fw; body.appendChild(fw);
+            row.appendChild(body);
 
-            const state = document.createElement('span'); state.textContent = m.label; state.style.cssText = 'flex:none; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; color:' + m.color + '; border:1px solid ' + m.color + ';'; row.appendChild(state);
+            const chip = document.createElement('span'); chip.className = 'gov-chip'; chip.textContent = m.label; chip.style.color = m.color; chip.style.background = m.bg; row.appendChild(chip);
+            const chev = document.createElement('span'); chev.className = 'gov-chev'; chev.textContent = '›'; row.appendChild(chev);
             list.appendChild(row);
 
-            // Threat blocking: only the OpenClaw proxy needs Block Mode. Give a
-            // direct in-app link to set that proxy up (kept as a sibling, not
-            // nested in the row button, to avoid nested interactive elements).
+            // Threat blocking: only the OpenClaw proxy needs Block Mode. Direct
+            // in-app link to set that proxy up (sibling, not nested in the button).
             if (r.key === 'block') {
                 const setup = document.createElement('div');
-                setup.style.cssText = 'padding: 2px 8px 8px 32px; font-size: 11.5px; color: var(--text-muted, #7d8590);';
+                setup.style.cssText = 'padding: 0 12px 12px 64px; font-size: 11.5px; color: var(--text-muted, #7d8590);';
                 setup.appendChild(document.createTextNode('Proxy needed? Only OpenClaw runs a block-mode proxy. '));
                 const link = document.createElement('a');
                 link.href = '#'; link.textContent = 'Set up the OpenClaw proxy →';
@@ -270,17 +315,22 @@ const GovernancePage = {
         meta.appendChild(fwBody);
 
         const guideRow = document.createElement('div'); guideRow.style.cssText = 'display:flex; gap:16px; flex-wrap:wrap; align-items:center;';
-        const guide = document.createElement('a'); guide.href = 'https://securevector.io/docs/governance'; guide.target = '_blank'; guide.rel = 'noopener noreferrer'; guide.textContent = 'Read the governance guide →'; guide.style.cssText = 'color: var(--accent-primary); font-weight: 600; font-size: 13px; text-decoration: none;'; guideRow.appendChild(guide);
-        // EU AI Act: link to the official, primary regulation text (EUR-Lex) so this
-        // stays strictly orientation/citation — not interpreted legal advice.
-        const euLink = document.createElement('a'); euLink.href = 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj'; euLink.target = '_blank'; euLink.rel = 'noopener noreferrer'; euLink.textContent = 'EU AI Act — official text (EUR-Lex) →'; euLink.style.cssText = 'color: var(--accent-primary); font-weight: 600; font-size: 13px; text-decoration: none;'; guideRow.appendChild(euLink);
+        // Link to the PRIMARY published sources the baseline maps to (the acts /
+        // frameworks themselves), not a SecureVector page — each is verifiable
+        // orientation, not interpreted legal advice.
+        const srcs = [
+            ['EU AI Act — official text (EUR-Lex) →', 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj'],
+            ['OWASP Top 10 for LLM Apps (2025) →', 'https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/'],
+            ['NIST AI Risk Management Framework →', 'https://www.nist.gov/itl/ai-risk-management-framework'],
+        ];
+        srcs.forEach(function (pair) { const a = document.createElement('a'); a.href = pair[1]; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = pair[0]; a.style.cssText = 'color: var(--accent-primary); font-weight: 600; font-size: 13px; text-decoration: none;'; guideRow.appendChild(a); });
         meta.appendChild(guideRow);
         const disclaimer = document.createElement('div'); disclaimer.textContent = 'Orientation only — not legal advice.'; disclaimer.style.cssText = 'margin-top: 8px; font-size: 11px; color: var(--text-muted, #7d8590);'; meta.appendChild(disclaimer);
         wrap.appendChild(meta);
 
-        // Soft cloud CTA
+        // Soft cloud CTA — pinned to the TOP of the page (per request).
         if (!cloudOn) {
-            const cta = card(0); cta.style.borderColor = 'var(--accent-primary)';
+            const cta = card(); cta.style.borderColor = 'var(--accent-primary)';
             const cLead = document.createElement('div'); cLead.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5;';
             cLead.innerHTML = 'This is one device. <a href="https://app.securevector.io/governance" target="_blank" rel="noopener noreferrer" style="color:var(--accent-primary); font-weight:600;">See posture across your whole fleet →</a> by connecting to SecureVector Cloud.';
             cta.appendChild(cLead);
@@ -290,7 +340,7 @@ const GovernancePage = {
                 : 'Connecting syncs rules, policies, and fleet metadata (and enables org MCP policy). Your prompts stay on-device by default.';
             cMicro.style.cssText = 'margin-top: 4px; font-size: 11.5px; color: var(--text-muted, #7d8590);';
             cta.appendChild(cMicro);
-            wrap.appendChild(cta);
+            wrap.insertBefore(cta, wrap.firstChild);
         }
 
         container.appendChild(wrap);

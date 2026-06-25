@@ -56,7 +56,7 @@ const Sidebar = {
         // pushed to me, by whom) vs the operational surface.
         // Governance leads the Cloud section — always-visible local posture
         // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
-        { id: 'governance', label: 'Governance', icon: 'shield-check', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
+        { id: 'governance', label: 'Agent Governance', icon: 'shield-check', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
         // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
