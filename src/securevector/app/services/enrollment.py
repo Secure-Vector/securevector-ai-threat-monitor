@@ -18,6 +18,7 @@ Errors:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -54,6 +55,35 @@ class EnrollmentResult:
     group_memberships: list
 
 
+def pseudonymize_hostname(hostname: Optional[str]) -> Optional[str]:
+    """Pseudonymize a machine hostname before it ever leaves the device.
+
+    Raw hostnames routinely embed a person's name ("johns-macbook"), which
+    makes them *personal data* under GDPR — and turns an otherwise
+    metadata-only enrollment into a personal-data cross-border transfer to a
+    cloud that is, today, hosted outside the EU. We never need the *raw* name
+    in the cloud, only a stable per-device label, so we transmit a
+    deterministic, non-reversible token instead:
+
+        "johns-macbook"  ->  "host-9f2a1c4b7e0d"
+
+    Same machine always maps to the same token (the cloud device list stays
+    stable across heartbeats), but the original name cannot be recovered and
+    never crosses the wire. Returns ``None``/empty unchanged so the caller's
+    ``if hostname:`` guard keeps the field out of the payload entirely.
+
+    NOTE: as of this writing no caller passes ``hostname`` to :func:`enroll`,
+    so nothing is transmitted today. This is a *forward guardrail* — the day
+    a caller wires in ``socket.gethostname()`` for the cloud device list, the
+    raw name is pseudonymized at the boundary by default rather than leaking.
+    """
+    norm = (hostname or "").strip().lower()
+    if not norm:
+        return hostname
+    digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+    return f"host-{digest}"
+
+
 async def enroll(
     token: str,
     *,
@@ -81,7 +111,9 @@ async def enroll(
         "enrollment_token": token,
     }
     if hostname:
-        payload["hostname"] = hostname
+        # Pseudonymize at the boundary: a raw hostname can carry a person's
+        # name (personal data) — ship a stable non-reversible token instead.
+        payload["hostname"] = pseudonymize_hostname(hostname)
     if os_name:
         payload["os"] = os_name
     if app_version:

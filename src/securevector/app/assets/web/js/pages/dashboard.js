@@ -329,7 +329,7 @@ const DashboardPage = {
         waitRow.appendChild(waitTxt);
         steps.appendChild(waitRow);
 
-        steps.appendChild(makeStep(3, 'Turn on Block Mode so threats are stopped, not just logged',
+        steps.appendChild(makeStep(3, 'Turn on Block Mode to block threats on the proxy / analyze path (tool calls are already blocked natively)',
             !!(this.settings && this.settings.block_threats),
             'Show me', () => {
                 const sec = document.querySelector('.security-controls-section');
@@ -690,6 +690,9 @@ const DashboardPage = {
         // between Reports and the charts which was a context break.
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
+
+        // Governance posture moved to its own Cloud-section page
+        // (GovernancePage) — kept off the dashboard to reduce clutter.
 
         // Recent activity
         const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
@@ -1637,6 +1640,13 @@ const DashboardPage = {
     // Output Scan / Guardian ML) plus a Rules shortcut and live agent chips.
     // Confirmations go through Modal.confirm; the checkbox only flips after
     // the user confirms AND the API write succeeds (no optimistic flip).
+    // Governance posture card (#187, local funnel). A 0–100 score computed
+    // ENTIRELY from on-device signals the app already has — no new data
+    // collection — plus a quiet, dismissible pointer to the cloud fleet-wide
+    // posture + EU AI Act orientation, shown ONLY when Cloud Connect is off
+    // (when it's on, the user already has the fleet view). The rubric is
+    // transparent (surfaced in the tooltip + factor rows) so the local number
+    // and the eventual cloud number share one honest methodology.
     async renderSecurityControls() {
         let settings = { block_threats: false, scan_llm_responses: true, guardian_ml_enabled: false };
         try {
@@ -1654,7 +1664,7 @@ const DashboardPage = {
         title.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary);';
         head.appendChild(title);
         const sub = document.createElement('span');
-        sub.textContent = 'What runs on every tool call and LLM response';
+        sub.textContent = 'Local protection controls applied to your connected agents';
         sub.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
         head.appendChild(sub);
         card.appendChild(head);
@@ -1719,13 +1729,13 @@ const DashboardPage = {
 
         rows.appendChild(toggleRow({
             name: 'Block Mode',
-            desc: 'Stop threats before the LLM and before the client',
+            desc: 'Stops threats on the OpenClaw proxy / analyze path. Hook & SDK tool calls are blocked natively regardless.',
             checked: !!settings.block_threats,
-            attention: true,
+            attention: false,
             confirmTitle: (on) => on ? 'Enable Block Mode?' : 'Disable Block Mode?',
             confirmMsg: (on) => on
-                ? 'Input threats will be blocked before reaching the LLM. Output threats will be blocked before reaching the client.'
-                : 'All threats will be logged only — nothing is stopped.',
+                ? 'On the OpenClaw proxy / analyze path, input threats are blocked before the LLM and output threats before the client. Hook & SDK tool-call blocking is native and unaffected by this setting.'
+                : 'On the proxy / analyze path, threats will be logged instead of blocked. Native hook/SDK tool-call blocking is unaffected.',
             apply: (on) => {
                 if (on) showOpenClawProxyModal(); else showOpenClawProxyStopModal();
                 return API.updateSettings({ block_threats: on }).then(() => {
@@ -1736,13 +1746,13 @@ const DashboardPage = {
 
         rows.appendChild(toggleRow({
             name: 'Output Scan',
-            desc: 'Scan LLM responses, redact secrets when stored',
+            desc: 'Scans LLM responses for data leakage. Tool input/output is always redacted regardless.',
             checked: !!settings.scan_llm_responses,
-            attention: true,
+            attention: false,
             confirmTitle: (on) => on ? 'Enable Output Scan?' : 'Disable Output Scan?',
             confirmMsg: (on) => on
-                ? 'LLM responses will be scanned and sensitive values redacted at rest.'
-                : 'Responses will not be monitored or redacted.',
+                ? 'LLM responses on the OpenClaw proxy will be scanned and sensitive values redacted at rest. Tool input/output is already redacted regardless of this setting.'
+                : 'LLM-response scanning on the proxy stops. Tool input/output is still redacted for secrets/PII.',
             apply: (on) => API.updateSettings({ scan_llm_responses: on }).then(() => {
                 Toast.success(on ? 'Output scan enabled' : 'Output scan disabled');
             }),

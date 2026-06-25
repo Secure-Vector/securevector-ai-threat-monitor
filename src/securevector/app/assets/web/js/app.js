@@ -42,6 +42,10 @@ const App = {
         // Each nav entry maps to ONE tab — tab bar hidden so the nav stays
         // the single source of truth for which view is shown.
         'tool-permissions':  { render: (c) => { ToolPermissionsPage.activeTab = 'permissions'; ToolPermissionsPage.hideTabBar = true; ToolPermissionsPage.visibleTabs = null; return ToolPermissionsPage.render(c); } },
+        // Governance (#187) — local protection posture, moved off the dashboard
+        // into its own Cloud-section page. Always reachable (it's the funnel),
+        // not enrollment-gated.
+        governance:          GovernancePage,
         'mcp-policies':      McpPoliciesPage,
         // Cloud Activity (story #113) — full in/out visibility for enrolled
         // devices. Sidebar gates its visibility on enrollment; the page also

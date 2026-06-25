@@ -1804,9 +1804,10 @@ const RulesPage = {
             +   'no dependency on your network path to SecureVector. Re-sync later when you want fresher rules.'
             + '</li>'
             + '<li><strong>Keep Cloud Connect on.</strong> '
-            +   'Scans are routed to SecureVector Cloud for ML-grade analysis (Llama Guard-class scoring) '
-            +   'on top of your local rules. Metadata only — prompts, outputs, matched patterns, and reasoning '
-            +   'never leave your machine.'
+            +   'You get rule + policy sync and fleet governance. Prompt analysis stays on-device by default '
+            +   '(local-only) — only metadata leaves. Cloud ML analysis (Llama Guard-class scoring) is an opt-in '
+            +   'that sends prompt/output text to scan.securevector.io; it is off by default and hard-locked off '
+            +   'under EU residency.'
             + '</li>'
             + '</ul>';
         body.appendChild(choice);

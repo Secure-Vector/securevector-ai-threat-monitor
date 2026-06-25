@@ -52,6 +52,7 @@ const CloudActivityPage = {
         }
         this._data = data;
         container.removeChild(loading);
+        this._applyHeroState(!!data.enrolled);
 
         if (!data.enrolled) {
             container.appendChild(this._buildNotEnrolled());
@@ -96,11 +97,34 @@ const CloudActivityPage = {
 
         const sub = document.createElement('p');
         sub.className = 'mcp-hero-sub';
-        sub.textContent = 'Exactly what flows in and out of this device since it enrolled — synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
         text.appendChild(sub);
         hero.appendChild(text);
 
+        // Keep refs so the hero can be made state-aware once enrollment is known.
+        // Default to the not-enrolled (future-tense) framing + hidden pill so the
+        // loading state and any deep-link to the gated page never claim an
+        // enrolled state the device isn't in.
+        this._heroSub = sub;
+        this._heroPill = pill;
+        this._applyHeroState(false);
+
         return hero;
+    },
+
+    // Switch the hero copy + 'Cloud-managed' pill to match enrollment state.
+    // Not enrolled: future tense, no pill (nothing is flowing yet). Enrolled:
+    // present tense + pill (the pipe is live).
+    _applyHeroState(enrolled) {
+        if (!this._heroSub) return;
+        if (enrolled) {
+            this._heroSub.textContent =
+                'Exactly what flows in and out of this device since it enrolled — synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+            this._heroPill.style.display = '';
+        } else {
+            this._heroSub.textContent =
+                'What will flow in and out of this device once it connects to a SecureVector cloud account — policies syncing down, metadata-only audit going up. Nothing flows until then. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+            this._heroPill.style.display = 'none';
+        }
     },
 
     _buildError(err) {
@@ -125,26 +149,108 @@ const CloudActivityPage = {
         const h = document.createElement('h3');
         h.textContent = 'Connect a cloud account';
         wrap.appendChild(h);
-        const p = document.createElement('p');
         // Reframed away from org/enrollment jargon: for an individual this is
         // simply an optional cloud-account sign-up, not an admin action. Stays
-        // honest about local-first + metadata-only + reversible.
-        p.textContent =
-            'Cloud Activity lights up once this device is connected to a SecureVector cloud account — optional, with a free tier. Until then SecureVector runs fully local: nothing is synced down and nothing is forwarded up. Connecting is metadata-only, and once connected you can pause forwarding anytime with the toggle on this page.';
-        wrap.appendChild(p);
+        // honest about local-first + metadata-only + reversible. Bulleted so the
+        // load-bearing claims (content never leaves, metadata-only, reversible)
+        // are scannable instead of buried in a paragraph.
+        const lead = document.createElement('p');
+        lead.textContent =
+            'Cloud Activity lights up once this device connects to a SecureVector cloud account (optional, free tier).';
+        wrap.appendChild(lead);
+
+        const ul = document.createElement('ul');
+        ul.className = 'ca-empty-points';
+        // inline-block so the list centers as a unit inside the text-align:center
+        // empty-state, while the bullet text itself stays left-aligned (most legible).
+        ul.style.cssText =
+            'display: inline-block; margin: 8px auto 4px; padding-left: 18px; ' +
+            'text-align: left; max-width: 460px; ' +
+            'color: var(--text-secondary); line-height: 1.55; font-size: 13px;';
+        // Each entry is plain text, except the EU-residency line which carries a
+        // {pre, hi, post} shape so the load-bearing compliance guarantee
+        // ('hard-locked under EU residency') renders as a highlighted pill —
+        // it's the phrase a privacy/compliance buyer scans for.
+        [
+            'Until then it runs fully local — nothing synced down, nothing forwarded up.',
+            {
+                pre: 'Your prompt and output text never leaves this device, connected or not (',
+                hi: 'hard-locked under EU residency',
+                post: ').',
+            },
+            {
+                text: 'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
+                eu: 'This identity metadata is the only data that crosses to our cloud (today hosted outside the EU); no prompt or output content is ever included.',
+            },
+            'After that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture.',
+            'Pause forwarding anytime with the toggle on this page.',
+            'Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.',
+        ].forEach((t) => {
+            const li = document.createElement('li');
+            li.style.marginBottom = '5px';
+            if (typeof t === 'string') {
+                li.textContent = t;
+            } else if (t.eu) {
+                // Bullet body + an EU-tagged sub-note that scopes what enrollment
+                // means for an EU customer (identity metadata only, cloud is
+                // non-EU, never content).
+                li.appendChild(document.createTextNode(t.text));
+                const note = document.createElement('div');
+                note.style.cssText =
+                    'margin-top: 4px; font-size: 11.5px; line-height: 1.5; ' +
+                    'color: var(--text-muted, var(--text-secondary));';
+                const tag = document.createElement('span');
+                tag.textContent = 'EU';
+                tag.style.cssText =
+                    'display: inline-block; margin-right: 6px; padding: 0 5px; ' +
+                    'border-radius: 4px; font-weight: 700; font-size: 10px; ' +
+                    'letter-spacing: 0.3px; color: var(--accent-primary); ' +
+                    'background: rgba(8,145,178,0.12); ' +
+                    'border: 1px solid rgba(8,145,178,0.30);';
+                note.appendChild(tag);
+                note.appendChild(document.createTextNode(t.eu));
+                li.appendChild(note);
+            } else {
+                li.appendChild(document.createTextNode(t.pre));
+                const lock = document.createElement('span');
+                lock.className = 'ca-eu-lock';
+                lock.textContent = '\uD83D\uDD12 ' + t.hi; // 🔒 prefix
+                lock.style.cssText =
+                    'display: inline-block; padding: 0 6px; border-radius: 5px; ' +
+                    'font-weight: 600; font-size: 12px; white-space: nowrap; ' +
+                    'color: var(--accent-primary); ' +
+                    'background: rgba(8,145,178,0.12); ' +
+                    'border: 1px solid rgba(8,145,178,0.30);';
+                li.appendChild(lock);
+                li.appendChild(document.createTextNode(t.post));
+            }
+            ul.appendChild(li);
+        });
+        wrap.appendChild(ul);
 
         // Primary CTA — the same signup surface linked from the header, Getting
-        // Started, Rules and Settings. A quiet inline link, not a button/banner.
+        // Started, Rules and Settings. Promoted from a quiet inline link to a
+        // proper primary button: this is THE conversion action on a gated page,
+        // so it should read as the obvious next step rather than body copy.
         const cta = document.createElement('p');
-        cta.style.cssText = 'margin-top: 4px;';
+        cta.style.cssText = 'margin-top: 14px;';
         const link = document.createElement('a');
+        link.className = 'btn btn-primary';
         link.href = 'https://app.securevector.io';
         link.target = '_blank';
         link.rel = 'noopener';
-        link.textContent = 'Create a free cloud account → app.securevector.io';
-        link.style.cssText = 'color: var(--accent-primary); text-decoration: underline;';
+        link.textContent = 'Create a free cloud account →';
+        link.style.cssText = 'display: inline-flex; text-decoration: none;';
         cta.appendChild(link);
         wrap.appendChild(cta);
+
+        // Keep the bare domain visible as a quiet caption beneath the button so
+        // power users still see exactly where it goes.
+        const ctaHint = document.createElement('div');
+        ctaHint.textContent = 'app.securevector.io';
+        ctaHint.style.cssText =
+            'margin-top: 6px; font-size: 11.5px; color: var(--text-muted, var(--text-secondary));';
+        wrap.appendChild(ctaHint);
 
         // Demoted hint for users who already hold an org-minted enrollment token.
         const cmd = document.createElement('div');
@@ -471,10 +577,7 @@ const CloudActivityPage = {
         knob.className = 'ca-fwd-knob';
         btn.appendChild(knob);
 
-        btn.addEventListener('click', async () => {
-            const next = !(this._data && this._data.outbound
-                ? this._data.outbound.forwarding_enabled
-                : out.forwarding_enabled);
+        const applyForwarding = async (next) => {
             btn.disabled = true;
             try {
                 await API.request('/api/v1/cloud-forwarding', {
@@ -488,6 +591,33 @@ const CloudActivityPage = {
                 btn.disabled = false;
                 sub.textContent = 'Could not update forwarding: ' + (err && err.message ? err.message : 'request failed');
             }
+        };
+
+        btn.addEventListener('click', () => {
+            const next = !(this._data && this._data.outbound
+                ? this._data.outbound.forwarding_enabled
+                : out.forwarding_enabled);
+
+            // Disabling is the privacy-safe direction — apply immediately.
+            if (!next) { applyForwarding(false); return; }
+
+            // Enabling starts sending operational metadata off-device to a cloud
+            // that is currently hosted outside the EU. Require an explicit, logged
+            // acknowledgement so an EU / residency-locked user can't silently read
+            // 'content stays local' as 'nothing leaves the region'. Turns the
+            // contradiction into a defensible choice (no cloud dependency).
+            Modal.confirm({
+                title: 'Enable cloud forwarding?',
+                message:
+                    'Fleet sync forwards operational metadata (agent/session ' +
+                    'identifiers, activity counts, posture flags — never prompt or ' +
+                    'output text) to SecureVector\u2019s cloud, currently hosted ' +
+                    'outside the EU. Content stays on this device. You can pause ' +
+                    'forwarding again anytime from this page.',
+                confirmLabel: 'Enable forwarding',
+                cancelLabel: 'Cancel',
+                onConfirm: () => { applyForwarding(true); },
+            });
         });
         row.appendChild(btn);
 

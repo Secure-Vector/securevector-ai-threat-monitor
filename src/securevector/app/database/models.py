@@ -163,6 +163,17 @@ app_settings = Table(
     Column("cloud_mode_enabled", Boolean, nullable=False, default=False),
     Column("cloud_user_email", String(255), nullable=True),
     Column("cloud_connected_at", DateTime, nullable=True),
+    # EU residency / local-only analysis (schema v41): when True, /analyze and
+    # /analyze/output never call the cloud, so prompt text never leaves the
+    # device. The rest of Cloud Connect (rule sync, policy sync, fleet metadata
+    # forwarding, governance) keeps working. Default True — prompts stay local
+    # unless the operator explicitly opts into cloud analysis.
+    Column("local_only_analysis", Boolean, nullable=False, default=True),
+    # Data-residency hard-lock (schema v42): when True, local_only_analysis is
+    # forced ON and the user CANNOT turn it off (EU/regulated orgs). Set by an
+    # env/config override (SV_DATA_RESIDENCY=eu / SV_RESIDENCY_LOCKED) today, or
+    # pushed by the cloud enrollment response (see llm-security-engine #189).
+    Column("residency_locked", Boolean, nullable=False, default=False),
     Column(
         "updated_at",
         DateTime,
@@ -273,6 +284,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
     cloud_mode_enabled INTEGER NOT NULL DEFAULT 0,
     cloud_user_email TEXT,
     cloud_connected_at TIMESTAMP,
+    local_only_analysis INTEGER NOT NULL DEFAULT 1,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -281,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 40
+CURRENT_SCHEMA_VERSION = 42
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "

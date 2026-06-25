@@ -64,7 +64,9 @@ async def threat_analytics(request: ThreatAnalyticsRequest) -> ThreatAnalyticsRe
         settings_repo = SettingsRepository(db)
         settings = await settings_repo.get()
 
-        if settings.cloud_mode_enabled:
+        # Local-only analysis ("EU residency mode") force-keeps the raw prompt
+        # on-device — never POST it to the cloud threat-analytics endpoint.
+        if settings.cloud_mode_enabled and not getattr(settings, "local_only_analysis", True):
             # Try cloud analysis
             try:
                 from securevector.app.services.cloud_proxy import (
