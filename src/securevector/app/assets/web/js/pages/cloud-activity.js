@@ -577,10 +577,7 @@ const CloudActivityPage = {
         knob.className = 'ca-fwd-knob';
         btn.appendChild(knob);
 
-        btn.addEventListener('click', async () => {
-            const next = !(this._data && this._data.outbound
-                ? this._data.outbound.forwarding_enabled
-                : out.forwarding_enabled);
+        const applyForwarding = async (next) => {
             btn.disabled = true;
             try {
                 await API.request('/api/v1/cloud-forwarding', {
@@ -594,6 +591,33 @@ const CloudActivityPage = {
                 btn.disabled = false;
                 sub.textContent = 'Could not update forwarding: ' + (err && err.message ? err.message : 'request failed');
             }
+        };
+
+        btn.addEventListener('click', () => {
+            const next = !(this._data && this._data.outbound
+                ? this._data.outbound.forwarding_enabled
+                : out.forwarding_enabled);
+
+            // Disabling is the privacy-safe direction — apply immediately.
+            if (!next) { applyForwarding(false); return; }
+
+            // Enabling starts sending operational metadata off-device to a cloud
+            // that is currently hosted outside the EU. Require an explicit, logged
+            // acknowledgement so an EU / residency-locked user can't silently read
+            // 'content stays local' as 'nothing leaves the region'. Turns the
+            // contradiction into a defensible choice (no cloud dependency).
+            Modal.confirm({
+                title: 'Enable cloud forwarding?',
+                message:
+                    'Fleet sync forwards operational metadata (agent/session ' +
+                    'identifiers, activity counts, posture flags — never prompt or ' +
+                    'output text) to SecureVector\u2019s cloud, currently hosted ' +
+                    'outside the EU. Content stays on this device. You can pause ' +
+                    'forwarding again anytime from this page.',
+                confirmLabel: 'Enable forwarding',
+                cancelLabel: 'Cancel',
+                onConfirm: () => { applyForwarding(true); },
+            });
         });
         row.appendChild(btn);
 
