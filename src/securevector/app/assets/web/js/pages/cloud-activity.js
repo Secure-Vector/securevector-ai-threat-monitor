@@ -130,7 +130,7 @@ const CloudActivityPage = {
         // simply an optional cloud-account sign-up, not an admin action. Stays
         // honest about local-first + metadata-only + reversible.
         p.textContent =
-            'Cloud Activity lights up once this device is connected to a SecureVector cloud account — optional, with a free tier. Until then SecureVector runs fully local: nothing is synced down and nothing is forwarded up. Connecting is metadata-only, and once connected you can pause forwarding anytime with the toggle on this page.';
+            'Cloud Activity lights up once this device connects to a SecureVector cloud account (optional, free tier). Until then it runs fully local — nothing synced down, nothing forwarded up. Your prompt and output text never leaves this device, connected or not (hard-locked under EU residency). Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org; after that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture. Pause forwarding anytime with the toggle on this page. Shipping detection events to your own SOC is a separate, tiered choice under Connect \u2192 SIEM Forwarder.';
         wrap.appendChild(p);
 
         // Primary CTA — the same signup surface linked from the header, Getting
