@@ -518,7 +518,7 @@ Want it as shared infrastructure instead of one laptop? Run the engine in **your
 | **Google Cloud** | [terraform-google-securevector](https://github.com/Secure-Vector/terraform-google-securevector) |
 | **Oracle Cloud** | [terraform-oci-securevector](https://github.com/Secure-Vector/terraform-oci-securevector) |
 
-Your data stays in your tenant. Pick a framework SDK or plugin and the module wires your agents to the deployed instance.
+Your data stays in your tenant. `terraform output` gives you the endpoint URL — then point your agents at it with the lightweight SDK (LangChain / LangGraph / CrewAI, `--no-deps` install) and/or the SecureVector Guard plugin. See each SDK / plugin's docs for the one env var to set.
 
 <br>
 
