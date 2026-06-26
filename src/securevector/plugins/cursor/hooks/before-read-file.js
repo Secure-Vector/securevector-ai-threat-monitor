@@ -43,7 +43,7 @@ async function main() {
     }
     const content = typeof event.content === 'string' ? event.content : '';
     if (content.length > 0 && hasCredentialMarkers(content)) {
-      const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+      const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
       const filePath = typeof event.file_path === 'string' ? event.file_path : '';
       scanIncoming(baseUrl, `${filePath ? `# file: ${filePath}\n` : ''}${content}`, {
         requestId: newRequestId(),
