@@ -74,6 +74,18 @@ const GuideFrameworksPage = {
         root.appendChild(code('pip install securevector-sdk-langchain     # or -langgraph, or -crewai'));
         root.appendChild(callout('The app must be running locally.', 'The SDK is a thin interception layer that talks to this app over loopback (http://127.0.0.1:8741). Start it with securevector-app --web. If the app is down, observe mode fails open (tool runs) and enforce mode fails closed (tool denied).'));
 
+        // --- Self-host / remote engine (Terraform) ---
+        root.appendChild(h3('Pointing at a self-hosted engine (Terraform / your own cloud)'));
+        root.appendChild(p('Deployed the engine to your own cloud with the SecureVector Terraform modules? Agents don’t need the bundled app — install the adapter only (--no-deps) and point it at your deployment’s endpoint URL.'));
+        root.appendChild(code(`# adapter only — skip the bundled app (your env already has the framework)
+pip install securevector-sdk-langchain --no-deps     # or -langgraph / -crewai
+
+# point at your engine endpoint (the URL from \`terraform output\`)
+export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
+        root.appendChild(callout('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is where tool calls go for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+
         // --- LangChain ---
         root.appendChild(h2('2. Wire it up'));
         root.appendChild(h3('LangChain'));

@@ -79,6 +79,18 @@ const GuideOpenclawPage = {
         root.appendChild(code(`# Linux / macOS\nunset OPENAI_BASE_URL\n\n# Windows (PowerShell)\nRemove-Item Env:\\OPENAI_BASE_URL -ErrorAction SilentlyContinue`));
 
         // --- Verify ---
+        // --- Remote engine (Terraform / self-host) ---
+        root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
+curl -X POST https://<your-engine-endpoint>/api/hooks/install
+
+# point the hooks at your engine endpoint (the URL from \`terraform output\`)
+export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
+        root.appendChild(callout('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
         root.appendChild(code('curl -s http://localhost:8741/api/hooks/status | python3 -m json.tool'));
