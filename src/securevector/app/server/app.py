@@ -10,7 +10,9 @@ Provides REST API endpoints for:
 - Static web UI files
 """
 
+import hmac
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -190,8 +192,39 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Content-Type", "X-Api-Key"],
+        allow_headers=["Content-Type", "X-Api-Key", "Authorization"],
     )
+
+    # --- Inbound ingress-token enforcement (#190, engine v4.9.0+) ----------
+    # When SECUREVECTOR_INGRESS_TOKEN is set (e.g. by the Terraform self-host
+    # modules' `ingress_token` var), the engine requires it on EVERY request,
+    # presented as `Authorization: Bearer <token>` or `X-Api-Key: <token>`.
+    # Empty/unset = no app-layer gate (rely on network gating: a private
+    # subnet / ingress_cidrs). `/health` stays open for the load-balancer
+    # probe; CORS preflight (OPTIONS) is exempt. Constant-time comparison
+    # avoids token timing leaks. This is the inbound counterpart to the
+    # SDK/plugin SECUREVECTOR_ENGINE_ENDPOINT forwarding — it closes the auth
+    # loop for a publicly-exposed self-host endpoint. The env var is read per
+    # request so the gate reflects the current deployment config.
+    _INGRESS_OPEN_PATHS = frozenset({"/health"})
+
+    @app.middleware("http")
+    async def _enforce_ingress_token(request: Request, call_next):
+        expected = os.environ.get("SECUREVECTOR_INGRESS_TOKEN", "").strip()
+        if (
+            expected
+            and request.method != "OPTIONS"
+            and request.url.path not in _INGRESS_OPEN_PATHS
+        ):
+            presented = ""
+            authz = request.headers.get("authorization", "")
+            if authz[:7].lower() == "bearer ":
+                presented = authz[7:].strip()
+            if not presented:
+                presented = request.headers.get("x-api-key", "").strip()
+            if not (presented and hmac.compare_digest(presented, expected)):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
 
     # SPA fallback — serve index.html for any 404 on a GET request that isn't an API call
     @app.exception_handler(404)
