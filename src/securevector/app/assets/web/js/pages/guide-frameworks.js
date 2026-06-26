@@ -83,7 +83,7 @@ pip install securevector-sdk-langchain --no-deps     # or -langgraph / -crewai
 # point at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(callout('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is where tool calls go for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
-        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
         root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
 
         // --- LangChain ---
