@@ -70,10 +70,10 @@ Uninstall: `securevector-app --uninstall-plugin codex` (or `codex plugin remove 
 
 ## Configuration
 
-The plugin reads `SV_BASE_URL` from the environment if set; otherwise defaults to `http://127.0.0.1:8741`. To point at a non-default SecureVector instance:
+The plugin reads `SECUREVECTOR_ENGINE_ENDPOINT` (the unified engine-endpoint variable, shared with the SDKs and the other plugins) — or the legacy `SV_BASE_URL` — from the environment if set; otherwise defaults to `http://127.0.0.1:8741`. This is the **engine** (your local app or a self-hosted / Terraform deployment), **not** the SecureVector cloud. To point at a non-default engine:
 
 ```bash
-export SV_BASE_URL="http://localhost:9000"
+export SECUREVECTOR_ENGINE_ENDPOINT="https://<your-engine-endpoint>"   # legacy: SV_BASE_URL
 # then launch Codex
 ```
 

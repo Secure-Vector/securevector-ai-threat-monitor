@@ -66,10 +66,10 @@ All POSTs target loopback (`http://127.0.0.1:8741` by default). The plugin write
 
 ## Configuration
 
-Set `SV_BASE_URL` to point at a non-default SecureVector instance:
+Set `SECUREVECTOR_ENGINE_ENDPOINT` (the unified engine-endpoint variable; legacy alias `SV_BASE_URL`) to point at a non-default **engine** — your local app or a self-hosted / Terraform deployment, not the SecureVector cloud:
 
 ```bash
-export SV_BASE_URL="http://localhost:9000"
+export SECUREVECTOR_ENGINE_ENDPOINT="https://<your-engine-endpoint>"   # legacy: SV_BASE_URL
 ```
 
 ## License

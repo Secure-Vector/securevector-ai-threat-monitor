@@ -218,7 +218,7 @@ async function main() {
     return;
   }
   const toolName = (event && (event.tool_name || event.toolName)) || '';
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
   let decision = ALLOW;
   try {
     decision = await decide(toolName, baseUrl);

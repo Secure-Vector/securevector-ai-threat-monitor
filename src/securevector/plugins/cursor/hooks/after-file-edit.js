@@ -46,7 +46,7 @@ async function main() {
   } catch {
     return; // malformed stdin — nothing to audit
   }
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
   try {
     const sessionId = sessionIdFrom(event);
     const filePath = (event && typeof event.file_path === 'string') ? event.file_path : '';
