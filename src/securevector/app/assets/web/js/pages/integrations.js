@@ -273,6 +273,11 @@ def chat_with_protection(user_input):
 
         container.textContent = '';
 
+        // Set true by a branch that already appended the remote-endpoint section
+        // at a custom position (SDK pages place it above the legacy proxy), so
+        // the global tail append below doesn't duplicate it.
+        let remoteAdded = false;
+
         // Render based on integration type
         if (integration.isNodeBased) {
             // n8n: Node + API options
@@ -338,8 +343,20 @@ def chat_with_protection(user_input):
             // secures tool calls, not just LLM traffic). The legacy base-URL
             // LLM proxy is demoted to an optional, collapsed section.
             container.appendChild(this.createSdkPrimaryCard(integration, integrationId));
+            // Self-host / Terraform is a first-class deployment, so its section
+            // ranks ABOVE the deprecated "legacy LLM proxy (advanced)" one.
+            container.appendChild(this.createRemoteEndpointSection(integration, integrationId));
             container.appendChild(this.createOptionalProxySection(integration, integrationId));
+            remoteAdded = true;
         }
+
+        // Remote engine (Terraform / self-host) — applies to EVERY integration.
+        // The cards above assume the local app on 127.0.0.1; this collapsible
+        // section explains how to point the same integration at an engine
+        // deployed to your own cloud (SECUREVECTOR_ENGINE_ENDPOINT + optional
+        // auth). Kept in lockstep with the per-harness guide pages. (For the SDK
+        // path it's already inserted above, ahead of the legacy-proxy section.)
+        if (!remoteAdded) container.appendChild(this.createRemoteEndpointSection(integration, integrationId));
     },
 
     createProxyCard(integration, integrationId) {
@@ -521,7 +538,7 @@ def chat_with_protection(user_input):
         content.appendChild(step2Label);
 
         const envRow = document.createElement('div');
-        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        envRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         const linuxCard = document.createElement('div');
         linuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
@@ -664,7 +681,7 @@ def chat_with_protection(user_input):
 
         // Two-column layout: Linux/macOS | Windows
         const singleEnvRow = document.createElement('div');
-        singleEnvRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        singleEnvRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         const sLinuxCard = document.createElement('div');
         sLinuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
@@ -2921,7 +2938,7 @@ def chat_with_protection(user_input):
 
         // Two-column layout: Linux/macOS | Windows
         const envRow = document.createElement('div');
-        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        envRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         // Linux/macOS card
         const linuxCard = document.createElement('div');
@@ -3245,6 +3262,48 @@ def chat_with_protection(user_input):
 
     // The legacy base-URL LLM proxy, demoted to a collapsed "optional" section.
     // It captures LLM traffic only — the SDK above is what secures tool calls.
+    createRemoteEndpointSection(integration, integrationId) {
+        const slug = (integrationId || '').replace('proxy-', '');
+        const isSdk = !!integration.sdkPackage;
+        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenClaw;
+
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom: 16px;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); user-select: none;';
+        summary.textContent = 'Self-hosted via Terraform? Point at your remote engine endpoint';
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'padding: 12px 4px 0;';
+        const note = (text) => { const d = document.createElement('div'); d.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 10px 0 8px; line-height: 1.55;'; d.textContent = text; return d; };
+
+        body.appendChild(note('Everything above assumes the engine is the local app on 127.0.0.1. If you deployed the engine to your own cloud with the SecureVector Terraform modules, keep this exact integration — just point it at your deployment’s endpoint (the URL from `terraform output`) instead of localhost.'));
+
+        if (isSdk) {
+            body.appendChild(note('Your environment already has the framework and the engine lives elsewhere, so install the adapter only (--no-deps) and set the endpoint:'));
+            body.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>'));
+        } else if (isPlugin) {
+            body.appendChild(note('The plugin runs wherever your coding agent runs and talks to the engine over HTTP. Point it at your deployment with one variable, then install/activate as usual:'));
+            body.appendChild(this.createCodeBlock('export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>\nsecurevector-app --install-plugin ' + slug));
+        } else {
+            body.appendChild(note('Replace the localhost endpoint URL shown above with your deployment’s URL — e.g. https://<your-engine-endpoint>/analyze. Nothing else changes.'));
+        }
+
+        const calloutBox = document.createElement('div');
+        calloutBox.style.cssText = 'margin: 10px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary); font-size: 12px; color: var(--text-primary); line-height: 1.55;';
+        const cStrong = document.createElement('strong'); cStrong.textContent = 'Engine, not cloud. ';
+        calloutBox.appendChild(cStrong);
+        calloutBox.appendChild(document.createTextNode('SECUREVECTOR_ENGINE_ENDPOINT is where calls go for analysis — your local app OR your Terraform/self-host engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
+        body.appendChild(calloutBox);
+
+        body.appendChild(note('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key — a free SecureVector account key or an SVET token; it gates inbound access only and forwards no data:'));
+        body.appendChild(this.createCodeBlock('export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only'));
+
+        details.appendChild(body);
+        return details;
+    },
+
     createOptionalProxySection(integration, integrationId) {
         const details = document.createElement('details');
         details.style.cssText = 'margin-bottom: 16px;';

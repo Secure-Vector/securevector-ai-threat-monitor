@@ -14,6 +14,12 @@ let _gmRoboTimer = null;
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+        // Connect Agents — top-level so the integration routes are one click
+        // from any page on EVERY viewport. On mobile the header action buttons
+        // overflow off-screen, so this always-visible nav item (not buried in
+        // the collapsible Guide) is what guarantees the "see the option" goal
+        // there. Same destination as the header Connect Agents button.
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Point your existing agents at this engine — Framework SDKs or coding-agent plugins' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
         // Agent Replay umbrella — collapsible parent grouping the three
         // observability views that share the same per-agent lens. Top-level
@@ -95,6 +101,9 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            // "Connect Your Agents" is promoted to a top-level nav item (see
+            // above) so it is always visible on every viewport; it is therefore
+            // intentionally NOT duplicated here under Guide.
             // Harness plugin guides grouped under one header — one section per
             // harness that ships a native plugin (Claude Code, Codex, GitHub
             // Copilot CLI, OpenClaw).
@@ -1551,6 +1560,14 @@ const Sidebar = {
                 { tag: 'line', attrs: { x1: '1', y1: '14', x2: '7', y2: '14' } },
                 { tag: 'line', attrs: { x1: '9', y1: '8', x2: '15', y2: '8' } },
                 { tag: 'line', attrs: { x1: '17', y1: '16', x2: '23', y2: '16' } },
+            ],
+            // Plug — "connect your agents". Mirrors the header Connect Agents
+            // button glyph so the two entry points read as the same action.
+            plug: [
+                { tag: 'path', attrs: { d: 'M9 2v6' } },
+                { tag: 'path', attrs: { d: 'M15 2v6' } },
+                { tag: 'path', attrs: { d: 'M7 8h10v3a5 5 0 0 1-10 0V8z' } },
+                { tag: 'path', attrs: { d: 'M12 16v6' } },
             ],
         };
 

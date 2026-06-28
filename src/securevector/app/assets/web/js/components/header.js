@@ -76,9 +76,21 @@ const Header = {
         const tourBtn = this.createTourButton();
         right.appendChild(tourBtn);
 
-        // AI Analysis button (opens modal)
-        const llmToggle = this.createLLMToggle();
-        right.appendChild(llmToggle);
+        // Connect Agents — always-visible entry to the two integration routes
+        // (Framework SDKs vs plugins). Shown for every persona regardless of
+        // whether they run the local app or a Terraform/self-host engine, so
+        // the path to "point my agents at this" is one click from any page.
+        const connectBtn = this.createConnectAgentsButton();
+        right.appendChild(connectBtn);
+
+        // NOTE: the "AI Analysis" toggle was removed from the header — it is an
+        // OPTIONAL, configure-once setting (reduce false positives via an LLM)
+        // that fully duplicates Settings → "AI Analysis — Optional". The header
+        // is reserved for global/frequent state (Cloud Connect, theme); a
+        // one-time config button there only added clutter and contributed to
+        // the mobile header overflow. Configure it from Settings instead.
+        // (createLLMToggle/showLLMConfigModal are retained for now in case a
+        // deep-link wants the modal, but nothing renders the header button.)
 
         // Cloud Mode toggle — global cloud connectivity state. Per-feature
         // status (Policy Sync, etc.) lives on the feature pages, not in the
@@ -88,9 +100,9 @@ const Header = {
 
         container.appendChild(right);
 
-        // Check cloud mode + LLM mode
+        // Check cloud mode (the AI-Analysis header indicator was removed; its
+        // state now lives on the Settings page).
         this.checkCloudMode();
-        this.checkLLMMode();
     },
 
     toggleMobileMenu() {
@@ -1244,6 +1256,113 @@ const Header = {
         setTimeout(() => this.showCloudConnectGuide(), 200);
     },
 
+    createConnectAgentsButton() {
+        const btn = document.createElement('button');
+        // Accent-bordered pill so it reads as the primary "do this next" action
+        // without competing with the filled Cloud Connect gradient button.
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--accent-primary); color: var(--accent-primary); height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; margin-right: 10px;';
+        btn.title = 'Connect your agents to this engine';
+
+        // Plug icon — "connect".
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.style.cssText = 'width: 14px; height: 14px;';
+        [
+            'M9 2v6', 'M15 2v6', 'M7 8h10v3a5 5 0 0 1-10 0V8z', 'M12 16v6',
+        ].forEach(d => { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); svg.appendChild(p); });
+        btn.appendChild(svg);
+
+        const label = document.createElement('span');
+        label.textContent = 'Connect Agents';
+        btn.appendChild(label);
+
+        btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--accent-primary)'; btn.style.color = '#fff'; });
+        btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; btn.style.color = 'var(--accent-primary)'; });
+        btn.addEventListener('click', () => this.showConnectAgentsChooser());
+        return btn;
+    },
+
+    // Two-route chooser. Shared by the header button and the first-run welcome
+    // so there is exactly one place that defines "how do I connect my agents".
+    // Each route deep-links into the Connect Your Agents guide page.
+    showConnectAgentsChooser() {
+        const content = document.createElement('div');
+        content.className = 'connect-agents-chooser';
+
+        const intro = document.createElement('p');
+        intro.style.cssText = 'margin: 0 0 18px; color: var(--text-secondary); font-size: 14px; line-height: 1.55;';
+        intro.textContent = 'Point your existing agents at this engine. Pick the route that matches how you build them — it works the same whether this is the local app or an engine you deployed with Terraform.';
+        content.appendChild(intro);
+
+        const routes = [
+            {
+                badge: 'Route A',
+                title: 'I use a framework',
+                sub: 'LangChain · LangGraph · CrewAI',
+                desc: 'One SDK import secures every tool call. Lightweight --no-deps install when your engine is remote.',
+                anchor: 'route-frameworks',
+            },
+            {
+                badge: 'Route B',
+                title: 'I use a coding agent',
+                sub: 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw',
+                desc: 'Native Guard plugin hooks your coding agent directly — install the app, register the plugin.',
+                anchor: 'route-plugins',
+            },
+        ];
+
+        routes.forEach(r => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.style.cssText = 'display: block; width: 100%; text-align: left; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 18px; margin-bottom: 12px; cursor: pointer; color: var(--text-primary); transition: border-color 0.15s, box-shadow 0.15s;';
+            card.onmouseenter = () => { card.style.borderColor = 'var(--accent-primary)'; card.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'; };
+            card.onmouseleave = () => { card.style.borderColor = 'var(--border-default)'; card.style.boxShadow = 'none'; };
+
+            const badge = document.createElement('span');
+            badge.style.cssText = 'display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--accent-primary); background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 4px; padding: 2px 8px; margin-bottom: 8px;';
+            badge.textContent = r.badge;
+            card.appendChild(badge);
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size: 16px; font-weight: 700; margin-bottom: 2px;';
+            title.textContent = r.title;
+            card.appendChild(title);
+
+            const sub = document.createElement('div');
+            sub.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary); margin-bottom: 6px;';
+            sub.textContent = r.sub;
+            card.appendChild(sub);
+
+            const desc = document.createElement('div');
+            desc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5;';
+            desc.textContent = r.desc;
+            card.appendChild(desc);
+
+            card.addEventListener('click', () => {
+                if (window.GuideConnectAgentsPage) GuideConnectAgentsPage.scrollTo = r.anchor;
+                Modal.close();
+                if (window.Sidebar) Sidebar.navigate('guide-connect-agents');
+            });
+            content.appendChild(card);
+        });
+
+        const footer = document.createElement('p');
+        footer.style.cssText = 'margin: 6px 0 0; font-size: 12px; color: var(--text-secondary);';
+        footer.textContent = 'Using n8n, Dify, Ollama, or any HTTP client? See the Integrations pages in the sidebar.';
+        content.appendChild(footer);
+
+        Modal.show({
+            title: 'Connect your agents',
+            content: content,
+            size: 'medium',
+        });
+    },
+
     createAgentDropdown() {
         const wrapper = document.createElement('div');
         wrapper.className = 'agent-dropdown-wrapper';
@@ -1742,6 +1861,7 @@ graph.add_edge("output_security", END)`,
         costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
+        'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine — Framework SDKs or coding-agent plugins, local or self-host' },
         settings:          { title: 'Settings',            subtitle: 'Configure SecureVector for your environment' },
         'proxy-langchain': { title: 'LangChain',           subtitle: 'SecureVector SDK for LangChain tool calls — optional legacy proxy' },
         'proxy-langgraph': { title: 'LangGraph',           subtitle: 'SecureVector SDK for LangGraph tool calls — optional legacy proxy' },
