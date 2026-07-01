@@ -23,11 +23,13 @@
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
-| **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install --no-deps`) | `langchain` |
-| **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install --no-deps`) | `langgraph` |
-| **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install --no-deps`) | `crewai` |
+| **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
+| **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |
+| **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install`) | `crewai` |
 
-Native plugins enforce inline (zero proxy); SDKs secure tool calls — all on **one enforcement core**, so a single `tool_id="Bash"` rule covers Bash on Claude Code, `exec_command` on Codex, and shell calls on Cursor & OpenClaw. SDK modes: `observe` logs (tool runs), `enforce` blocks. The SDKs are self-contained, so `--no-deps` keeps installs lightweight. Install from the **Integrations** tab (or **Connect Agents** for the quick path). Running the engine in your own cloud? Point any agent at it with `SECUREVECTOR_ENGINE_ENDPOINT` — plugins are point-and-go, SDKs stay `--no-deps`.
+Native plugins enforce inline (zero proxy); SDKs secure tool calls — all on **one enforcement core**, so a single `tool_id="Bash"` rule covers Bash on Claude Code, `exec_command` on Codex, and shell calls on Cursor & OpenClaw. SDK modes: `observe` logs (tool runs), `enforce` blocks. Install from the **Integrations** tab (or **Connect Agents** for the quick path).
+
+**Where the engine runs decides the install.** Running locally / auditing on this device → **full install** (the app runs as the engine here). Engine in your own cloud → point agents at it with `SECUREVECTOR_ENGINE_ENDPOINT` and install the self-contained SDK adapter lightweight with `--no-deps`; plugins are point-and-go.
 
 Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): the **multi-provider proxy** — Ollama · n8n · any OpenAI-compatible app via `OPENAI_BASE_URL`; the **MCP server** — Claude Desktop & other MCP clients (`pip install securevector-ai-monitor[mcp]`); and a raw **`POST /analyze`** for any HTTP client. MCP tools invoked *from* a plugged-in harness are attributed to that harness's `runtime_kind`.
 
