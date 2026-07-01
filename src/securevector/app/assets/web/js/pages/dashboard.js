@@ -285,56 +285,25 @@ const DashboardPage = {
         card.style.cssText = 'padding: 16px 18px; border-radius: 10px; border: 1px solid var(--border-default); background: var(--bg-card);';
 
         const title = document.createElement('div');
-        title.textContent = 'Get protected in 3 steps';
-        title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 10px;';
+        title.textContent = 'Get protected — connect your first agent';
+        title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 6px;';
         card.appendChild(title);
 
-        const steps = document.createElement('div');
-        steps.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-        card.appendChild(steps);
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 14px;';
+        sub.textContent = 'Head to Connect Agents — pick your agent or harness, choose where SecureVector runs, and copy the commands. This dashboard fills in automatically once your first agent runs.';
+        card.appendChild(sub);
 
-        const makeStep = (n, text, done, actionLabel, onAction) => {
-            const row = document.createElement('div');
-            row.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-            const badge = document.createElement('span');
-            badge.textContent = done ? '✓' : String(n);
-            badge.style.cssText = `width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; ${done ? 'background: rgba(16,185,129,0.18); color: #10b981;' : 'background: var(--bg-tertiary); color: var(--text-secondary);'}`;
-            row.appendChild(badge);
-            const txt = document.createElement('div');
-            txt.textContent = text;
-            txt.style.cssText = `flex: 1; font-size: 13px; ${done ? 'color: var(--text-muted); text-decoration: line-through;' : 'color: var(--text-primary);'}`;
-            row.appendChild(txt);
-            if (!done && actionLabel) {
-                const btn = document.createElement('button');
-                btn.className = 'btn btn-secondary btn-sm';
-                btn.textContent = actionLabel;
-                btn.addEventListener('click', onAction);
-                row.appendChild(btn);
-            }
-            return row;
-        };
-
-        steps.appendChild(makeStep(1, 'Connect an agent harness (Claude Code, Codex, OpenClaw…)', false,
-            'Open Integrations', () => { if (window.Sidebar) Sidebar.navigate('proxy-claude-code'); }));
-
-        const waitRow = document.createElement('div');
-        waitRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-        const waitBadge = document.createElement('span');
-        waitBadge.textContent = '2';
-        waitBadge.style.cssText = 'width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--bg-tertiary); color: var(--text-secondary);';
-        waitRow.appendChild(waitBadge);
-        const waitTxt = document.createElement('div');
-        waitTxt.style.cssText = 'flex: 1; font-size: 13px; color: var(--text-primary);';
-        waitTxt.textContent = 'Run your agent — waiting for the first event…';
-        waitRow.appendChild(waitTxt);
-        steps.appendChild(waitRow);
-
-        steps.appendChild(makeStep(3, 'Turn on Block Mode to block threats on the proxy / analyze path (tool calls are already blocked natively)',
-            !!(this.settings && this.settings.block_threats),
-            'Show me', () => {
-                const sec = document.querySelector('.security-controls-section');
-                if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }));
+        // Single CTA — the Connect Agents page is now the one front door, so the
+        // old inline 3-step checklist is replaced by a redirect. Accent-outline
+        // button (no cyan fill / white text).
+        const cta = document.createElement('button');
+        cta.style.cssText = 'display: inline-flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--accent-primary) 15%, transparent); border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent); color: var(--accent-primary); border-radius: 9px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s;';
+        cta.textContent = 'Connect Agents →';
+        cta.addEventListener('mouseenter', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 24%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 60%, transparent)'; });
+        cta.addEventListener('mouseleave', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 15%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 45%, transparent)'; });
+        cta.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide-connect-agents'); });
+        card.appendChild(cta);
 
         // First-event poll. The stall hint appears after 10 minutes of
         // silence measured from the FIRST time the checklist rendered, so
@@ -576,22 +545,25 @@ const DashboardPage = {
 
             // Value metrics grid
             const metricsGrid = document.createElement('div');
-            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;';
+            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px;';
 
             const makeMetric = (value, label, color, navPage) => {
                 const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
+                // KPI band is the dashboard's headline — give the cards real
+                // presence (larger numbers, more padding) so the hero metrics
+                // read first, ahead of the charts below.
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 18px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
                 card.addEventListener('mouseenter', () => { card.style.borderColor = color + '66'; card.style.transform = 'translateY(-1px)'; });
                 card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border-default)'; card.style.transform = ''; });
                 if (navPage) card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
 
                 const valEl = document.createElement('div');
-                valEl.style.cssText = 'font-size: 20px; font-weight: 800; color: ' + color + '; line-height: 1.1; margin-bottom: 4px;';
+                valEl.style.cssText = 'font-size: 28px; font-weight: 800; color: ' + color + '; line-height: 1.05; margin-bottom: 6px; letter-spacing: -0.5px;';
                 valEl.textContent = value;
                 card.appendChild(valEl);
 
                 const lblEl = document.createElement('div');
-                lblEl.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; line-height: 1.3;';
+                lblEl.style.cssText = 'font-size: 11.5px; color: var(--text-secondary); font-weight: 600; line-height: 1.3; letter-spacing: 0.2px;';
                 lblEl.textContent = label;
                 card.appendChild(lblEl);
 

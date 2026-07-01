@@ -442,7 +442,7 @@ async function main() {
     // on stdout; the audit POST simply doesn't happen.
     return;
   }
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
   try {
     await audit(event, baseUrl);
   } catch {

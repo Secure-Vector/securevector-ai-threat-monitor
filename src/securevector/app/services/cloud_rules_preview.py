@@ -297,7 +297,11 @@ async def apply_preview(
         "total_after": total_after,
         "source": "cloud_sync_preview",
     }
-    logger.info(f"cloud_rules_preview: applied {result}")
+    # Log only the numeric counts (no user-provided strings) to avoid log injection.
+    logger.info(
+        "cloud_rules_preview: applied upserted=%s replaced_existing=%s skipped_by_user=%s total_after=%s",
+        result.get("upserted"), result.get("replaced_existing"), result.get("skipped_by_user"), result.get("total_after"),
+    )
     return result
 
 

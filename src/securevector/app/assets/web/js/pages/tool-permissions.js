@@ -2151,7 +2151,12 @@ const ToolPermissionsPage = {
         // ~620px (mobile + narrow split panes). Each row still carries
         // the full stripe + icon + name + meta + action, so the
         // scan-down-the-stripe affordance survives per column.
-        listWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(540px, 1fr)); gap: 2px 8px; align-content: start;';
+        // minmax(min(540px, 100%), 1fr): the min() clamps the track floor to the
+        // container width on narrow screens, so a viewport < 540px no longer
+        // forces the column (and its row) to overflow and clip the action
+        // buttons. On wide screens min(540px,100%) === 540px — desktop layout
+        // (2 cols ≥1100px, 1 col below) is unchanged.
+        listWrap.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(min(540px, 100%), 1fr)); gap: 2px 8px; align-content: start;';
 
         // Route the list to the right population based on the active tab.
         // Org Policies tab → cloud-managed (synced+last_resort) rows.

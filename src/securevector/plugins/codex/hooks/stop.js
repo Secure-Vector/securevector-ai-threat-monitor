@@ -70,7 +70,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
 
   try {
     postJsonAndForget(`${baseUrl}/api/tool-permissions/call-audit`, buildSessionEndBody(event));

@@ -69,7 +69,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
 
   // Reachability probe — fail-quiet to stderr. The probe runs with the
   // default 100ms client-side timeout in lib/client.js, so a slow / down

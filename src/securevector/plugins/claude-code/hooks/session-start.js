@@ -56,7 +56,7 @@ async function main() {
     event = raw ? JSON.parse(raw) : {};
   } catch { /* swallow — empty event is fine */ }
 
-  const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
 
   // Reachability probe — keyed on the presence of the `synced` key in the
   // response shape (getJson fails open to {} on error/timeout/non-2xx, so its

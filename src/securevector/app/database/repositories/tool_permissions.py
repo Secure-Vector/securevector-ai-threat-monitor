@@ -74,7 +74,11 @@ class ToolPermissionsRepository:
             """,
             (tool_id, action, runtime_kind, now, action, runtime_kind, now),
         )
-        logger.info(f"Upserted tool override: {tool_id} -> {action} (runtime={runtime_kind or 'all'})")
+        # Strip CR/LF from user-provided values before logging (log-injection guard).
+        _s_tool = str(tool_id).replace("\n", " ").replace("\r", " ")
+        _s_action = str(action).replace("\n", " ").replace("\r", " ")
+        _s_rk = str(runtime_kind or "all").replace("\n", " ").replace("\r", " ")
+        logger.info("Upserted tool override: %s -> %s (runtime=%s)", _s_tool, _s_action, _s_rk)
         return {"tool_id": tool_id, "action": action, "runtime_kind": runtime_kind, "updated_at": now}
 
     async def delete_override(self, tool_id: str) -> bool:

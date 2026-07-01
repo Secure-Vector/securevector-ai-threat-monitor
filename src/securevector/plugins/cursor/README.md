@@ -54,10 +54,10 @@ Uninstall: `securevector-app --uninstall-plugin cursor` — removes the plugin d
 
 ## Configuration
 
-Set `SV_BASE_URL` to point at a non-default SecureVector instance (the installer also rewrites the default URL at staging time to match your app's actual port):
+Set `SECUREVECTOR_ENGINE_ENDPOINT` (the unified engine-endpoint variable; legacy alias `SV_BASE_URL`) to point at a non-default **engine** — your local app or a self-hosted / Terraform deployment, not the SecureVector cloud (the installer also rewrites the default URL at staging time to match your app's actual port):
 
 ```bash
-export SV_BASE_URL="http://localhost:9000"
+export SECUREVECTOR_ENGINE_ENDPOINT="https://<your-engine-endpoint>"   # legacy: SV_BASE_URL
 ```
 
 ## License

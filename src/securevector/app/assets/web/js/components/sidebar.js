@@ -37,7 +37,7 @@ const Sidebar = {
         // Skills + Tools entries cover their primary "configure" surfaces
         // (the Permissions / Policy tabs); the Activity / Tracking tabs are
         // surfaced under Agent Replay above.
-        { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
+        { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
         // Guardian ML — local ML threat detection. A configure-time choice
         // (on/off + what it does), so it sits in Configure and deep-links to
@@ -68,7 +68,14 @@ const Sidebar = {
         // higher-value v4.0 positioning. Both are Connect; this is the
         // one regulated buyers ask about first.
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
+        // Connect an agent — the QUICK path: pick an agent, copy a couple of
+        // commands, done. It sits directly above Integrations, which is the
+        // DETAILED per-agent reference (install/verify/uninstall, self-host,
+        // troubleshooting). Quick first, detailed second. Always-visible
+        // top-level item (not inside the collapsible Integrations) so it stays
+        // reachable on every viewport; same destination as the header button.
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Quick start — pick an agent and copy a couple of commands. Detect what is already on this device, and find the full per-agent reference under Integrations.' },
+        { id: 'integrations', label: 'Integrations (reference)', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
@@ -95,6 +102,9 @@ const Sidebar = {
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
+            // "Connect Your Agents" is promoted to a top-level nav item (see
+            // above) so it is always visible on every viewport; it is therefore
+            // intentionally NOT duplicated here under Guide.
             // Harness plugin guides grouped under one header — one section per
             // harness that ships a native plugin (Claude Code, Codex, GitHub
             // Copilot CLI, OpenClaw).
@@ -228,7 +238,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.8.0';
+        version.textContent = 'v4.9.0';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -413,7 +423,7 @@ const Sidebar = {
             const persistNewItems = ['rules', 'governance'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = ['siem-export', 'integrations'];
+            const sessionNewItems = [];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist
@@ -510,7 +520,7 @@ const Sidebar = {
                 // session-NEW list above; kept separate because sub-items
                 // render in a different branch and the keys aren't shared
                 // with the top-level item IDs.
-                const subNewItems = ['proxy-codex', 'bill-of-tools', 'redactions'];
+                const subNewItems = ['proxy-codex', 'bill-of-tools'];
 
                 item.subItems.forEach(subItem => {
                     // Non-clickable section header (groups the integration list
@@ -1551,6 +1561,14 @@ const Sidebar = {
                 { tag: 'line', attrs: { x1: '1', y1: '14', x2: '7', y2: '14' } },
                 { tag: 'line', attrs: { x1: '9', y1: '8', x2: '15', y2: '8' } },
                 { tag: 'line', attrs: { x1: '17', y1: '16', x2: '23', y2: '16' } },
+            ],
+            // Plug — "connect your agents". Mirrors the header Connect Agents
+            // button glyph so the two entry points read as the same action.
+            plug: [
+                { tag: 'path', attrs: { d: 'M9 2v6' } },
+                { tag: 'path', attrs: { d: 'M15 2v6' } },
+                { tag: 'path', attrs: { d: 'M7 8h10v3a5 5 0 0 1-10 0V8z' } },
+                { tag: 'path', attrs: { d: 'M12 16v6' } },
             ],
         };
 

@@ -273,73 +273,191 @@ def chat_with_protection(user_input):
 
         container.textContent = '';
 
-        // Render based on integration type
-        if (integration.isNodeBased) {
-            // n8n: Node + API options
-            container.appendChild(this.createNodeCard(integration));
-            container.appendChild(this.createApiCard(integration));
-        } else if (integration.isClaudeCode) {
-            // Claude Code: Plugin card only (host-native plugin, no proxy/block-mode)
-            container.appendChild(this.createClaudeCodePluginCard());
-        } else if (integration.isCodex) {
-            // Codex: Plugin card only (host-native plugin, no proxy/block-mode)
-            container.appendChild(this.createCodexPluginCard());
-        } else if (integration.isCopilotCli) {
-            // GitHub Copilot CLI: Plugin card only (host-native plugin, no proxy/block-mode)
-            container.appendChild(this.createCopilotCliPluginCard());
-        } else if (integration.isCursor) {
-            // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
-            container.appendChild(this.createCursorPluginCard());
-        } else if (integration.isOpenClaw) {
-            // OpenClaw: Plugin card + separate block mode card
-            container.appendChild(this.createOpenClawPluginCard());
-            container.appendChild(this.createOpenClawBlockModeCard());
-            // Revert card: only show when block mode is on and proxy is running
-            const revertCard = this.createRevertCard();
-            revertCard.style.display = 'none';
-            container.appendChild(revertCard);
-            // Proxy status indicator (bottom of page)
-            const statusBar = document.createElement('div');
-            statusBar.style.cssText = 'position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 16px; font-size: 12px; font-weight: 600; text-align: center; z-index: 100; display: none;';
-            container.appendChild(statusBar);
+        // Orientation: this is the DETAILED reference surface. Most users arrive
+        // from the Connect Agents quick-start (via its "Full setup →" links), so
+        // signpost that relationship and offer a way back.
+        const refNote = document.createElement('div');
+        refNote.style.cssText = 'display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-card);';
+        refNote.appendChild(document.createTextNode('Detailed reference for ' + (integration.name || 'this integration') + ' — install, verify, self-host & troubleshooting.'));
+        const backLink = document.createElement('button');
+        backLink.type = 'button';
+        backLink.style.cssText = 'background: none; border: none; color: var(--accent-primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px;';
+        backLink.textContent = '← Connect Agents (quick start)';
+        backLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide-connect-agents'); });
+        refNote.appendChild(backLink);
+        container.appendChild(refNote);
 
-            (async () => {
-                try {
-                    const [settings, proxyStatus] = await Promise.all([
-                        API.getSettings(),
-                        fetch('/api/proxy/status').then(r => r.json()),
-                    ]);
-                    if (settings.block_threats && proxyStatus.running) {
-                        revertCard.style.display = '';
-                    }
-                    // Show proxy status bar
-                    statusBar.style.display = '';
-                    if (proxyStatus.running) {
-                        statusBar.style.background = 'var(--success)';
-                        statusBar.style.color = '#fff';
-                        const port = proxyStatus.port || 8742;
-                        statusBar.textContent = `Proxy running on port ${port}`;
-                    } else {
-                        statusBar.style.background = 'var(--bg-tertiary)';
-                        statusBar.style.color = 'var(--text-secondary)';
-                        statusBar.textContent = 'Proxy not running — monitoring via plugin only';
-                    }
-                } catch {}
-            })();
-        } else if (integration.proxyOnly) {
-            // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
-            container.appendChild(this.createMultiProviderCard());
-            container.appendChild(this.createProxyCard(integration, integrationId));
-            if (integration.exampleCode) {
-                container.appendChild(this.createExampleCodeCard(integration));
+        // Runtime posture: the page adapts to HOW this app runs. Endpoint mode =
+        // this process is itself a self-hosted engine (container OR a configured
+        // public URL), so local-desktop install steps don't apply — we lead with
+        // the remote-endpoint guidance (expanded) and tuck the local steps into a
+        // collapsed section. The server computes `mode`; we fall back client-side.
+        let env = { in_container: false, public_url: null, mode: 'local' };
+        try { const r = await fetch('/api/system/environment'); if (r.ok) env = await r.json(); } catch (e) {}
+        const endpointMode = env.mode ? env.mode === 'endpoint' : !!(env.in_container || env.public_url);
+        const engineUrl = env.public_url || (endpointMode ? window.location.origin : null);
+
+        // Set true by a branch that already appended the remote-endpoint section
+        // at a custom position (SDK pages inline it as Option 2), so the global
+        // tail append below doesn't duplicate it.
+        let remoteAdded = false;
+
+        // Local/primary install cards render into localWrap. `container` is
+        // shadowed inside this block so the existing branch appends land in the
+        // wrapper untouched; we then place (or collapse) the wrapper by mode.
+        const localWrap = document.createElement('div');
+        {
+            const container = localWrap;
+            // Render based on integration type
+            if (integration.isNodeBased) {
+                // n8n: Node + API options
+                container.appendChild(this.createNodeCard(integration));
+                container.appendChild(this.createApiCard(integration));
+            } else if (integration.isClaudeCode) {
+                // Claude Code: Plugin card only (host-native plugin, no proxy/block-mode)
+                container.appendChild(this.createClaudeCodePluginCard());
+            } else if (integration.isCodex) {
+                // Codex: Plugin card only (host-native plugin, no proxy/block-mode)
+                container.appendChild(this.createCodexPluginCard());
+            } else if (integration.isCopilotCli) {
+                // GitHub Copilot CLI: Plugin card only (host-native plugin, no proxy/block-mode)
+                container.appendChild(this.createCopilotCliPluginCard());
+            } else if (integration.isCursor) {
+                // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
+                container.appendChild(this.createCursorPluginCard());
+            } else if (integration.isOpenClaw) {
+                // OpenClaw: Plugin card + separate block mode card
+                container.appendChild(this.createOpenClawPluginCard());
+                container.appendChild(this.createOpenClawBlockModeCard());
+                // Revert card: only show when block mode is on and proxy is running
+                const revertCard = this.createRevertCard();
+                revertCard.style.display = 'none';
+                container.appendChild(revertCard);
+                // Proxy status indicator (bottom of page)
+                const statusBar = document.createElement('div');
+                statusBar.style.cssText = 'position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 16px; font-size: 12px; font-weight: 600; text-align: center; z-index: 100; display: none;';
+                container.appendChild(statusBar);
+
+                (async () => {
+                    try {
+                        const [settings, proxyStatus] = await Promise.all([
+                            API.getSettings(),
+                            fetch('/api/proxy/status').then(r => r.json()),
+                        ]);
+                        if (settings.block_threats && proxyStatus.running) {
+                            revertCard.style.display = '';
+                        }
+                        // Show proxy status bar
+                        statusBar.style.display = '';
+                        if (proxyStatus.running) {
+                            statusBar.style.background = 'var(--success)';
+                            statusBar.style.color = '#fff';
+                            const port = proxyStatus.port || 8742;
+                            statusBar.textContent = `Proxy running on port ${port}`;
+                        } else {
+                            statusBar.style.background = 'var(--bg-tertiary)';
+                            statusBar.style.color = 'var(--text-secondary)';
+                            statusBar.textContent = 'Proxy not running — monitoring via plugin only';
+                        }
+                    } catch {}
+                })();
+            } else if (integration.proxyOnly) {
+                // Ollama: Multi-Provider (recommended) + Single Proxy + Example Code
+                container.appendChild(this.createMultiProviderCard());
+                container.appendChild(this.createProxyCard(integration, integrationId));
+                if (integration.exampleCode) {
+                    container.appendChild(this.createExampleCodeCard(integration));
+                }
+            } else {
+                // LangChain, LangGraph, CrewAI: the SDK is the primary path (it
+                // secures tool calls, not just LLM traffic). Option 1/Option 2
+                // (this device / your cloud) live inside the card, which itself
+                // adapts to endpoint mode. The legacy proxy stays collapsed below.
+                container.appendChild(this.createSdkPrimaryCard(integration, integrationId, endpointMode, engineUrl));
+                container.appendChild(this.createOptionalProxySection(integration, integrationId));
+                remoteAdded = true;
             }
-        } else {
-            // LangChain, LangGraph, CrewAI: the SDK is the primary path (it
-            // secures tool calls, not just LLM traffic). The legacy base-URL
-            // LLM proxy is demoted to an optional, collapsed section.
-            container.appendChild(this.createSdkPrimaryCard(integration, integrationId));
-            container.appendChild(this.createOptionalProxySection(integration, integrationId));
         }
+
+        // The remote-endpoint (self-host) section — shared, and the STAR in
+        // endpoint mode (expanded). SDK pages already inline it (remoteAdded).
+        const remoteSection = remoteAdded ? null : this.createRemoteEndpointSection(integration, integrationId, endpointMode, engineUrl);
+
+        if (endpointMode) {
+            container.appendChild(this.createEndpointBanner(engineUrl, env, integration));
+        }
+        if (endpointMode && !remoteAdded) {
+            // Plugin / proxy pages: local install is its own card. Lead with the
+            // expanded remote guidance, collapse the local card behind a summary.
+            if (remoteSection) container.appendChild(remoteSection);
+            container.appendChild(this._collapseLocal(localWrap));
+        } else {
+            // Local mode (any page) OR SDK pages (Option 1/2 adapt inside the card).
+            // On plugin/proxy pages, label the local card as "Option 1 · This
+            // device" so it pairs visibly with the "Option 2 · Your cloud" remote
+            // section below (SDK pages already show both options inside the card).
+            if (!remoteAdded) container.appendChild(this._optionLabel('1', 'This device (local app)', null, '#06b6d4'));
+            container.appendChild(localWrap);
+            if (remoteSection) container.appendChild(remoteSection);
+        }
+    },
+
+    // Standalone "Option N · Title" header row — pairs the local install card with
+    // the remote-endpoint section so the two deployment choices read as options.
+    _optionLabel(num, title, tag, dot) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; align-items: center; gap: 9px; margin: 0 0 8px; flex-wrap: wrap;';
+        const pill = document.createElement('span');
+        pill.style.cssText = 'flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 20px; padding: 3px 10px;';
+        const d = document.createElement('span'); d.setAttribute('aria-hidden', 'true'); d.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; background: ' + dot + '; box-shadow: 0 0 0 3px color-mix(in srgb, ' + dot + ' 22%, transparent);';
+        pill.appendChild(d); pill.appendChild(document.createTextNode('Option ' + num));
+        row.appendChild(pill);
+        const ttl = document.createElement('span'); ttl.style.cssText = 'font-size: 13.5px; font-weight: 700; color: var(--text-primary);'; ttl.textContent = title;
+        row.appendChild(ttl);
+        if (tag) { const tg = document.createElement('span'); tg.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--accent-primary); border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent); border-radius: 20px; padding: 1px 8px;'; tg.textContent = tag; row.appendChild(tg); }
+        return row;
+    },
+
+    // Banner shown when THIS app runs as a self-hosted engine — makes the posture
+    // unmistakable and hands over the endpoint URL agents should target.
+    createEndpointBanner(engineUrl, env, integration) {
+        const RED = '#ef4444';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'margin: 0 0 16px; padding: 14px 16px; background: color-mix(in srgb, ' + RED + ' 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, ' + RED + ' 45%, var(--border-default)); border-left: 3px solid ' + RED + '; border-radius: 10px;';
+        const t = document.createElement('div');
+        t.style.cssText = 'font-size: 14px; font-weight: 800; margin-bottom: 4px;';
+        t.textContent = (env && env.in_container)
+            ? 'Self-hosted engine (container) — point ' + (integration.name || 'this agent') + ' here'
+            : 'Self-hosted engine — point ' + (integration.name || 'this agent') + ' here';
+        wrap.appendChild(t);
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
+        sub.textContent = 'This SecureVector is running as a network endpoint, so the local-app install is off by default. Use the endpoint steps below; the local steps are collapsed at the bottom.';
+        wrap.appendChild(sub);
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+        const code = document.createElement('code');
+        code.style.cssText = 'flex: 1; padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto; color: var(--text-primary);';
+        code.textContent = engineUrl || window.location.origin;
+        row.appendChild(code);
+        wrap.appendChild(row);
+        return wrap;
+    },
+
+    // Collapses the local-desktop install card in endpoint mode. Still reachable
+    // (a self-hoster might also run the desktop app), just not the headline.
+    _collapseLocal(localWrap) {
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom: 16px;';
+        const summary = document.createElement('summary');
+        summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); user-select: none;';
+        summary.textContent = 'Running the local desktop app instead? Show local install steps';
+        details.appendChild(summary);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding-top: 12px;';
+        body.appendChild(localWrap);
+        details.appendChild(body);
+        return details;
     },
 
     createProxyCard(integration, integrationId) {
@@ -521,7 +639,7 @@ def chat_with_protection(user_input):
         content.appendChild(step2Label);
 
         const envRow = document.createElement('div');
-        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        envRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         const linuxCard = document.createElement('div');
         linuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
@@ -664,7 +782,7 @@ def chat_with_protection(user_input):
 
         // Two-column layout: Linux/macOS | Windows
         const singleEnvRow = document.createElement('div');
-        singleEnvRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        singleEnvRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         const sLinuxCard = document.createElement('div');
         sLinuxCard.style.cssText = 'background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px;';
@@ -2921,7 +3039,7 @@ def chat_with_protection(user_input):
 
         // Two-column layout: Linux/macOS | Windows
         const envRow = document.createElement('div');
-        envRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;';
+        envRow.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px;';
 
         // Linux/macOS card
         const linuxCard = document.createElement('div');
@@ -3100,7 +3218,7 @@ def chat_with_protection(user_input):
     // SDK-primary card for LangChain / LangGraph / CrewAI. Two-state, auto-
     // detecting: renders the real install + wiring, then flips from "waiting"
     // to "Active" with live counters the moment the app sees this runtime_kind.
-    createSdkPrimaryCard(integration, integrationId) {
+    createSdkPrimaryCard(integration, integrationId, endpointMode, engineUrl) {
         const rk = integration.runtimeKind;
         if (!rk) {
             console.error('createSdkPrimaryCard called without runtimeKind', integration);
@@ -3130,17 +3248,56 @@ def chat_with_protection(user_input):
         const content = document.createElement('div');
         content.style.cssText = 'padding: 16px;';
 
+        // Wire it into your agent (same code for both deployments)
         const s1 = document.createElement('div');
         s1.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
-        s1.textContent = '1. Install — one command also installs this local app';
+        s1.textContent = 'Add it to your agent';
         content.appendChild(s1);
-        content.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage));
-
-        const s2 = document.createElement('div');
-        s2.style.cssText = 'font-weight: 600; font-size: 13px; margin: 16px 0 6px;';
-        s2.textContent = '2. Add it to your agent';
-        content.appendChild(s2);
         content.appendChild(this.createCodeBlock(integration.sdkSnippet));
+
+        // Then install — the SAME two options as the Connect Agents page, so the
+        // pages line up: Option 1 = This device (local app), Option 2 = Your cloud.
+        // Rendered as two clearly-distinct, bordered panels (they were plain text
+        // lines before and easy to miss). In endpoint mode Option 2 leads and is
+        // the recommended one; the local option is de-emphasised.
+        const s2 = document.createElement('div');
+        s2.style.cssText = 'font-weight: 700; font-size: 13px; margin: 18px 0 10px;';
+        s2.textContent = 'Then install — where does the engine run?';
+        content.appendChild(s2);
+
+        // A self-contained option panel: numbered pill + title + tag, note, code.
+        // `recommended` gives an accent-tinted border + "RECOMMENDED" chip.
+        const CYAN = '#06b6d4', RED = '#ef4444';
+        const optionPanel = (num, dot, title, tag, note, codeText, recommended) => {
+            const p = document.createElement('div');
+            p.style.cssText = 'border: 1.5px solid ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 55%, var(--border-default))' : 'var(--border-default)') + '; border-radius: 10px; padding: 13px 14px; margin: 0 0 12px; background: ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 5%, var(--bg-card))' : 'var(--bg-card)') + ';';
+            const head = document.createElement('div');
+            head.style.cssText = 'display: flex; align-items: center; gap: 9px; margin-bottom: 8px; flex-wrap: wrap;';
+            const pill = document.createElement('span');
+            pill.style.cssText = 'flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 20px; padding: 3px 10px;';
+            const dotEl = document.createElement('span'); dotEl.setAttribute('aria-hidden', 'true'); dotEl.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; background: ' + dot + '; box-shadow: 0 0 0 3px color-mix(in srgb, ' + dot + ' 22%, transparent);';
+            pill.appendChild(dotEl); pill.appendChild(document.createTextNode('Option ' + num));
+            head.appendChild(pill);
+            const ttl = document.createElement('span'); ttl.style.cssText = 'font-size: 13.5px; font-weight: 700; color: var(--text-primary);'; ttl.textContent = title;
+            head.appendChild(ttl);
+            if (tag) { const tg = document.createElement('span'); tg.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--accent-primary); border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent); border-radius: 20px; padding: 1px 8px;'; tg.textContent = tag; head.appendChild(tg); }
+            p.appendChild(head);
+            const nt = document.createElement('div'); nt.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.5;'; nt.textContent = note;
+            p.appendChild(nt);
+            p.appendChild(this.createCodeBlock(codeText));
+            return p;
+        };
+
+        const localPanel = optionPanel(1, CYAN, 'This device (local app)', null,
+            'The app is already running (it’s serving this page), so install the adapter only — it points at the local engine by default:',
+            'pip install ' + integration.sdkPackage + ' --no-deps', !endpointMode);
+        const cloudPanel = optionPanel(2, RED, 'Your cloud (self-hosted endpoint)', endpointMode ? 'Recommended here' : null,
+            'Deploy the engine to your cloud with the SecureVector Terraform modules, then point the SDK at its endpoint:',
+            'pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + (engineUrl || 'https://<your-engine-endpoint>'), !!endpointMode);
+
+        // In endpoint mode the cloud option is the one that applies → lead with it.
+        if (endpointMode) { content.appendChild(cloudPanel); content.appendChild(localPanel); }
+        else { content.appendChild(localPanel); content.appendChild(cloudPanel); }
 
         const status = document.createElement('div');
         status.id = 'sdk-status-' + rk;
@@ -3173,7 +3330,7 @@ def chat_with_protection(user_input):
             el.style.borderColor = 'var(--border-default)';
             el.style.color = 'var(--text-secondary)';
             el.textContent = '⏳ Waiting for the first ' + integration.name +
-                ' tool call — run your agent with the SDK installed and this turns live automatically (no "connect" step).';
+                ' tool call — run your agent with the SDK installed and this turns live automatically (no manual pairing).';
             return;
         }
 
@@ -3245,6 +3402,55 @@ def chat_with_protection(user_input):
 
     // The legacy base-URL LLM proxy, demoted to a collapsed "optional" section.
     // It captures LLM traffic only — the SDK above is what secures tool calls.
+    createRemoteEndpointSection(integration, integrationId, defaultOpen, engineUrl) {
+        const slug = (integrationId || '').replace('proxy-', '');
+        const ep = engineUrl || 'https://<your-engine-endpoint>';
+        const isSdk = !!integration.sdkPackage;
+        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenClaw;
+
+        const details = document.createElement('details');
+        details.style.cssText = 'margin-bottom: 16px;';
+        // Expanded by default when THIS app is a self-hosted endpoint — that's the
+        // path that actually applies, so it leads instead of hiding behind a click.
+        if (defaultOpen) details.open = true;
+        const summary = document.createElement('summary');
+        const accentBorder = defaultOpen ? 'color-mix(in srgb, var(--accent-primary) 45%, var(--border-default))' : 'var(--border-default)';
+        summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid ' + accentBorder + '; border-radius: 8px; font-size: 13px; font-weight: 600; color: ' + (defaultOpen ? 'var(--text-primary)' : 'var(--text-secondary)') + '; user-select: none;';
+        summary.textContent = defaultOpen
+            ? 'Point ' + (integration.name || 'this agent') + ' at your remote engine endpoint'
+            : 'Option 2 · Your cloud (self-hosted endpoint) — point at your remote engine';
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'padding: 12px 4px 0;';
+        const note = (text) => { const d = document.createElement('div'); d.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 10px 0 8px; line-height: 1.55;'; d.textContent = text; return d; };
+
+        body.appendChild(note('Everything above assumes the engine is the local app on 127.0.0.1. If you deployed the engine to your own cloud with the SecureVector Terraform modules, keep this exact integration — just point it at your deployment’s endpoint (the URL from `terraform output`) instead of localhost.'));
+
+        if (isSdk) {
+            body.appendChild(note('Your environment already has the framework and the engine lives elsewhere, so install the adapter only (--no-deps) and set the endpoint:'));
+            body.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + ep));
+        } else if (isPlugin) {
+            body.appendChild(note('The plugin runs on the machine where your coding-agent harness runs, and talks to the remote engine over HTTP. Install the CLI there to add the plugin hooks, point it at your deployment, then install — this installs the CLI + plugin hooks only; your engine stays remote:'));
+            body.appendChild(this.createCodeBlock("pip install 'securevector-ai-monitor[app]'\nexport SECUREVECTOR_ENGINE_ENDPOINT=" + ep + "\nsecurevector-app --install-plugin " + slug));
+        } else {
+            body.appendChild(note('Replace the localhost endpoint URL shown above with your deployment’s URL — e.g. https://<your-engine-endpoint>/analyze. Nothing else changes.'));
+        }
+
+        const calloutBox = document.createElement('div');
+        calloutBox.style.cssText = 'margin: 10px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary); font-size: 12px; color: var(--text-primary); line-height: 1.55;';
+        const cStrong = document.createElement('strong'); cStrong.textContent = 'Engine, not cloud. ';
+        calloutBox.appendChild(cStrong);
+        calloutBox.appendChild(document.createTextNode('SECUREVECTOR_ENGINE_ENDPOINT is where calls go for analysis — your local app OR your Terraform/self-host engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
+        body.appendChild(calloutBox);
+
+        body.appendChild(note('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key — a free SecureVector account key or an SVET token; it gates inbound access only and forwards no data:'));
+        body.appendChild(this.createCodeBlock('export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only'));
+
+        details.appendChild(body);
+        return details;
+    },
+
     createOptionalProxySection(integration, integrationId) {
         const details = document.createElement('details');
         details.style.cssText = 'margin-bottom: 16px;';

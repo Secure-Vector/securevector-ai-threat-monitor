@@ -25,6 +25,7 @@ const App = {
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
+        'guide-connect-agents': { render: (c) => GuideConnectAgentsPage.render(c) },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
@@ -208,7 +209,7 @@ const App = {
         // What is SecureVector — clear, readable intro
         const whatIs = document.createElement('div');
         whatIs.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.7; margin-bottom: 20px;';
-        whatIs.textContent = 'SecureVector is a local security proxy for your AI agents. It sits between your agent and the LLM, scanning every request and response for threats, tracking costs, and monitoring tool usage.';
+        whatIs.textContent = 'SecureVector monitors, secures, and governs your AI agents — scanning every request, response, and tool call for threats, tracking cost, and enforcing your tool policy. Run the engine on this device, or in your own cloud.';
         content.appendChild(whatIs);
 
         // Proxy status bar with cyan border
@@ -242,6 +243,66 @@ const App = {
         proxyBar.appendChild(featureList);
 
         content.appendChild(proxyBar);
+
+        // Connect your agents — the first thing a new user needs to do, so it
+        // sits above the highlights. Two routes (Framework SDKs vs plugins),
+        // each deep-linking into the Connect Your Agents guide. Same chooser the
+        // header "Connect Agents" button opens — defined here inline so the
+        // welcome stays self-contained, but routing/anchors match exactly.
+        const connect = document.createElement('div');
+        connect.style.cssText = 'margin-bottom: 22px;';
+        const connectHead = document.createElement('div');
+        connectHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+        const connectLabel = document.createElement('span');
+        connectLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent-primary);';
+        connectLabel.textContent = 'Start here — connect your agents';
+        const connectRule = document.createElement('div');
+        connectRule.style.cssText = 'flex:1;height:1px;background:var(--border-default);';
+        connectHead.appendChild(connectLabel);
+        connectHead.appendChild(connectRule);
+        connect.appendChild(connectHead);
+
+        const connectSub = document.createElement('div');
+        connectSub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px;';
+        connectSub.textContent = 'Point your existing agents at SecureVector. Pick how you build them — the same steps whether SecureVector runs on this device or in your own cloud.';
+        connect.appendChild(connectSub);
+
+        const connectGrid = document.createElement('div');
+        connectGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;';
+        if (window.matchMedia('(min-width: 520px)').matches) {
+            connectGrid.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+        }
+        const makeRouteCard = (badge, title, sub, anchor) => {
+            const card = document.createElement('div');
+            card.style.cssText = 'display:flex;flex-direction:column;gap:5px;padding:14px 16px;background:var(--bg-secondary);border:1px solid var(--border-default);border-radius:8px;cursor:pointer;transition:border-color 0.15s;min-width:0;';
+            card.addEventListener('mouseenter', () => card.style.borderColor = 'var(--accent-primary)');
+            card.addEventListener('mouseleave', () => card.style.borderColor = 'var(--border-default)');
+            card.addEventListener('click', () => {
+                if (window.GuideConnectAgentsPage) GuideConnectAgentsPage.scrollTo = anchor;
+                navigateTo('guide-connect-agents');
+            });
+            const badgeEl = document.createElement('span');
+            badgeEl.style.cssText = 'align-self:flex-start;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:var(--bg-tertiary);border:1px solid var(--border-default);color:var(--accent-primary);letter-spacing:0.4px;text-transform:uppercase;';
+            badgeEl.textContent = badge;
+            card.appendChild(badgeEl);
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-size:14px;font-weight:700;color:var(--text-primary);line-height:1.3;';
+            titleEl.textContent = title;
+            card.appendChild(titleEl);
+            const subEl = document.createElement('div');
+            subEl.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.45;flex:1;';
+            subEl.textContent = sub;
+            card.appendChild(subEl);
+            const link = document.createElement('div');
+            link.style.cssText = 'font-size:11px;font-weight:600;color:var(--accent-primary);margin-top:2px;';
+            link.textContent = 'Show me how →';
+            card.appendChild(link);
+            return card;
+        };
+        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI — one SDK import secures every tool call.', 'route-frameworks'));
+        connectGrid.appendChild(makeRouteCard('Harnesses · plugin', 'I use a coding agent or harness', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw — native Guard plugin.', 'route-plugins'));
+        connect.appendChild(connectGrid);
+        content.appendChild(connect);
 
         // What's new in this release — lead with the OpenClaw plugin, follow
         // with the new audit/observability surfaces (Tool Inventory, Secret
@@ -321,7 +382,11 @@ const App = {
             'PLUGINS',
             'Claude Code · Codex · OpenClaw',
             'Native plugins for every major agent runtime — no proxy, no env vars, full audit trail.',
-            'integrations',
+            // Land on a concrete plugin page (and expand the Integrations
+            // section). The card previously targeted the page id 'integrations',
+            // which is a collapsible sidebar PARENT, not a route — so the click
+            // errored ("Unknown page") and navigated nowhere.
+            'proxy-claude-code',
             'integrations'
         ));
         whatsNewList.appendChild(makeNewItem(
