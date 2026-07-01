@@ -1258,9 +1258,10 @@ const Header = {
 
     createConnectAgentsButton() {
         const btn = document.createElement('button');
-        // Accent-bordered pill so it reads as the primary "do this next" action
-        // without competing with the filled Cloud Connect gradient button.
-        btn.style.cssText = 'background: transparent; border: 2px solid var(--accent-primary); color: var(--accent-primary); height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; margin-right: 10px;';
+        // Matches the Tour button's neutral colour (text-secondary border + text,
+        // accent on hover) but carries a soft drop shadow so it still reads as the
+        // primary CTA. Shadow uses rgba black so it's visible in light AND dark.
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); height: 30px; padding: 0 15px; border-radius: 15px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: all 0.2s; margin-right: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.18);';
         btn.title = 'Connect your agents to this engine';
 
         // Plug icon — "connect".
@@ -1281,8 +1282,8 @@ const Header = {
         label.textContent = 'Connect Agents';
         btn.appendChild(label);
 
-        btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--accent-primary)'; btn.style.color = '#fff'; });
-        btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; btn.style.color = 'var(--accent-primary)'; });
+        btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--accent-primary)'; btn.style.color = 'var(--accent-primary)'; btn.style.boxShadow = '0 3px 12px rgba(0,0,0,0.26)'; });
+        btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--text-secondary)'; btn.style.color = 'var(--text-secondary)'; btn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)'; });
         btn.addEventListener('click', () => this.showConnectAgentsChooser());
         return btn;
     },

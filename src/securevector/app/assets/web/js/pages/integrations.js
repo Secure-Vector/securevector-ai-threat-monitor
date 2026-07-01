@@ -343,9 +343,9 @@ def chat_with_protection(user_input):
             // secures tool calls, not just LLM traffic). The legacy base-URL
             // LLM proxy is demoted to an optional, collapsed section.
             container.appendChild(this.createSdkPrimaryCard(integration, integrationId));
-            // Self-host / Terraform is a first-class deployment, so its section
-            // ranks ABOVE the deprecated "legacy LLM proxy (advanced)" one.
-            container.appendChild(this.createRemoteEndpointSection(integration, integrationId));
+            // Self-host is now shown INLINE as "Option 2" in the SDK card above
+            // (mirrors the Connect-an-agent page), so we no longer add the separate
+            // collapsed remote-endpoint section here — avoids the duplicate/confusion.
             container.appendChild(this.createOptionalProxySection(integration, integrationId));
             remoteAdded = true;
         }
@@ -3147,17 +3147,33 @@ def chat_with_protection(user_input):
         const content = document.createElement('div');
         content.style.cssText = 'padding: 16px;';
 
+        // Wire it into your agent (same code for both deployments)
         const s1 = document.createElement('div');
         s1.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 6px;';
-        s1.textContent = '1. Install — one command also installs this local app';
+        s1.textContent = 'Add it to your agent';
         content.appendChild(s1);
-        content.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage));
-
-        const s2 = document.createElement('div');
-        s2.style.cssText = 'font-weight: 600; font-size: 13px; margin: 16px 0 6px;';
-        s2.textContent = '2. Add it to your agent';
-        content.appendChild(s2);
         content.appendChild(this.createCodeBlock(integration.sdkSnippet));
+
+        // Then install — the SAME two options as the Connect-an-agent page, so the
+        // pages line up: Option 1 = This device (local app), Option 2 = Your cloud.
+        const s2 = document.createElement('div');
+        s2.style.cssText = 'font-weight: 600; font-size: 13px; margin: 18px 0 8px;';
+        s2.textContent = 'Then install — where does the engine run?';
+        content.appendChild(s2);
+
+        const optLabel = (text) => { const d = document.createElement('div'); d.style.cssText = 'font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin: 0 0 5px;'; d.textContent = text; return d; };
+        const optNote = (text) => { const d = document.createElement('div'); d.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; line-height: 1.5;'; d.textContent = text; return d; };
+
+        content.appendChild(optLabel('Option 1 · This device (local app) — most common'));
+        content.appendChild(optNote('The app is already running (it’s serving this page), so install the adapter only — it points at the local engine by default:'));
+        content.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps'));
+
+        const o2wrap = document.createElement('div');
+        o2wrap.style.cssText = 'margin-top: 14px;';
+        o2wrap.appendChild(optLabel('Option 2 · Your cloud (self-hosted endpoint)'));
+        o2wrap.appendChild(optNote('Deploy the engine to your cloud with the SecureVector Terraform modules, then point the SDK at its endpoint:'));
+        o2wrap.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>'));
+        content.appendChild(o2wrap);
 
         const status = document.createElement('div');
         status.id = 'sdk-status-' + rk;
@@ -3284,8 +3300,8 @@ def chat_with_protection(user_input):
             body.appendChild(note('Your environment already has the framework and the engine lives elsewhere, so install the adapter only (--no-deps) and set the endpoint:'));
             body.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>'));
         } else if (isPlugin) {
-            body.appendChild(note('The plugin runs wherever your coding agent runs and talks to the engine over HTTP. Point it at your deployment with one variable, then install/activate as usual:'));
-            body.appendChild(this.createCodeBlock('export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>\nsecurevector-app --install-plugin ' + slug));
+            body.appendChild(note('The plugin runs on the machine where your coding-agent harness runs, and talks to the remote engine over HTTP. Install the CLI there to add the plugin hooks, point it at your deployment, then install — this installs the CLI + plugin hooks only; your engine stays remote:'));
+            body.appendChild(this.createCodeBlock("pip install 'securevector-ai-monitor[app]'\nexport SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>\nsecurevector-app --install-plugin " + slug));
         } else {
             body.appendChild(note('Replace the localhost endpoint URL shown above with your deployment’s URL — e.g. https://<your-engine-endpoint>/analyze. Nothing else changes.'));
         }

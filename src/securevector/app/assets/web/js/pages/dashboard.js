@@ -576,22 +576,25 @@ const DashboardPage = {
 
             // Value metrics grid
             const metricsGrid = document.createElement('div');
-            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;';
+            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px;';
 
             const makeMetric = (value, label, color, navPage) => {
                 const card = document.createElement('div');
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
+                // KPI band is the dashboard's headline — give the cards real
+                // presence (larger numbers, more padding) so the hero metrics
+                // read first, ahead of the charts below.
+                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 18px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
                 card.addEventListener('mouseenter', () => { card.style.borderColor = color + '66'; card.style.transform = 'translateY(-1px)'; });
                 card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border-default)'; card.style.transform = ''; });
                 if (navPage) card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
 
                 const valEl = document.createElement('div');
-                valEl.style.cssText = 'font-size: 20px; font-weight: 800; color: ' + color + '; line-height: 1.1; margin-bottom: 4px;';
+                valEl.style.cssText = 'font-size: 28px; font-weight: 800; color: ' + color + '; line-height: 1.05; margin-bottom: 6px; letter-spacing: -0.5px;';
                 valEl.textContent = value;
                 card.appendChild(valEl);
 
                 const lblEl = document.createElement('div');
-                lblEl.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-weight: 500; line-height: 1.3;';
+                lblEl.style.cssText = 'font-size: 11.5px; color: var(--text-secondary); font-weight: 600; line-height: 1.3; letter-spacing: 0.2px;';
                 lblEl.textContent = label;
                 card.appendChild(lblEl);
 

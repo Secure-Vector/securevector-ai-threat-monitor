@@ -233,52 +233,29 @@ const GettingStartedPage = {
         const columns = document.createElement('div');
         columns.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; min-width: 0;';
 
-        // Shared env var value
-        const envValue = `OPENAI_BASE_URL=http://localhost:${window.__SV_PROXY_PORT || 8742}/openai/v1`;
-
-        // --- LEFT: Set up your integration ---
+        // --- LEFT: Connect your agents ---
+        // Routes to the dedicated "Connect Your Agents" page (the start-here
+        // chooser), instead of jumping straight to one proxy page \u2014 so the
+        // user picks the right path (Framework SDKs vs plugins) for their setup.
         const setupBox = document.createElement('div');
         setupBox.style.cssText = 'background: var(--bg-secondary); border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); min-width: 0; cursor: pointer; transition: border-color 0.15s; overflow: hidden;';
         setupBox.addEventListener('mouseenter', () => setupBox.style.borderColor = 'rgba(94,173,184,0.3)');
         setupBox.addEventListener('mouseleave', () => setupBox.style.borderColor = 'var(--border-default)');
-        setupBox.addEventListener('click', () => { if (window.Sidebar) { Sidebar.expandSection('integrations'); Sidebar.navigate('proxy-openclaw'); } });
+        setupBox.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide-connect-agents'); });
 
         const setupTitle = document.createElement('div');
         setupTitle.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;';
-        setupTitle.textContent = 'Set up your integration';
+        setupTitle.textContent = 'Connect your agents';
         setupBox.appendChild(setupTitle);
 
         const setupDesc = document.createElement('div');
         setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        setupDesc.textContent = 'Point your agent\u2019s base URL to the proxy. Step-by-step setup for each framework.';
+        setupDesc.textContent = 'Two routes \u2014 framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
         setupBox.appendChild(setupDesc);
-
-        const codeWrap = document.createElement('div');
-        codeWrap.style.cssText = 'display: flex; align-items: center; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 10px; min-width: 0;';
-        const codeText = document.createElement('div');
-        codeText.style.cssText = 'font-size: 11px; font-family: monospace; color: var(--accent-primary); padding: 6px 10px; word-break: break-all; flex: 1; min-width: 0;';
-        codeText.textContent = envValue;
-        const copyBtn = document.createElement('button');
-        copyBtn.style.cssText = 'background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px 8px; font-size: 11px; flex-shrink: 0; transition: color 0.15s;';
-        copyBtn.textContent = 'Copy';
-        copyBtn.title = 'Copy to clipboard';
-        copyBtn.addEventListener('mouseenter', () => copyBtn.style.color = 'var(--accent-primary)');
-        copyBtn.addEventListener('mouseleave', () => copyBtn.style.color = 'var(--text-muted)');
-        copyBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            navigator.clipboard.writeText(envValue).then(() => {
-                copyBtn.textContent = 'Copied!';
-                copyBtn.style.color = '#10b981';
-                setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.color = 'var(--text-muted)'; }, 1500);
-            });
-        });
-        codeWrap.appendChild(codeText);
-        codeWrap.appendChild(copyBtn);
-        setupBox.appendChild(codeWrap);
 
         const setupLink = document.createElement('span');
         setupLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
-        setupLink.textContent = 'LangChain \u00b7 CrewAI \u00b7 OpenClaw \u00b7 Ollama \u00b7 more \u2192';
+        setupLink.textContent = 'Pick your route \u2192';
         setupBox.appendChild(setupLink);
 
         // --- RIGHT: Skill Scanner ---

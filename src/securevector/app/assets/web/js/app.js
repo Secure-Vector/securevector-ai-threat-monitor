@@ -209,7 +209,7 @@ const App = {
         // What is SecureVector — clear, readable intro
         const whatIs = document.createElement('div');
         whatIs.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.7; margin-bottom: 20px;';
-        whatIs.textContent = 'SecureVector is a local security proxy for your AI agents. It sits between your agent and the LLM, scanning every request and response for threats, tracking costs, and monitoring tool usage.';
+        whatIs.textContent = 'SecureVector monitors, secures, and governs your AI agents — scanning every request, response, and tool call for threats, tracking cost, and enforcing your tool policy. Run the engine on this device, or in your own cloud.';
         content.appendChild(whatIs);
 
         // Proxy status bar with cyan border
@@ -264,7 +264,7 @@ const App = {
 
         const connectSub = document.createElement('div');
         connectSub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px;';
-        connectSub.textContent = 'Point your existing agents at this engine. Pick how you build them — works the same on the local app or a Terraform/self-host engine.';
+        connectSub.textContent = 'Point your existing agents at SecureVector. Pick how you build them — the same steps whether SecureVector runs on this device or in your own cloud.';
         connect.appendChild(connectSub);
 
         const connectGrid = document.createElement('div');
@@ -299,8 +299,8 @@ const App = {
             card.appendChild(link);
             return card;
         };
-        connectGrid.appendChild(makeRouteCard('Route A', 'I use a framework', 'LangChain · LangGraph · CrewAI — one SDK import secures every tool call.', 'route-frameworks'));
-        connectGrid.appendChild(makeRouteCard('Route B', 'I use a coding agent', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw — native Guard plugin.', 'route-plugins'));
+        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI — one SDK import secures every tool call.', 'route-frameworks'));
+        connectGrid.appendChild(makeRouteCard('Harnesses · plugin', 'I use a coding agent or harness', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw — native Guard plugin.', 'route-plugins'));
         connect.appendChild(connectGrid);
         content.appendChild(connect);
 

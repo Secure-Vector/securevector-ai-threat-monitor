@@ -206,7 +206,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # SDK/plugin SECUREVECTOR_ENGINE_ENDPOINT forwarding — it closes the auth
     # loop for a publicly-exposed self-host endpoint. The env var is read per
     # request so the gate reflects the current deployment config.
-    _INGRESS_OPEN_PATHS = frozenset({"/health"})
+    _INGRESS_OPEN_PATHS = frozenset({"/health", "/api/system/environment"})
 
     @app.middleware("http")
     async def _enforce_ingress_token(request: Request, call_next):
@@ -273,6 +273,43 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         from securevector.app.utils.device_id import get_device_id
         return {"device_id": get_device_id()}
 
+    # Runtime environment — lets the UI adapt when the app is running headless
+    # in a container (self-host / Terraform engine image) instead of as the
+    # local desktop app. When containerized, "monitor THIS device" is
+    # meaningless (the box is the engine, not where agents run), so the
+    # Connect-Agents page hides that option and shows only the self-host steps,
+    # pre-pointing agents at this engine's URL.
+    @app.get("/api/system/environment", tags=["System"])
+    async def get_environment():
+        def _in_container() -> bool:
+            if os.environ.get("SECUREVECTOR_CONTAINER", "").strip().lower() in ("1", "true", "yes"):
+                return True
+            if os.path.exists("/.dockerenv"):
+                return True
+            try:
+                with open("/proc/1/cgroup", "rt") as fh:
+                    cgroups = fh.read()
+                if any(marker in cgroups for marker in ("docker", "containerd", "kubepods")):
+                    return True
+            except Exception:
+                pass
+            return False
+
+        public_url = (
+            os.environ.get("SECUREVECTOR_PUBLIC_URL")
+            or os.environ.get("SECUREVECTOR_BASE_URL")
+            or os.environ.get("SECUREVECTOR_ENGINE_ENDPOINT")
+            or ""
+        ).strip().rstrip("/")
+        import platform
+        _os_friendly = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}
+        return {
+            "in_container": _in_container(),
+            "public_url": public_url or None,
+            "ingress_token_required": bool(os.environ.get("SECUREVECTOR_INGRESS_TOKEN", "").strip()),
+            "os": _os_friendly.get(platform.system(), platform.system() or "Unknown"),
+        }
+
     # Register route modules
     from securevector.app.server.routes import (
         analyze,
@@ -329,6 +366,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # active-agent-observability #142 — Agent Run Trace (runs → spans waterfall).
     from securevector.app.server.routes import traces
     app.include_router(traces.router, prefix="/api", tags=["Traces"])
+    # Local detection — what harnesses/sessions/agents are running on this device.
+    from securevector.app.server.routes import detection
+    app.include_router(detection.router, prefix="/api", tags=["Detection"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

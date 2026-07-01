@@ -14,12 +14,6 @@ let _gmRoboTimer = null;
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        // Connect Agents — top-level so the integration routes are one click
-        // from any page on EVERY viewport. On mobile the header action buttons
-        // overflow off-screen, so this always-visible nav item (not buried in
-        // the collapsible Guide) is what guarantees the "see the option" goal
-        // there. Same destination as the header Connect Agents button.
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Point your existing agents at this engine — Framework SDKs or coding-agent plugins' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
         // Agent Replay umbrella — collapsible parent grouping the three
         // observability views that share the same per-agent lens. Top-level
@@ -74,7 +68,14 @@ const Sidebar = {
         // higher-value v4.0 positioning. Both are Connect; this is the
         // one regulated buyers ask about first.
         { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, subItems: [
+        // Connect an agent — the QUICK path: pick an agent, copy a couple of
+        // commands, done. It sits directly above Integrations, which is the
+        // DETAILED per-agent reference (install/verify/uninstall, self-host,
+        // troubleshooting). Quick first, detailed second. Always-visible
+        // top-level item (not inside the collapsible Integrations) so it stays
+        // reachable on every viewport; same destination as the header button.
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Quick start — pick an agent and copy a couple of commands. Detect what is already on this device, and find the full per-agent reference under Integrations.' },
+        { id: 'integrations', label: 'Integrations (reference)', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Dify, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
