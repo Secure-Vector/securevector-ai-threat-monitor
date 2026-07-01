@@ -54,7 +54,7 @@ class RedactionsRepository:
         if direction not in ("outgoing", "incoming", "llm_response"):
             # Fail closed on an unknown direction — don't pollute the
             # CHECK-constrained column.
-            logger.warning("redaction event dropped: unknown direction=%r", direction)
+            logger.warning("redaction event dropped: unknown direction=%r", str(direction).replace("\n", "").replace("\r", ""))
             return
         try:
             await self.db.execute(

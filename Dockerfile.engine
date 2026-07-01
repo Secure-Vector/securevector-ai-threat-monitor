@@ -19,7 +19,8 @@ ARG EXTRA=app
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HOME=/home/securevector \
-    PORT=8741
+    PORT=8741 \
+    SECUREVECTOR_CONTAINER=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \

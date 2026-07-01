@@ -44,7 +44,7 @@ async function main() {
   try {
     const prompt = typeof event.prompt === 'string' ? event.prompt : '';
     if (prompt.length > 0) {
-      const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+      const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
       postJsonAndForget(`${baseUrl}/analyze`, {
         text: prompt.slice(0, SCAN_TEXT_LIMIT),
         source: SOURCE,

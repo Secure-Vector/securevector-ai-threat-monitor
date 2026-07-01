@@ -28,22 +28,20 @@ const Tour = {
     steps() {
         return [
             {
-                nav: 'integrations', go: 'proxy-claude-code', expand: 'integrations',
-                badge: 'Set up', title: 'Install & reload the plugin',
-                body: `Start under <b>Integrations</b> and pick your <b>harness</b> — the agent tool you run ` +
-                    `(${this.PLUGIN_HARNESSES}). Each ships a <b>native plugin</b>: one click, no proxy, no env ` +
-                    `vars. Install it, then <b>reload plugins</b> in that tool — the page shows the exact ` +
-                    `command — so the SecureVector Guard hook loads and starts scanning every prompt and tool call.`,
+                nav: 'guide-connect-agents', go: 'guide-connect-agents',
+                badge: 'Set up', title: 'Connect your agents',
+                body: `Start here — <b>Connect Agents</b> is the front door. Pick your agent or harness ` +
+                    `(${this.PLUGIN_HARNESSES} ship a <b>native plugin</b>; ${this.SDK_FRAMEWORKS} use a ` +
+                    `<b>two-line SDK</b>), choose <b>where SecureVector runs</b> — this device or your cloud — and ` +
+                    `copy the commands. Not sure what you have? Let it <b>detect what's already on this device</b> ` +
+                    `and jump straight to the right steps.`,
             },
             {
-                nav: 'proxy-langgraph', sub: true, go: 'proxy-langgraph', expand: 'integrations',
-                badge: 'Set up', title: 'Using a framework? Add the SDK',
-                body: `Building on <b>${this.SDK_FRAMEWORKS}</b>? Install the matching <b>SecureVector SDK</b> and ` +
-                    `wrap your agent in <b>two lines</b> — no proxy, no env vars. It secures every <b>tool call</b> ` +
-                    `(permissions + secret &amp; threat detection) and streams each onto the Agent Map tagged by ` +
-                    `framework. Open a framework's page here for the exact <b>pip install</b> + snippet. The ` +
-                    `<b>proxy</b> stays as an optional fallback for anything without a plugin or SDK ` +
-                    `(${this.PROXY_ONLY}) — just apply the env-var changes shown on its page.`,
+                nav: 'integrations', go: 'proxy-claude-code', expand: 'integrations',
+                badge: 'Reference', title: 'Full per-agent reference',
+                body: `Need the detail? <b>Integrations</b> is the deep per-agent reference — install, verify, ` +
+                    `troubleshoot, and <b>self-host / auth</b> for a remote engine — plus <b>proxy-only</b> tools ` +
+                    `without a plugin or SDK (${this.PROXY_ONLY}). Connect Agents is the quick path; this is the manual.`,
             },
             {
                 nav: 'tool-permissions', go: 'tool-permissions',

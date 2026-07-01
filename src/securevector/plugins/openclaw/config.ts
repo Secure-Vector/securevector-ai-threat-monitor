@@ -4,11 +4,22 @@
  * Config-only module. No network I/O. Deliberately isolated from index.ts
  * so static analyzers can evaluate the two files independently.
  *
+ * `url` is the ENGINE endpoint — where the plugin sends tool calls for
+ * analysis (the local app by default, or a remote self-host engine, e.g. a
+ * Terraform deployment). This is NOT the SecureVector cloud: the cloud
+ * (scan.securevector.io, addressed elsewhere as SECUREVECTOR_URL) is only ever
+ * reached by the engine itself for Cloud Connect, never by this plugin.
+ *
  * Resolution order (first non-empty wins):
  *   1. pluginConfig.{url, apiKey, threshold}  — from openclaw.json
  *   2. svconfig.yml server.host + server.port — written by securevector-app
- *   3. SECUREVECTOR_{URL, API_KEY, THRESHOLD} variables from the environment
- *   4. defaults (http://127.0.0.1:8741, no key, threshold 50)
+ *   3. SECUREVECTOR_ENGINE_ENDPOINT           — unified engine var (preferred)
+ *   4. SECUREVECTOR_URL                        — legacy alias for the engine in
+ *                                                this plugin; deprecated, kept
+ *                                                for back-compat (note: the name
+ *                                                means *cloud* elsewhere)
+ *   5. SECUREVECTOR_{API_KEY, THRESHOLD}       — from the environment
+ *   6. defaults (http://127.0.0.1:8741, no key, threshold 50)
  */
 
 export interface PluginConfig {
@@ -64,7 +75,7 @@ export function resolveConfig(pluginConfig: Record<string, any> = {}): PluginCon
   if (sv) defaultUrl = `http://${sv.host}:${sv.port}`;
 
   return {
-    url:       pluginConfig.url       || process.env.SECUREVECTOR_URL       || defaultUrl,
+    url:       pluginConfig.url       || process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SECUREVECTOR_URL || defaultUrl,
     apiKey:    pluginConfig.apiKey    || process.env.SECUREVECTOR_API_KEY   || "",
     threshold: pluginConfig.threshold ?? parseInt(process.env.SECUREVECTOR_THRESHOLD || "50", 10),
   };

@@ -107,7 +107,7 @@ const GuideClaudeCodePage = {
         });
         hooksTable.appendChild(tbody);
         root.appendChild(hooksTable);
-        const failopen = p('All hooks fail-open: any error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All HTTP targets the local app on loopback at http://127.0.0.1:8741 (override with the SECUREVECTOR_URL env var).');
+        const failopen = p('All hooks fail-open: any error path emits the equivalent of "allow" (or an empty response) and the plugin never breaks a Claude Code session. All HTTP targets the local app on loopback at http://127.0.0.1:8741 (override with the SECUREVECTOR_ENGINE_ENDPOINT env var; legacy SV_BASE_URL still works).');
         root.appendChild(failopen);
 
         // --- Latency (honest framing — no "zero-latency" marketing copy) ---
@@ -181,6 +181,18 @@ const GuideClaudeCodePage = {
         root.appendChild(code('/plugin marketplace add ~/.securevector/staging/claude-code-plugin\n/plugin install securevector-guard'));
 
         // --- Verify it works ---
+        // --- Remote engine (Terraform / self-host) ---
+        root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
+securevector-app --install-plugin claude-code
+
+# point the hooks at your engine endpoint (the URL from \`terraform output\`)
+export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
+        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
         root.appendChild(code('curl -s http://127.0.0.1:8741/api/hooks/claude-code/status | python3 -m json.tool'));
@@ -243,7 +255,7 @@ if candidates:
         const cfgBody = document.createElement('tbody');
         const cfgRows = [
             ['Local app port', 'svconfig.yml server.port, or SV_WEB_PORT env', '8741', 'Loopback port the plugin POSTs to'],
-            ['Plugin target URL', 'SECUREVECTOR_URL env var', 'http://127.0.0.1:8741', 'Override for non-default app deployments'],
+            ['Plugin target URL', 'SECUREVECTOR_ENGINE_ENDPOINT env var', 'http://127.0.0.1:8741', 'Override for non-default app deployments'],
             ['Tool permission rules', 'Tool Permissions page in the app', 'Default-allow + last-resort denies', 'Per-tool allow / deny / ask, cloud-syncable, local overrides'],
             ['Statusline cache TTL', 'hardcoded in hooks/statusline.js', '60s line / 5 min tokens', 'Avoids hammering the transcript-scan endpoint'],
             ['Statusline colors', 'NO_COLOR=1 env var', 'colored', 'Disables ANSI styling'],

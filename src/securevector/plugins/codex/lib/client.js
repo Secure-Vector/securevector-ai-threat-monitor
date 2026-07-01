@@ -20,6 +20,21 @@
 const DEFAULT_TIMEOUT_MS = 100;
 
 /**
+ * Auth header for a token-gated remote engine. When SECUREVECTOR_API_KEY is set
+ * — e.g. pointing this plugin at a Terraform self-host endpoint gated by
+ * `ingress_token` (enforced by engine v4.9.0+) — forward it as
+ * `Authorization: Bearer <token>`. Empty/unset -> no header (the default
+ * loopback app needs none). Mirrors the SDK and the OpenClaw plugin so a gated
+ * remote endpoint is reachable from every runtime.
+ *
+ * @returns {Record<string,string>}
+ */
+function authHeaders() {
+  const key = (process.env.SECUREVECTOR_API_KEY || '').trim();
+  return key ? { authorization: `Bearer ${key}` } : {};
+}
+
+/**
  * GET JSON from a URL with a hard timeout. Returns the parsed body on 2xx,
  * or `{}` on any error (non-2xx, timeout, network, malformed JSON).
  *
@@ -32,7 +47,7 @@ async function getJson(url, opts = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, { signal: controller.signal });
+    const resp = await fetch(url, { signal: controller.signal, headers: authHeaders() });
     if (!resp || !resp.ok) return {};
     try {
       const data = await resp.json();
@@ -73,7 +88,7 @@ function postJsonAndForget(url, body) {
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
     const p = fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -110,4 +125,4 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
   return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
 }
 
-module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, DEFAULT_TIMEOUT_MS };
+module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, authHeaders, DEFAULT_TIMEOUT_MS };

@@ -40,7 +40,7 @@ async function main() {
       process.stdout.write(JSON.stringify(out));
       return;
     }
-    const baseUrl = process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+    const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
     let decision = { decision: 'allow' };
     try {
       decision = await decideForCandidates(normalize(TOOL_NAME), baseUrl);

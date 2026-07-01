@@ -561,6 +561,16 @@ class ExternalForwardersRepository:
         # the badge logic can't be confused by a typo'd source.
         if source not in ("user", "enrollment"):
             raise ValueError(f"unknown forwarder source: {source!r}")
+        # Hard guard (mirrors update()): the enrollment-sourced cloud
+        # destination is metadata-only by contract — never let it be created
+        # at 'full' redaction, which would forward raw prompt/output/tool-args
+        # to the SecureVector cloud. See llm-security-engine#190.
+        if source == "enrollment" and redaction_level == "full":
+            raise ValueError(
+                "cannot create an enrollment-sourced forwarder at "
+                "redaction_level='full': the SecureVector cloud destination "
+                "is metadata-only"
+            )
 
         secret_ref = forwarder_secrets.save_secret(secret) if secret else None
         headers_json = json.dumps(headers, separators=(",", ":")) if headers else None
@@ -645,6 +655,16 @@ class ExternalForwardersRepository:
             sets.append("include_tool_audits = ?")
             vals.append(1 if include_tool_audits else 0)
         if redaction_level is not None:
+            # Hard guard: an enrollment-sourced forwarder (the SecureVector
+            # cloud destination) must never be elevated to 'full' redaction —
+            # that tier forwards raw prompt/output/tool-args. The cloud path is
+            # metadata-only by contract; without this, the source<->redaction
+            # coupling was convention-only (see llm-security-engine#190).
+            if redaction_level == "full" and str(current.get("source") or "user") == "enrollment":
+                raise ValueError(
+                    "cannot set redaction_level='full' on an enrollment-sourced "
+                    "forwarder: the SecureVector cloud destination is metadata-only"
+                )
             sets.append("redaction_level = ?")
             vals.append(redaction_level)
         if enabled is not None:

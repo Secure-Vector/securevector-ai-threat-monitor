@@ -10,7 +10,9 @@ Provides REST API endpoints for:
 - Static web UI files
 """
 
+import hmac
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -20,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
-from securevector.app import __version__, __app_name__
+from securevector.app import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +192,39 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Content-Type", "X-Api-Key"],
+        allow_headers=["Content-Type", "X-Api-Key", "Authorization"],
     )
+
+    # --- Inbound ingress-token enforcement (#190, engine v4.9.0+) ----------
+    # When SECUREVECTOR_INGRESS_TOKEN is set (e.g. by the Terraform self-host
+    # modules' `ingress_token` var), the engine requires it on EVERY request,
+    # presented as `Authorization: Bearer <token>` or `X-Api-Key: <token>`.
+    # Empty/unset = no app-layer gate (rely on network gating: a private
+    # subnet / ingress_cidrs). `/health` stays open for the load-balancer
+    # probe; CORS preflight (OPTIONS) is exempt. Constant-time comparison
+    # avoids token timing leaks. This is the inbound counterpart to the
+    # SDK/plugin SECUREVECTOR_ENGINE_ENDPOINT forwarding — it closes the auth
+    # loop for a publicly-exposed self-host endpoint. The env var is read per
+    # request so the gate reflects the current deployment config.
+    _INGRESS_OPEN_PATHS = frozenset({"/health", "/api/system/environment"})
+
+    @app.middleware("http")
+    async def _enforce_ingress_token(request: Request, call_next):
+        expected = os.environ.get("SECUREVECTOR_INGRESS_TOKEN", "").strip()
+        if (
+            expected
+            and request.method != "OPTIONS"
+            and request.url.path not in _INGRESS_OPEN_PATHS
+        ):
+            presented = ""
+            authz = request.headers.get("authorization", "")
+            if authz[:7].lower() == "bearer ":
+                presented = authz[7:].strip()
+            if not presented:
+                presented = request.headers.get("x-api-key", "").strip()
+            if not (presented and hmac.compare_digest(presented, expected)):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
 
     # SPA fallback — serve index.html for any 404 on a GET request that isn't an API call
     @app.exception_handler(404)
@@ -212,7 +245,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         try:
             db = get_database()
             db_health = await db.health_check()
-        except Exception as e:
+        except Exception:
             logger.exception("Database health check failed")
             db_health = {
                 "connected": False,
@@ -239,6 +272,51 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     async def get_device():
         from securevector.app.utils.device_id import get_device_id
         return {"device_id": get_device_id()}
+
+    # Runtime environment — lets the UI adapt when the app is running headless
+    # in a container (self-host / Terraform engine image) instead of as the
+    # local desktop app. When containerized, "monitor THIS device" is
+    # meaningless (the box is the engine, not where agents run), so the
+    # Connect-Agents page hides that option and shows only the self-host steps,
+    # pre-pointing agents at this engine's URL.
+    @app.get("/api/system/environment", tags=["System"])
+    async def get_environment():
+        def _in_container() -> bool:
+            if os.environ.get("SECUREVECTOR_CONTAINER", "").strip().lower() in ("1", "true", "yes"):
+                return True
+            if os.path.exists("/.dockerenv"):
+                return True
+            try:
+                with open("/proc/1/cgroup", "rt") as fh:
+                    cgroups = fh.read()
+                if any(marker in cgroups for marker in ("docker", "containerd", "kubepods")):
+                    return True
+            except Exception:
+                pass
+            return False
+
+        public_url = (
+            os.environ.get("SECUREVECTOR_PUBLIC_URL")
+            or os.environ.get("SECUREVECTOR_BASE_URL")
+            or os.environ.get("SECUREVECTOR_ENGINE_ENDPOINT")
+            or ""
+        ).strip().rstrip("/")
+        import platform
+        _os_friendly = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}
+        in_container = _in_container()
+        # Authoritative runtime posture the whole UI keys off of. "endpoint" =
+        # this process is a self-hosted engine (containerized OR reachable at a
+        # configured public URL), so agents point AT it over the network and the
+        # local-desktop install steps don't apply. "local" = the desktop app the
+        # user runs on the same machine as their agents.
+        mode = "endpoint" if (in_container or public_url) else "local"
+        return {
+            "in_container": in_container,
+            "public_url": public_url or None,
+            "mode": mode,
+            "ingress_token_required": bool(os.environ.get("SECUREVECTOR_INGRESS_TOKEN", "").strip()),
+            "os": _os_friendly.get(platform.system(), platform.system() or "Unknown"),
+        }
 
     # Register route modules
     from securevector.app.server.routes import (
@@ -296,6 +374,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # active-agent-observability #142 — Agent Run Trace (runs → spans waterfall).
     from securevector.app.server.routes import traces
     app.include_router(traces.router, prefix="/api", tags=["Traces"])
+    # Local detection — what harnesses/sessions/agents are running on this device.
+    from securevector.app.server.routes import detection
+    app.include_router(detection.router, prefix="/api", tags=["Detection"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

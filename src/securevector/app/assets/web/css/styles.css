@@ -7916,3 +7916,18 @@ thead tr:hover #records-select-all,
 }
 .ca-link:hover { text-decoration: underline; }
 
+/* Responsive tables — on narrow screens #page-content is overflow-x:hidden, so
+   any table wider than the viewport had its rightmost column clipped and
+   unreachable (guide hooks tables, Cost/Cloud-Activity/Tool-Permissions data
+   tables). Make every in-content table its own horizontal-scroll region below
+   the mobile breakpoint so the full table stays reachable. Mobile-only, so the
+   desktop layout (width:100% tables) is untouched. */
+@media (max-width: 768px) {
+    #page-content table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
