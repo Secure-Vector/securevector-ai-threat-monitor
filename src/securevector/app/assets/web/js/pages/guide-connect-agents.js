@@ -24,7 +24,7 @@ const GuideConnectAgentsPage = {
         { id: 'langgraph', route: 'A', label: 'LangGraph', guide: 'guide-frameworks', integration: 'proxy-langgraph', pkg: 'securevector-sdk-langgraph',
             wire: 'from langchain.agents import create_agent  # langgraph-backed\nfrom securevector_sdk_langgraph import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'crewai', route: 'A', label: 'CrewAI', guide: 'guide-frameworks', integration: 'proxy-crewai', pkg: 'securevector-sdk-crewai',
-            wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools))' },
+            wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\n# observe = log-only (default); mode="enforce" blocks\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools, mode="observe"))' },
         { id: 'claude-code', route: 'B', label: 'Claude Code', guide: 'guide-claude-code', integration: 'proxy-claude-code', slug: 'claude-code' },
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
@@ -72,12 +72,19 @@ const GuideConnectAgentsPage = {
         // Is THIS app the headless engine running in a container (self-host)? If so,
         // "monitor this device" makes no sense (the box is the engine, not where
         // agents run), so that card is hidden and agents are pointed at this URL.
-        let env = { in_container: false, public_url: null };
+        let env = { in_container: false, public_url: null, mode: 'local' };
         try { const r = await fetch('/api/system/environment'); if (r.ok) env = await r.json(); } catch (e) { /* default: treat as local desktop */ }
-        const engineUrl = env.public_url || (env.in_container ? window.location.origin : null);
+        // Endpoint mode = this process is itself a self-hosted engine (container
+        // OR a configured public URL), so "monitor this device" makes no sense —
+        // agents point AT this engine. The server computes it; fall back locally.
+        const endpointMode = env.mode ? env.mode === 'endpoint' : !!(env.in_container || env.public_url);
+        const engineUrl = env.public_url || (endpointMode ? window.location.origin : null);
 
         const root = document.createElement('div');
-        root.style.cssText = 'max-width: 960px; margin: 0 auto; padding: 24px 32px; color: var(--text-primary);';
+        // Left-anchored like every other top-level page (Dashboard, Integrations,
+        // Tool Permissions) — NOT a centered docs column. page-content already
+        // supplies the outer 24px gutter, so this only caps the reading width.
+        root.style.cssText = 'max-width: 1080px; margin: 0; padding: 0 0 40px; color: var(--text-primary);';
 
         const eyebrow = document.createElement('div');
         eyebrow.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: ' + ACCENT + '; margin-bottom: 3px;';
@@ -160,7 +167,7 @@ const GuideConnectAgentsPage = {
         // inside a container.
         let savedMode = null;
         try { savedMode = localStorage.getItem('sv-connect-mode'); } catch (e) {}
-        let mode = env.in_container ? 'selfhost' : (savedMode === 'selfhost' ? 'selfhost' : 'local');
+        let mode = endpointMode ? 'selfhost' : (savedMode === 'selfhost' ? 'selfhost' : 'local');
 
         const renderPanel = () => {
             tabsHost.textContent = '';
@@ -203,8 +210,8 @@ const GuideConnectAgentsPage = {
                 b.addEventListener('click', () => { if (mode !== key) { mode = key; try { localStorage.setItem('sv-connect-mode', mode); } catch (e) {} renderPanel(); } });
                 return b;
             };
-            if (env.in_container) {
-                tabs.appendChild(mkTab('selfhost', 'Your cloud', '· this container', RED));
+            if (endpointMode) {
+                tabs.appendChild(mkTab('selfhost', 'Your cloud', env.in_container ? '· this container' : '· this endpoint', RED));
             } else {
                 tabs.appendChild(mkTab('local', 'This device', '· local app', CYAN));
                 tabs.appendChild(mkTab('selfhost', 'Your cloud', '· self-hosted', RED));
@@ -215,14 +222,34 @@ const GuideConnectAgentsPage = {
             // single command set for the chosen mode (the hero)
             this.blocksFor(selected, selfHost, engineUrl).forEach(b => panel.appendChild(codeBlock(b.label, b.code)));
 
-            // one-line contextual hint — also tells you how to add MORE agents
-            // (same flow), which is the multi-agent / fleet question.
-            const foot = document.createElement('div');
-            foot.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
-            if (!selfHost) foot.textContent = 'The app is already running — add each agent the same way.';
-            else if (selected.route === 'B') foot.textContent = 'Installs the CLI + plugin hooks only — your engine stays remote. Point each agent at the same endpoint.';
-            else foot.textContent = 'Lightweight adapter — point each agent at the same endpoint.';
-            panel.appendChild(foot);
+            // self-host only: one line clarifying what actually gets installed.
+            if (selfHost) {
+                const foot = document.createElement('div');
+                foot.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;';
+                foot.textContent = selected.route === 'B'
+                    ? 'Installs the CLI + plugin hooks only — your engine stays remote.'
+                    : 'Lightweight adapter — points at your endpoint.';
+                panel.appendChild(foot);
+            }
+
+            // "How do I know it worked?" — the reassurance first-timers and indie
+            // devs asked for. Route B needs a harness restart; both land in Agent
+            // Activity, so link straight there to close the loop.
+            const verify = document.createElement('div');
+            verify.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 10px; line-height: 1.55;';
+            const vStrong = document.createElement('span');
+            vStrong.style.cssText = 'font-weight: 700; color: var(--text-primary);';
+            vStrong.textContent = selected.route === 'B' ? ('Then restart ' + selected.label + ' and run it. ') : 'Then run your agent. ';
+            verify.appendChild(vStrong);
+            verify.appendChild(document.createTextNode('Tool calls show up in '));
+            const vLink = document.createElement('button');
+            vLink.type = 'button';
+            vLink.style.cssText = 'background: none; border: none; color: ' + ACCENT + '; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px;';
+            vLink.textContent = 'Agent Activity';
+            vLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('agent-map'); });
+            verify.appendChild(vLink);
+            verify.appendChild(document.createTextNode(' within seconds — tagged by ' + (selected.route === 'B' ? 'harness.' : 'framework.')));
+            panel.appendChild(verify);
 
             // self-host: one muted line answering "where does my data go?" — the
             // CISO/EU question. The deeper deploy + auth steps live in the full
@@ -369,40 +396,43 @@ const GuideConnectAgentsPage = {
         // the tool-call audit). Each detected harness links to its Integrations
         // install page. Consent is remembered + revocable. ---
         const DETECT_KEY = 'sv-detection-consent';
-        // Detection is OPTIONAL — a collapsible shortcut. Users who skip it just
-        // follow steps 1-2-3 below. Expanded by default only once consent is given.
-        const detectDetails = document.createElement('details');
-        detectDetails.style.cssText = 'margin: 0 0 18px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-card);';
-        const detectSummary = document.createElement('summary');
-        detectSummary.style.cssText = 'cursor: pointer; padding: 11px 14px; font-size: 13px; font-weight: 700; color: var(--text-primary); list-style: none; display: flex; align-items: center; gap: 8px;';
-        const detectCaret = document.createElement('span'); detectCaret.setAttribute('aria-hidden', 'true'); detectCaret.textContent = '▸'; detectCaret.style.cssText = 'flex: none; font-size: 11px; color: var(--text-secondary);';
-        const detectSummaryText = document.createElement('span'); detectSummaryText.style.cssText = 'flex: 1;';
-        const DETECT_PROMPT_LABEL = '🔍  Detect what’s already on this device  (optional) — or else follow the steps below';
-        detectSummaryText.textContent = DETECT_PROMPT_LABEL;
-        detectSummary.appendChild(detectCaret); detectSummary.appendChild(detectSummaryText);
-        detectDetails.appendChild(detectSummary);
-        detectDetails.addEventListener('toggle', () => { detectCaret.textContent = detectDetails.open ? '▾' : '▸'; });
-        const detectHost = document.createElement('div');
-        detectHost.style.cssText = 'padding: 0 14px 14px;';
-        detectDetails.appendChild(detectHost);
-        root.appendChild(detectDetails);
+        // Detection is OPTIONAL — a consent-gated shortcut. Users who skip it just
+        // follow steps 1-2-3 below. Renders a clean callout that flips to a results
+        // card in place once granted; nothing leaves this device.
+        const detectWrap = document.createElement('div');
+        detectWrap.style.cssText = 'margin: 0 0 20px;';
+        root.appendChild(detectWrap);
 
         const renderDetectPrompt = () => {
-            detectSummaryText.textContent = DETECT_PROMPT_LABEL;
-            detectHost.textContent = '';
-            const card = document.createElement('div');
-            card.style.cssText = 'border: 1px solid var(--border-default); border-radius: 12px; padding: 13px 16px; background: var(--bg-card); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;';
-            const txt = document.createElement('div');
-            txt.style.cssText = 'flex: 1 1 260px;';
-            const t = document.createElement('div'); t.style.cssText = 'font-size: 13.5px; font-weight: 700;'; t.textContent = 'See what’s already on this device';
-            const s = document.createElement('div'); s.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 2px; line-height: 1.5;'; s.textContent = 'Detect installed harnesses, active sessions, and agents — by reading local folders only. Nothing leaves this device.';
+            detectWrap.textContent = '';
+            const strip = document.createElement('div');
+            strip.style.cssText = 'display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, ' + ACCENT + ' 5%, var(--bg-card)), var(--bg-card));';
+            const ic = document.createElement('div');
+            ic.setAttribute('aria-hidden', 'true');
+            ic.style.cssText = 'flex: none; width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, ' + ACCENT + ' 14%, transparent); color: ' + ACCENT + '; font-size: 18px; line-height: 1;';
+            ic.textContent = '◎';
+            const txt = document.createElement('div'); txt.style.cssText = 'flex: 1 1 280px;';
+            const t = document.createElement('div'); t.style.cssText = 'font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px;';
+            t.appendChild(document.createTextNode('See what’s already on this device'));
+            const opt = document.createElement('span'); opt.style.cssText = 'font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); border: 1px solid var(--border-default); border-radius: 20px; padding: 1px 7px;'; opt.textContent = 'Optional';
+            t.appendChild(opt);
+            const s = document.createElement('div'); s.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5;'; s.textContent = 'Detects installed harnesses, active sessions, and which already run Guard — reads local folders only, nothing leaves this device. Prefer to skip it? Just follow the steps below.';
             txt.appendChild(t); txt.appendChild(s);
             const btn = document.createElement('button'); btn.type = 'button';
-            btn.style.cssText = 'flex: none; background: transparent; border: 1.5px solid color-mix(in srgb, ' + ACCENT + ' 60%, transparent); color: ' + ACCENT + '; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer;';
-            btn.textContent = 'Detect agents →';
+            const btnBg = 'color-mix(in srgb, ' + ACCENT + ' 15%, transparent)';
+            const btnBd = 'color-mix(in srgb, ' + ACCENT + ' 40%, transparent)';
+            btn.style.cssText = 'flex: none; display: inline-flex; align-items: center; gap: 8px; background: ' + btnBg + '; border: 1px solid ' + btnBd + '; color: ' + ACCENT + '; border-radius: 9px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s, transform 0.14s, box-shadow 0.14s;';
+            const bIco = document.createElementNS(SVG_NS, 'svg');
+            bIco.setAttribute('viewBox', '0 0 24 24'); bIco.setAttribute('width', '15'); bIco.setAttribute('height', '15');
+            bIco.setAttribute('fill', 'none'); bIco.setAttribute('stroke', 'currentColor'); bIco.setAttribute('stroke-width', '2'); bIco.setAttribute('stroke-linecap', 'round'); bIco.setAttribute('stroke-linejoin', 'round');
+            [['circle', { cx: 11, cy: 11, r: 7 }], ['path', { d: 'M21 21l-4.3-4.3' }]].forEach(([t, a]) => { const e = document.createElementNS(SVG_NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); bIco.appendChild(e); });
+            btn.appendChild(bIco);
+            btn.appendChild(document.createTextNode('Detect agents'));
+            btn.addEventListener('mouseenter', () => { btn.style.background = 'color-mix(in srgb, ' + ACCENT + ' 24%, transparent)'; btn.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 60%, transparent)'; btn.style.transform = 'translateY(-1px)'; btn.style.boxShadow = '0 4px 14px color-mix(in srgb, ' + ACCENT + ' 22%, transparent)'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = btnBg; btn.style.borderColor = btnBd; btn.style.transform = 'none'; btn.style.boxShadow = 'none'; });
             btn.addEventListener('click', openConsent);
-            card.appendChild(txt); card.appendChild(btn);
-            detectHost.appendChild(card);
+            strip.appendChild(ic); strip.appendChild(txt); strip.appendChild(btn);
+            detectWrap.appendChild(strip);
         };
 
         const openConsent = async () => {
@@ -428,18 +458,18 @@ const GuideConnectAgentsPage = {
             const close = () => ov.remove();
             cancel.addEventListener('click', close);
             ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-            ok.addEventListener('click', () => { try { localStorage.setItem(DETECT_KEY, 'granted'); } catch (_) {} close(); detectDetails.open = true; runDetection(); });
+            ok.addEventListener('click', () => { try { localStorage.setItem(DETECT_KEY, 'granted'); } catch (_) {} close(); runDetection(); });
             btns.appendChild(cancel); btns.appendChild(ok);
             m.appendChild(h); m.appendChild(body); m.appendChild(btns);
             ov.appendChild(m); document.body.appendChild(ov);
         };
 
         const runDetection = async () => {
-            detectHost.textContent = '';
+            detectWrap.textContent = '';
             const loading = document.createElement('div');
-            loading.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); padding: 12px 2px;';
+            loading.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-card);';
             loading.textContent = 'Scanning this device…';
-            detectHost.appendChild(loading);
+            detectWrap.appendChild(loading);
             let d;
             try { d = await fetch('/api/detection/agents').then(r => r.json()); } catch (_) { loading.textContent = 'Detection unavailable.'; return; }
             renderDetectResults(d);
@@ -461,12 +491,8 @@ const GuideConnectAgentsPage = {
         };
 
         const renderDetectResults = (d) => {
-            detectHost.textContent = '';
+            detectWrap.textContent = '';
             const s = d.summary || {};
-            // Collapsed headline so the panel doesn't push Steps 1-2-3 below the fold.
-            detectSummaryText.textContent = '🔍  Detected: ' + (s.harnesses_detected || 0) + ' harnesses'
-                + ((s.unprotected_sessions || 0) > 0 ? ' · ~' + s.unprotected_sessions + ' sessions not covered by Guard' : '')
-                + '  (click to view)';
             const wrap = document.createElement('div');
             wrap.style.cssText = 'border: 1px solid var(--border-default); border-radius: 12px; padding: 14px 16px; background: var(--bg-card);';
             const hr = document.createElement('div'); hr.style.cssText = 'display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;';
@@ -537,26 +563,39 @@ const GuideConnectAgentsPage = {
             }
             const note = document.createElement('div'); note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 10px;'; note.textContent = 'Click a harness to open its install page. Local probe — nothing left this device.';
             wrap.appendChild(note);
-            detectHost.appendChild(wrap);
+            detectWrap.appendChild(wrap);
         };
 
-        let _detectGranted = false;
-        try { _detectGranted = localStorage.getItem(DETECT_KEY) === 'granted'; } catch (_) {}
-        // Collapsed by default so Steps 1-2-3 stay above the fold; a granted user
-        // still gets the one-line result headline in the summary, and can expand.
-        if (_detectGranted) runDetection(); else renderDetectPrompt();
+        // Detection scans the machine THIS app runs on. In endpoint mode that's a
+        // remote engine host, not the user's agent machine — so it's meaningless
+        // there and we hide it. Locally, it's the high-value "discover what you
+        // already have" hook.
+        if (endpointMode) {
+            detectWrap.style.display = 'none';
+        } else {
+            let _detectGranted = false;
+            try { _detectGranted = localStorage.getItem(DETECT_KEY) === 'granted'; } catch (_) {}
+            if (_detectGranted) runDetection(); else renderDetectPrompt();
+        }
 
-        // When the app itself is the containerized engine, lead with a banner and
-        // drop the "monitor this device" path entirely.
-        if (env.in_container) {
+        // When this app IS the self-hosted engine (container or configured public
+        // URL), lead with a banner and drop the "monitor this device" path — the
+        // whole page auto-adapts to "point your agents at this endpoint".
+        if (endpointMode) {
             const cb = document.createElement('div');
             cb.style.cssText = 'margin: 0 0 20px; padding: 14px 16px; background: color-mix(in srgb, ' + RED + ' 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, ' + RED + ' 45%, var(--border-default)); border-left: 3px solid ' + RED + '; border-radius: 10px;';
             const t = document.createElement('div');
             t.style.cssText = 'font-size: 14px; font-weight: 800; margin-bottom: 4px;';
-            t.textContent = 'Running in a container — point your agents here';
+            t.textContent = env.in_container
+                ? 'Self-hosted engine (container) — point your agents here'
+                : 'Self-hosted engine — point your agents here';
             cb.appendChild(t);
+            const sub = document.createElement('div');
+            sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
+            sub.textContent = 'This SecureVector is running as a network endpoint, so the local-app option is off. Every agent below points at this engine URL.';
+            cb.appendChild(sub);
             cb.appendChild(codeBlock('Engine URL', engineUrl || window.location.origin));
-            root.appendChild(cb);
+            root.insertBefore(cb, detectWrap);
         }
 
         // The three steps live in ONE cohesive card (the "configurator"): pick
@@ -576,9 +615,9 @@ const GuideConnectAgentsPage = {
         };
         const card = document.createElement('div');
         card.style.cssText = 'border: 1px solid var(--border-default); border-radius: 14px; background: var(--bg-card); overflow: hidden; margin: 0 0 18px;';
-        card.appendChild(stepBlock(stepHeader(1, 'Pick the agent or harness to monitor', null), agentWrap, false));
-        card.appendChild(stepBlock(stepHeader(2, 'Where should SecureVector run?', null), tabsHost, true));
-        card.appendChild(stepBlock(stepHeader(3, 'Run these commands where your agents are running', null), panel, true));
+        card.appendChild(stepBlock(stepHeader(1, 'Pick the agent or harness to monitor', 'Prefer to integrate manually? Pick yours here and copy the commands below.'), agentWrap, false));
+        card.appendChild(stepBlock(stepHeader(2, endpointMode ? 'Where SecureVector runs' : 'Where should SecureVector run?', null), tabsHost, true));
+        card.appendChild(stepBlock(stepHeader(3, 'Run these commands where your agents/harnesses are running', null), panel, true));
         root.appendChild(card);
 
         // ---- compact footnotes: "more agents" (inline answer) vs the two
@@ -586,9 +625,9 @@ const GuideConnectAgentsPage = {
         // platform lead can tell them apart. ----
         const notes = document.createElement('div');
         notes.style.cssText = 'margin-top: 22px; font-size: 12px; color: var(--text-secondary); line-height: 1.75; display: flex; flex-direction: column; gap: 1px;';
-        ['Adding more agents? Pick another above — same commands, no reinstall.',
+        ['Adding more agents? Pick another above and copy its commands (a new framework needs its own SDK install).',
          'Team or fleet rollout → Integrations in the sidebar.',
-         'Other tools: n8n · Dify · Ollama → Integrations.'].forEach(t => {
+         'Other tools: n8n · Ollama → Integrations.'].forEach(t => {
             const d = document.createElement('div'); d.textContent = t; notes.appendChild(d);
         });
         root.appendChild(notes);

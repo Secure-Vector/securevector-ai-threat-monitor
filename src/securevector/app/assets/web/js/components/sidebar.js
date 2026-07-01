@@ -37,7 +37,7 @@ const Sidebar = {
         // Skills + Tools entries cover their primary "configure" surfaces
         // (the Permissions / Policy tabs); the Activity / Tracking tabs are
         // surfaced under Agent Replay above.
-        { id: 'skill-scanner', label: 'Skills', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
+        { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
         { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
         // Guardian ML — local ML threat detection. A configure-time choice
         // (on/off + what it does), so it sits in Configure and deep-links to
@@ -75,7 +75,7 @@ const Sidebar = {
         // top-level item (not inside the collapsible Integrations) so it stays
         // reachable on every viewport; same destination as the header button.
         { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Quick start — pick an agent and copy a couple of commands. Detect what is already on this device, and find the full per-agent reference under Integrations.' },
-        { id: 'integrations', label: 'Integrations (reference)', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Dify, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
+        { id: 'integrations', label: 'Integrations (reference)', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
@@ -423,7 +423,7 @@ const Sidebar = {
             const persistNewItems = ['rules', 'governance'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = ['siem-export', 'integrations'];
+            const sessionNewItems = [];
             const isPersist = persistNewItems.includes(item.id);
             const isSession = sessionNewItems.includes(item.id);
             const shouldShow = isPersist
@@ -520,7 +520,7 @@ const Sidebar = {
                 // session-NEW list above; kept separate because sub-items
                 // render in a different branch and the keys aren't shared
                 // with the top-level item IDs.
-                const subNewItems = ['proxy-codex', 'bill-of-tools', 'redactions'];
+                const subNewItems = ['proxy-codex', 'bill-of-tools'];
 
                 item.subItems.forEach(subItem => {
                     // Non-clickable section header (groups the integration list

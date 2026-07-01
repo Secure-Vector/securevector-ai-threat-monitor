@@ -24,14 +24,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-_OS_FRIENDLY = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}
-
 from fastapi import APIRouter, Query
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.custom_tools import CustomToolsRepository
 
 router = APIRouter()
+
+_OS_FRIENDLY = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}
 
 # A session/harness counts as "active" if it showed activity within this many
 # minutes (file mtime for sessions). Tunable via query param.

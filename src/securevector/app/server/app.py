@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
-from securevector.app import __version__, __app_name__
+from securevector.app import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         try:
             db = get_database()
             db_health = await db.health_check()
-        except Exception as e:
+        except Exception:
             logger.exception("Database health check failed")
             db_health = {
                 "connected": False,
@@ -303,9 +303,17 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         ).strip().rstrip("/")
         import platform
         _os_friendly = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}
+        in_container = _in_container()
+        # Authoritative runtime posture the whole UI keys off of. "endpoint" =
+        # this process is a self-hosted engine (containerized OR reachable at a
+        # configured public URL), so agents point AT it over the network and the
+        # local-desktop install steps don't apply. "local" = the desktop app the
+        # user runs on the same machine as their agents.
+        mode = "endpoint" if (in_container or public_url) else "local"
         return {
-            "in_container": _in_container(),
+            "in_container": in_container,
             "public_url": public_url or None,
+            "mode": mode,
             "ingress_token_required": bool(os.environ.get("SECUREVECTOR_INGRESS_TOKEN", "").strip()),
             "os": _os_friendly.get(platform.system(), platform.system() or "Unknown"),
         }

@@ -23,11 +23,11 @@
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
-| **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
-| **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |
-| **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install`) | `crewai` |
+| **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install --no-deps`) | `langchain` |
+| **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install --no-deps`) | `langgraph` |
+| **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install --no-deps`) | `crewai` |
 
-Native plugins enforce inline (zero proxy); SDKs secure tool calls — all on **one enforcement core**, so a single `tool_id="Bash"` rule covers Bash on Claude Code, `exec_command` on Codex, and shell calls on Cursor & OpenClaw. SDK modes: `observe` logs (tool runs), `enforce` blocks. Install from the **Integrations** tab.
+Native plugins enforce inline (zero proxy); SDKs secure tool calls — all on **one enforcement core**, so a single `tool_id="Bash"` rule covers Bash on Claude Code, `exec_command` on Codex, and shell calls on Cursor & OpenClaw. SDK modes: `observe` logs (tool runs), `enforce` blocks. The SDKs are self-contained, so `--no-deps` keeps installs lightweight. Install from the **Integrations** tab (or **Connect Agents** for the quick path). Running the engine in your own cloud? Point any agent at it with `SECUREVECTOR_ENGINE_ENDPOINT` — plugins are point-and-go, SDKs stay `--no-deps`.
 
 Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): the **multi-provider proxy** — Ollama · n8n · any OpenAI-compatible app via `OPENAI_BASE_URL`; the **MCP server** — Claude Desktop & other MCP clients (`pip install securevector-ai-monitor[mcp]`); and a raw **`POST /analyze`** for any HTTP client. MCP tools invoked *from* a plugged-in harness are attributed to that harness's `runtime_kind`.
 
@@ -60,6 +60,7 @@ Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): th
 
 > **What's new in v4.9.0**
 > - **Unified `SECUREVECTOR_ENGINE_ENDPOINT`** — one variable points the SDKs *and* every native plugin at your engine, whether that's the local app or a self-hosted [Terraform](#deploy-to-your-own-cloud-self-host) deployment. Lightweight installs (SDK `--no-deps`; plugins point-and-go) for remote/self-host setups, with optional inbound auth for publicly-exposed endpoints. Legacy `SECUREVECTOR_SDK_APP_URL` / `SV_BASE_URL` still work.
+> - **Connect Agents — one-page setup** — pick your agent or harness, choose where SecureVector runs (this device or your cloud), copy the commands. Optional on-device detection finds what you're already running, and the page auto-adapts its install steps when the app runs as a self-hosted endpoint.
 >
 > **What's new in v4.8.0**
 > - **Framework SDKs for LangChain, LangGraph, and CrewAI** — pip-installable middleware/tool wrappers that secure tool calls and stream them onto the Agent Map by `runtime_kind` (see the "Works with every agent" table above).
@@ -83,27 +84,6 @@ Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): th
 For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — events only leave the machine when you configure a SIEM destination you control.
 
 <br>
-
-<table>
-<tr>
-<th align="left" width="50%">The Problem</th>
-<th align="left" width="50%">The Fix</th>
-</tr>
-<tr>
-<td valign="top">
-
-AI agents are powerful — and completely unprotected.
-
-Every prompt your AI agent sends, every secret it handles, every piece of user data — goes straight to the LLM provider with nothing in between. No spend limit. No injection protection. No audit trail. You're flying blind.
-
-</td>
-<td valign="top">
-
-SecureVector runs on your machine. For OpenClaw/ClawdBot, the native plugin handles everything — zero latency, no proxy overhead. For LangChain, CrewAI, and other frameworks, the multi-provider proxy routes traffic across OpenAI, Anthropic, Ollama, and more. It blocks threats, enforces tool permissions, and hard-stops agents that blow their budget. 100% local. No accounts.
-
-</td>
-</tr>
-</table>
 
 ## Quick Start
 
@@ -186,12 +166,12 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 <tr>
 <td valign="top">
 
-Every tool call is recorded into a SHA-256-linked audit log — tamper-evident, verifiable from the Tool Activity tab's **Re-verify audit chain** button (or via the `/api/tool-permissions/call-audit/integrity` endpoint). Each row stores a 200-char preview of the tool input AFTER secret redaction (sk-/pk-, GitHub PAT, AWS AKIA, JWT, labelled credential kv-pairs) — raw payloads are never persisted. Queryable per agent / per device / per runtime. Allow / deny / ask rules per tool are enforced at the agent runtime via PreToolUse hooks (Claude Code, OpenAI Codex, OpenClaw) or the multi-provider proxy. UI Block clicks deny calls everywhere, not just on the proxy.
+Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Inputs are stored as a 200-char preview *after* secret redaction — raw payloads never persisted. Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
 
 </td>
 <td valign="top">
 
-Audits every tool call to the hash chain. Scans every prompt, response, and natural-language tool input (WebFetch / Skill / Task / Agent prompts) for prompt injection (direct and indirect), jailbreaks, PII leaks, credential exfiltration, and tool-result injection. 72 detection rules covering the OWASP LLM Top 10 + 28 agent-attack chains. Shell command bodies and file content are audited but not threat-scanned — the community rule pack was designed for LLM prose and produced false positives on shell syntax. Monitor-by-default; opt-in block mode for hard-stop.
+Scans every prompt, response, and natural-language tool input for prompt injection (direct + indirect), jailbreaks, PII leaks, credential exfiltration, and tool-result injection. 72 rules covering the OWASP LLM Top 10 + 28 agent-attack chains. Monitor by default; opt-in block mode for hard-stop.
 
 </td>
 </tr>
@@ -207,7 +187,7 @@ Scan agent skills and tool packages before installing. Static analysis across 10
 </td>
 <td valign="top">
 
-Per-agent, per-model token and USD spend in real time. Daily budget limits with auto-stop. Both the Claude Code plugin and the OpenAI Codex plugin read session transcripts locally (CC: `~/.claude/projects/*.jsonl`; Codex: `~/.codex/sessions/*/*/*/rollout-*.jsonl`) to surface input / output / cache tokens with a 7-day trend chart per runtime — no cloud round-trip, no token data leaves your machine.
+Per-agent, per-model token and USD spend in real time, with daily budget auto-stop. Plugins read session transcripts locally for a 7-day input/output/cache trend per runtime — no cloud round-trip, no token data leaves your machine.
 
 </td>
 </tr>

@@ -318,7 +318,7 @@ async def stop_proxy():
                 logger.info("Reverted pi-ai files for all providers (multi mode)")
             else:
                 revert_provider_proxy(_current_provider, quiet=True)
-                logger.info(f"Reverted pi-ai files for {_current_provider}")
+                logger.info("Reverted pi-ai files for %s", str(_current_provider).replace("\n", " ").replace("\r", " "))
             result["reverted"] = True
         except Exception as e:
             logger.warning(f"Could not revert pi-ai files: {e}")
