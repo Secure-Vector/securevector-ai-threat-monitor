@@ -1396,6 +1396,7 @@ const DashboardPage = {
             { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
             { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
             { key: 'copilot-cli', label: 'Copilot CLI', color: '#4a8fe7', url: '/api/hooks/copilot-cli/token-usage' },
+            { key: 'hermes', label: 'Hermes', color: '#f59e0b', url: '/api/hooks/hermes/token-usage' },
         ];
 
         const dailyByRuntime = await Promise.all(RUNTIMES.map(r => fetchDaily(r.url)));

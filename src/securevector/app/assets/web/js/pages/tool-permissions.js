@@ -337,7 +337,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['mcp', 'MCP only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['mcp', 'MCP only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -1680,6 +1680,7 @@ const ToolPermissionsPage = {
             codex: 'Codex',
             copilot_cli: 'GitHub Copilot CLI',
             cursor: 'Cursor',
+            hermes: 'Hermes',
             communication: 'Communication',
             project_management: 'Project Management',
             code_devops: 'Code & DevOps',
@@ -1699,6 +1700,7 @@ const ToolPermissionsPage = {
             codex: { color: '#C0655E', bg: 'rgba(192,101,94,0.12)' },
             copilot_cli: { color: '#8957e5', bg: 'rgba(137,87,229,0.12)' },
             cursor: { color: '#9ca3af', bg: 'rgba(156,163,175,0.14)' },
+            hermes: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
             project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
             code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -1717,6 +1719,7 @@ const ToolPermissionsPage = {
             'codex',          // Codex built-in tools — same names as CC, distinct UI grouping
             'copilot_cli',    // GitHub Copilot CLI built-in tools (bash / view / edit / …)
             'cursor',         // Cursor agent tools (shell / read / write / edit / …)
+            'hermes',         // Hermes (hermes-agent) built-in tools (terminal / execute_code / …)
             'browser_automation',
             'communication',
             'project_management',
@@ -2860,6 +2863,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langchain') ? 'LangChain'
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
+                : (rt === 'hermes') ? 'Hermes'
                 : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;
@@ -3041,6 +3045,7 @@ const ToolPermissionsPage = {
                 : (rt === 'langchain') ? 'LangChain'
                 : (rt === 'langgraph') ? 'LangGraph'
                 : (rt === 'crewai') ? 'CrewAI'
+                : (rt === 'hermes') ? 'Hermes'
                 : (rt === 'mcp') ? 'MCP'
                 : (rt === 'proxy') ? 'Proxy'
                 : rt;

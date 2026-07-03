@@ -252,6 +252,102 @@ CURSOR_BUILTINS: list[tuple[str, str, str]] = [
     ("task",   "admin", "Launch a Cursor subagent."),
 ]
 
+# Hermes (NousResearch hermes-agent) built-ins — the framework-shape sibling
+# of LangChain, governed via the securevector-sdk-hermes package rather than
+# a hook plugin. Names are Hermes's own snake_case registry names, extracted
+# empirically from the hermes-agent 0.18.0 sdist. KEEP IN LOCKSTEP with
+# HERMES_BUILTINS in securevector-sdk-hermes/src/securevector_sdk_hermes/
+# tool_id.py (that repo's test_builtins_drift.py re-verifies against the
+# installed hermes version). MCP tools are NOT listed — Hermes surfaces them
+# as mcp_<server>_<tool> and the SDK resolves them via synced rules with
+# <server>:<tool> candidates.
+HERMES_BUILTINS: list[tuple[str, str, str]] = [
+    ("terminal",         "admin", "Run a shell command in Hermes's terminal backend."),
+    ("process",          "admin", "Manage background processes."),
+    ("read_terminal",    "read",  "Read terminal output."),
+    ("close_terminal",   "write", "Close a terminal session."),
+    ("execute_code",     "admin", "Execute generated code (not pattern-inspected by Hermes's own approval)."),
+    ("computer_use",     "admin", "Full desktop control (screen, mouse, keyboard)."),
+    ("delegate_task",    "admin", "Spawn a Hermes subagent."),
+    ("cronjob",          "admin", "Create/manage scheduled jobs (persistence)."),
+    ("tool_call",        "admin", "Tool-Search bridge: invoke any discovered tool by name."),
+    ("tool_search",      "read",  "Tool-Search bridge: search the tool catalog."),
+    ("tool_describe",    "read",  "Tool-Search bridge: describe a tool's schema."),
+    ("read_file",        "read",  "Read file contents."),
+    ("search_files",     "read",  "Search files by name/content."),
+    ("write_file",       "write", "Write a file."),
+    ("patch",            "write", "Apply a patch to a file."),
+    ("web_search",       "read",  "Search the web."),
+    ("web_extract",      "read",  "Fetch and extract a web page."),
+    ("x_search",         "read",  "Search X/Twitter."),
+    ("browser_navigate", "write", "Navigate the built-in browser."),
+    ("browser_click",    "write", "Click an element in the browser."),
+    ("browser_type",     "write", "Type into the browser."),
+    ("browser_press",    "write", "Press a key in the browser."),
+    ("browser_scroll",   "write", "Scroll the browser page."),
+    ("browser_back",     "write", "Go back in browser history."),
+    ("browser_dialog",   "write", "Handle a browser dialog."),
+    ("browser_cdp",      "admin", "Raw Chrome DevTools Protocol access."),
+    ("browser_snapshot", "read",  "Snapshot the page accessibility tree."),
+    ("browser_console",  "read",  "Read browser console output."),
+    ("browser_get_images", "read", "Extract images from the page."),
+    ("browser_vision",   "read",  "Vision-analyze the current page."),
+    ("vision_analyze",   "read",  "Analyze an image."),
+    ("video_analyze",    "read",  "Analyze a video."),
+    ("image_generate",   "write", "Generate an image."),
+    ("video_generate",   "write", "Generate a video."),
+    ("xai_video_edit",   "write", "Edit a generated video."),
+    ("xai_video_extend", "write", "Extend a generated video."),
+    ("text_to_speech",   "write", "Synthesize speech audio."),
+    ("memory",           "write", "Read/write Hermes long-term memory."),
+    ("session_search",   "read",  "Search prior Hermes sessions."),
+    ("todo",             "write", "Manage the todo list."),
+    ("clarify",          "read",  "Ask the user a clarifying question."),
+    ("skill_manage",     "admin", "Install/enable/remove Hermes skills."),
+    ("skill_view",       "read",  "View a skill's contents."),
+    ("skills_list",      "read",  "List installed skills."),
+    ("kanban_show",      "read",  "Show a kanban card."),
+    ("kanban_list",      "read",  "List kanban cards."),
+    ("kanban_create",    "write", "Create a kanban card."),
+    ("kanban_complete",  "write", "Complete a kanban card."),
+    ("kanban_block",     "write", "Block a kanban card."),
+    ("kanban_unblock",   "write", "Unblock a kanban card."),
+    ("kanban_comment",   "write", "Comment on a kanban card."),
+    ("kanban_link",      "write", "Link kanban cards."),
+    ("kanban_heartbeat", "write", "Heartbeat a kanban card."),
+    ("project_list",     "read",  "List Hermes projects."),
+    ("project_create",   "write", "Create a Hermes project."),
+    ("project_switch",   "write", "Switch the active project."),
+    ("ha_get_state",     "read",  "Home Assistant: read entity state."),
+    ("ha_list_entities", "read",  "Home Assistant: list entities."),
+    ("ha_list_services", "read",  "Home Assistant: list services."),
+    ("ha_call_service",  "admin", "Home Assistant: call a service (act on devices)."),
+    ("feishu_doc_read",  "read",  "Feishu: read a document."),
+    ("feishu_drive_list_comments", "read", "Feishu: list document comments."),
+    ("feishu_drive_list_comment_replies", "read", "Feishu: list comment replies."),
+    ("feishu_drive_add_comment", "write", "Feishu: add a comment."),
+    ("feishu_drive_reply_comment", "write", "Feishu: reply to a comment."),
+    ("discord",          "write", "Send Discord messages."),
+    ("discord_admin",    "admin", "Discord administration actions."),
+    ("yb_query_group_info", "read", "Messaging: query group info."),
+    ("yb_query_group_members", "read", "Messaging: query group members."),
+    ("yb_search_sticker", "read", "Messaging: search stickers."),
+    ("yb_send_dm",       "write", "Messaging: send a direct message."),
+    ("yb_send_sticker",  "write", "Messaging: send a sticker."),
+    ("spotify_search",   "read",  "Spotify: search."),
+    ("spotify_devices",  "read",  "Spotify: list devices."),
+    ("spotify_playlists", "read", "Spotify: list playlists."),
+    ("spotify_albums",   "read",  "Spotify: browse albums."),
+    ("spotify_library",  "read",  "Spotify: browse library."),
+    ("spotify_playback", "write", "Spotify: control playback."),
+    ("spotify_queue",    "write", "Spotify: manage the queue."),
+    ("meet_status",      "read",  "Google Meet: call status."),
+    ("meet_transcript",  "read",  "Google Meet: read transcript."),
+    ("meet_join",        "write", "Google Meet: join a call."),
+    ("meet_leave",       "write", "Google Meet: leave a call."),
+    ("meet_say",         "write", "Google Meet: speak in a call."),
+]
+
 
 def _build_tool_response_row(
     tool_id: str,
@@ -465,6 +561,28 @@ async def list_essential_tools():
                 name, builtin_meta, overrides_map, synced_map, matches_last_resort,
             ))
 
+        # Hermes built-ins. Hermes's tool_id namespace is its own snake_case
+        # registry naming, surfaced under category "hermes". The decision
+        # oracle is the securevector-sdk-hermes package (framework shape, no
+        # hook plugin). Omitted only when the registry already claims the name.
+        for name, risk, description in HERMES_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "Hermes",
+                "category": "hermes",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
         # Sort by category, then by name
         tools.sort(key=lambda t: (t["category"], t["name"]))
 
@@ -646,6 +764,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         builtin_ids.update(name for name, _r, _d in CODEX_BUILTINS)
         builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
         builtin_ids.update(name for name, _r, _d in CURSOR_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in HERMES_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,
@@ -1066,6 +1185,7 @@ _RUNTIME_LABELS = {
     "langchain":    "LangChain",
     "langgraph":    "LangGraph",
     "crewai":       "CrewAI",
+    "hermes":       "Hermes",
     "mcp":          "MCP",
     "n8n":          "n8n",
     "ollama":       "Ollama",

@@ -250,7 +250,7 @@ const GettingStartedPage = {
 
         const setupDesc = document.createElement('div');
         setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        setupDesc.textContent = 'Two routes \u2014 framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
+        setupDesc.textContent = 'Two routes \u2014 framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI \u00b7 Hermes) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
         setupBox.appendChild(setupDesc);
 
         const setupLink = document.createElement('span');
@@ -426,7 +426,7 @@ const GettingStartedPage = {
 
         const pathBDesc = document.createElement('div');
         pathBDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
-        pathBDesc.textContent = 'Go to Integrations, select your framework (LangChain, CrewAI, Ollama, n8n…), and start its proxy. If a proxy is already running, stop it first.';
+        pathBDesc.textContent = 'Go to Integrations, select your framework (LangChain, CrewAI, Hermes, Ollama, n8n…), and start its proxy. If a proxy is already running, stop it first.';
         pathB.appendChild(pathBDesc);
 
         const pathBSteps = document.createElement('ol');

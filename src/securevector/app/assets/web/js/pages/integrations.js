@@ -174,6 +174,23 @@ agent = Agent(
     tools=secure_tools(my_tools),
 )`
         },
+        'proxy-hermes': {
+            name: 'Hermes',
+            description: 'NousResearch hermes-agent — CLI, gateway & ACP',
+            defaultProvider: 'openai',
+            runtimeKind: 'hermes',
+            sdkPackage: 'securevector-sdk-hermes',
+            sdkSnippet: `# Zero-config: the package registers a Hermes plugin
+# (hermes_agent.plugins entry point) — auto-attached on startup in the
+# hermes CLI, gateway and ACP modes. Every tool call gets all three
+# controls + tamper-evident audit, runtime_kind=hermes. Just run hermes:
+hermes                                  # observe (log-only)
+SECUREVECTOR_SDK_MODE=enforce hermes    # block denied tools
+
+# Library embeddings (driving AIAgent from your own code):
+#   from securevector_sdk_hermes import install
+#   install(mode="enforce")`
+        },
         'proxy-n8n': {
             name: 'n8n',
             description: 'Workflow automation platform',

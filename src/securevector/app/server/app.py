@@ -334,6 +334,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         hooks_codex,
         hooks_copilot_cli,
         hooks_cursor,
+        hooks_hermes,
         skill_scans,
         skill_permissions,
         siem_forwarders,
@@ -358,6 +359,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(hooks_codex.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_copilot_cli.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_cursor.router, prefix="/api", tags=["Hooks"])
+    app.include_router(hooks_hermes.router, prefix="/api", tags=["Hooks"])
     app.include_router(skill_scans.router, prefix="/api", tags=["Skill Scanner"])
     app.include_router(skill_permissions.router, prefix="/api", tags=["Skill Permissions"])
     app.include_router(siem_forwarders.router, prefix="/api", tags=["SIEM Forwarders"])
