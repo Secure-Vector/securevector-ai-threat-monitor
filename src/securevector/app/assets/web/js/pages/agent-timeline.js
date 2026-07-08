@@ -16,6 +16,7 @@
 const TL_RUNTIME_COLOR = {
     'claude-code': '#fba35a', codex: '#3b82f6', openclaw: '#ef4444',
     langchain: '#06b6d4', langgraph: '#0ea5e9', crewai: '#0d9488',
+    hermes: '#f59e0b',
 };
 const TL_OUTCOME = {
     block: { color: '#ef4444', label: 'BLOCKED' },

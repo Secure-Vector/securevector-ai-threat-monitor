@@ -285,56 +285,25 @@ const DashboardPage = {
         card.style.cssText = 'padding: 16px 18px; border-radius: 10px; border: 1px solid var(--border-default); background: var(--bg-card);';
 
         const title = document.createElement('div');
-        title.textContent = 'Get protected in 3 steps';
-        title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 10px;';
+        title.textContent = 'Get protected — connect your first agent';
+        title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 6px;';
         card.appendChild(title);
 
-        const steps = document.createElement('div');
-        steps.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-        card.appendChild(steps);
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 14px;';
+        sub.textContent = 'Head to Connect Agents — pick your agent or harness, choose where SecureVector runs, and copy the commands. This dashboard fills in automatically once your first agent runs.';
+        card.appendChild(sub);
 
-        const makeStep = (n, text, done, actionLabel, onAction) => {
-            const row = document.createElement('div');
-            row.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-            const badge = document.createElement('span');
-            badge.textContent = done ? '✓' : String(n);
-            badge.style.cssText = `width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; ${done ? 'background: rgba(16,185,129,0.18); color: #10b981;' : 'background: var(--bg-tertiary); color: var(--text-secondary);'}`;
-            row.appendChild(badge);
-            const txt = document.createElement('div');
-            txt.textContent = text;
-            txt.style.cssText = `flex: 1; font-size: 13px; ${done ? 'color: var(--text-muted); text-decoration: line-through;' : 'color: var(--text-primary);'}`;
-            row.appendChild(txt);
-            if (!done && actionLabel) {
-                const btn = document.createElement('button');
-                btn.className = 'btn btn-secondary btn-sm';
-                btn.textContent = actionLabel;
-                btn.addEventListener('click', onAction);
-                row.appendChild(btn);
-            }
-            return row;
-        };
-
-        steps.appendChild(makeStep(1, 'Connect an agent harness (Claude Code, Codex, OpenClaw…)', false,
-            'Open Integrations', () => { if (window.Sidebar) Sidebar.navigate('proxy-claude-code'); }));
-
-        const waitRow = document.createElement('div');
-        waitRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
-        const waitBadge = document.createElement('span');
-        waitBadge.textContent = '2';
-        waitBadge.style.cssText = 'width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--bg-tertiary); color: var(--text-secondary);';
-        waitRow.appendChild(waitBadge);
-        const waitTxt = document.createElement('div');
-        waitTxt.style.cssText = 'flex: 1; font-size: 13px; color: var(--text-primary);';
-        waitTxt.textContent = 'Run your agent — waiting for the first event…';
-        waitRow.appendChild(waitTxt);
-        steps.appendChild(waitRow);
-
-        steps.appendChild(makeStep(3, 'Turn on Block Mode to block threats on the proxy / analyze path (tool calls are already blocked natively)',
-            !!(this.settings && this.settings.block_threats),
-            'Show me', () => {
-                const sec = document.querySelector('.security-controls-section');
-                if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }));
+        // Single CTA — the Connect Agents page is now the one front door, so the
+        // old inline 3-step checklist is replaced by a redirect. Accent-outline
+        // button (no cyan fill / white text).
+        const cta = document.createElement('button');
+        cta.style.cssText = 'display: inline-flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--accent-primary) 15%, transparent); border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent); color: var(--accent-primary); border-radius: 9px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s;';
+        cta.textContent = 'Connect Agents →';
+        cta.addEventListener('mouseenter', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 24%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 60%, transparent)'; });
+        cta.addEventListener('mouseleave', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 15%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 45%, transparent)'; });
+        cta.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide-connect-agents'); });
+        card.appendChild(cta);
 
         // First-event poll. The stall hint appears after 10 minutes of
         // silence measured from the FIRST time the checklist rendered, so
@@ -1427,6 +1396,7 @@ const DashboardPage = {
             { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
             { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
             { key: 'copilot-cli', label: 'Copilot CLI', color: '#4a8fe7', url: '/api/hooks/copilot-cli/token-usage' },
+            { key: 'hermes', label: 'Hermes', color: '#f59e0b', url: '/api/hooks/hermes/token-usage' },
         ];
 
         const dailyByRuntime = await Promise.all(RUNTIMES.map(r => fetchDaily(r.url)));

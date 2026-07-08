@@ -22,7 +22,7 @@ const Tour = {
     //   • SDK frameworks   — two-line pip SDK (LangChain/LangGraph/CrewAI)
     //   • proxy-only        — everything else, via env-var routing
     PLUGIN_HARNESSES: 'Claude Code, Codex, and OpenClaw',
-    SDK_FRAMEWORKS: 'LangChain, LangGraph, and CrewAI',
+    SDK_FRAMEWORKS: 'LangChain, LangGraph, CrewAI, and Hermes',
     PROXY_ONLY: 'n8n, Ollama, and any OpenAI-compatible app',
 
     steps() {

@@ -26,12 +26,7 @@
 | **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
 | **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |
 | **CrewAI** | SDK — [`securevector-sdk-crewai`](https://github.com/Secure-Vector/securevector-sdk-crewai) (`pip install`) | `crewai` |
-
-Native plugins enforce inline (zero proxy); SDKs secure tool calls — all on **one enforcement core**, so a single `tool_id="Bash"` rule covers Bash on Claude Code, `exec_command` on Codex, and shell calls on Cursor & OpenClaw. SDK modes: `observe` logs (tool runs), `enforce` blocks. Install from the **Integrations** tab (or **Connect Agents** for the quick path).
-
-**Where the engine runs decides the install.** Running locally / auditing on this device → **full install** (the app runs as the engine here). Engine in your own cloud → point agents at it with `SECUREVECTOR_ENGINE_ENDPOINT` and install the self-contained SDK adapter lightweight with `--no-deps`; plugins are point-and-go.
-
-Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): the **multi-provider proxy** — Ollama · n8n · any OpenAI-compatible app via `OPENAI_BASE_URL`; the **MCP server** — Claude Desktop & other MCP clients (`pip install securevector-ai-monitor[mcp]`); and a raw **`POST /analyze`** for any HTTP client. MCP tools invoked *from* a plugged-in harness are attributed to that harness's `runtime_kind`.
+| **Hermes (hermes-agent)** | SDK — [`securevector-sdk-hermes`](https://github.com/Secure-Vector/securevector-sdk-hermes) (`pip install`, zero-config plugin) | `hermes` |
 
 <div align="center">
 
@@ -60,6 +55,9 @@ Also supported for **LLM traffic** (no per-agent `runtime_kind` attribution): th
 
 <br>
 
+> **What's new in v4.9.1**
+> - **SecureVector Guard for Hermes (NousResearch `hermes-agent`)** — a fourth framework SDK, [`securevector-sdk-hermes`](https://github.com/Secure-Vector/securevector-sdk-hermes) (`pip install securevector-sdk-hermes`), brings the local monitor's three controls — tool-call permissions, secret/data-leak detection, and threat detection — to every Hermes tool call with **zero code changes**. The package auto-registers a Hermes plugin via the `hermes_agent.plugins` entry point in every mode (interactive CLI, gateway, ACP): a blocked tool is short-circuited with a `SecureVector Guard:` branded reason, results are scanned for secrets/threats, and MCP tools (`mcp_<server>_<tool>`) resolve against both the raw name and each `<server>:<tool>` split. Hermes tool calls stream onto the **Agent Map**, **Runs**, and **Timeline** under `runtime_kind=hermes`, get their own **Hermes** Tool-Permissions category (the built-in inventory as governable rows), and feed the token chart from `~/.hermes/state.db`. `observe` mode (default) logs an advisory verdict and always runs the tool; `enforce` mode blocks.
+>
 > **What's new in v4.9.0**
 > - **Unified `SECUREVECTOR_ENGINE_ENDPOINT`** — one variable points the SDKs *and* every native plugin at your engine, whether that's the local app or a self-hosted [Terraform](#deploy-to-your-own-cloud-self-host) deployment. Lightweight installs (SDK `--no-deps`; plugins point-and-go) for remote/self-host setups, with optional inbound auth for publicly-exposed endpoints. Legacy `SECUREVECTOR_SDK_APP_URL` / `SV_BASE_URL` still work.
 > - **Connect Agents — one-page setup** — pick your agent or harness, choose where SecureVector runs (this device or your cloud), copy the commands. Optional on-device detection finds what you're already running, and the page auto-adapts its install steps when the app runs as a self-hosted endpoint.
@@ -96,7 +94,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-v4.9.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-4.9.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/securevector_4.9.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/securevector-4.9.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-4.9.0-macOS.dmg)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-v4.9.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector_4.9.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector-4.9.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-macOS.dmg)
 
 **Step 2 — Open the app**
 
@@ -242,6 +240,7 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 | **LangChain** | [**`securevector-sdk-langchain`**](docs/USECASES.md#langchain) (tool-call SDK, recommended) or LLM Proxy |
 | **LangGraph** | [**`securevector-sdk-langgraph`**](docs/USECASES.md#langgraph) (tool-call SDK, recommended) or LLM Proxy |
 | **CrewAI** | [**`securevector-sdk-crewai`**](docs/USECASES.md#crewai) (tool-call SDK, recommended) or LLM Proxy |
+| **Hermes (hermes-agent)** | [**`securevector-sdk-hermes`**](docs/USECASES.md#hermes) (zero-config tool-call SDK, recommended) |
 | **Any OpenAI-compatible** | LLM Proxy — see Integrations in UI |
 | **OpenClaw / ClawdBot** *(LLM gateway agent)* | Native plugin (zero latency) — proxy only for block mode |
 | **n8n** | [Community Node](docs/USECASES.md#n8n) |
@@ -470,17 +469,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.9.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-v4.9.0-Windows-Setup.exe) |
-| macOS | [SecureVector-4.9.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-4.9.0-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-4.9.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SecureVector-4.9.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.9.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/securevector_4.9.0_amd64.deb) |
-| Linux (RPM) | [securevector-4.9.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/securevector-4.9.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v4.9.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-v4.9.1-Windows-Setup.exe) |
+| macOS | [SecureVector-4.9.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-4.9.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-x86_64.AppImage) |
+| Linux (DEB) | [securevector_4.9.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector_4.9.1_amd64.deb) |
+| Linux (RPM) | [securevector-4.9.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector-4.9.1-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
@@ -503,7 +502,7 @@ Want it as shared infrastructure instead of one laptop? Run the engine in **your
 | **Google Cloud** | [terraform-google-securevector](https://github.com/Secure-Vector/terraform-google-securevector) |
 | **Oracle Cloud** | [terraform-oci-securevector](https://github.com/Secure-Vector/terraform-oci-securevector) |
 
-Your data stays in your tenant. `terraform output` gives you the endpoint URL — then point your agents at it with the lightweight SDK (LangChain / LangGraph / CrewAI, `--no-deps` install) and/or the SecureVector Guard plugin. See each SDK / plugin's docs for the one env var to set.
+Your data stays in your tenant. `terraform output` gives you the endpoint URL — then point your agents at it with the lightweight SDK (LangChain / LangGraph / CrewAI / Hermes, `--no-deps` install) and/or the SecureVector Guard plugin. See each SDK / plugin's docs for the one env var to set.
 
 <br>
 
@@ -519,7 +518,7 @@ security: { block_mode: false, output_scan: true } # log/warn by default; flip b
 budget:   { daily_limit: 5.00, warn: true, block: true }  # USD/day; daily_limit null to disable
 tools:    { enforcement: true }                   # apply allow/block tool rules
 proxy:    { integration: openclaw, mode: multi-provider, host: 127.0.0.1, port: 8742 }
-          # integration: openclaw | langchain | langgraph | crewai | ollama; port defaults to server.port + 1
+          # integration: openclaw | langchain | langgraph | crewai | hermes | ollama; port defaults to server.port + 1
 ```
 
 ### MCP Policies — Cloud Sync (optional)
@@ -625,7 +624,7 @@ After updating, restart SecureVector.
 ## Documentation
 
 - [Installation Guide](docs/INSTALLATION.md) — Binary installers, pip, service setup
-- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, n8n, FastAPI
+- [Use Cases & Examples](docs/USECASES.md) — LangChain, LangGraph, CrewAI, Hermes, n8n, FastAPI
 - [MCP Server Guide](docs/MCP_GUIDE.md) — Claude Desktop, Cursor integration
 - [API Reference](docs/API_SPECIFICATION.md) — REST API endpoints
 - [Security Policy](.github/SECURITY.md) — Vulnerability disclosure

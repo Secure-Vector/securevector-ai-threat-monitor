@@ -25,6 +25,8 @@ const GuideConnectAgentsPage = {
             wire: 'from langchain.agents import create_agent  # langgraph-backed\nfrom securevector_sdk_langgraph import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'crewai', route: 'A', label: 'CrewAI', guide: 'guide-frameworks', integration: 'proxy-crewai', pkg: 'securevector-sdk-crewai',
             wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\n# observe = log-only (default); mode="enforce" blocks\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools, mode="observe"))' },
+        { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes',
+            wire: '# Zero-config: the SDK registers a Hermes plugin (hermes_agent.plugins\n# entry point) — auto-attached when hermes starts (CLI, gateway, ACP).\nhermes                                # observe = log-only (default)\nSECUREVECTOR_SDK_MODE=enforce hermes  # blocks denied tools\n\n# Library embeddings: from securevector_sdk_hermes import install; install(mode="enforce")' },
         { id: 'claude-code', route: 'B', label: 'Claude Code', guide: 'guide-claude-code', integration: 'proxy-claude-code', slug: 'claude-code' },
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
@@ -47,12 +49,15 @@ const GuideConnectAgentsPage = {
             // SDK is self-contained (stdlib + your framework only), so --no-deps in
             // BOTH cases — the app and framework are already present. The only
             // difference for "your cloud" is the endpoint env var.
+            // Hermes attaches zero-config via its plugin entry point (no code to
+            // wrap), so its final step is "Run it", not "Wrap your agent".
+            const wireLabel = agent.id === 'hermes' ? 'Run it' : 'Wrap your agent';
             return selfHost
                 ? [ { label: 'Install the SDK', code: 'pip install ' + agent.pkg + ' --no-deps' },
                     { label: 'Point at your endpoint', code: ENDPOINT },
-                    { label: 'Wrap your agent', code: agent.wire } ]
+                    { label: wireLabel, code: agent.wire } ]
                 : [ { label: 'Install the SDK', code: 'pip install ' + agent.pkg + ' --no-deps' },
-                    { label: 'Wrap your agent', code: agent.wire } ];
+                    { label: wireLabel, code: agent.wire } ];
         }
         return selfHost
             ? [ { label: 'Install the CLI once (to add plugins)', code: "pip install 'securevector-ai-monitor[app]'" },

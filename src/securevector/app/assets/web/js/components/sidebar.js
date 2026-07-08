@@ -97,6 +97,7 @@ const Sidebar = {
             { id: 'proxy-langchain', label: 'LangChain' },
             { id: 'proxy-langgraph', label: 'LangGraph' },
             { id: 'proxy-crewai', label: 'CrewAI' },
+            { id: 'proxy-hermes', label: 'Hermes' },
             { header: 'Proxy' },
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
@@ -115,7 +116,7 @@ const Sidebar = {
             { id: 'guide-cursor', label: 'Cursor' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
             { header: 'Framework SDKs' },
-            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI' },
+            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI · Hermes' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
             { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
@@ -238,7 +239,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.9.0';
+        version.textContent = 'v4.9.1';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -1248,6 +1249,7 @@ const Sidebar = {
         langchain: { icon: '🔗', label: 'LANGCHAIN PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langchain' },
         langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
         crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
+        hermes: { icon: '🪽', label: 'HERMES PROXY', color: 'linear-gradient(135deg, #f59e0b, #d97706)', page: 'proxy-hermes' },
         n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
         default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #5eadb8, #c0655e)', page: 'integrations' },
     },
@@ -1275,7 +1277,7 @@ const Sidebar = {
                             // shown in parens for context (what agent started it).
                             const friendlyNames = {
                                 openclaw: 'OpenClaw', ollama: 'Ollama', langchain: 'LangChain',
-                                langgraph: 'LangGraph', crewai: 'CrewAI', n8n: 'n8n',
+                                langgraph: 'LangGraph', crewai: 'CrewAI', hermes: 'Hermes', n8n: 'n8n',
                             };
                             const name = friendlyNames[integration];
                             const modeTag = data.multi ? 'multi-provider' : (data.provider || 'single');
