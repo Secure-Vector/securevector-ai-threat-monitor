@@ -58,7 +58,7 @@ proxy:
   #   natively inside OpenClaw with zero latency overhead.
   #   Proxy only starts when security.block_mode is enabled (above).
   #
-  # LangChain / CrewAI / Ollama / other frameworks:
+  # LangChain / CrewAI / Hermes / Ollama / other frameworks:
   #   Proxy starts automatically and intercepts LLM traffic.
   #   Point your agent at the proxy instead of the LLM provider:
   #
@@ -74,7 +74,7 @@ proxy:
   #     http://127.0.0.1:{proxy_port}/ollama/v1
   # -----------------------------------------------------------------------
   # Integration — which agent framework is connected
-  # Options: openclaw, langchain, langgraph, crewai, ollama
+  # Options: openclaw, langchain, langgraph, crewai, hermes, ollama
   integration: {proxy_integration}
   # Mode: multi-provider routes all LLM providers automatically (recommended)
   #       single routes to one provider only (provider field required below)
@@ -116,7 +116,7 @@ def _fmt_amount(value: Optional[float]) -> str:
     return f"{value:.2f}"
 
 
-VALID_INTEGRATIONS = ("openclaw", "langchain", "langgraph", "crewai", "ollama")
+VALID_INTEGRATIONS = ("openclaw", "langchain", "langgraph", "crewai", "hermes", "ollama")
 VALID_PROXY_MODES = ("multi-provider", "single")
 VALID_PROVIDERS = ("openai", "anthropic", "gemini", "groq", "mistral", "grok", "ollama")
 DEFAULT_INTEGRATION = "openclaw"

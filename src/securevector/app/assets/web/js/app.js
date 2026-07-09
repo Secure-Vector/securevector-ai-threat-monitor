@@ -18,6 +18,7 @@ const App = {
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
         'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },
+        'proxy-hermes': { render: (c) => IntegrationPage.render(c, 'proxy-hermes') },
         'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
@@ -299,7 +300,7 @@ const App = {
             card.appendChild(link);
             return card;
         };
-        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI — one SDK import secures every tool call.', 'route-frameworks'));
+        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI · Hermes — one SDK import secures every tool call.', 'route-frameworks'));
         connectGrid.appendChild(makeRouteCard('Harnesses · plugin', 'I use a coding agent or harness', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw — native Guard plugin.', 'route-plugins'));
         connect.appendChild(connectGrid);
         content.appendChild(connect);

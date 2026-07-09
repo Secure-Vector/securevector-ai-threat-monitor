@@ -48,7 +48,7 @@ _HARNESS_RUNTIME_KINDS = {
 }
 # Frameworks we explicitly recognise (runtime_kind -> display label); anything
 # else with activity that isn't a harness is still reported as an "agent".
-_FRAMEWORK_LABELS = {"langchain": "LangChain", "langgraph": "LangGraph", "crewai": "CrewAI"}
+_FRAMEWORK_LABELS = {"langchain": "LangChain", "langgraph": "LangGraph", "crewai": "CrewAI", "hermes": "Hermes"}
 _KNOWN_FRAMEWORKS = set(_FRAMEWORK_LABELS)
 
 

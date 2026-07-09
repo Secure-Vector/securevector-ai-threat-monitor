@@ -771,6 +771,29 @@ install(mode="observe")
 
 ---
 
+### Hermes
+
+Secure every tool call NousResearch's `hermes-agent` makes — **zero code changes**. The `securevector-sdk-hermes` package registers a Hermes plugin through the `hermes_agent.plugins` entry point; the Hermes plugin manager auto-attaches it on startup in every mode (interactive `hermes` CLI, `hermes gateway` for Telegram/Discord/Slack/…, and the ACP/Zed adapter). Installing the package also installs this local app.
+
+```bash
+pip install securevector-sdk-hermes
+hermes                                # observe (log-only, default)
+SECUREVECTOR_SDK_MODE=enforce hermes  # block denied tools
+```
+
+Driving `AIAgent` as a library (no plugin manager)? Attach programmatically — this wraps Hermes's tool-registry dispatch, the single choke point every execution path funnels through:
+
+```python
+from securevector_sdk_hermes import install
+install(mode="enforce")
+```
+
+**What the SDK secures on every tool call** — the same control set (tool-call permissions, secret/data-leak detection, and threat detection on input + output), written to the audit chain and tagged `runtime_kind=hermes`, keyed by Hermes's own `session_id` / `tool_call_id`. Covers all ~70 built-in tools (`terminal`, `execute_code`, `write_file`, `browser_*`, …), MCP tools, and plugin tools. A denied tool is stopped through Hermes's documented `pre_tool_call` block directive with a `SecureVector Guard:` reason — no exceptions, no crashed runs.
+
+> **Why it matters for gateway mode.** Hermes's built-in dangerous-command approval is known to fail open in gateway/headless contexts (upstream `hermes-agent` issue #30882). The guard hooks the dispatch layer *beneath* that approval system, so cloud-managed deny rules apply in every mode. MCP tools arrive as `mcp_<server>_<tool>` (hyphens/dots sanitized to underscores) — the SDK matches rules against both that raw form and the `<server>:<tool>` policy form.
+
+---
+
 ### n8n
 
 Integrate SecureVector into n8n workflows using HTTP Request nodes.

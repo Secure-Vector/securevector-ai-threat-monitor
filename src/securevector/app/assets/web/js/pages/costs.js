@@ -68,6 +68,13 @@ const CostsPage = {
         container.appendChild(copilotNoteHost);
         this._renderCopilotCostGapNote(copilotNoteHost);
 
+        // Hermes session-tokens panel — framework-shape sibling (amber
+        // accent), sourced from ~/.hermes/state.db (the store behind
+        // Hermes's own /insights). Renders only when session data exists.
+        const hermesNoteHost = document.createElement('div');
+        container.appendChild(hermesNoteHost);
+        this._renderHermesCostGapNote(hermesNoteHost);
+
         const tabs = document.createElement('div');
         tabs.className = 'tab-bar';
         tabs.id = 'costs-tabs';
@@ -970,6 +977,255 @@ const CostsPage = {
         const footer = document.createElement('div');
         footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
         footer.textContent = 'Source: local Copilot CLI session logs. Refer to your GitHub Copilot account for billing.';
+        panel.appendChild(footer);
+
+        host.appendChild(panel);
+    },
+
+    async _renderHermesCostGapNote(host) {
+        // Framework shape: no plugin/status endpoint — the panel gates on
+        // actual Hermes session data existing in ~/.hermes/state.db.
+        let usage = null;
+        try {
+            const usageRes = await fetch('/api/hooks/hermes/token-usage');
+            if (usageRes.ok) usage = await usageRes.json();
+        } catch { /* fail-quiet — panel is informational, not load-bearing */ }
+        if (!usage || !(usage.sessions > 0)) return;
+
+        const fmt = n => (n || 0).toLocaleString();
+
+        const panel = document.createElement('div');
+        // Amber accent (#f59e0b) matches the Hermes sidebar banner and the
+        // dashboard token-trend series — consistent across every surface
+        // that shows Hermes-attributed data.
+        panel.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid #f59e0b; border-radius: 8px;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+        const title = document.createElement('strong');
+        title.textContent = 'Hermes · Session Tokens';
+        title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
+        header.appendChild(title);
+        const meta = document.createElement('span');
+        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto;';
+        const last = usage.last_activity ? new Date(usage.last_activity).toLocaleString() : 'no activity';
+        meta.textContent = `${usage.sessions} sessions · ${fmt(usage.turns_with_usage)} turns · last: ${last}`;
+        header.appendChild(meta);
+        panel.appendChild(header);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
+        const tile = (label, value, sub) => {
+            const t = document.createElement('div');
+            t.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const v = document.createElement('div');
+            v.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.2;';
+            v.textContent = value;
+            const l = document.createElement('div');
+            l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
+            l.textContent = label;
+            t.appendChild(v);
+            t.appendChild(l);
+            if (sub) {
+                const s = document.createElement('div');
+                s.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
+                s.textContent = sub;
+                t.appendChild(s);
+            }
+            return t;
+        };
+        grid.appendChild(tile('Input', fmt(usage.input_tokens), 'prompt side'));
+        grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
+        grid.appendChild(tile('Cache write', fmt(usage.cache_creation_input_tokens), 'cache priming'));
+        grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated (incl. reasoning)'));
+        panel.appendChild(grid);
+
+        // Cost row — token counts only here; Hermes's own /insights estimates
+        // spend from its pricing table, so we don't double-report a number.
+        const costRow = document.createElement('div');
+        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+        const costLabel = document.createElement('span');
+        costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
+        costLabel.textContent = 'Cost';
+        costRow.appendChild(costLabel);
+        const costValue = document.createElement('span');
+        costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
+        costValue.textContent = 'Not applicable';
+        costRow.appendChild(costValue);
+        const costHint = document.createElement('span');
+        costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
+        costHint.textContent = 'Token sessions above — Hermes /insights holds its own cost estimate';
+        costRow.appendChild(costHint);
+
+        // Per-model details — Hermes sessions switch models freely
+        // (per-session `model` column), so this is genuinely a multi-row table.
+        if (Array.isArray(usage.by_model) && usage.by_model.length > 0) {
+            const detailsBtn = document.createElement('button');
+            detailsBtn.type = 'button';
+            detailsBtn.style.cssText = 'margin-left: auto; padding: 4px 10px; font-size: 11px; font-weight: 600; background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 999px; cursor: pointer; flex-shrink: 0;';
+            detailsBtn.textContent = `By model (${usage.by_model.length}) ▴`;
+            detailsBtn.setAttribute('aria-expanded', 'true');
+            costRow.appendChild(detailsBtn);
+
+            const detailsBox = document.createElement('div');
+            detailsBox.style.cssText = 'display: block; margin-top: 8px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-size: 11px;';
+            const table = document.createElement('table');
+            table.style.cssText = 'width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;';
+            const thead = document.createElement('thead');
+            const thr = document.createElement('tr');
+            ['Model', 'Turns', 'Input', 'Output', 'Cache read', 'Cache write'].forEach((h, i) => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                th.style.cssText = 'text-align: ' + (i === 0 ? 'left' : 'right') + '; padding: 4px 8px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; border-bottom: 1px solid var(--border-default);';
+                thr.appendChild(th);
+            });
+            thead.appendChild(thr);
+            table.appendChild(thead);
+            const tbody = document.createElement('tbody');
+            usage.by_model.forEach(m => {
+                const tr = document.createElement('tr');
+                const cells = [
+                    { v: m.model, align: 'left' },
+                    { v: fmt(m.turns), align: 'right' },
+                    { v: fmt(m.input_tokens), align: 'right' },
+                    { v: fmt(m.output_tokens), align: 'right' },
+                    { v: fmt(m.cache_read_input_tokens), align: 'right' },
+                    { v: fmt(m.cache_creation_input_tokens), align: 'right' },
+                ];
+                cells.forEach(c => {
+                    const td = document.createElement('td');
+                    td.textContent = c.v;
+                    td.style.cssText = 'padding: 4px 8px; text-align: ' + c.align + '; color: var(--text-primary); border-bottom: 1px solid var(--border-default);';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            detailsBox.appendChild(table);
+
+            detailsBtn.addEventListener('click', () => {
+                const open = detailsBox.style.display !== 'none';
+                detailsBox.style.display = open ? 'none' : 'block';
+                detailsBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+                detailsBtn.textContent = `By model (${usage.by_model.length}) ${open ? '▾' : '▴'}`;
+            });
+            panel.appendChild(costRow);
+            panel.appendChild(detailsBox);
+        } else {
+            panel.appendChild(costRow);
+        }
+
+        // 7-day token trend — same algorithm as the CC / Codex charts;
+        // stack swaps Codex's reasoning segment for cache write.
+        if (Array.isArray(usage.daily)) {
+            const chartCard = document.createElement('div');
+            chartCard.style.cssText = 'margin-top: 12px; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+
+            const chartTitle = document.createElement('div');
+            chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
+            chartTitle.textContent = 'Token Trend — Last 7 Days';
+            chartCard.appendChild(chartTitle);
+
+            const buckets = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                const match = usage.daily.find(r => r.day === dateStr) || {};
+                buckets.push({
+                    label: (d.getMonth() + 1) + '/' + d.getDate(),
+                    day: dateStr,
+                    input: match.input_tokens || 0,
+                    output: match.output_tokens || 0,
+                    cacheRead: match.cache_read_input_tokens || 0,
+                    cacheWrite: match.cache_creation_input_tokens || 0,
+                    turns: match.turns || 0,
+                });
+            }
+            const maxVal = Math.max(
+                ...buckets.map(b => b.input + b.output + b.cacheRead + b.cacheWrite),
+                1,
+            );
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
+
+            buckets.forEach(bucket => {
+                const total = bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
+                const col = document.createElement('div');
+                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
+                col.title = `${bucket.label}\nTurns: ${fmt(bucket.turns)}\nInput: ${fmt(bucket.input)}\nOutput: ${fmt(bucket.output)}\nCache read: ${fmt(bucket.cacheRead)}\nCache write: ${fmt(bucket.cacheWrite)}`;
+
+                const abbrev = (n) => {
+                    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+                    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+                    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+                    return String(n);
+                };
+                const valLbl = document.createElement('div');
+                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
+                valLbl.textContent = total > 0 ? abbrev(total) : '';
+                col.appendChild(valLbl);
+
+                const barArea = document.createElement('div');
+                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
+
+                const pctTotal = (total / maxVal) * 100;
+                if (pctTotal > 0) {
+                    const stack = document.createElement('div');
+                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
+                    const seg = (color, weight) => {
+                        if (weight <= 0) return;
+                        const s = document.createElement('div');
+                        s.style.cssText = 'background: ' + color + '; flex: ' + weight + ';';
+                        stack.appendChild(s);
+                    };
+                    // column-reverse: last appended = top
+                    seg('#475569', bucket.cacheRead);   // muted slate (biggest)
+                    seg('#f59e0b', bucket.input);       // hermes amber
+                    seg('#5eadb8', bucket.output);      // teal
+                    seg('#a78bfa', bucket.cacheWrite);  // violet — cache priming
+                    barArea.appendChild(stack);
+                } else {
+                    const base = document.createElement('div');
+                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
+                    barArea.appendChild(base);
+                }
+                col.appendChild(barArea);
+
+                const lbl = document.createElement('div');
+                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
+                lbl.textContent = bucket.label;
+                col.appendChild(lbl);
+
+                wrap.appendChild(col);
+            });
+            chartCard.appendChild(wrap);
+
+            const legend = document.createElement('div');
+            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
+            [
+                ['#a78bfa', 'Cache write'],
+                ['#5eadb8', 'Output'],
+                ['#f59e0b', 'Input'],
+                ['#475569', 'Cache read'],
+            ].forEach(([color, label]) => {
+                const item = document.createElement('span');
+                item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
+                const dot = document.createElement('span');
+                dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
+                item.appendChild(dot);
+                item.appendChild(document.createTextNode(label));
+                legend.appendChild(item);
+            });
+            chartCard.appendChild(legend);
+
+            panel.appendChild(chartCard);
+        }
+
+        const footer = document.createElement('div');
+        footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
+        footer.textContent = 'Source: Hermes state.db (~/.hermes). Refer to your model-provider account for billing.';
         panel.appendChild(footer);
 
         host.appendChild(panel);

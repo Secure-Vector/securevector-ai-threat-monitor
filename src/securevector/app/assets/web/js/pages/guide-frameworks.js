@@ -1,12 +1,12 @@
 /**
- * Framework SDKs (LangChain / LangGraph / CrewAI) — setup guide page.
+ * Framework SDKs (LangChain / LangGraph / CrewAI / Hermes) — setup guide page.
  *
  * Sibling of guide-claude-code.js / guide-cursor.js. Covers the SecureVector
- * SDK family that secures *tool calls* (not just LLM traffic) for the three
+ * SDK family that secures *tool calls* (not just LLM traffic) for the four
  * agent frameworks. Each SDK ships as a separate package that also installs
  * this local app and writes to the same tamper-evident audit chain, tagged
- * runtime_kind=langchain|langgraph|crewai. Keep in sync with the SDK repos
- * (securevector-sdk-langchain / -langgraph / -crewai).
+ * runtime_kind=langchain|langgraph|crewai|hermes. Keep in sync with the SDK
+ * repos (securevector-sdk-langchain / -langgraph / -crewai / -hermes).
  */
 const GuideFrameworksPage = {
     async render(container) {
@@ -24,7 +24,7 @@ const GuideFrameworksPage = {
         header.appendChild(eyebrow);
         const h1 = document.createElement('h1');
         h1.style.cssText = 'font-size: 28px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-primary);';
-        h1.textContent = 'Framework SDKs — LangChain · LangGraph · CrewAI';
+        h1.textContent = 'Framework SDKs — LangChain · LangGraph · CrewAI · Hermes';
         header.appendChild(h1);
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0;';
@@ -71,14 +71,14 @@ const GuideFrameworksPage = {
         // --- Install ---
         root.appendChild(h2('1. Install'));
         root.appendChild(p('Pick the package for your framework. Each one also installs this local app (securevector-ai-monitor) — one command delivers the adapter and the engine.'));
-        root.appendChild(code('pip install securevector-sdk-langchain     # or -langgraph, or -crewai'));
+        root.appendChild(code('pip install securevector-sdk-langchain     # or -langgraph, -crewai, -hermes'));
         root.appendChild(callout('The app must be running locally.', 'The SDK is a thin interception layer that talks to this app over loopback (http://127.0.0.1:8741). Start it with securevector-app --web. If the app is down, observe mode fails open (tool runs) and enforce mode fails closed (tool denied).'));
 
         // --- Self-host / remote engine (Terraform) ---
         root.appendChild(h3('Pointing at a self-hosted engine (Terraform / your own cloud)'));
         root.appendChild(p('Deployed the engine to your own cloud with the SecureVector Terraform modules? Agents don’t need the bundled app — install the adapter only (--no-deps) and point it at your deployment’s endpoint URL.'));
         root.appendChild(code(`# adapter only — skip the bundled app (your env already has the framework)
-pip install securevector-sdk-langchain --no-deps     # or -langgraph / -crewai
+pip install securevector-sdk-langchain --no-deps     # or -langgraph / -crewai / -hermes
 
 # point at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
@@ -127,6 +127,17 @@ agent = Agent(role="Researcher", goal="Research safely", tools=secure_tools(my_t
         root.appendChild(code(`from securevector_sdk_crewai import install
 install(mode="observe")`));
 
+        // --- Hermes ---
+        root.appendChild(h3('Hermes (NousResearch hermes-agent)'));
+        root.appendChild(p('Zero code. The SDK registers a Hermes plugin through the hermes_agent.plugins entry point — the Hermes plugin manager auto-attaches it on startup in every mode: the interactive hermes CLI, hermes gateway (Telegram / Discord / Slack / …), and the ACP/Zed adapter. A denied tool is stopped through Hermes\u2019s own pre_tool_call block directive with a "SecureVector Guard:" reason.'));
+        root.appendChild(code(`pip install securevector-sdk-hermes
+hermes                                # observe (log-only, default)
+SECUREVECTOR_SDK_MODE=enforce hermes  # block denied tools`));
+        root.appendChild(p('Driving AIAgent as a library (no plugin manager)? Attach programmatically — this wraps Hermes\u2019s tool-registry dispatch, the choke point every execution path funnels through:'));
+        root.appendChild(code(`from securevector_sdk_hermes import install
+install(mode="enforce")`));
+        root.appendChild(callout('Covers the gateway approval gap.', 'Hermes\u2019s built-in dangerous-command approval is known to fail open in gateway/headless contexts (upstream hermes-agent #30882). The guard hooks the dispatch layer beneath that approval system, so cloud-managed deny rules apply in every mode. MCP tools (mcp_<server>_<tool>) are matched against both the raw Hermes name and the <server>:<tool> policy form.'));
+
         // --- observe vs enforce ---
         root.appendChild(h2('observe vs enforce'));
         root.appendChild(table(['Mode', 'App reachable', 'App unreachable'], [
@@ -139,7 +150,7 @@ install(mode="observe")`));
         root.appendChild(h2('Seeing it in this app'));
         root.appendChild(p('Run your agent once with the SDK installed. The Integrations card for your framework auto-detects the first tool call and flips to Active with live counters — no "connect" step. The calls also appear in:'));
         const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0 8px 18px; color: var(--text-secondary);';
-        [['Agent Map', 'a node per runtime_kind (langchain / langgraph / crewai), with calls and blocked counts'],
+        [['Agent Map', 'a node per runtime_kind (langchain / langgraph / crewai / hermes), with calls and blocked counts'],
          ['Runs', 'each session as its own run, with per-tool decisions'],
          ['Evidence (CSV)', 'export from the Integrations card for an auditor-ready, attributed record']].forEach(([k, v]) => {
             const li = document.createElement('li'); li.style.cssText = 'margin: 4px 0;';
@@ -150,7 +161,7 @@ install(mode="observe")`));
         // One shortcut per framework — symmetric, so LangGraph/CrewAI users get one too.
         const ctaRow = document.createElement('div');
         ctaRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;';
-        [['LangChain', 'proxy-langchain'], ['LangGraph', 'proxy-langgraph'], ['CrewAI', 'proxy-crewai']].forEach(([label, navId]) => {
+        [['LangChain', 'proxy-langchain'], ['LangGraph', 'proxy-langgraph'], ['CrewAI', 'proxy-crewai'], ['Hermes', 'proxy-hermes']].forEach(([label, navId]) => {
             const cta = document.createElement('button');
             cta.type = 'button';
             cta.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent-primary); background: transparent; color: var(--accent-primary); font-size: 13px; font-weight: 600; cursor: pointer;';
@@ -163,7 +174,7 @@ install(mode="observe")`));
         // Non-affiliation disclaimer for the named third-party frameworks.
         const disclaimer = document.createElement('p');
         disclaimer.style.cssText = 'margin: 24px 0 0; padding-top: 12px; border-top: 1px solid var(--border-default); font-size: 11px; color: var(--text-secondary);';
-        disclaimer.textContent = 'SecureVector is an independent project and is not affiliated with or endorsed by Anthropic, LangChain, or CrewAI. Product names are used nominatively to identify the target framework.';
+        disclaimer.textContent = 'SecureVector is an independent project and is not affiliated with or endorsed by Anthropic, LangChain, CrewAI, or Nous Research. Product names are used nominatively to identify the target framework.';
         root.appendChild(disclaimer);
 
         container.appendChild(root);

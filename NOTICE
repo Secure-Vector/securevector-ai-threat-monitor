@@ -57,14 +57,16 @@ AGENT RUNTIMES & FRAMEWORKS (nominative references only)
 - Anthropic, Claude, and Claude Code are trademarks of Anthropic, PBC.
 - LangChain and LangGraph are trademarks of LangChain, Inc.
 - CrewAI is a trademark of CrewAI, Inc.
+- Hermes and Nous Research are trademarks of Nous Research.
 - Usage: SecureVector's plugins and framework SDK adapters integrate with
   these runtimes and reference their names nominatively to identify the
   target framework. No third-party logos, code, or copyrighted content are
   redistributed. SecureVector is an independent project and is not
-  affiliated with or endorsed by Anthropic, LangChain, or CrewAI.
+  affiliated with or endorsed by Anthropic, LangChain, CrewAI, or Nous
+  Research.
 
 SecureVector is not affiliated with or endorsed by the Linux Foundation,
-the OCSF Project, The MITRE Corporation, Anthropic, LangChain, or CrewAI. Product and company names
+the OCSF Project, The MITRE Corporation, Anthropic, LangChain, CrewAI, or Nous Research. Product and company names
 referenced here may be trademarks of their respective owners; references
 are nominative / fair-use for interoperability purposes only.
 

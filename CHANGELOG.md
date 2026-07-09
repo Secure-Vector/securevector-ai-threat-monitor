@@ -5,6 +5,11 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.1] - 2026-07-02
+
+### Added
+- **SecureVector Guard for Hermes (NousResearch `hermes-agent`)** (#183, release unit δ of the active-guard-plugin bundle) — a fourth framework SDK, [`securevector-sdk-hermes`](https://github.com/Secure-Vector/securevector-sdk-hermes), extends the LangChain/LangGraph/CrewAI family to Hermes with **zero code changes**: the package registers a Hermes plugin via the `hermes_agent.plugins` entry point, auto-attached in every mode (interactive CLI, gateway, ACP). The `pre_tool_call` hook enforces cloud-managed deny rules with a `SecureVector Guard:` branded reason (covering the gateway approval fail-open, upstream hermes-agent #30882); `post_tool_call` scans results for secrets/threats; `install()` wraps `tools.registry.dispatch` for library embeddings. MCP tools (`mcp_<server>_<tool>`, lossy underscore sanitization) are matched against the raw Hermes name plus every `<server>:<tool>` split. App wiring: `runtime_kind=hermes` across Agent Map / Runs / Timeline / Redactions / Tool Permissions (new **Hermes** category with the empirical 0.18.0 built-in inventory as governable rows), an SDK-primary Integrations card + Connect Agents entry + Framework SDKs guide section, `proxy.integration: hermes` config support, and a Hermes token-usage reader over `~/.hermes/state.db` (the store behind Hermes's own `/insights`) feeding the dashboard token chart and a Costs session-tokens panel.
+
 ## [4.8.0] - 2026-06-21
 
 ### Added
