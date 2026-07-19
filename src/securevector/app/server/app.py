@@ -328,6 +328,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         llm,
         proxy,
         tool_permissions,
+        jit_access,
         costs,
         hooks,
         hooks_claude_code,
@@ -353,6 +354,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(llm.router, prefix="/api", tags=["LLM Review"])
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
+    app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_claude_code.router, prefix="/api", tags=["Hooks"])
@@ -398,6 +400,13 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         images_path = WEB_ASSETS_PATH / "images"
         if images_path.exists():
             app.mount("/images", StaticFiles(directory=str(images_path)), name="images")
+
+        # Mount self-hosted fonts (v5 type signature). Bundled OFL-licensed
+        # faces served in-process so the CSP `font-src 'self'` is satisfied and
+        # the type identity works fully offline (no external font CDN).
+        fonts_path = WEB_ASSETS_PATH / "fonts"
+        if fonts_path.exists():
+            app.mount("/fonts", StaticFiles(directory=str(fonts_path)), name="fonts")
 
         # Mount SIEM dashboard templates (Sentinel workbook, Splunk XML).
         # Ship with the package; served in-process so the Copy / Download

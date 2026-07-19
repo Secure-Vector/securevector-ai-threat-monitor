@@ -184,7 +184,7 @@ const SkillScannerPage = {
                 gridArea.appendChild(dirsHint);
             }
 
-            const sourceColors = { openclaw: '#5eadb8', mcp: '#8b5cf6', claude: '#f59e0b', custom: '#6b7280' };
+            const sourceColors = { openclaw: '#8b949e', mcp: '#8b949e', claude: '#8b949e', custom: '#8b949e' };
             const grid = document.createElement('div');
             grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 14px;';
 
@@ -849,7 +849,7 @@ const SkillScannerPage = {
                 });
 
                 // Render findings into panel
-                const SEV_COLOR = { critical: '#ef4444', high: '#ef4444', medium: '#f59e0b', low: '#6b7280', info: '#3b82f6' };
+                const SEV_COLOR = { critical: '#ef4444', high: '#ef4444', medium: '#f59e0b', low: '#6b7280', info: '#64748b' };
                 rec.findings.forEach(f => {
                     const isFP = f.ai_verdict === 'false_positive';
                     const item = document.createElement('div');
@@ -2446,11 +2446,11 @@ const SkillScannerPage = {
             const resHeader = document.createElement('div');
             resHeader.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 10px;';
             const resIcon = document.createElement('span');
-            resIcon.style.cssText = 'font-size: 14px; color: #3b82f6;';
+            resIcon.style.cssText = 'font-size: 14px; color: var(--accent-primary, #5eadb8);';
             resIcon.textContent = '\u26A1';
             resHeader.appendChild(resIcon);
             const resTitle = document.createElement('span');
-            resTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.5px;';
+            resTitle.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--accent-primary, #5eadb8); text-transform: uppercase; letter-spacing: 0.5px;';
             resTitle.textContent = 'Resolution Options';
             resHeader.appendChild(resTitle);
             resBox.appendChild(resHeader);
@@ -2829,7 +2829,7 @@ const SkillScannerPage = {
                 const isFP = f.ai_verdict === 'false_positive';
                 const item = document.createElement('div');
                 item.style.cssText = `border-bottom: 1px solid var(--border-default, #333); padding: 5px 0;${isFP ? ' opacity: 0.5;' : ''}`;
-                const sevColor = { critical: '#ef4444', high: '#ef4444', medium: '#f59e0b', low: '#6b7280', info: '#3b82f6' }[f.severity] || '#6b7280';
+                const sevColor = { critical: '#ef4444', high: '#ef4444', medium: '#f59e0b', low: '#6b7280', info: '#64748b' }[f.severity] || '#6b7280';
                 const loc = f.line_number ? `${f.file_path}:${f.line_number}` : (f.file_path || '');
 
                 const topRow = document.createElement('div');

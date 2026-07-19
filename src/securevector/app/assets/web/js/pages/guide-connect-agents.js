@@ -6,7 +6,7 @@
  *      (Frameworks · SDK / Harnesses · plugin). Anchors route-frameworks /
  *      route-plugins are preserved for the header chooser + welcome deep-link.
  *   ② Where should SecureVector run — a centered segmented TAB with two equally
- *      visible choices: "This device" (local app, cyan) and "Your cloud"
+ *      visible choices: "This device" (local app, brand teal) and "Your cloud"
  *      (self-hosted endpoint, red) — echoing the diagram's cyan→red spectrum.
  *   ③ Run these commands where your agents are running — the command set for the
  *      chosen tab. Local = adapter only (--no-deps, app already serving this
@@ -66,13 +66,56 @@ const GuideConnectAgentsPage = {
             : [ { label: 'Add the plugin', code: 'securevector-app --install-plugin ' + agent.slug } ];
     },
 
+    // Two-column layout styles (main flow + sticky detection rail). Injected
+    // once; collapses to a single column below 960px so the detection rail
+    // drops beneath the flow on narrow viewports instead of squeezing it.
+    _injectColsStyle() {
+        if (document.getElementById('ca-cols-style')) return;
+        const st = document.createElement('style');
+        st.id = 'ca-cols-style';
+        st.textContent = `
+            .ca-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+            .ca-main { min-width: 0; }
+            .ca-rail { position: sticky; top: 16px; }
+            @media (max-width: 960px) {
+                .ca-cols { grid-template-columns: 1fr; }
+                .ca-rail { position: static; }
+            }
+            /* Collapsible detection card */
+            .ca-detect { border: 1px solid var(--border-default); border-radius: 12px;
+                background: var(--bg-card); box-shadow: var(--elevate-1); overflow: hidden; }
+            .ca-detect.open { box-shadow: var(--elevate-2); }
+            .ca-detect-head { display: flex; align-items: center; gap: 10px; width: 100%;
+                background: transparent; border: none; cursor: pointer; text-align: left;
+                padding: 12px 14px; font: inherit; color: var(--text-primary);
+                transition: background 0.14s; }
+            .ca-detect-head:hover { background: var(--bg-hover); }
+            .ca-detect-head:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+            .ca-detect-ico { flex: none; width: 26px; height: 26px; border-radius: 7px;
+                display: inline-flex; align-items: center; justify-content: center;
+                background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+                color: var(--accent-primary); }
+            .ca-detect-headtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+            .ca-detect-title { font-family: var(--font-display); font-size: 13px; font-weight: 600;
+                letter-spacing: -0.01em; }
+            .ca-detect-summary { font-size: 10.5px; color: var(--text-muted);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ca-detect-chev { flex: none; font-size: 11px; color: var(--text-muted);
+                transition: transform 0.15s; }
+            .ca-detect-body { padding: 4px 14px 14px; border-top: 1px solid var(--border-default); }
+        `;
+        document.head.appendChild(st);
+    },
+
     async render(container) {
         container.textContent = '';
         const ACCENT = 'var(--accent-primary)';
-        // Highlight spectrum: cyan (This device / most common) → red (Your cloud /
-        // your own engine). Used for the engine-node gradient border + the tab dots.
-        const CYAN = '#06b6d4';
-        const RED = '#ef4444';
+        // Highlight spectrum: brand teal (This device / most common) → deep teal
+        // (Your cloud / your own engine). Locations are labels, not statuses —
+        // the old red end made a healthy self-host choice read as a threat.
+        // Used for the engine-node gradient border + the tab dots.
+        const CYAN = '#5eadb8';
+        const DEEP = '#2d6a74'; // deep end of the brand teal ramp
 
         // Is THIS app the headless engine running in a container (self-host)? If so,
         // "monitor this device" makes no sense (the box is the engine, not where
@@ -89,20 +132,57 @@ const GuideConnectAgentsPage = {
         // Left-anchored like every other top-level page (Dashboard, Integrations,
         // Tool Permissions) — NOT a centered docs column. page-content already
         // supplies the outer 24px gutter, so this only caps the reading width.
-        root.style.cssText = 'max-width: 1080px; margin: 0; padding: 0 0 40px; color: var(--text-primary);';
+        root.style.cssText = 'max-width: 1240px; margin: 0; padding: 0 0 40px; color: var(--text-primary);';
 
-        const eyebrow = document.createElement('div');
-        eyebrow.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: ' + ACCENT + '; margin-bottom: 3px;';
-        eyebrow.textContent = 'Get started';
-        root.appendChild(eyebrow);
-        const h1 = document.createElement('h1');
-        h1.style.cssText = 'font-size: 23px; font-weight: 800; margin: 0 0 4px 0;';
-        h1.textContent = 'Connect Agents';
-        root.appendChild(h1);
+        // NOTE: no in-page eyebrow/H1 here — the app header already shows the
+        // page title "Connect Your Agents" + its subtitle. Rendering a second
+        // "Connect Agents" heading in the body made the top read as two
+        // stacked titles ("two liners"). One title (the header) is enough; the
+        // page opens straight into the intro line + guided CTA.
         const lede = document.createElement('p');
-        lede.style.cssText = 'color: var(--text-secondary); margin: 0 0 18px; font-size: 14px; line-height: 1.5;';
-        lede.textContent = 'Pick your agent, choose where SecureVector runs, copy the commands.';
+        lede.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px; font-size: 14px; line-height: 1.5;';
+        lede.textContent = 'See what is connected and covered on this device, then connect more — the guided one-click way or by copying commands.';
         root.appendChild(lede);
+
+        // Guided-setup CTA — the old "Connect Wizard" is no longer a separate
+        // nav row (it read as a duplicate of this page). Its guided one-click
+        // flow lives here as the recommended path; the manual commands are
+        // below for anyone who prefers them or is setting up a remote machine.
+        const guided = document.createElement('button');
+        guided.type = 'button';
+        guided.style.cssText = 'display:flex; align-items:center; gap:13px; width:100%; text-align:left; margin:0 0 20px; padding:14px 18px; border-radius:11px; cursor:pointer; background:color-mix(in srgb, ' + ACCENT + ' 10%, var(--bg-card)); border:1px solid color-mix(in srgb, ' + ACCENT + ' 40%, transparent); box-shadow:var(--elevate-1); transition:border-color .14s, background .14s;';
+        guided.addEventListener('mouseenter', () => { guided.style.borderColor = ACCENT; });
+        guided.addEventListener('mouseleave', () => { guided.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 40%, transparent)'; });
+        const gIco = document.createElement('span');
+        gIco.style.cssText = 'flex:none; width:34px; height:34px; border-radius:9px; background:color-mix(in srgb, ' + ACCENT + ' 18%, transparent); color:' + ACCENT + '; display:inline-flex; align-items:center; justify-content:center;';
+        gIco.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>';
+        guided.appendChild(gIco);
+        const gTxt = document.createElement('div');
+        gTxt.style.cssText = 'flex:1; min-width:0;';
+        const gT = document.createElement('div'); gT.style.cssText = 'font-family:var(--font-display); font-weight:600; font-size:14.5px; color:var(--text-primary);'; gT.textContent = 'Guided one-click setup';
+        const gS = document.createElement('div'); gS.style.cssText = 'font-size:12.5px; color:var(--text-secondary); margin-top:1px;'; gS.textContent = 'Scan this device, install Guard, and verify the first protected call — recommended.';
+        gTxt.appendChild(gT); gTxt.appendChild(gS);
+        guided.appendChild(gTxt);
+        const gArrow = document.createElement('span'); gArrow.style.cssText = 'flex:none; color:' + ACCENT + '; font-weight:700;'; gArrow.textContent = '→';
+        guided.appendChild(gArrow);
+        guided.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('connect-wizard'); });
+        root.appendChild(guided);
+
+        // Two-column layout: the primary connect flow (steps + commands) fills
+        // the left; the "on this device" detection becomes a sticky vertical
+        // box on the right, using the otherwise-empty right-hand space instead
+        // of pushing the steps down. Collapses to a single column on narrow
+        // viewports (detection rail drops below the main flow).
+        this._injectColsStyle();
+        const mainRow = document.createElement('div');
+        mainRow.className = 'ca-cols';
+        const leftCol = document.createElement('div');
+        leftCol.className = 'ca-main';
+        const rightRail = document.createElement('div');
+        rightRail.className = 'ca-rail';
+        mainRow.appendChild(leftCol);
+        mainRow.appendChild(rightRail);
+        root.appendChild(mainRow);
 
         // ---- state ----
         let selected = null;
@@ -216,10 +296,10 @@ const GuideConnectAgentsPage = {
                 return b;
             };
             if (endpointMode) {
-                tabs.appendChild(mkTab('selfhost', 'Your cloud', env.in_container ? '· this container' : '· this endpoint', RED));
+                tabs.appendChild(mkTab('selfhost', 'Your cloud', env.in_container ? '· this container' : '· this endpoint', DEEP));
             } else {
                 tabs.appendChild(mkTab('local', 'This device', '· local app', CYAN));
-                tabs.appendChild(mkTab('selfhost', 'Your cloud', '· self-hosted', RED));
+                tabs.appendChild(mkTab('selfhost', 'Your cloud', '· self-hosted', DEEP));
             }
             head.appendChild(tabs);
             tabsHost.appendChild(head);
@@ -250,7 +330,7 @@ const GuideConnectAgentsPage = {
             const vLink = document.createElement('button');
             vLink.type = 'button';
             vLink.style.cssText = 'background: none; border: none; color: ' + ACCENT + '; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px;';
-            vLink.textContent = 'Agent Activity';
+            vLink.textContent = 'Observability';
             vLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('agent-map'); });
             verify.appendChild(vLink);
             verify.appendChild(document.createTextNode(' within seconds — tagged by ' + (selected.route === 'B' ? 'harness.' : 'framework.')));
@@ -369,7 +449,7 @@ const GuideConnectAgentsPage = {
                     // Gradient border (cyan → red) via the padding-box/border-box
                     // double-background trick so the corners stay rounded. The
                     // SecureVector engine is the node that earns the highlight.
-                    ? 'border: 1.5px solid transparent; background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box, linear-gradient(90deg, color-mix(in srgb, ' + ACCENT + ' 70%, transparent), color-mix(in srgb, ' + RED + ' 45%, transparent)) border-box;'
+                    ? 'border: 1.5px solid transparent; background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box, linear-gradient(90deg, color-mix(in srgb, ' + ACCENT + ' 70%, transparent), color-mix(in srgb, ' + DEEP + ' 45%, transparent)) border-box;'
                     : 'border: 1px solid var(--border-default); background: var(--bg-card);');
             const t = document.createElement('div');
             t.style.cssText = 'font-size: 13px; font-weight: ' + (accent ? '800' : '700') + '; color: var(--text-primary);';
@@ -393,7 +473,7 @@ const GuideConnectAgentsPage = {
         flow.appendChild(mkNode('SecureVector engine', 'This device · or your cloud', true));
         flow.appendChild(mkArrow());
         flow.appendChild(mkNode('Monitor · Secure · Govern', 'every tool call', false));
-        root.appendChild(flow);
+        leftCol.appendChild(flow);
 
         // --- "Detected on this device" panel — a CONSENT-GATED local probe.
         // Runs nothing until the user grants permission via a popup that spells
@@ -405,39 +485,72 @@ const GuideConnectAgentsPage = {
         // follow steps 1-2-3 below. Renders a clean callout that flips to a results
         // card in place once granted; nothing leaves this device.
         const detectWrap = document.createElement('div');
-        detectWrap.style.cssText = 'margin: 0 0 20px;';
-        root.appendChild(detectWrap);
+        detectWrap.style.cssText = 'margin: 0;';
+        rightRail.appendChild(detectWrap);
 
+        // Collapsible, opt-in detection card. Collapsed by default so the rail
+        // is a tight one-line affordance; expanding it IS the opt-in — it runs
+        // the local probe (behind the consent gate on first use). Expand state
+        // persists. The card shell owns the border/elevation; the body content
+        // (consent prompt OR results) renders borderless inside it.
+        const RAIL_KEY = 'sv-detect-rail-open';
+        const detectCard = document.createElement('div');
+        detectCard.className = 'ca-detect';
+        const detectHead = document.createElement('button');
+        detectHead.type = 'button';
+        detectHead.className = 'ca-detect-head';
+        detectHead.setAttribute('aria-expanded', 'false');
+        const dhIco = document.createElement('span');
+        dhIco.className = 'ca-detect-ico';
+        dhIco.setAttribute('aria-hidden', 'true');
+        dhIco.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
+        const dhCol = document.createElement('span');
+        dhCol.className = 'ca-detect-headtext';
+        const dhTitle = document.createElement('span'); dhTitle.className = 'ca-detect-title'; dhTitle.textContent = 'On this device';
+        const dhSummary = document.createElement('span'); dhSummary.className = 'ca-detect-summary'; dhSummary.textContent = 'Scan installed agents & coverage';
+        dhCol.appendChild(dhTitle); dhCol.appendChild(dhSummary);
+        const dhChev = document.createElement('span'); dhChev.className = 'ca-detect-chev'; dhChev.setAttribute('aria-hidden', 'true'); dhChev.textContent = '▸';
+        detectHead.appendChild(dhIco); detectHead.appendChild(dhCol); detectHead.appendChild(dhChev);
+        const detectBody = document.createElement('div');
+        detectBody.className = 'ca-detect-body';
+        detectBody.hidden = true;
+        detectCard.appendChild(detectHead);
+        detectCard.appendChild(detectBody);
+        detectWrap.appendChild(detectCard);
+
+        let _railRan = false;
+        const setRailOpen = (open) => {
+            detectBody.hidden = !open;
+            detectCard.classList.toggle('open', open);
+            dhChev.style.transform = open ? 'rotate(90deg)' : 'none';
+            detectHead.setAttribute('aria-expanded', String(open));
+            try { localStorage.setItem(RAIL_KEY, open ? '1' : '0'); } catch (_) {}
+            if (open && !_railRan) {
+                _railRan = true;
+                let granted = false;
+                try { granted = localStorage.getItem(DETECT_KEY) === 'granted'; } catch (_) {}
+                if (granted) runDetection(); else renderDetectPrompt();
+            }
+        };
+        detectHead.addEventListener('click', () => setRailOpen(detectBody.hidden));
+
+        // Compact consent prompt (shown inside the expanded body on first use).
         const renderDetectPrompt = () => {
-            detectWrap.textContent = '';
-            const strip = document.createElement('div');
-            strip.style.cssText = 'display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, ' + ACCENT + ' 5%, var(--bg-card)), var(--bg-card));';
-            const ic = document.createElement('div');
-            ic.setAttribute('aria-hidden', 'true');
-            ic.style.cssText = 'flex: none; width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, ' + ACCENT + ' 14%, transparent); color: ' + ACCENT + '; font-size: 18px; line-height: 1;';
-            ic.textContent = '◎';
-            const txt = document.createElement('div'); txt.style.cssText = 'flex: 1 1 280px;';
-            const t = document.createElement('div'); t.style.cssText = 'font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px;';
-            t.appendChild(document.createTextNode('See what’s already on this device'));
-            const opt = document.createElement('span'); opt.style.cssText = 'font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); border: 1px solid var(--border-default); border-radius: 20px; padding: 1px 7px;'; opt.textContent = 'Optional';
-            t.appendChild(opt);
-            const s = document.createElement('div'); s.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5;'; s.textContent = 'Detects installed harnesses, active sessions, and which already run Guard — reads local folders only, nothing leaves this device. Prefer to skip it? Just follow the steps below.';
-            txt.appendChild(t); txt.appendChild(s);
+            detectBody.textContent = '';
+            const s = document.createElement('div');
+            s.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 12px;';
+            s.textContent = 'Detects installed harnesses, sessions, and which already run Guard. Reads local folders only — nothing leaves this device.';
+            detectBody.appendChild(s);
             const btn = document.createElement('button'); btn.type = 'button';
             const btnBg = 'color-mix(in srgb, ' + ACCENT + ' 15%, transparent)';
             const btnBd = 'color-mix(in srgb, ' + ACCENT + ' 40%, transparent)';
-            btn.style.cssText = 'flex: none; display: inline-flex; align-items: center; gap: 8px; background: ' + btnBg + '; border: 1px solid ' + btnBd + '; color: ' + ACCENT + '; border-radius: 9px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s, transform 0.14s, box-shadow 0.14s;';
-            const bIco = document.createElementNS(SVG_NS, 'svg');
-            bIco.setAttribute('viewBox', '0 0 24 24'); bIco.setAttribute('width', '15'); bIco.setAttribute('height', '15');
-            bIco.setAttribute('fill', 'none'); bIco.setAttribute('stroke', 'currentColor'); bIco.setAttribute('stroke-width', '2'); bIco.setAttribute('stroke-linecap', 'round'); bIco.setAttribute('stroke-linejoin', 'round');
-            [['circle', { cx: 11, cy: 11, r: 7 }], ['path', { d: 'M21 21l-4.3-4.3' }]].forEach(([t, a]) => { const e = document.createElementNS(SVG_NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); bIco.appendChild(e); });
-            btn.appendChild(bIco);
-            btn.appendChild(document.createTextNode('Detect agents'));
-            btn.addEventListener('mouseenter', () => { btn.style.background = 'color-mix(in srgb, ' + ACCENT + ' 24%, transparent)'; btn.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 60%, transparent)'; btn.style.transform = 'translateY(-1px)'; btn.style.boxShadow = '0 4px 14px color-mix(in srgb, ' + ACCENT + ' 22%, transparent)'; });
-            btn.addEventListener('mouseleave', () => { btn.style.background = btnBg; btn.style.borderColor = btnBd; btn.style.transform = 'none'; btn.style.boxShadow = 'none'; });
+            btn.style.cssText = 'display: inline-flex; align-items: center; gap: 7px; background: ' + btnBg + '; border: 1px solid ' + btnBd + '; color: ' + ACCENT + '; border-radius: 8px; padding: 8px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s;';
+            btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>';
+            btn.appendChild(document.createTextNode('Run detection'));
+            btn.addEventListener('mouseenter', () => { btn.style.background = 'color-mix(in srgb, ' + ACCENT + ' 24%, transparent)'; btn.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 60%, transparent)'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = btnBg; btn.style.borderColor = btnBd; });
             btn.addEventListener('click', openConsent);
-            strip.appendChild(ic); strip.appendChild(txt); strip.appendChild(btn);
-            detectWrap.appendChild(strip);
+            detectBody.appendChild(btn);
         };
 
         const openConsent = async () => {
@@ -470,11 +583,11 @@ const GuideConnectAgentsPage = {
         };
 
         const runDetection = async () => {
-            detectWrap.textContent = '';
+            detectBody.textContent = '';
             const loading = document.createElement('div');
-            loading.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); padding: 14px 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-card);';
+            loading.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); padding: 4px 0;';
             loading.textContent = 'Scanning this device…';
-            detectWrap.appendChild(loading);
+            detectBody.appendChild(loading);
             let d;
             try { d = await fetch('/api/detection/agents').then(r => r.json()); } catch (_) { loading.textContent = 'Detection unavailable.'; return; }
             renderDetectResults(d);
@@ -496,44 +609,62 @@ const GuideConnectAgentsPage = {
         };
 
         const renderDetectResults = (d) => {
-            detectWrap.textContent = '';
+            detectBody.textContent = '';
             const s = d.summary || {};
             const wrap = document.createElement('div');
-            wrap.style.cssText = 'border: 1px solid var(--border-default); border-radius: 12px; padding: 14px 16px; background: var(--bg-card);';
-            const hr = document.createElement('div'); hr.style.cssText = 'display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;';
-            const title = document.createElement('div'); title.style.cssText = 'font-size: 13.5px; font-weight: 800;'; title.textContent = 'Detected on this device' + (d.os ? ' · ' + d.os : '');
-            const ctrls = document.createElement('div'); ctrls.style.cssText = 'display: flex; gap: 14px;';
-            const rescan = document.createElement('button'); rescan.type = 'button'; rescan.style.cssText = 'background: none; border: none; color: ' + ACCENT + '; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0;'; rescan.textContent = '↻ Re-scan'; rescan.addEventListener('click', runDetection);
-            const off = document.createElement('button'); off.type = 'button'; off.style.cssText = 'background: none; border: none; color: var(--text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; padding: 0; text-decoration: underline;'; off.textContent = 'Turn off'; off.addEventListener('click', () => { try { localStorage.removeItem(DETECT_KEY); } catch (_) {} renderDetectPrompt(); });
-            ctrls.appendChild(rescan); ctrls.appendChild(off);
-            hr.appendChild(title); hr.appendChild(ctrls);
-            wrap.appendChild(hr);
+            // Borderless — the card shell already frames it. Tight.
+            // Reflect a one-line summary up into the collapsed header so the
+            // rail still communicates coverage when folded away.
+            const uncovered = s.unprotected_sessions || 0;
+            dhSummary.textContent = (d.os ? d.os + ' · ' : '') +
+                (s.harnesses_detected || 0) + ' found' +
+                (uncovered > 0 ? ' · ≈' + uncovered + ' uncovered' : '');
+            dhSummary.style.color = uncovered > 0 ? 'var(--warning)' : 'var(--text-muted)';
 
-            const sum = document.createElement('div'); sum.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;';
-            sum.textContent = (s.harnesses_detected || 0) + ' harnesses · ' + (s.harnesses_active || 0) + ' active · ' + (s.total_sessions || 0) + ' sessions · ' + (s.frameworks || 0) + ' frameworks';
+            const ctrls = document.createElement('div'); ctrls.style.cssText = 'display: flex; gap: 14px; margin-bottom: 10px;';
+            const rescan = document.createElement('button'); rescan.type = 'button'; rescan.style.cssText = 'background: none; border: none; color: ' + ACCENT + '; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; font-family: var(--font-mono);'; rescan.textContent = '↻ Re-scan'; rescan.addEventListener('click', runDetection);
+            const off = document.createElement('button'); off.type = 'button'; off.style.cssText = 'background: none; border: none; color: var(--text-muted); font-size: 12px; font-weight: 500; cursor: pointer; padding: 0;'; off.textContent = 'Turn off'; off.addEventListener('click', () => { try { localStorage.removeItem(DETECT_KEY); } catch (_) {} _railRan = true; renderDetectPrompt(); });
+            ctrls.appendChild(rescan); ctrls.appendChild(off);
+            wrap.appendChild(ctrls);
+
+            const sum = document.createElement('div'); sum.style.cssText = 'font-size: 11.5px; color: var(--text-secondary); font-family: var(--font-mono); margin-bottom: 3px;';
+            sum.textContent = (s.harnesses_detected || 0) + ' harnesses · ' + (s.harnesses_active || 0) + ' active · ' + (s.total_sessions || 0) + ' sessions';
             wrap.appendChild(sum);
-            if ((s.unprotected_sessions || 0) > 0) {
-                const warn = document.createElement('div'); warn.style.cssText = 'font-size: 12px; color: #f59e0b; font-weight: 600; margin-bottom: 10px; cursor: help;';
-                warn.textContent = '≈ ' + s.unprotected_sessions + ' of ' + (s.total_sessions || 0) + ' sessions not covered by Guard (estimate)';
+            if (uncovered > 0) {
+                const warn = document.createElement('div'); warn.style.cssText = 'font-size: 11.5px; color: var(--warning); font-weight: 600; margin-bottom: 8px; cursor: help;';
+                warn.textContent = '≈' + uncovered + ' of ' + (s.total_sessions || 0) + ' not covered by Guard';
                 warn.title = 'Estimate: on-disk session transcripts minus the sessions seen in SecureVector’s audit. Older sessions that predate Guard count here. Connecting Guard covers new sessions going forward.';
                 wrap.appendChild(warn);
-            } else { sum.style.marginBottom = '12px'; }
+            } else { sum.style.marginBottom = '8px'; }
 
             (d.harnesses || []).forEach(h => {
                 const present = h.detected || h.plugin_connected;
                 const row = document.createElement('div');
-                row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-top: 1px solid var(--border-default); flex-wrap: wrap;' + (present ? '' : ' opacity: 0.5;');
-                const dot = document.createElement('span'); dot.style.cssText = 'flex: none; width: 8px; height: 8px; border-radius: 50%; background: ' + _dotColor(h.status) + ';' + (h.status === 'active' ? ' box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 25%, transparent);' : '');
+                row.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border-default); flex-wrap: wrap;' + (present ? '' : ' opacity: 0.5;');
+                const dot = document.createElement('span'); dot.style.cssText = 'flex: none; width: 7px; height: 7px; border-radius: 50%; background: ' + _dotColor(h.status) + ';' + (h.status === 'active' ? ' box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 25%, transparent);' : '');
                 row.appendChild(dot);
-                const name = document.createElement('span'); name.style.cssText = 'font-size: 13px; font-weight: 700; flex: 1 1 130px;'; name.textContent = h.label;
+                // Name sits INLINE with the dot; the Guard badge right-aligns on
+                // the same line; sessions/coverage wrap to a compact second line.
+                const name = document.createElement('span'); name.style.cssText = 'font-size: 12.5px; font-weight: 700; flex: 1 1 auto; min-width: 0;'; name.textContent = h.label;
                 row.appendChild(name);
 
-                // sessions + Guard coverage
-                const sessTxt = document.createElement('span'); sessTxt.style.cssText = 'font-size: 11.5px; color: var(--text-secondary);';
+                // Guard badge — right-aligned on the SAME line as the dot+name.
+                const badge = document.createElement('span'); badge.style.cssText = 'flex: none; margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border-default); color: var(--text-secondary); white-space: nowrap;'; badge.textContent = '…';
+                if (present) {
+                    guardStatus(h.slug).then(state => {
+                        if (state === 'enabled') { badge.textContent = '✓ Guard'; badge.style.color = '#10b981'; badge.style.borderColor = 'color-mix(in srgb, #10b981 50%, transparent)'; badge.style.cursor = 'default'; }
+                        else if (state === 'installed') { badge.textContent = 'Guard · off'; badge.style.color = 'var(--warning)'; badge.style.borderColor = 'color-mix(in srgb, #f59e0b 50%, transparent)'; }
+                        else { badge.textContent = 'Install →'; badge.style.color = ACCENT; badge.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 50%, transparent)'; badge.style.cursor = 'pointer'; badge.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
+                    });
+                } else { badge.textContent = 'not installed'; }
+                row.appendChild(badge);
+
+                // sessions / coverage — a compact second line under the name.
+                const sessTxt = document.createElement('span'); sessTxt.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); flex: 1 1 100%; padding-left: 15px;';
                 if (h.sessions && h.sessions.supported) {
                     if ((h.unprotected_sessions || 0) > 0) {
-                        sessTxt.appendChild(document.createTextNode((h.protected_sessions || 0) + '/' + h.sessions.total + ' with Guard · '));
-                        const u = document.createElement('span'); u.style.cssText = 'color: #f59e0b; font-weight: 600;'; u.title = 'Estimate — older sessions predating Guard count here.'; u.textContent = '≈' + h.unprotected_sessions + ' not covered';
+                        sessTxt.appendChild(document.createTextNode((h.protected_sessions || 0) + '/' + h.sessions.total + ' guarded · '));
+                        const u = document.createElement('span'); u.style.cssText = 'color: var(--warning); font-weight: 600;'; u.title = 'Estimate — older sessions predating Guard count here.'; u.textContent = '≈' + h.unprotected_sessions + ' uncovered';
                         sessTxt.appendChild(u);
                     } else {
                         sessTxt.textContent = h.sessions.total + ' session' + (h.sessions.total === 1 ? '' : 's');
@@ -543,32 +674,16 @@ const GuideConnectAgentsPage = {
                 }
                 row.appendChild(sessTxt);
 
-                // Guard install badge (refined async from /status)
-                const badge = document.createElement('span'); badge.style.cssText = 'font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border-default); color: var(--text-secondary);'; badge.textContent = '…';
-                row.appendChild(badge);
-                if (present) {
-                    guardStatus(h.slug).then(state => {
-                        if (state === 'enabled') { badge.textContent = '✓ Guard installed'; badge.style.color = '#10b981'; badge.style.borderColor = 'color-mix(in srgb, #10b981 50%, transparent)'; badge.style.cursor = 'default'; }
-                        else if (state === 'installed') { badge.textContent = 'Guard installed · off'; badge.style.color = '#f59e0b'; badge.style.borderColor = 'color-mix(in srgb, #f59e0b 50%, transparent)'; }
-                        else { badge.textContent = 'Install Guard →'; badge.style.color = ACCENT; badge.style.borderColor = 'color-mix(in srgb, ' + ACCENT + ' 50%, transparent)'; badge.style.cursor = 'pointer'; badge.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
-                    });
-                } else { badge.textContent = 'not installed'; }
-                row.appendChild(badge);
-
-                row.title = 'Open the ' + h.label + ' install page';
-                name.style.cursor = 'pointer';
-                name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); });
+                if (present) { row.title = 'Open the ' + h.label + ' install page'; name.style.cursor = 'pointer'; name.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('proxy-' + h.slug); }); }
                 wrap.appendChild(row);
             });
 
             if ((d.frameworks || []).length) {
-                const fw = document.createElement('div'); fw.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 10px; border-top: 1px solid var(--border-default); padding-top: 10px;';
-                fw.textContent = 'Frameworks seen (sent tool calls): ' + d.frameworks.map(f => f.label + (f.active ? ' (active)' : '')).join(' · ');
+                const fw = document.createElement('div'); fw.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 9px; border-top: 1px solid var(--border-default); padding-top: 9px;';
+                fw.textContent = 'Frameworks: ' + d.frameworks.map(f => f.label + (f.active ? ' (active)' : '')).join(' · ');
                 wrap.appendChild(fw);
             }
-            const note = document.createElement('div'); note.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 10px;'; note.textContent = 'Click a harness to open its install page. Local probe — nothing left this device.';
-            wrap.appendChild(note);
-            detectWrap.appendChild(wrap);
+            detectBody.appendChild(wrap);
         };
 
         // Detection scans the machine THIS app runs on. In endpoint mode that's a
@@ -578,9 +693,10 @@ const GuideConnectAgentsPage = {
         if (endpointMode) {
             detectWrap.style.display = 'none';
         } else {
-            let _detectGranted = false;
-            try { _detectGranted = localStorage.getItem(DETECT_KEY) === 'granted'; } catch (_) {}
-            if (_detectGranted) runDetection(); else renderDetectPrompt();
+            // Expanded by default; still honor a manual collapse the user made.
+            let _open = true;
+            try { const v = localStorage.getItem(RAIL_KEY); if (v !== null) _open = v === '1'; } catch (_) {}
+            setRailOpen(_open);
         }
 
         // When this app IS the self-hosted engine (container or configured public
@@ -588,7 +704,7 @@ const GuideConnectAgentsPage = {
         // whole page auto-adapts to "point your agents at this endpoint".
         if (endpointMode) {
             const cb = document.createElement('div');
-            cb.style.cssText = 'margin: 0 0 20px; padding: 14px 16px; background: color-mix(in srgb, ' + RED + ' 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, ' + RED + ' 45%, var(--border-default)); border-left: 3px solid ' + RED + '; border-radius: 10px;';
+            cb.style.cssText = 'margin: 0 0 20px; padding: 14px 16px; background: color-mix(in srgb, ' + DEEP + ' 9%, var(--bg-card)); border: 1px solid color-mix(in srgb, ' + DEEP + ' 45%, var(--border-default)); border-left: 3px solid ' + DEEP + '; border-radius: 10px;';
             const t = document.createElement('div');
             t.style.cssText = 'font-size: 14px; font-weight: 800; margin-bottom: 4px;';
             t.textContent = env.in_container
@@ -600,7 +716,7 @@ const GuideConnectAgentsPage = {
             sub.textContent = 'This SecureVector is running as a network endpoint, so the local-app option is off. Every agent below points at this engine URL.';
             cb.appendChild(sub);
             cb.appendChild(codeBlock('Engine URL', engineUrl || window.location.origin));
-            root.insertBefore(cb, detectWrap);
+            rightRail.insertBefore(cb, detectWrap);
         }
 
         // The three steps live in ONE cohesive card (the "configurator"): pick
@@ -611,19 +727,47 @@ const GuideConnectAgentsPage = {
         agentWrap.appendChild(agentGroup('route-frameworks', 'Frameworks · SDK', 'A'));
         agentWrap.appendChild(agentGroup('route-plugins', 'Harnesses · plugin', 'B'));
 
-        const stepBlock = (headerEl, contentEl, withDivider) => {
+        // Each step is COLLAPSIBLE and collapsed by default — the card reads as
+        // a clean three-line overview (① pick · ② where · ③ commands); clicking
+        // a step's header expands its content. The header row becomes the
+        // toggle; a rotating chevron signals expandability.
+        const stepBlock = (headerEl, contentEl, withDivider, defaultOpen) => {
             const b = document.createElement('div');
-            b.style.cssText = 'padding: 14px 16px;' + (withDivider ? ' border-top: 1px solid var(--border-default);' : '');
-            b.appendChild(headerEl);
-            b.appendChild(contentEl);
+            b.style.cssText = (withDivider ? 'border-top: 1px solid var(--border-default);' : '');
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.style.cssText = 'display: flex; align-items: center; gap: 10px; width: 100%; background: transparent; border: none; cursor: pointer; text-align: left; padding: 14px 16px; font: inherit; color: inherit; transition: background 0.12s;';
+            toggle.addEventListener('mouseenter', () => { toggle.style.background = 'var(--bg-hover)'; });
+            toggle.addEventListener('mouseleave', () => { toggle.style.background = 'transparent'; });
+            headerEl.style.margin = '0';
+            headerEl.style.flex = '1';
+            headerEl.style.minWidth = '0';
+            toggle.appendChild(headerEl);
+            const chev = document.createElement('span');
+            chev.setAttribute('aria-hidden', 'true');
+            chev.textContent = '▸';
+            chev.style.cssText = 'flex: none; font-size: 12px; color: var(--text-muted); transition: transform 0.15s;';
+            toggle.appendChild(chev);
+            const body = document.createElement('div');
+            body.style.cssText = 'padding: 0 16px 16px;';
+            body.appendChild(contentEl);
+            const apply = (open) => {
+                body.hidden = !open;
+                chev.style.transform = open ? 'rotate(90deg)' : 'none';
+                toggle.setAttribute('aria-expanded', String(open));
+            };
+            apply(!!defaultOpen);
+            toggle.addEventListener('click', () => apply(body.hidden));
+            b.appendChild(toggle);
+            b.appendChild(body);
             return b;
         };
         const card = document.createElement('div');
-        card.style.cssText = 'border: 1px solid var(--border-default); border-radius: 14px; background: var(--bg-card); overflow: hidden; margin: 0 0 18px;';
-        card.appendChild(stepBlock(stepHeader(1, 'Pick the agent or harness to monitor', 'Prefer to integrate manually? Pick yours here and copy the commands below.'), agentWrap, false));
-        card.appendChild(stepBlock(stepHeader(2, endpointMode ? 'Where SecureVector runs' : 'Where should SecureVector run?', null), tabsHost, true));
-        card.appendChild(stepBlock(stepHeader(3, 'Run these commands where your agents/harnesses are running', null), panel, true));
-        root.appendChild(card);
+        card.style.cssText = 'border: 1px solid var(--border-default); border-radius: 14px; background: var(--bg-card); box-shadow: var(--elevate-1); overflow: hidden; margin: 0 0 18px;';
+        card.appendChild(stepBlock(stepHeader(1, 'Pick the agent or harness to monitor', 'Prefer to integrate manually? Pick yours here and copy the commands below.'), agentWrap, false, true));
+        card.appendChild(stepBlock(stepHeader(2, endpointMode ? 'Where SecureVector runs' : 'Where should SecureVector run?', null), tabsHost, true, true));
+        card.appendChild(stepBlock(stepHeader(3, 'Run these commands where your agents/harnesses are running', null), panel, true, true));
+        leftCol.appendChild(card);
 
         // ---- compact footnotes: "more agents" (inline answer) vs the two
         // pointers (fleet rollout / other tools) kept on separate lines so a
@@ -635,7 +779,7 @@ const GuideConnectAgentsPage = {
          'Other tools: n8n · Ollama → Integrations.'].forEach(t => {
             const d = document.createElement('div'); d.textContent = t; notes.appendChild(d);
         });
-        root.appendChild(notes);
+        leftCol.appendChild(notes);
 
         container.appendChild(root);
 

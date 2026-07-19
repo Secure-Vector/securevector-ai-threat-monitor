@@ -134,6 +134,38 @@ providers:
     display_name: "Anthropic"
     source_url: "https://platform.claude.com/docs/en/docs/about-claude/pricing"
     models:
+      # Claude 5 family (Mythos-class) + Opus 4.8 — the current models agents
+      # actually run on in 2026. Without these the Cost & Tokens page and the
+      # per-generation cost show "model not in price table" (a gap every
+      # persona review flagged).
+      - model_id: claude-fable-5
+        display_name: "Claude Fable 5"
+        input_per_million: 5.00
+        output_per_million: 25.00
+        effective_date: "2026-06-01"
+        verified_at: "2026-07-15"
+
+      - model_id: claude-mythos-5
+        display_name: "Claude Mythos 5"
+        input_per_million: 5.00
+        output_per_million: 25.00
+        effective_date: "2026-06-01"
+        verified_at: "2026-07-15"
+
+      - model_id: claude-sonnet-5
+        display_name: "Claude Sonnet 5"
+        input_per_million: 3.00
+        output_per_million: 15.00
+        effective_date: "2026-06-01"
+        verified_at: "2026-07-15"
+
+      - model_id: claude-opus-4-8
+        display_name: "Claude Opus 4.8"
+        input_per_million: 5.00
+        output_per_million: 25.00
+        effective_date: "2026-05-01"
+        verified_at: "2026-07-15"
+
       - model_id: claude-opus-4-7
         display_name: "Claude Opus 4.7"
         input_per_million: 5.00

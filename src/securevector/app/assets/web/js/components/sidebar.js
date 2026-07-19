@@ -3,14 +3,6 @@
  * Note: All content is static/hardcoded, no user input is rendered
  */
 
-// Load-scoped guard so the Guardian ML "sentinel" robot plays its 30s scan
-// orbit exactly ONCE per page load (on launch / hard reload), not again on
-// every in-app navigation. render() builds the nav once per load and a hard
-// reload re-runs this whole script, resetting the flag — which is precisely
-// the "every launch / hard reload" cadence we want.
-let _gmRoboPlayed = false;
-let _gmRoboTimer = null;
-
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -18,35 +10,44 @@ const Sidebar = {
         // Agent Replay umbrella — collapsible parent grouping the three
         // observability views that share the same per-agent lens. Top-level
         // 'replay' route still works as a deep-link (the Timeline sub-item
-        // lands on it), and Tool Activity / Cost Tracking get prominent
+        // lands on it), and Tool Activity / Cost & Tokens get prominent
         // visibility under the agent-observability story instead of being
         // buried under Configure.
-        { id: 'agent-activity', label: 'Agent Activity', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
-            // One destination, three lenses (Map / Runs / Timeline tabs via ObsTabs).
-            // Lands on the Map — the hero topology view — and `aliases` keep this
-            // item highlighted while the user switches to the Runs/Timeline tab
-            // (those are separate page ids).
-            { id: 'agent-map',      label: 'Agent Runs', aliases: ['agent-runs', 'agent-timeline'] },
+        { id: 'agent-activity', label: 'Agent Observability', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
+            // One destination, three lenses (Sessions / Traces / Map tabs via
+            // ObsTabs). Lands on Sessions — the complete-trace workhorse view
+            // (v5 default flip: LangSmith/Langfuse-style, traces first; the
+            // Map is the overview lens one tab away). `aliases` keep this
+            // item highlighted while the user switches tabs (separate page ids).
+            // Label stays "Sessions" (not "Agent Sessions" — redundant under
+            // the Observability parent; not "Agent Traces" — a trace is ONE
+            // turn/request, i.e. the Traces tab; Sessions is the level above,
+            // matching Langfuse/Phoenix vocabulary). Tooltip carries the def.
+            { id: 'agent-runs',     label: 'Traces', aliases: ['storylines', 'agent-map', 'agent-timeline'], tooltip: 'One trace per agent session. Open a trace to see its runs — each LLM call and tool call — with the enforcement verdict, tokens and cost on each. Replay it, or open the Map.' },
             // Activity log + inventory (SBOM) are two lenses on the same
             // tool_call_audit data — one destination, two tabs on the page.
             // 'bill-of-tools' stays as an alias so deep links keep this row lit.
             { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
+            // The blocked-action ledger — what enforcement PREVENTED, by policy.
+            // Sits beside Secret Detections as the other security-outcome ledger.
+            { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented — blocked tool calls grouped by the policy that fired' },
             { id: 'redactions',     label: 'Secret Detections' },
-            { id: 'costs',          label: 'Cost Tracking' },
+            { id: 'costs',          label: 'Cost & Tokens' },
         ]},
+        // ---- Govern (v5 IA) ----
+        // Everything below until Connect is a control the human sets: what
+        // agents may do, which rules fire, what ML runs, what budgets cap.
+        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
+        { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
         // Skills + Tools entries cover their primary "configure" surfaces
         // (the Permissions / Policy tabs); the Activity / Tracking tabs are
-        // surfaced under Agent Replay above.
+        // surfaced under Observability above.
         { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
-        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Agent Replay.' },
-        // Guardian ML — local ML threat detection. A configure-time choice
-        // (on/off + what it does), so it sits in Configure and deep-links to
-        // the Guardian section on the Settings page. Lives here rather than as
-        // a sidebar pill so the bottom status zone stays single-purpose.
-        // (MCP Policies moved from this spot into the Cloud section below.)
-        { id: 'guardian-ml', label: 'Guardian ML', icon: 'guardian', tooltip: 'Local ML threat detection — toggle + what it does. Opens in Settings.' },
-        { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Agent Replay.' },
-        { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+        // Guardian ML no longer has a nav row — it's one global on/off, not a
+        // destination. It lives in the header as the sentinel-robot control
+        // (Header.createGuardianControl); the 'guardian-ml' route stays alive
+        // for deep links (Governance, dashboard gaps, global banners).
+        { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Observability.' },
         // ---- Cloud section (#151) ----
         // The cloud-account surfaces get their own labelled section
         // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
@@ -58,24 +59,20 @@ const Sidebar = {
         // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
         { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
         { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
-        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
-        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
-        // installs (clicking lands on its enroll-CTA empty state).
-        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
-        // SIEM Forwarder is an outbound pipe to external SOC systems —
-        // placed above Integrations (inbound pipes from agent
-        // frameworks) because the SOC audit/compliance story is the
-        // higher-value v4.0 positioning. Both are Connect; this is the
-        // one regulated buyers ask about first.
-        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
         // Connect an agent — the QUICK path: pick an agent, copy a couple of
         // commands, done. It sits directly above Integrations, which is the
         // DETAILED per-agent reference (install/verify/uninstall, self-host,
-        // troubleshooting). Quick first, detailed second. Always-visible
-        // top-level item (not inside the collapsible Integrations) so it stays
-        // reachable on every viewport; same destination as the header button.
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Quick start — pick an agent and copy a couple of commands. Detect what is already on this device, and find the full per-agent reference under Integrations.' },
-        { id: 'integrations', label: 'Integrations (reference)', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
+        // troubleshooting). Quick first, detailed second.
+        // v5 IA simplification: "Connect Wizard" is no longer a separate nav
+        // row — having Wizard + Connect Agents + Integrations read as three
+        // near-identical "connect" entries confused people (persona review:
+        // the novice "froze deciding" between them). Connect Agents is now the
+        // single door: it shows live coverage (detected · protected · not
+        // covered) AND offers the guided one-click setup (the old wizard flow)
+        // as a CTA on the page. The 'connect-wizard' route still exists for
+        // that guided flow and deep links; it's just reached from here now.
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Connect your agents and see coverage — which runtimes are detected, how many sessions are protected, and what is not yet covered. Guided one-click setup and manual commands both live here.' },
+        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
@@ -102,6 +99,15 @@ const Sidebar = {
             { id: 'proxy-n8n', label: 'n8n' },
             { id: 'proxy-ollama', label: 'Ollama' },
         ]},
+        // SIEM Forwarder + Cloud Activity are OUTBOUND pipes (data leaving this
+        // device), not "connect an agent" — lumping them under Connect bloated
+        // that section. They get their own "Cloud & Export" group so Connect
+        // stays just the two agent-connection entries.
+        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
+        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
+        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
+        // installs (clicking lands on its enroll-CTA empty state).
+        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             // "Connect Your Agents" is promoted to a top-level nav item (see
             // above) so it is always visible on every viewport; it is therefore
@@ -119,7 +125,7 @@ const Sidebar = {
             { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI · Hermes' },
             { header: 'Reading the data' },
             { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
-            { id: 'gs-read-runs', label: 'Reading Runs', section: 'section-read-runs' },
+            { id: 'gs-read-runs', label: 'Reading Traces', section: 'section-read-runs' },
             { header: 'Reference' },
             { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
             { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
@@ -190,7 +196,7 @@ const Sidebar = {
         // expanded rail comes up at the right size on first paint.
         this._applySavedSidebarWidth();
 
-        // Clean default on every app load: only "Agent Activity" opens
+        // Clean default on every app load: only "Observability" opens
         // automatically. Integrations + Guide always start collapsed even if
         // the user expanded them in a prior session (navigating into a
         // sub-item persists `nav-<id>-expanded=true`, which otherwise leaks
@@ -239,7 +245,7 @@ const Sidebar = {
         // src/securevector/__init__.py on every release bump.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
-        version.textContent = 'v4.9.1';
+        version.textContent = 'v5';
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
@@ -279,32 +285,82 @@ const Sidebar = {
         // lands. CLOUD_TIER (above) is the set that gets this treatment.
         this._probeEnrollment();
 
-        // Section labels before nav items. SIEM Forwarder now anchors
-        // the Connect section (it sits above Integrations) so the
-        // "Connect" label still renders above the outbound/inbound pipes.
+        // v5 IA — three verbs. "Visibility" (not "Observe") heads the first
+        // section: the group now contains an "Observability" destination, and
+        // "Observe → Observability" stutters. "Visibility" is the word both
+        // audiences use — SOC operators ("visibility into agent activity") and
+        // business buyers alike — and doesn't echo the child.
+        //   Visibility — what the agents are doing (dashboard, threats, observability)
+        //   Govern     — what the human controls (permissions, rules, policies)
+        //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
+        // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
-            'threats':          'Monitor',
-            'tool-permissions': 'Configure',
-            'governance':       'Governance & Audit',
-            'siem-export':      'Connect',
+            'dashboard':          'Visibility',
+            'tool-permissions':   'Govern',
+            'guide-connect-agents': 'Connect',
+            'siem-export':        'Cloud & Forwarders',
+            'guide':              'Help & Settings',
         };
 
-        // Items that get a divider before them — keep the visual break
-        // at the Cloud and Connect boundaries too.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'governance', 'siem-export']);
+        // Items that get a divider before them — the IA section boundaries.
+        const DIVIDER_BEFORE = new Set(['tool-permissions', 'guide-connect-agents', 'siem-export', 'guide']);
+
+        // Section groups — each Observe/Govern/Connect header is a toggle
+        // that collapses every row in its group. Rows register into the
+        // current section as they render; the tail (Guide + Settings) is
+        // deliberately ungrouped and always visible.
+        const sections = [];
+        let currentSection = null;
 
         this.navItems.forEach(item => {
+
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
             // a dimmed, "locked" treatment below instead of being hidden.
             const isCloudLocked = CLOUD_TIER.has(item.id) && this._enrolled !== true;
 
-            // Section label
+            // Section label — a clickable group header. Clicking collapses /
+            // expands every row in the section (wired after the loop, once
+            // the group's rows are known); state persists per section.
             if (SECTION_BEFORE[item.id]) {
-                const sectionLbl = document.createElement('div');
-                sectionLbl.className = 'nav-section-label';
-                sectionLbl.textContent = SECTION_BEFORE[item.id];
+                const name = SECTION_BEFORE[item.id];
+                const sectionLbl = document.createElement('button');
+                sectionLbl.type = 'button';
+                sectionLbl.className = 'nav-section-label nav-section-toggle';
+                const lblText = document.createElement('span');
+                lblText.textContent = name;
+                lblText.style.cssText = 'text-align: left;';
+                sectionLbl.appendChild(lblText);
+                // Real SVG chevron (the old 9px "▾" read as a stray dot, so a
+                // collapsed section looked like an empty header, not a door).
+                const chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                chev.setAttribute('viewBox', '0 0 24 24');
+                chev.setAttribute('fill', 'none');
+                chev.setAttribute('stroke', 'currentColor');
+                chev.setAttribute('stroke-width', '2.4');
+                chev.setAttribute('aria-hidden', 'true');
+                chev.style.cssText = 'width: 11px; height: 11px; flex-shrink: 0; opacity: 0.75; transition: transform 0.15s;';
+                const chevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                chevPath.setAttribute('d', 'M6 9l6 6 6-6');
+                chev.appendChild(chevPath);
+                sectionLbl.appendChild(chev);
+                // Hidden-item count — shown only while collapsed, so "GOVERN › 6"
+                // says "6 destinations live in here" instead of looking empty.
+                const count = document.createElement('span');
+                count.className = 'nav-sec-count';
+                count.style.display = 'none';
+                sectionLbl.appendChild(count);
                 nav.appendChild(sectionLbl);
+                currentSection = {
+                    name,
+                    key: `nav-sec-${name.toLowerCase()}-collapsed`,
+                    btn: sectionLbl,
+                    chev,
+                    count,
+                    els: [],
+                    containsActive: false,
+                };
+                sections.push(currentSection);
             }
 
             // Divider
@@ -312,6 +368,7 @@ const Sidebar = {
                 const divider = document.createElement('div');
                 divider.className = 'nav-section-divider';
                 nav.appendChild(divider);
+                if (currentSection) currentSection.els.push(divider);
             }
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
@@ -328,54 +385,10 @@ const Sidebar = {
                 navItem.title = item.tooltip;
             }
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid on
-            // the icon. Guardian ML uses its animated "sentinel" robot AS the
-            // nav icon (in place of the generic chip) — the symbol that stands
-            // for the local ML model is the bot itself. It runs a 30s scan on
-            // each launch / hard reload (once per page load), then settles.
-            let iconSvg;
-            if (item.id === 'guardian-ml') {
-                iconSvg = document.createElement('span');
-                iconSvg.className = 'gm-robo';
-                // Title gives sighted users a hover hint; the SVG is aria-hidden
-                // and the nav row already owns the accessible name, so the bot is
-                // purely decorative (no aria-label → no double-announce).
-                iconSvg.title = 'Guardian ML — local AI threat detection, watching every call';
-                iconSvg.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
-                    <circle class="gm-ring" cx="20" cy="18" r="16"/>
-                    <g class="gm-bot">
-                        <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
-                        <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
-                        <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
-                        <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
-                        <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="4.6"/>
-                        <circle class="gm-eye l" cx="17.2" cy="18.6" r="1.6"/>
-                        <circle class="gm-eye r" cx="22.8" cy="18.6" r="1.6"/>
-                        <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
-                    </g>
-                    <g class="gm-orbit">
-                        <!-- SMIL rotation (not CSS): rotates in SVG user units
-                             around the ring's exact center (20,18), identical
-                             in Blink and WebKit. CSS transform-box/view-box
-                             origin handling on SVG children is inconsistent in
-                             WebKit (pywebview), which made the dot orbit off
-                             the ring there. -->
-                        <animateTransform attributeName="transform" type="rotate"
-                            from="0 20 18" to="360 20 18" dur="2.4s" repeatCount="indefinite"/>
-                        <path class="gm-trail" d="M10.8 4.9 A 16 16 0 0 1 20 2" stroke-linecap="round"/>
-                        <circle class="gm-sat" cx="20" cy="2" r="2.3"/>
-                    </g>
-                </svg>`;
-                if (_gmRoboPlayed) {
-                    iconSvg.classList.add('gm-static');
-                } else {
-                    _gmRoboPlayed = true;
-                    if (_gmRoboTimer) clearTimeout(_gmRoboTimer);   // hygiene: never stack timers
-                    _gmRoboTimer = setTimeout(() => iconSvg.classList.add('gm-static'), 30000);
-                }
-            } else {
-                iconSvg = this.createIcon(item.icon);
-            }
+            // Add icon (SVG) — core features get an orange badge dot overlaid
+            // on the icon. (The Guardian ML sentinel robot that used to render
+            // here moved to the header — Header.createGuardianControl.)
+            const iconSvg = this.createIcon(item.icon);
             if (CORE_BADGE.has(item.id)) {
                 const iconWrap = document.createElement('div');
                 iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
@@ -500,12 +513,24 @@ const Sidebar = {
             });
 
             nav.appendChild(navItem);
+            if (currentSection) {
+                currentSection.els.push(navItem);
+                // A section holding the active page must never start
+                // collapsed — a hidden "where am I" is worse than a stale
+                // collapse preference.
+                const activeHere = item.id === this.currentPage ||
+                    (item.subItems || []).some(s => s.id === this.currentPage ||
+                        (s.aliases && s.aliases.includes(this.currentPage)));
+                if (activeHere) currentSection.containsActive = true;
+            }
 
             // Sub-items
             if (hasSubItems) {
                 const subNav = document.createElement('div');
                 subNav.className = 'nav-sub-items';
-                subNav.style.cssText = 'padding-left: 32px; font-size: 12px;';
+                // Guide line ties children to their parent — plain indentation
+                // read as a second flat list.
+                subNav.style.cssText = 'margin-left: 25px; padding-left: 7px; font-size: 12px; border-left: 1px solid var(--border-default);';
 
                 if (item.collapsible) {
                     subNav.dataset.subFor = item.id;
@@ -572,8 +597,37 @@ const Sidebar = {
                 });
 
                 nav.appendChild(subNav);
+                if (currentSection) currentSection.els.push(subNav);
             }
         });
+
+        // Wire the Observe / Govern / Connect section toggles. Collapse hides
+        // rows via a class (not inline display) so each row's own inline
+        // display state — sub-nav expand/collapse, banner visibility — is
+        // preserved intact when the section reopens.
+        sections.forEach(sec => {
+            const nItems = sec.els.filter(el =>
+                el.classList.contains('nav-item') && !el.classList.contains('nav-sub-item')).length;
+            const apply = (collapsed) => {
+                sec.collapsed = collapsed;
+                sec.els.forEach(el => el.classList.toggle('nav-sec-hidden', collapsed));
+                sec.chev.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+                sec.count.style.display = collapsed ? 'inline-flex' : 'none';
+                sec.count.textContent = nItems;
+                sec.btn.setAttribute('aria-expanded', String(!collapsed));
+                sec.btn.title = (collapsed ? 'Expand ' : 'Collapse ') + sec.name;
+            };
+            sec.apply = apply;
+            apply(localStorage.getItem(sec.key) === '1' && !sec.containsActive);
+            sec.btn.addEventListener('click', () => {
+                const next = !sec.collapsed;
+                try { localStorage.setItem(sec.key, next ? '1' : '0'); } catch (_) { /* private mode */ }
+                apply(next);
+            });
+        });
+        // navigate() uses this to re-open a collapsed section when the user
+        // lands on a page inside it — the active row must never be hidden.
+        this._sections = sections;
 
         // Fetch rules count
         this.loadRulesCount();
@@ -695,10 +749,10 @@ const Sidebar = {
         new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true });
         updateStatusToggle();
 
-        // Guardian ML lives in Settings (Configure section) — it's a
-        // configuration choice, not a sidebar control. Keeping it out of the
-        // bottom zone lets the proxy/plugin/SIEM status banners (which hide
-        // when inactive) read as a clean, single-purpose status stack.
+        // Guardian ML lives in the header (Header.createGuardianControl) —
+        // it's a global on/off, not a sidebar destination. Keeping it out of
+        // the bottom zone lets the proxy/plugin/SIEM status banners (which
+        // hide when inactive) read as a clean, single-purpose status stack.
 
         // Integration proxy status indicator — compact single line, anchored in bottom section
         const proxyBanner = document.createElement('div');
@@ -721,7 +775,7 @@ const Sidebar = {
         // Claude Code plugin indicator — same compact pattern as the
         // proxy/SIEM banners. Visible only when the plugin is staged
         // (or auto-installed on Claude Code) so it doesn't shout when
-        // nothing is in flight. Purple accent (8b5cf6) matches the
+        // nothing is in flight. Neutral dot (v5: runtimes are labels) — see
         // Claude Code category color on Tool Permissions.
         // Use a real <button> so keyboard users can Tab into it and
         // Enter/Space activates the same handler — replaces the prior
@@ -748,8 +802,11 @@ const Sidebar = {
         // content keeps it the same height as the sibling banners.
         // `width: calc(100% - 24px)` is still needed because <button>
         // doesn't auto-fill the way <div> does.
-        ccPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(139,92,246,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
-        ccPluginBanner.addEventListener('mouseenter', () => { ccPluginBanner.style.background = 'rgba(139,92,246,0.06)'; });
+        // v5: neutral border, runtime colour on the DOT (a label, like the
+        // Traces card dots) — coloured borders made the footer read as four
+        // competing alerts.
+        ccPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        ccPluginBanner.addEventListener('mouseenter', () => { ccPluginBanner.style.background = 'var(--bg-hover)'; });
         ccPluginBanner.addEventListener('mouseleave', () => { ccPluginBanner.style.background = 'transparent'; });
         const ccDot = document.createElement('span');
         ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #8b5cf6; flex-shrink: 0;';
@@ -770,7 +827,7 @@ const Sidebar = {
         // Visible only when the plugin is staged (or auto-installed in
         // ~/.codex) so it doesn't shout when nothing is in flight.
         //
-        // Coral accent (#C0655E) intentionally diverges from the Codex
+        // Neutral dot (v5: runtimes are labels, not statuses) — see the Codex
         // plugin manifest's brandColor (cyan #5EADB8): cyan collides
         // with this same sidebar's integration-proxy banner border
         // (also #5EADB8 / rgba(94,173,184,*)). Two cyan single-line
@@ -785,11 +842,11 @@ const Sidebar = {
         codexPluginBanner.id = 'codex-plugin-active-banner';
         codexPluginBanner.className = 'proxy-banner-pulse';
         codexPluginBanner.setAttribute('aria-label', 'Open Codex plugin settings');
-        codexPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(192,101,94,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
-        codexPluginBanner.addEventListener('mouseenter', () => { codexPluginBanner.style.background = 'rgba(192,101,94,0.06)'; });
+        codexPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        codexPluginBanner.addEventListener('mouseenter', () => { codexPluginBanner.style.background = 'var(--bg-hover)'; });
         codexPluginBanner.addEventListener('mouseleave', () => { codexPluginBanner.style.background = 'transparent'; });
         const codexDot = document.createElement('span');
-        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #C0655E; flex-shrink: 0;';
+        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #c0655e; flex-shrink: 0;';
         codexDot.setAttribute('aria-hidden', 'true');
         codexPluginBanner.appendChild(codexDot);
         const codexText = document.createElement('span');
@@ -804,7 +861,7 @@ const Sidebar = {
         // Copilot CLI plugin indicator — same compact pattern as the CC and
         // Codex banners; polls /api/hooks/copilot-cli/status.
         //
-        // Blue accent (#4a8fe7) — the bottom-section hue set is now:
+        // Neutral dot (v5) — the bottom-section plugin rows all share:
         // CC purple · Codex coral · Copilot blue · proxy cyan · SIEM green.
         // GitHub's Copilot brand purple would collide with the CC banner,
         // so blue (GitHub's own link/accent family) keeps the row
@@ -814,8 +871,8 @@ const Sidebar = {
         copilotPluginBanner.id = 'copilot-plugin-active-banner';
         copilotPluginBanner.className = 'proxy-banner-pulse';
         copilotPluginBanner.setAttribute('aria-label', 'Open Copilot CLI plugin settings');
-        copilotPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(74,143,231,0.35); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
-        copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'rgba(74,143,231,0.06)'; });
+        copilotPluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'var(--bg-hover)'; });
         copilotPluginBanner.addEventListener('mouseleave', () => { copilotPluginBanner.style.background = 'transparent'; });
         const copilotDot = document.createElement('span');
         copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #4a8fe7; flex-shrink: 0;';
@@ -839,8 +896,8 @@ const Sidebar = {
         siemBanner.className = 'proxy-banner-pulse';
         // Green accent (10b981) — different from the cyan proxy banner
         // so operators can tell them apart at a glance when stacked.
-        siemBanner.style.cssText = 'display: none; margin: 6px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid rgba(16,185,129,0.35); align-items: center; gap: 6px; transition: background 0.15s;';
-        siemBanner.addEventListener('mouseenter', () => { siemBanner.style.background = 'rgba(16,185,129,0.06)'; });
+        siemBanner.style.cssText = 'display: none; margin: 6px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s;';
+        siemBanner.addEventListener('mouseenter', () => { siemBanner.style.background = 'var(--bg-hover)'; });
         siemBanner.addEventListener('mouseleave', () => { siemBanner.style.background = 'transparent'; });
         const siemDot = document.createElement('span');
         siemDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #10b981; flex-shrink: 0;';
@@ -885,152 +942,6 @@ const Sidebar = {
         this.checkClaudeCodePluginStatus();
         this.checkCodexPluginStatus();
         this.checkCopilotPluginStatus();
-    },
-
-    // Guardian ML control — an accent-bordered pill in the sidebar bottom
-    // section (above "Try SecureVector"). It's the flagship local-detection
-    // toggle, so it gets a more substantial treatment than the slim status
-    // banners: a highlighted border + soft shadow that brighten when active,
-    // plus a status dot. Mirrors the page-level toggle (PUT /api/settings
-    // {guardian_ml_enabled}); enabling it pops a confirmation explaining what
-    // the model does before committing; disabling commits immediately. The
-    // label opens the full Guardian section on the Settings page.
-    renderGuardianToggle(parent) {
-        const pill = document.createElement('div');
-        pill.className = 'guardian-pill';
-        pill.dataset.guardianToggle = 'true';
-
-        // Status dot — muted when off, accent + halo when active (CSS-driven
-        // off the pill's data-active attribute).
-        const dot = document.createElement('span');
-        dot.className = 'gp-dot';
-        dot.setAttribute('aria-hidden', 'true');
-        pill.appendChild(dot);
-
-        // Title + status sub-label, stacked. Clicking opens the full Guardian
-        // section in Settings (the one affordance that survives collapsed mode).
-        const textCol = document.createElement('div');
-        textCol.className = 'gp-text';
-        textCol.title = 'SecureVector Guardian — local ML threat detection. Click to open settings.';
-        const title = document.createElement('span');
-        title.className = 'gp-title';
-        title.textContent = 'Guardian ML';
-        // One-line description of what it is — the on/off state is carried by
-        // the toggle, the status dot, and the border glow, so this stays a
-        // fixed explainer rather than an "Active/Off" label.
-        const sub = document.createElement('span');
-        sub.className = 'gp-sub';
-        sub.textContent = 'Local ML threat detection';
-        textCol.appendChild(title);
-        textCol.appendChild(sub);
-        textCol.addEventListener('click', () => this.navigate('settings'));
-        pill.appendChild(textCol);
-
-        // Toggle switch — reuses the global .toggle / .toggle-slider markup so
-        // it matches the Settings page exactly, scaled down for the rail.
-        const toggle = document.createElement('label');
-        toggle.className = 'toggle guardian-nav-toggle';
-        toggle.style.cssText = 'flex-shrink: 0; transform: scale(0.8); transform-origin: right center;';
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.setAttribute('aria-label', 'Toggle Guardian ML detection');
-        const slider = document.createElement('span');
-        slider.className = 'toggle-slider';
-        toggle.appendChild(checkbox);
-        toggle.appendChild(slider);
-        pill.appendChild(toggle);
-
-        // Single place that keeps the visual state (active glow via the
-        // data-active attribute → dot + border) in sync with the checkbox.
-        const reflect = (on) => {
-            pill.dataset.active = on ? 'true' : 'false';
-        };
-
-        // Optimistic default ON (matches server default) so the pill doesn't
-        // flash "Off" before the settings fetch resolves.
-        checkbox.checked = true;
-        reflect(true);
-        API.getSettings().then(s => {
-            const on = (s && s.guardian_ml_enabled) !== false;
-            checkbox.checked = on;
-            reflect(on);
-        }).catch(() => { /* keep optimistic default */ });
-
-        // Guard against the change handler firing while we set state ourselves.
-        let suppress = false;
-        const setChecked = (val) => { suppress = true; checkbox.checked = val; reflect(val); suppress = false; };
-
-        const commit = async (enabled) => {
-            try {
-                await API.updateSettings({ guardian_ml_enabled: enabled });
-                reflect(enabled);
-                if (window.Toast) {
-                    Toast.success(enabled
-                        ? 'Guardian ML detection enabled'
-                        : 'Guardian ML detection disabled — regex rules still active');
-                }
-            } catch (e) {
-                setChecked(!enabled);
-                if (window.Toast) Toast.error('Failed to update Guardian setting');
-            }
-        };
-
-        checkbox.addEventListener('change', (e) => {
-            if (suppress) return;
-            const enabled = e.target.checked;
-            if (enabled) {
-                // Opt-in: hold the switch OFF until the user confirms, so
-                // dismissing the modal (Cancel / X / overlay) leaves it off
-                // with no extra wiring. Only an explicit confirm turns it on.
-                setChecked(false);
-                this.showGuardianEnableConfirm(() => { setChecked(true); commit(true); });
-            } else {
-                commit(false);
-            }
-        });
-
-        parent.appendChild(pill);
-    },
-
-    // Confirmation popup shown when the user flips Guardian ML on — explains
-    // what the model does so enabling is an informed opt-in. onConfirm commits
-    // the change. Dismissing the modal (Cancel / X / overlay) does nothing:
-    // the caller holds the switch off until confirmed, so no revert is needed.
-    showGuardianEnableConfirm(onConfirm) {
-        const content = document.createElement('div');
-
-        const lead = document.createElement('p');
-        lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
-        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
-        content.appendChild(lead);
-
-        const list = document.createElement('ul');
-        list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
-        [
-            'Fully offline — nothing leaves your machine, no API key.',
-            'Fast — sub-millisecond on a typical prompt or tool call.',
-            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
-        ].forEach(t => {
-            const li = document.createElement('li');
-            li.textContent = t;
-            list.appendChild(li);
-        });
-        content.appendChild(list);
-
-        const foot = document.createElement('p');
-        foot.style.cssText = 'margin: 0; font-size: 13px; color: var(--text-muted, #7d8590);';
-        foot.textContent = 'You can turn it off anytime here or on the Settings page. Regex rules keep running either way.';
-        content.appendChild(foot);
-
-        Modal.show({
-            title: 'Enable Guardian ML detection?',
-            content,
-            size: 'small',
-            actions: [
-                { label: 'Cancel', primary: false },
-                { label: 'Enable Guardian', primary: true, onClick: onConfirm },
-            ],
-        });
     },
 
     toggleCollapse() {
@@ -1621,6 +1532,19 @@ const Sidebar = {
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.toggle('active', item.dataset.page === page);
         });
+
+        // Landing on a page whose section is collapsed would hide the active
+        // row ("where am I?") — re-open that section. The render-time guard
+        // only covers page load; this covers in-app navigation.
+        const activeEl = document.querySelector(`.nav-item.active[data-page="${page}"]`);
+        if (activeEl && (activeEl.classList.contains('nav-sec-hidden') || activeEl.closest('.nav-sec-hidden'))) {
+            const sec = (this._sections || []).find(s => s.els.includes(activeEl)
+                || s.els.some(el => el.contains && el.contains(activeEl)));
+            if (sec && sec.collapsed && sec.apply) {
+                try { localStorage.setItem(sec.key, '0'); } catch (_) { /* private mode */ }
+                sec.apply(false);
+            }
+        }
 
         // Trigger page load
         if (window.App) {

@@ -171,3 +171,30 @@ def test_backup_once_no_op_when_source_missing(tmp_path):
 
     backup = f.with_suffix(f.suffix + ".before-securevector")
     assert not backup.exists()
+
+
+def test_aggregate_session_usage_skips_synthetic_model(tmp_path):
+    """Claude Code system-injected turns (model "<synthetic>", zero usage)
+    are not real API calls — they must not count as turns nor produce a
+    by-model bucket. Mirrors the Traces LLM-run filter."""
+    import json
+
+    jsonl = tmp_path / "session.jsonl"
+    rows = [
+        {"timestamp": "2026-07-17T10:00:00Z",
+         "message": {"model": "claude-fable-5",
+                     "usage": {"input_tokens": 10, "output_tokens": 20}}},
+        {"timestamp": "2026-07-17T10:00:05Z",
+         "message": {"model": "<synthetic>",
+                     "usage": {"input_tokens": 0, "output_tokens": 0}}},
+    ]
+    jsonl.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+
+    turns, inp, out, _cc, _cr, _last, per_model, _per_day = (
+        hooks_claude_code._aggregate_session_usage(jsonl)
+    )
+
+    assert turns == 1
+    assert (inp, out) == (10, 20)
+    assert "<synthetic>" not in per_model
+    assert set(per_model) == {"claude-fable-5"}

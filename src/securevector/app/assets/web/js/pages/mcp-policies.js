@@ -1172,7 +1172,7 @@ const McpPoliciesPage = {
         links.appendChild(lh);
         for (const [page, label, desc] of [
             ['tool-permissions', 'Tool Permissions', 'See how synced rules layer over local'],
-            ['replay', 'Agent Activity', 'Audit trail of allow/block decisions'],
+            ['replay', 'Observability', 'Audit trail of allow/block decisions'],
             ['guide', 'Guide', 'How Policy Sync works end-to-end'],
         ]) {
             const a = document.createElement('a');

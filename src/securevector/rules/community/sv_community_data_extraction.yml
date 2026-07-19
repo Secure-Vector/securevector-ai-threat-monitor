@@ -190,6 +190,9 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    # "show/give/dump your keys" is user-request language; it appears verbatim
+    # in benign docs and test code read as incoming context (FP flood 2026-07).
+    direction: outgoing
     effectiveness_metrics:
       detection_rate: 0.96
       f1_score: 0.93
@@ -322,7 +325,11 @@ rules:
     author: SecureVector Community
     created_at: '2026-06-04T00:00:00Z'
     confidence: 0.85
-    direction: both
+    # `cat ~/.ssh/id_rsa`-shaped strings appear legitimately in source code,
+    # security tooling, and docs the agent Reads; on the incoming side they
+    # FP'd on our own repo (2026-07). Exfil is still caught where it acts:
+    # the outgoing command / model response.
+    direction: outgoing
     tags:
     - data_exfiltration
     - credential_theft

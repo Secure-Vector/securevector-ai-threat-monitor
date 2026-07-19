@@ -23,7 +23,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Reading Agent Runs', 'How to read a per-run trace, the filters, and what each part tells you',
+            'Reading Traces', 'How to read a per-session trace, the filters, and what each part tells you',
             'section-read-runs', () => this.buildReadRunsContent()
         ));
 
@@ -54,7 +54,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Cost Tracking', 'Track LLM token spend and set daily budget limits',
+            'Cost & Tokens', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
         ));
 
@@ -141,7 +141,7 @@ const GettingStartedPage = {
 
         const featureList = document.createElement('div');
         featureList.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px;';
-        ['Threat Detection', 'Cost Tracking', 'Tool Monitoring'].forEach(f => {
+        ['Threat Detection', 'Cost & Tokens', 'Tool Monitoring'].forEach(f => {
             const tag = document.createElement('span');
             tag.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px;';
             const check = document.createElement('span');
@@ -516,7 +516,7 @@ const GettingStartedPage = {
         scanGrid.appendChild(inputCol);
 
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--border-light);';
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
         outputTitle.textContent = 'Output Scanning (LLM \u2192 User)';
@@ -530,7 +530,7 @@ const GettingStartedPage = {
         modesGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;';
 
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--danger, #ef4444);';
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
         blockTitle.textContent = 'Block Mode (Default)';
@@ -594,7 +594,7 @@ const GettingStartedPage = {
 
         // Output column
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--border-light);';
 
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
@@ -627,7 +627,7 @@ const GettingStartedPage = {
 
         // Block mode (default)
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--danger, #ef4444);';
 
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
@@ -1143,7 +1143,7 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'Cost Tracking records every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
+        desc.textContent = 'Cost & Tokens records every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
         frag.appendChild(desc);
 
         const featureGrid = document.createElement('div');
@@ -1195,7 +1195,7 @@ const GettingStartedPage = {
         const costsBtn = document.createElement('button');
         costsBtn.className = 'btn btn-primary';
         costsBtn.style.cssText = 'font-size: 12px; margin: 14px 0 0 0; padding: 6px 14px;';
-        costsBtn.textContent = 'Open Cost Tracking';
+        costsBtn.textContent = 'Open Cost & Tokens';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
 
@@ -2087,7 +2087,7 @@ const GettingStartedPage = {
         const { para, head, list, callout } = this._gsHelpers();
 
         frag.appendChild(para(
-            'The <strong style="color:var(--text-primary);">Agent Map</strong> (Agent Activity → Map) is a live topology of what your agents actually did. ' +
+            'The <strong style="color:var(--text-primary);">Agent Map</strong> (Observability → Map) is a live topology of what your agents actually did. ' +
             'It reads the tool-call audit log and draws four layers: <strong>this device</strong> → each <strong>harness</strong> ' +
             '(the runtime — Claude Code, Codex, OpenClaw) → each <strong>agent</strong> (one run/session) → the <strong>tools</strong> that agent called.'
         ));
@@ -2096,7 +2096,7 @@ const GettingStartedPage = {
         frag.appendChild(list([
             '<strong>Device</strong> — the root; your local machine.',
             '<strong>Harness</strong> — one node per runtime. Node colour is the harness: Claude Code orange, Codex blue, OpenClaw red.',
-            '<strong>Agent</strong> — one node per run, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the run into Runs and the Timeline.',
+            '<strong>Agent</strong> — one node per session, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the session into Traces and the Live feed.',
             '<strong>Tool</strong> — each tool the agent called (Bash, Read, an MCP tool, …).',
         ]));
 
@@ -2118,8 +2118,8 @@ const GettingStartedPage = {
         ]));
 
         frag.appendChild(callout(
-            '<strong style="color:var(--text-primary);">Useful for:</strong> spotting which agent or tool is generating blocks, seeing a credential-touching run at a glance, ' +
-            'and drilling from a suspicious node straight into its exact run. Click an agent or tool node to jump to that run in <strong>Agent Runs</strong>.'
+            '<strong style="color:var(--text-primary);">Useful for:</strong> spotting which agent or tool is generating blocks, seeing a credential-touching session at a glance, ' +
+            'and drilling from a suspicious node straight into its exact trace. Click an agent or tool node to jump to that trace in <strong>Traces</strong>.'
         ));
         return frag;
     },
@@ -2130,14 +2130,15 @@ const GettingStartedPage = {
         const { para, head, list, callout } = this._gsHelpers();
 
         frag.appendChild(para(
-            '<strong style="color:var(--text-primary);">Agent Runs</strong> (Agent Activity → Runs) is the per-run trace: the run list on the left, ' +
-            'and on the right a turn-by-turn waterfall of every tool call in the selected run, each with the tool permission that was applied.'
+            '<strong style="color:var(--text-primary);">Traces</strong> (Observability → Traces) is the per-session trace: the trace list on the left, ' +
+            'and on the right a turn-by-turn waterfall of every span (tool call) in the selected trace, each with the tool permission that was applied. ' +
+            'One trace = one agent session; the spans are the steps inside it (Session → Trace → Span, the standard observability hierarchy).'
         ));
 
-        frag.appendChild(head('The run list'));
+        frag.appendChild(head('The trace list'));
         frag.appendChild(list([
             'Each card leads with the agent label — its custom name or <strong>"agent #N"</strong> (the same number as on the Map) — with the harness as a small tag beside it.',
-            'The left rail and dot are coloured by harness; the right dot is the run\'s risk.',
+            'The left rail and dot are coloured by harness; the right dot is the trace\'s risk.',
             'Meta shows span count, blocked count, and the end time.',
         ]));
 
@@ -2158,7 +2159,7 @@ const GettingStartedPage = {
 
         frag.appendChild(callout(
             '<strong style="color:var(--text-primary);">Useful for:</strong> auditing exactly what a single agent did, in order; confirming a block fired where you expected; ' +
-            'and exporting one run\'s trace (CSV / PDF) for a ticket or review. Arriving from a Map tool-node click scopes the waterfall to that one tool.'
+            'and exporting one trace (CSV / PDF) for a ticket or review. Arriving from a Map tool-node click scopes the waterfall to that one tool.'
         ));
         return frag;
     },
@@ -2295,7 +2296,7 @@ const GettingStartedPage = {
             { name: 'Base64 obfuscation', id: 'base64_literal',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Base64 encode/decode or large embedded strings (40+ chars).' },
             { name: 'Compiled binary',    id: 'compiled_code',    severity: 'MEDIUM',  color: '#f59e0b', desc: 'Pre-compiled files that cannot be statically analysed.' },
             { name: 'Symlink escape',     id: 'symlink_escape',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Symlink resolves outside the skill directory.' },
-            { name: 'Missing manifest',   id: 'missing_manifest', severity: 'INFO',    color: '#3b82f6', desc: 'No permissions.yml found. Informational \u2014 does not affect risk level.' },
+            { name: 'Missing manifest',   id: 'missing_manifest', severity: 'INFO',    color: '#64748b', desc: 'No permissions.yml found. Informational \u2014 does not affect risk level.' },
         ];
 
         const catGrid = document.createElement('div');
@@ -2531,10 +2532,10 @@ const GettingStartedPage = {
                 ],
             },
             {
-                title: 'Cost Tracking shows $0.00 for all requests',
+                title: 'Cost & Tokens shows $0.00 for all requests',
                 cause: 'The model name returned by the provider does not match a known pricing entry, or token counts were not included in the response.',
                 fix: [
-                    'Go to Cost Tracking → Pricing Reference and check if your model is listed.',
+                    'Go to Cost & Tokens → Pricing Reference and check if your model is listed.',
                     'Some providers return snapshot model names (e.g. gpt-4o-2024-08-06) instead of aliases — both are matched.',
                     'For Ollama, $0.00 is correct — local models have no API cost.',
                     'If a model is missing, open an issue on GitHub with the model name and provider.',

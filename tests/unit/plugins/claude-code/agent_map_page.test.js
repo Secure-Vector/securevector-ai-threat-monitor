@@ -21,15 +21,14 @@ test('agent-map page defines AgentMapPage with the core render pipeline', () => 
   assert.match(src, /async render\(/);
   assert.match(src, /async loadData\(/);
   assert.match(src, /draw\(\)/);
-  assert.match(src, /_layout\(/);
   assert.match(src, /window\.AgentMapPage = AgentMapPage/);
 });
 
-test('agent-map renders agents and tools as nodes with enforcement-colored edges', () => {
+test('agent-map renders harness/session/tool nodes with enforcement-colored edges', () => {
   const src = read('js/pages/agent-map.js');
-  // node kinds
-  assert.match(src, /kind === 'agent'/);
+  // node kinds — the map draws harness → session → tool tiers
   assert.match(src, /kind === 'tool'/);
+  assert.match(src, /'harness'/);
   // outcome colors incl. blocked = red
   assert.match(src, /OUTCOME_COLOR\s*=\s*\{[^}]*blocked:\s*'#ef4444'/);
   // hand-rolled SVG (no graph lib)
@@ -39,38 +38,36 @@ test('agent-map renders agents and tools as nodes with enforcement-colored edges
   assert.match(src, /cloud_managed/);
 });
 
-test('agent-map uses a force-directed layout (organic node map)', () => {
+test('agent-map offers three topologies (radial / tree / mesh) behind one draw()', () => {
   const src = read('js/pages/agent-map.js');
-  assert.match(src, /REPULSE/);   // charge repulsion
-  assert.match(src, /SPRING/);    // link springs
-  assert.match(src, /GRAVITY/);   // centering gravity
-  assert.match(src, /golden angle|3 - Math\.sqrt\(5\)/); // deterministic seed
+  assert.match(src, /_layoutRadial\(/);
+  assert.match(src, /_layoutTree\(/);
+  assert.match(src, /_layoutMesh\(/);
+  assert.match(src, /this\.topo === 'tree'/);
 });
 
-test('agent-map gives at-a-glance numbers + per-agent hover breakdown', () => {
+test('agent-map gives at-a-glance numbers + node hover details', () => {
   const src = read('js/pages/agent-map.js');
-  // persona stat strip (slim summary line)
+  // slim stat strip
   assert.match(src, /_renderStats\(/);
   assert.match(src, /blocked/);
-  assert.match(src, /secret \/ cloud/);
-  // tool hover → calls broken down by agent
-  assert.match(src, /_breakdownFor\(/);
-  assert.match(src, /called by agent/);
+  // node hover → tooltip card with per-node detail
+  assert.match(src, /#agent-map-tip/);
 });
 
-test('agent-map has a Focus filter (blocked / secret / per-agent)', () => {
+test('agent-map has outcome filter pills (allowed / blocked / logged / threats)', () => {
   const src = read('js/pages/agent-map.js');
-  assert.match(src, /_applyFocus\(/);
-  assert.match(src, /_refreshFocusOptions\(/);
-  assert.match(src, /Blocked only/);
-  assert.match(src, /Secret \/ cloud only/);
+  assert.match(src, /\['blocked', 'Blocked'\]/);
+  assert.match(src, /\['log_only', 'Logged only'\]/);
+  assert.match(src, /\['threat', 'Threats'\]/);
 });
 
-test('agent-map edges are solid lines with a travelling flow dot', () => {
+test('agent-map edges carry the travelling flow animation', () => {
   const src = read('js/pages/agent-map.js');
-  assert.match(src, /sv-edge-base/);   // solid connection line
-  assert.match(src, /sv-edge-flow/);   // travelling dot overlay
+  assert.match(src, /sv-edge-flow/);   // travelling dash overlay
   assert.match(src, /@keyframes svFlow/);
+  // the motion layer must switch off under prefers-reduced-motion
+  assert.match(src, /prefers-reduced-motion/);
 });
 
 test('agent-map animates tool-call traffic as flowing water', () => {
@@ -80,36 +77,35 @@ test('agent-map animates tool-call traffic as flowing water', () => {
   assert.match(src, /sv-edge-blocked/); // blocked edges pulse
 });
 
-test('agent-map supports zoom, pan, drag, and fit-to-view', () => {
+test('agent-map supports zoom, pan, and node drag', () => {
   const src = read('js/pages/agent-map.js');
-  // wheel + button zoom around a point
+  // wheel + button zoom around a point, clamped
   assert.match(src, /_zoomAt\(/);
   assert.match(src, /addEventListener\('wheel'/);
-  // background pan + node drag via pointer events
+  assert.match(src, /_clampK\(/);
+  // background pan + node drag via pointer events, with live edge updates
   assert.match(src, /_wireViewport\(/);
   assert.match(src, /_wireNodeDrag\(/);
   assert.match(src, /setPointerCapture/);
-  // pinning a dragged node + live edge updates
-  assert.match(src, /node\.pinned = true/);
   assert.match(src, /_updateEdgesFor\(/);
-  // fit-to-view control + clamped zoom range
-  assert.match(src, /_fit\(/);
-  assert.match(src, /_clampK\(/);
 });
 
-test('agent-map preserves pinned (user-dragged) nodes across relayout', () => {
+test('agent-map height is viewport-fit with a user-pinnable manual override', () => {
   const src = read('js/pages/agent-map.js');
-  assert.match(src, /if \(n\.pinned\) return/);
+  // drag handle pins a manual height in localStorage; double-click clears it
+  assert.match(src, /auto-fit/);
+  assert.match(src, /localStorage\.removeItem\(KEY\)/);
 });
 
 test('agent-map is wired into the API client, sidebar, router, and index', () => {
   assert.match(read('js/api.js'), /getAgentToolGraph/);
   assert.match(read('js/api.js'), /\/api\/graph\/agent-tool/);
-  // The "Agent Runs" rail entry lands on the Map (the hero tab) and lists the
-  // other two views as aliases so the entry stays highlighted while the
-  // Runs/Timeline tab is active.
-  assert.match(read('js/components/sidebar.js'), /id: 'agent-map',\s*label: 'Agent Runs'/);
-  assert.match(read('js/components/sidebar.js'), /aliases:\s*\[[^\]]*'agent-runs'[^\]]*'agent-timeline'[^\]]*\]/);
+  // v5.1: Sessions merged into the single "Agent Activity" view (1 session =
+  // 1 trace here), landing on agent-runs, with the other views as aliases so
+  // the entry stays highlighted while the Map/Live-feed/legacy-Sessions tab is
+  // active.
+  assert.match(read('js/components/sidebar.js'), /id: 'agent-runs',\s*label: 'Traces'/);
+  assert.match(read('js/components/sidebar.js'), /aliases:\s*\[[^\]]*'storylines'[^\]]*'agent-map'[^\]]*'agent-timeline'[^\]]*\]/);
   // App.pages route → AgentMapPage (the spa_routes symmetry requirement)
   assert.match(read('js/app.js'), /'agent-map':\s*AgentMapPage/);
   // script tag present and loaded before app.js

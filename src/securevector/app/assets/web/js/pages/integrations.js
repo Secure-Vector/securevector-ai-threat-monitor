@@ -413,7 +413,7 @@ def chat_with_protection(user_input):
             // On plugin/proxy pages, label the local card as "Option 1 · This
             // device" so it pairs visibly with the "Option 2 · Your cloud" remote
             // section below (SDK pages already show both options inside the card).
-            if (!remoteAdded) container.appendChild(this._optionLabel('1', 'This device (local app)', null, '#06b6d4'));
+            if (!remoteAdded) container.appendChild(this._optionLabel('1', 'This device (local app)', null, '#5eadb8'));
             container.appendChild(localWrap);
             if (remoteSection) container.appendChild(remoteSection);
         }
@@ -573,7 +573,7 @@ def chat_with_protection(user_input):
         header.appendChild(titleDiv);
 
         const badge = document.createElement('span');
-        badge.style.cssText = 'background: #f97316; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite;';
+        badge.style.cssText = 'background: var(--gradient-end, #2d6a74); color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px;';
         badge.textContent = 'RECOMMENDED';
         header.appendChild(badge);
 
@@ -2391,7 +2391,7 @@ def chat_with_protection(user_input):
 
         const features = [
             { name: 'Threat Monitoring', desc: 'Scans prompts & responses', always: true },
-            { name: 'Cost Tracking', desc: 'Token usage & spend', always: true },
+            { name: 'Cost & Tokens', desc: 'Token usage & spend', always: true },
             { name: 'Tool Permissions', desc: 'Block dangerous tools', always: true },
             { name: 'Security Injection', desc: 'Prompt-level protection', always: true },
         ];
@@ -3284,7 +3284,7 @@ def chat_with_protection(user_input):
 
         // A self-contained option panel: numbered pill + title + tag, note, code.
         // `recommended` gives an accent-tinted border + "RECOMMENDED" chip.
-        const CYAN = '#06b6d4', RED = '#ef4444';
+        const CYAN = '#5eadb8', RED = '#ef4444';
         const optionPanel = (num, dot, title, tag, note, codeText, recommended) => {
             const p = document.createElement('div');
             p.style.cssText = 'border: 1.5px solid ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 55%, var(--border-default))' : 'var(--border-default)') + '; border-radius: 10px; padding: 13px 14px; margin: 0 0 12px; background: ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 5%, var(--bg-card))' : 'var(--bg-card)') + ';';

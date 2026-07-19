@@ -20,12 +20,28 @@ from pydantic import BaseModel, Field
 #   * ML ALONE (no rule fired) blocks only at high confidence.
 #   * ML CORROBORATES an already-firing rule at a lower bar.
 # High-precision: catches what rules miss without firing on weak model hunches.
-_ML_ALONE_BAR = 0.90
+# 0.92, up from 0.90: a benign imperative prompt merely MENTIONING safety
+# terms measured 0.9037 on the live model ("keep safety guidelines while
+# driving please"), while real attacks measure 0.99+. Literal attacks are
+# also independently covered by the regex pack, so the bump costs no recall.
+_ML_ALONE_BAR = 0.92
+# Incoming (fetched/tool content) gets a HIGHER ml-alone bar. Measured on the
+# live model (v1.4.0): benign source files and docs read as incoming context
+# score 0.88–0.94, while genuinely buried/paraphrased injections score 0.99+.
+# 0.97 sits in that gap — it drops the benign-file FP band without losing any
+# measured true positive. Outgoing keeps 0.90 (user prompts don't have the
+# benign-code lookalike problem).
+_ML_ALONE_BAR_INCOMING = 0.97
 _ML_CORROBORATE_BAR = 0.60
 # Mechanism 1 (FP triage): when a rule fires but Guardian's P(malicious) is
 # below this, the model is confidently benign — the detection is flagged a
 # likely false positive (metadata only; the verdict is never suppressed).
 _ML_DISAGREE_BAR = 0.20
+# Guardian is skipped entirely below these floors — fragments carry no
+# semantic signal for a char-n-gram model, and the regex pack owns short
+# literal attacks anyway.
+_ML_MIN_TEXT_CHARS = 20
+_ML_MIN_TEXT_WORDS = 4
 
 
 def _ml_enabled() -> bool:
@@ -355,8 +371,18 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         # analysis below: kicked off here in a worker thread, awaited at the
         # verdict merge. Fail-open — any setup error leaves rules untouched.
         # Gated on the Settings toggle (default ON) AND the env kill-switch.
+        # Skipped for trivially short text: char-n-gram TF-IDF has no context
+        # on fragments and mints absurd verdicts (the literal word "all"
+        # scored prompt_injection at 99 because it appears inside "ignore all
+        # previous instructions" training rows). Literal short attacks are
+        # fully covered by the regex rule pack, so skipping costs no recall.
+        _stripped = scan_text.strip()
+        _ml_text_ok = (
+            len(_stripped) >= _ML_MIN_TEXT_CHARS
+            and len(_stripped.split()) >= _ML_MIN_TEXT_WORDS
+        )
         _guardian_task = None
-        if settings.guardian_ml_enabled and _ml_enabled():
+        if settings.guardian_ml_enabled and _ml_enabled() and _ml_text_ok:
             try:
                 from securevector.app.services import guardian_service
 
@@ -520,7 +546,14 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             if gr and gr.get("is_threat") and gr.get("matched_rules"):
                 ml_rule = gr["matched_rules"][0]
                 ml_conf = float(ml_rule.get("confidence") or 0.0)
-                ml_bar = _ML_CORROBORATE_BAR if surviving_confidences else _ML_ALONE_BAR
+                # Incoming fetched/tool content uses the higher alone-bar:
+                # benign files score 0.88–0.94, real buried attacks 0.99+.
+                ml_alone_bar = (
+                    _ML_ALONE_BAR_INCOMING
+                    if request.direction == "incoming"
+                    else _ML_ALONE_BAR
+                )
+                ml_bar = _ML_CORROBORATE_BAR if surviving_confidences else ml_alone_bar
                 if ml_conf >= ml_bar:
                     surviving_confidences.append(ml_conf)
                     matched_rules.append(
@@ -539,7 +572,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     # high bar — raise the verdict here, because the calibrated
                     # block below only demotes (it keys off result.is_threat)
                     # and final_* fields inherit from result.
-                    if not result.is_threat and ml_conf >= _ML_ALONE_BAR:
+                    if not result.is_threat and ml_conf >= ml_alone_bar:
                         result.is_threat = True
                         result.threat_type = (
                             gr.get("threat_type") or ml_rule.get("category") or "unknown"

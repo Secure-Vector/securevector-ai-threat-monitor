@@ -1,28 +1,77 @@
-/* SecureVector Theme - Cyan to Red Gradient */
+/* SecureVector Theme */
 /* Light and Dark mode support */
 
+/* ============================================================================
+   v5 TYPE SIGNATURE — self-hosted, offline, CSP-safe (font-src 'self').
+   Space Grotesk = display/headings (distinctive grotesque, technical but
+   confident). Space Mono = numbers, metadata, telemetry readouts (tabular,
+   reads like an instrument). Body stays on the system UI sans for legibility
+   at small sizes. This pairing is what gives v5 its own identity instead of
+   the generic GitHub-dark + system-font look.
+   ========================================================================= */
+@font-face {
+    font-family: 'Space Grotesk'; font-style: normal; font-weight: 500;
+    font-display: swap; src: url('/fonts/SpaceGrotesk-500.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Space Grotesk'; font-style: normal; font-weight: 600;
+    font-display: swap; src: url('/fonts/SpaceGrotesk-600.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Space Grotesk'; font-style: normal; font-weight: 700;
+    font-display: swap; src: url('/fonts/SpaceGrotesk-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Space Mono'; font-style: normal; font-weight: 400;
+    font-display: swap; src: url('/fonts/SpaceMono-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Space Mono'; font-style: normal; font-weight: 700;
+    font-display: swap; src: url('/fonts/SpaceMono-700.woff2') format('woff2');
+}
+
 :root {
+    /* v5 type tokens */
+    --font-display: 'Space Grotesk', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, system-ui, sans-serif;
+    --font-mono: 'Space Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
     /* Gradient colors */
+    /* v5 color policy (SOC discipline): color communicates SECURITY STATE,
+       never decoration. One brand accent (teal) for interactive/selected
+       states; red/amber/green are reserved for blocked/warned/allowed
+       semantics; runtimes and providers are neutral labels. The old
+       teal→salmon brand gradient is retired — --gradient is now a
+       monochrome teal ramp so legacy consumers stay calm. */
     --gradient-start: #5eadb8;
-    --gradient-end: #c0655e;
+    --gradient-end: #2d6a74;
     --gradient: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
 
-    /* Base colors - Dark mode default */
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #21262d;
-    --bg-card: #161b22;
-    --bg-hover: #1c2129;
+    /* Base colors - Dark mode default (v5: deeper, slightly cooler near-black
+       with a real elevation ladder — cards LIFT above the page with light,
+       not just a grey border. This is the single change that de-GitHubs the
+       shell; #0d1117/#161b22 was the most-copied dev-tool palette there is.) */
+    --bg-primary: #090b0f;      /* page — darkest, cool near-black */
+    --bg-secondary: #0e1218;    /* rails / subtle fills */
+    --bg-tertiary: #161b23;     /* inset controls, chips */
+    --bg-card: #12171e;         /* cards lift above the page */
+    --bg-elevated: #1a2029;     /* popovers / modals — highest */
+    --bg-hover: #1b212b;
 
-    --text-primary: #e6edf3;
-    --text-secondary: #b1bac4;
-    --text-muted: #8b949e;
+    --text-primary: #eef2f7;
+    --text-secondary: #aeb7c2;
+    --text-muted: #7f8a97;
 
-    --border-default: #30363d;
-    --border-light: #3d444d;
+    --border-default: #232a33;  /* hairline — quieter than GitHub's #30363d */
+    --border-light: #303844;
+
+    /* Elevation ladder — light-from-above: a hairline top highlight + a soft
+       drop shadow read as "raised" in dark mode. Applied to the card system. */
+    --elevate-1: 0 1px 0 rgba(255,255,255,0.03) inset, 0 1px 2px rgba(0,0,0,0.4);
+    --elevate-2: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 20px rgba(0,0,0,0.45);
+    --elevate-pop: 0 1px 0 rgba(255,255,255,0.05) inset, 0 16px 40px rgba(0,0,0,0.55);
 
     --accent-primary: #5eadb8;
-    --accent-secondary: #c0655e;
+    --accent-secondary: #4a8b96;
 
     /* Status colors */
     --success: #10b981;
@@ -82,6 +131,13 @@
     --border-default: #b8c0c8;
     --border-light: #c8ced6;
 
+    /* Elevation ladder — light mode: no white inset (invisible on white); a
+       soft, subtle drop shadow reads as raised on a light page. */
+    --bg-elevated: #ffffff;
+    --elevate-1: 0 1px 2px rgba(31,35,40,0.06), 0 1px 3px rgba(31,35,40,0.04);
+    --elevate-2: 0 4px 14px rgba(31,35,40,0.08), 0 1px 3px rgba(31,35,40,0.05);
+    --elevate-pop: 0 12px 32px rgba(31,35,40,0.14);
+
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
@@ -109,11 +165,35 @@
 /* Base styles */
 html, body {
     height: 100%;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-body);
     font-size: 14px;
     line-height: 1.5;
     color: var(--text-primary);
     background: var(--bg-primary);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* v5 type signature application — headings/brand carry the display face;
+   numeric + metadata surfaces carry the mono. Scoped to classes the pages
+   already use so the change lands without touching every page's JS. */
+h1, h2, h3, .header-title, #header-page-title, .page-title,
+.sidebar-logo, .card-title, .card-header h2, .card-header h3,
+.section-title, .stat-title, .story-name, .story-sum-val {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+}
+/* Big display numbers read as a telemetry instrument in the mono face. */
+.stat-value, .stat-number, .metric-value, .kpi-value,
+.story-sum-val, .hero-stat-value, .dashboard-stat-value {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+/* Uppercase micro-labels + timestamps in mono for the SOC-console read. */
+.stat-label, .story-sum-lbl, .nav-section-label, .nav-section-toggle {
+    font-family: var(--font-mono);
 }
 
 /* App Container */
@@ -223,14 +303,14 @@ html, body {
 .sidebar-logo {
     font-size: 20px;
     font-weight: 700;
-    background: linear-gradient(to right, #5eadb8, #c0908a, #5eadb8);
+    background: linear-gradient(to right, #8ccdd6, #5eadb8, #8ccdd6);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
 [data-theme="light"] .sidebar-logo {
-    background: linear-gradient(to right, #5eadb8, #ef4444, #5eadb8);
+    background: linear-gradient(to right, #2b8a97, #5eadb8, #2b8a97);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -284,6 +364,7 @@ html, body {
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
+    white-space: nowrap; /* "Cloud Connect" must never break to two lines */
 }
 
 .cloud-toggle-btn:hover {
@@ -728,8 +809,8 @@ html, body {
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
-    background: linear-gradient(135deg, rgba(94, 173, 184, 0.08), rgba(244, 67, 54, 0.08));
-    border: 1px solid var(--accent-primary);
+    background: rgba(94, 173, 184, 0.07);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     margin-top: 16px;
 }
@@ -1023,7 +1104,7 @@ html, body {
     padding: 7px 12px;
     border: none;
     border-radius: 7px;
-    background: linear-gradient(135deg, #5eadb8, #c0655e);
+    background: var(--gradient);
     color: #fff;
     font-size: 12px;
     font-weight: 600;
@@ -1138,7 +1219,7 @@ html, body {
     justify-content: space-between;
     gap: 8px;
     padding: 12px 14px 11px;
-    background: linear-gradient(135deg, rgba(94,173,184,0.18) 0%, rgba(244,67,54,0.13) 100%);
+    background: rgba(94,173,184,0.12);
     border-bottom: 1px solid var(--border-default);
     flex-shrink: 0;
 }
@@ -1191,7 +1272,7 @@ html, body {
 
 .tryit-msg-user {
     align-self: flex-end;
-    background: linear-gradient(135deg, rgba(94,173,184,0.2), rgba(244,67,54,0.15));
+    background: rgba(94,173,184,0.15);
     color: var(--text-primary);
     border: 1px solid rgba(94,173,184,0.25);
 }
@@ -1279,7 +1360,7 @@ html, body {
     flex-shrink: 0;
     border: none;
     border-radius: 8px;
-    background: linear-gradient(135deg, #5eadb8, #c0655e);
+    background: var(--gradient);
     color: #fff;
     font-size: 16px;
     font-weight: 700;
@@ -1320,14 +1401,77 @@ html, body {
 }
 
 .nav-section-label {
-    font-size: 9px;
+    font-size: 11.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.9px;
-    color: var(--text-muted);
-    padding: 8px 16px 2px;
-    opacity: 0.6;
+    color: var(--text-secondary);
+    padding: 12px 16px 3px;
+    opacity: 0.85;
 }
+
+/* Section headers are collapse/expand toggles (v5): button reset + flex so
+   the chevron sits right after the name. Hover gets a subtle row background
+   so the whole header reads as clickable, not just decorative. */
+.nav-section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: calc(100% - 16px);
+    margin: 2px 8px 0;
+    padding: 9px 8px 6px;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: var(--text-secondary);
+    opacity: 0.85;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.nav-section-toggle:hover {
+    opacity: 1;
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+/* Long section names ("Cloud & Forwarders") truncate instead of wrapping —
+   a wrapped header strands the chevron and count mid-row. */
+.nav-section-toggle > span:first-child {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+/* Hidden-destination count — visible only while the section is collapsed,
+   so "GOVERN › 6" reads as a closed door with six rooms behind it. */
+.nav-sec-count {
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+/* Rows hidden by a collapsed section. Class-based (not inline display) so
+   each row's own inline display state — sub-nav expansion, banner
+   visibility — survives the round-trip. */
+.nav-sec-hidden { display: none !important; }
+/* Icon-rail mode hides the section headers entirely, so a collapsed section
+   would have no re-open affordance — force its nav rows visible there.
+   (Sub-navs and dividers stay hidden; the rail is icons-only anyway.) */
+.sidebar.collapsed .nav-item.nav-sec-hidden { display: flex !important; }
 
 .sidebar.collapsed .nav-section-label {
     display: none;
@@ -1390,13 +1534,13 @@ html, body {
 }
 
 .nav-item.active {
-    background: linear-gradient(135deg, rgba(94,173,184,0.18), rgba(244,63,94,0.18));
+    background: rgba(94,173,184,0.14);
     color: var(--text-primary);
     box-shadow: inset 3px 0 0 #5eadb8;
 }
 
 [data-theme="light"] .nav-item.active {
-    background: linear-gradient(135deg, rgba(94,173,184,0.2), rgba(244,63,94,0.2));
+    background: rgba(94,173,184,0.16);
     color: var(--text-primary);
     box-shadow: inset 3px 0 0 #5eadb8;
 }
@@ -1837,9 +1981,12 @@ html, body {
     overflow: hidden;
 }
 
-/* Header */
+/* Header. Height is a MINIMUM, not fixed: a 21px title + a two-line
+   subtitle stack to ~61px, which pressed the text against the very top of
+   the window when the height was locked at 64px. Vertical padding keeps a
+   constant breathing gap and the bar simply grows when the subtitle wraps. */
 .header {
-    height: var(--header-height);
+    height: auto;
     min-height: var(--header-height);
     flex-shrink: 0;
     background: var(--bg-secondary);
@@ -1847,27 +1994,19 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    padding: 9px 24px;
 }
 
 .mobile-menu-btn {
     display: none;
 }
 
+/* v5: page titles are plain, high-contrast text — gradient text is
+   decoration, and a security console's H1 should read instantly. */
 .header-title {
     font-size: 18px;
     font-weight: 600;
-    background: linear-gradient(to right, #5eadb8, #c0908a, #5eadb8);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-[data-theme="light"] .header-title {
-    background: linear-gradient(to right, #5eadb8, #ef4444, #5eadb8);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-primary);
 }
 
 .header-actions {
@@ -1987,6 +2126,31 @@ html, body {
     background: var(--bg-hover);
 }
 
+/* Standalone secondary button used outside the .btn system (dashboard,
+   tool-permissions, redactions). Previously undefined — rendered as a raw
+   native (white) button in the dark theme. */
+.sv-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 12px;
+    white-space: nowrap;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sv-btn-secondary:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
 .btn-secondary.active {
     background: var(--accent-primary);
     color: #000;
@@ -2039,6 +2203,9 @@ html, body {
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     padding: 20px;
+    /* v5 elevation: cards lift off the page with light-from-above + a soft
+       shadow, instead of reading as flat same-color panels. */
+    box-shadow: var(--elevate-1);
 }
 
 .card-gradient-border {
@@ -3218,14 +3385,17 @@ html, body {
     position: relative;
 }
 
+/* v5: accent strip is a quiet, flat brand hairline — not a loud
+   two-color gradient. It marks primary cards without shouting. */
 .card-gradient::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 3px;
-    background: var(--gradient);
+    height: 2px;
+    background: var(--accent-primary);
+    opacity: 0.45;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
@@ -3792,7 +3962,7 @@ html, body {
 
 /* LLM Review Section in Threat Details */
 .llm-review-section {
-    background: linear-gradient(135deg, rgba(94, 173, 184, 0.05), rgba(244, 67, 54, 0.05));
+    background: rgba(94, 173, 184, 0.05);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     padding: 16px;
@@ -3889,7 +4059,7 @@ html, body {
     padding: 2px 6px;
     font-size: 10px;
     font-weight: 600;
-    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    background: var(--gradient-end);
     color: white;
     border-radius: 4px;
     text-transform: uppercase;
@@ -3978,10 +4148,10 @@ html, body {
 .llm-recommendation-box {
     margin-top: 16px;
     padding: 12px 14px;
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.08));
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    background: rgba(94, 173, 184, 0.07);
+    border: 1px solid rgba(94, 173, 184, 0.25);
     border-radius: var(--radius-sm);
-    border-left: 3px solid var(--primary);
+    border-left: 3px solid var(--accent-primary);
 }
 
 .llm-recommendation-label {
@@ -4420,7 +4590,7 @@ html, body {
 }
 
 .type-badge.output-scan {
-    background: linear-gradient(135deg, rgba(244, 67, 54, 0.2), rgba(255, 152, 0, 0.2));
+    background: rgba(245, 158, 11, 0.14);
     border: 1px solid var(--warning);
     color: var(--warning);
 }
@@ -4708,7 +4878,7 @@ html, body {
 }
 
 .cloud-highlight-banner {
-    background: linear-gradient(135deg, rgba(94, 173, 184, 0.15), rgba(244, 67, 54, 0.15));
+    background: rgba(94, 173, 184, 0.10);
     border: 1px solid var(--accent-primary);
     border-radius: var(--radius-md);
     padding: 16px;
@@ -4775,12 +4945,19 @@ html, body {
 /* Rules Table Styles */
 .rules-table .rule-name-cell {
     max-width: 400px;
+    /* .data-table td is nowrap by default — long rule names/descriptions
+       would run underneath the Category column instead of wrapping. */
+    white-space: normal;
 }
 
 .rules-table .rule-name {
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 4px;
+    /* The name sits in a flex row next to the NEW badge; without min-width:0
+       a long name refuses to shrink and overflows under the Category column. */
+    min-width: 0;
+    overflow-wrap: break-word;
 }
 
 .rules-table .rule-desc {
@@ -5616,7 +5793,7 @@ thead tr:hover #records-select-all,
 
     /* Header adjustments */
     .header {
-        padding: 0 12px;
+        padding: 9px 12px;
     }
 
     .header-title {
@@ -7512,6 +7689,12 @@ thead tr:hover #records-select-all,
 /* Collapsed icon-rail: pull the bot closer to the 20px neighbour glyphs so it
    doesn't dominate the narrow strip (no label there to justify the size). */
 .sidebar.collapsed .nav-item .gm-robo svg { width: 24px; height: 24px; }
+/* Header placement (v5 IA): the bot is the Guardian ML button's icon inside
+   a 30px circular button. The 40×40 viewBox carries ~10px of empty sky above
+   the head (where the orbit used to fly); nudge the SVG down so the robot's
+   head sits optically centered in the disc rather than floating high. */
+.guardian-hdr-btn .gm-robo { width: 20px; height: 20px; }
+.guardian-hdr-btn .gm-robo svg { width: 30px; height: 30px; display: block; overflow: visible; margin-top: 5px; transition: opacity 0.2s; }
 
 /* robot body — two stroke tiers only: structure (head) 1.6, everything
    secondary (antenna / smile / ring) 1.3, so nothing reads muddy at 26px. */
@@ -7931,3 +8114,25 @@ thead tr:hover #records-select-all,
     }
 }
 
+
+/* ============================================================
+   v5 motion layer — one subtle entrance per navigation plus a
+   card hover lift. Purposeful and quiet: 240ms once per page
+   load, no scroll-jacking, no looping attention-grabbers.
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference) {
+    .sv-page-enter {
+        animation: svPageEnter 0.24s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+    }
+    @keyframes svPageEnter {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: none; }
+    }
+    /* Cards acknowledge the pointer — a whisper of lift, no shadow bloom. */
+    .card, .stat-card {
+        transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .card:hover {
+        transform: translateY(-1px);
+    }
+}

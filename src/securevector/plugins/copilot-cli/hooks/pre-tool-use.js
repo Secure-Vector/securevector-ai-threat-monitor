@@ -56,7 +56,7 @@ const REASON_PREFIX = 'SecureVector Guard';
  * @param {{synced?: Array<{tool_id: string, effect: string, reason?: string}>} | null} overrides
  * @returns {{decision: 'allow'|'deny'|'ask', reason?: string, toolId?: string}}
  */
-function decideFromOverrides(candidates, overrides) {
+function decideFromOverrides(candidates, overrides, sessionId = null) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ALLOW;
   if (!overrides || !Array.isArray(overrides.synced) || overrides.synced.length === 0) {
     return ALLOW;
@@ -65,6 +65,12 @@ function decideFromOverrides(candidates, overrides) {
   const byToolId = new Map();
   for (const row of overrides.synced) {
     if (row && typeof row.tool_id === 'string') {
+      // A session-scoped JIT grant only applies inside the session it was
+      // approved for. Skip at index time: grants are emitted first, so an
+      // unskipped non-matching grant would win first-seen-wins and shadow
+      // the deny it overrides — silently allowing other sessions.
+      if (row.source === 'jit_grant' && row.session_id
+          && row.session_id !== sessionId) continue;
       const key = row.tool_id.toLowerCase();
       if (!byToolId.has(key)) byToolId.set(key, row);
     }
@@ -82,6 +88,9 @@ function decideFromOverrides(candidates, overrides) {
         ? match.reason
         : `Tool ${cand} matched policy with effect ${match.effect}`,
       toolId: cand,
+      // Policy-marked requestable deny → the entry-point files a JIT
+      // access request and tells the agent a human can approve it.
+      requestable: match.requestable === true,
     };
   }
   return ALLOW;
@@ -165,11 +174,11 @@ function toHookOutput(d) {
  * fails open (returns {} on any network error / timeout / non-2xx), so a down
  * app yields ALLOW here, not a throw.
  */
-async function decide(toolName, baseUrl) {
+async function decide(toolName, baseUrl, sessionId = null) {
   const candidates = normalize(toolName);
   if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
   const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
-  return decideFromOverrides(candidates, overrides);
+  return decideFromOverrides(candidates, overrides, sessionId);
 }
 
 
@@ -207,21 +216,39 @@ async function main() {
     }
     const toolName = (event && (event.toolName || event.tool_name)) || '';
     const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+    const sessionId = (event && (event.sessionId || event.session_id)) || null;
     let decision = ALLOW;
     try {
-      decision = await decide(toolName, baseUrl);
+      decision = await decide(toolName, baseUrl, sessionId);
     } catch {
       decision = ALLOW;
     }
     if (decision.decision === 'deny' && decision.toolId) {
       const toolInput = coerceToolInput(event && (event.toolArgs !== undefined ? event.toolArgs : event.tool_input));
-      const sessionId = (event && (event.sessionId || event.session_id)) || null;
       try {
         postJsonAndForget(
           `${baseUrl}/api/tool-permissions/call-audit`,
           buildAuditBody(toolName, decision.toolId, toolInput, decision.decision, decision.reason, sessionId),
         );
       } catch { /* swallow — audit is best-effort, must not affect the decision */ }
+      // Requestable deny → file a JIT access request (fire-and-forget; the
+      // server dedupes and caps the queue) and tell the agent a human can
+      // approve time-boxed access. The deny itself stands.
+      if (decision.requestable) {
+        try {
+          postJsonAndForget(`${baseUrl}/api/jit/requests`, {
+            tool_id: decision.toolId,
+            function_name: toolName,
+            runtime_kind: RUNTIME_KIND,
+            session_id: sessionId,
+          });
+        } catch { /* best-effort */ }
+        decision = {
+          ...decision,
+          reason: `${decision.reason} — an access request was filed; a human can approve ` +
+            'time-boxed access in SecureVector → Tool Permissions.',
+        };
+      }
     }
     out = toHookOutput(decision);
   } catch {

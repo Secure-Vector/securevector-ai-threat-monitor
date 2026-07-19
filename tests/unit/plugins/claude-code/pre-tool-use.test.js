@@ -65,6 +65,56 @@ test('denies when prefixed candidate matches with effect=deny', () => {
 });
 
 
+// --- JIT grants (v43) ---
+
+
+test('jit_grant row overrides the deny it precedes (same runtime, no session scope)', () => {
+  const overrides = {
+    synced: [
+      { tool_id: 'Bash', effect: 'allow', source: 'jit_grant', session_id: null, reason: 'JIT grant jitgrant_x (15m)' },
+      { tool_id: 'Bash', effect: 'deny', source: 'local', reason: 'User-set local override' },
+    ],
+    total: 2,
+  };
+  assert.deepEqual(decideFromOverrides(['Bash'], overrides), { decision: 'allow' });
+});
+
+
+test('session-scoped jit_grant only applies inside its session', () => {
+  const overrides = {
+    synced: [
+      { tool_id: 'Bash', effect: 'allow', source: 'jit_grant', session_id: 'sess-1', reason: 'JIT grant jitgrant_x (session)' },
+      { tool_id: 'Bash', effect: 'deny', source: 'local', reason: 'User-set local override', requestable: true },
+    ],
+    total: 2,
+  };
+  // Matching session → the grant wins.
+  assert.deepEqual(decideFromOverrides(['Bash'], overrides, 'sess-1'), { decision: 'allow' });
+  // Different session → the grant must NOT shadow the deny (the skip has to
+  // happen at index time or first-seen-wins would drop the deny row).
+  const other = decideFromOverrides(['Bash'], overrides, 'sess-2');
+  assert.equal(other.decision, 'deny');
+  // No session at all (host didn't supply one) → deny too.
+  const none = decideFromOverrides(['Bash'], overrides);
+  assert.equal(none.decision, 'deny');
+});
+
+
+test('requestable deny surfaces requestable=true; hard deny does not', () => {
+  const requestable = decideFromOverrides(['Bash'], {
+    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'soft', requestable: true }],
+  });
+  assert.equal(requestable.decision, 'deny');
+  assert.equal(requestable.requestable, true);
+
+  const hard = decideFromOverrides(['Bash'], {
+    synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'hard' }],
+  });
+  assert.equal(hard.decision, 'deny');
+  assert.equal(hard.requestable, false);
+});
+
+
 test('denies when bare-tool fallback candidate matches', () => {
   // The server endpoint aliases `srv:foo` to bare `foo`. Either should match.
   const overrides = {
@@ -439,7 +489,7 @@ test('main flow: PreToolUse deny POSTs an audit row to /call-audit', async () =>
   const fetchCalls = [];
   const restore = stubFetch(async (url, init) => {
     fetchCalls.push({ url, method: (init && init.method) || 'GET', body: init && init.body });
-    if (url.endsWith('/synced-overrides')) {
+    if (url.includes('/synced-overrides')) {
       return new Response(JSON.stringify({
         synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'shell blocked' }],
         total: 1,
@@ -482,7 +532,7 @@ test('main flow: PreToolUse allow does NOT fire an audit POST (PostToolUse handl
   const fetchCalls = [];
   const restore = stubFetch(async (url, init) => {
     fetchCalls.push({ url, method: (init && init.method) || 'GET' });
-    if (url.endsWith('/synced-overrides')) {
+    if (url.includes('/synced-overrides')) {
       return new Response(JSON.stringify({ synced: [], total: 0 }), { status: 200 });
     }
     return new Response('{}', { status: 404 });
@@ -505,7 +555,7 @@ test('main flow: audit POST failure does NOT propagate (enforcement decision sta
   // errors so this is mostly a smoke test that the deny path returns
   // synchronously even when the audit POST throws.
   const restore = stubFetch(async (url) => {
-    if (url.endsWith('/synced-overrides')) {
+    if (url.includes('/synced-overrides')) {
       return new Response(JSON.stringify({
         synced: [{ tool_id: 'Bash', effect: 'deny', reason: 'blocked' }],
         total: 1,
