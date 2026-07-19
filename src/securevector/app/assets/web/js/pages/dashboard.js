@@ -668,7 +668,28 @@ const DashboardPage = {
                 if (n < 1) return '$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
                 return '$' + n.toFixed(2);
             };
-            spendStat.valEl.textContent = costData ? formatCost(costData.today_cost_usd || 0) : '$0.00';
+            // Two cost sources, reconciled honestly: metered spend (proxy path
+            // only — $0 for hook/plugin-connected agents) vs the transcript
+            // estimate (API-list-price value of today's LLM turns, same number
+            // the Traces page shows). When only the estimate exists, show it
+            // AS an estimate — "≈$X est." — never a flat $0 that contradicts
+            // Traces, and never an unlabeled figure that reads as billed spend
+            // (on a Claude/OpenAI subscription this usage is included, not
+            // invoiced).
+            const metered = costData ? (costData.today_cost_usd || 0) : 0;
+            const estOnly = costData && metered < 0.005 && (costData.today_estimate_usd || 0) >= 0.005;
+            if (estOnly) {
+                spendStat.valEl.textContent = '≈' + formatCost(costData.today_estimate_usd);
+                spendStat.cell.title = 'Estimated from session transcripts (token counts × API list prices) — the same figure Traces shows. '
+                    + 'Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced. '
+                    + 'Metered proxy spend today: $0.';
+                const est = document.createElement('div');
+                est.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 3px;';
+                est.textContent = 'est. from transcripts · not billed';
+                spendStat.cell.appendChild(est);
+            } else {
+                spendStat.valEl.textContent = costData ? formatCost(metered) : '$0.00';
+            }
 
             // Budget progress bar ONLY when a budget is actually configured.
             const budgetUsd = guardian && guardian.global_budget_usd != null ? guardian.global_budget_usd : null;

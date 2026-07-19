@@ -110,6 +110,13 @@ class DashboardSummaryResponse(BaseModel):
     top_model: Optional[str] = None
     cost_tracking_enabled: bool = True
     has_unknown_pricing: bool = False
+    # API-list-price value of today's LLM usage read from session TRANSCRIPTS
+    # (Claude Code / Codex). Metered `today_cost_usd` only sees the proxy path,
+    # so hook/plugin-connected agents would otherwise always read $0 while the
+    # Traces page shows per-run costs. An estimate, not billed spend — on a
+    # subscription (Claude Pro/Max) this usage is included, not invoiced.
+    today_estimate_usd: float = 0.0
+    today_estimate_runs: int = 0
 
 
 class SyncResponse(BaseModel):
@@ -245,21 +252,94 @@ async def get_monthly_chart(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Transcript-estimate cache: parsing every recent session transcript on each
+# dashboard poll is wasteful — the number only moves as sessions run.
+_EST_TTL_SECONDS = 120
+_est_cache: dict = {"at": None, "value": (0.0, 0)}
+
+
+async def _today_transcript_estimate(db) -> tuple[float, int]:
+    """Sum the API-list-price value of TODAY's (UTC, matching get_today_spend)
+    LLM turns across recent Claude Code / Codex sessions, read from their
+    transcripts. Best-effort: any per-session failure contributes 0."""
+    now = datetime.utcnow()
+    cached_at = _est_cache["at"]
+    if cached_at is not None and (now - cached_at).total_seconds() < _EST_TTL_SECONDS:
+        return _est_cache["value"]
+
+    from securevector.app.database.repositories.custom_tools import CustomToolsRepository
+    from securevector.app.server.routes.transcript_generations import (
+        apply_cost,
+        build_generations,
+        build_generations_codex,
+    )
+
+    total = 0.0
+    runs = 0
+    try:
+        rows = await CustomToolsRepository(db).get_trace_runs(window_days=1, limit=200)
+        pricing = await CostsRepository(db).list_pricing()
+        price_map = {p.model_id: (p.input_per_million, p.output_per_million) for p in pricing}
+        today = now.date()
+        seen_sessions: set[str] = set()
+        for r in rows:
+            kind = r.get("runtime_kind")
+            sid = r.get("session_id")
+            if kind not in ("claude-code", "codex") or not sid or sid in seen_sessions:
+                continue
+            seen_sessions.add(sid)
+            try:
+                gens = (
+                    build_generations_codex(sid, store_text=False)
+                    if kind == "codex"
+                    else build_generations(sid, store_text=False)
+                )
+                if not gens:
+                    continue
+                apply_cost(gens, price_map)
+                day_cost = 0.0
+                for g in gens:
+                    ts = (g.get("called_at") or "").replace("Z", "+00:00")
+                    try:
+                        if datetime.fromisoformat(ts).date() != today:
+                            continue
+                    except ValueError:
+                        continue
+                    day_cost += g.get("cost") or 0
+                if day_cost:
+                    total += day_cost
+                    runs += 1
+            except Exception:  # noqa: BLE001 — one bad transcript must not zero the widget
+                continue
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"transcript estimate unavailable: {e}")
+
+    _est_cache["at"] = now
+    _est_cache["value"] = (total, runs)
+    return total, runs
+
+
 @router.get("/costs/dashboard-summary", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary() -> DashboardSummaryResponse:
     """Compact cost summary for the main dashboard widget."""
+    db = get_database()
     try:
-        db = get_database()
         repo = CostsRepository(db)
         summary = await repo.get_dashboard_summary()
-        return DashboardSummaryResponse(**summary, cost_tracking_enabled=True)
     except Exception as e:
         logger.error(f"Failed to get dashboard summary: {e}")
-        return DashboardSummaryResponse(
-            today_cost_usd=0.0,
-            today_requests=0,
-            cost_tracking_enabled=True,
-        )
+        summary = {"today_cost_usd": 0.0, "today_requests": 0}
+    est, est_runs = (0.0, 0)
+    try:
+        est, est_runs = await _today_transcript_estimate(db)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"transcript estimate failed: {e}")
+    return DashboardSummaryResponse(
+        **summary,
+        cost_tracking_enabled=True,
+        today_estimate_usd=round(est, 4),
+        today_estimate_runs=est_runs,
+    )
 
 
 @router.get("/costs/summary", response_model=CostSummaryResponse)

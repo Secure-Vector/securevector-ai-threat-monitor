@@ -498,7 +498,8 @@ const AgentRunsPage = {
             .ar-span-row:hover { background:var(--bg-hover,#21262d); }
             .ar-caret { width:13px; height:13px; flex:0 0 auto; color:var(--text-muted,#7d8590); transition:transform .14s; }
             .ar-span.open .ar-caret { transform:rotate(90deg); color:var(--accent-primary,#5eadb8); }
-            .ar-span-tool { font:600 13.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); }
+            .ar-span-tool { font:600 13.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3);
+                min-width:0; flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
             /* Built-in (harness) vs external (MCP/plugin) tool chip. */
             .ar-kind { font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px; text-transform:uppercase;
                 padding:2px 8px; border-radius:6px; border:1px solid var(--border-default,#30363d); color:var(--text-secondary,#b1bac4); }
@@ -600,14 +601,46 @@ const AgentRunsPage = {
                 font-variant-numeric:tabular-nums; }
             .ar-gen-group-body { padding-left:14px; margin-top:2px; border-left:2px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 30%, transparent); }
             /* --- Nested trace tree (Pillar 1): tool runs indented under the LLM
-               run that requested them. The rail continues the parent's spine
-               (left:7px) so children read as hanging off the parent turn. --- */
-            .ar-turn-children { margin-left:7px; padding-left:22px;
-                border-left:2px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 26%, transparent); }
-            /* Children use the container rail as their connector — drop their own
-               per-span spine so there aren't two parallel vertical lines. */
-            .ar-turn-children .ar-span::before { display:none; }
+               run that requested them. v5.1 stepped drilldown: each child hangs
+               off the parent spine with an explicit ELBOW connector (vertical
+               rail + horizontal tick into the child's dot), so parent→child
+               reads as drawn structure, not just indentation. --- */
+            .ar-turn-children { margin-left:7px; padding-left:24px; }
+            .ar-turn-children .ar-span::before { display:block; left:-24px; top:-20px; bottom:0; width:2px;
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 30%, transparent); }
+            /* Rail stops AT the last child's elbow — no dangling tail. */
+            .ar-turn-children .ar-span:last-child::before { display:block; height:34px; bottom:auto; }
+            .ar-turn-children .ar-span::after { content:''; position:absolute; left:-24px; top:12px; width:22px; height:2px;
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 30%, transparent); }
             .ar-turn-children .ar-span:last-child { padding-bottom:6px; }
+            /* One STEP = one LLM turn + the tool calls it triggered. The wrapper
+               breaks the spine between steps so the trace reads as numbered,
+               bounded steps (CrowdStrike-drilldown style) instead of one
+               undifferentiated column. */
+            .ar-step { margin:0 0 10px; border-radius:10px; transition:background .14s; }
+            .ar-step:hover { background:color-mix(in srgb, var(--bg-hover,#21262d) 45%, transparent); }
+            /* The children's rail is the step's connector — drop the parent
+               row's own gray spine so the two don't double-draw. */
+            .ar-step > .ar-span-gen::before { display:none; }
+            /* Numbered step node on the spine — the step's chronological index
+               (1 = first thing that happened), replacing the anonymous robot
+               dot when tree view can number the turn. */
+            .ar-step-dot { display:flex; align-items:center; justify-content:center;
+                font:700 9px ui-monospace,'JetBrains Mono',Menlo,monospace; letter-spacing:-.3px;
+                color:var(--accent-primary,#5eadb8); font-variant-numeric:tabular-nums; }
+            /* Honest per-run timing: "+2.3s" = this run STARTED that long after
+               the previous run (wall clock between starts — we don't have
+               per-run latency and never fake it). */
+            .ar-delta { flex:0 0 auto; font:600 10px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-muted,#7d8590); font-variant-numeric:tabular-nums; min-width:46px; text-align:right; }
+            .ar-delta.first { color:color-mix(in srgb, var(--accent-primary,#5eadb8) 70%, var(--text-muted,#7d8590));
+                letter-spacing:.5px; text-transform:uppercase; font-size:9px; }
+            /* Position mini-timeline: WHERE in the trace window this run
+               happened (tick position = start time, not a duration bar). */
+            .ar-tl { flex:0 0 auto; position:relative; width:72px; height:6px; border-radius:3px;
+                background:color-mix(in srgb, var(--border-default,#30363d) 60%, transparent); overflow:hidden; }
+            .ar-tl i { position:absolute; top:0; bottom:0; width:5px; border-radius:2px; }
+            @media (max-width:1180px) { .ar-tl { display:none; } .ar-delta { min-width:0; } }
             /* Replay visibility: hide events past the playhead; spotlight current. */
             .ar-replay-hidden { display:none !important; }
             .ar-replay-current > .ar-span-row { background:color-mix(in srgb, var(--accent-primary,#5eadb8) 15%, transparent);
@@ -1106,6 +1139,20 @@ const AgentRunsPage = {
         detail.appendChild(head);
 
         const allSpans = trace.spans || [];
+        // Honest per-run timing annotations (spans arrive oldest→newest by seq).
+        // We have each run's START timestamp but not its latency, so we show
+        //   _gap: wall-clock since the PREVIOUS event started ("+2.3s"), and
+        //   _pos: 0..1 position within the trace window (the mini timeline) —
+        // never a fabricated duration bar. Gaps are computed on the UNFILTERED
+        // chronology so a filtered view can't misattribute time.
+        {
+            const t0 = allSpans.length ? this._ms(allSpans[0].called_at) : 0;
+            const t1 = allSpans.length ? this._ms(allSpans[allSpans.length - 1].called_at) : 0;
+            allSpans.forEach((s, i) => {
+                s._gap = i > 0 ? Math.max(0, this._ms(s.called_at) - this._ms(allSpans[i - 1].called_at)) : null;
+                s._pos = (t1 > t0) ? (this._ms(s.called_at) - t0) / (t1 - t0) : 0;
+            });
+        }
         const toolSpans = allSpans.filter(s => s.span_kind !== 'generation');
         const genCount = trace.generation_count != null
             ? trace.generation_count : allSpans.length - toolSpans.length;
@@ -1133,8 +1180,8 @@ const AgentRunsPage = {
             stat(toolCount.toLocaleString(), toolCount === 1 ? 'tool run' : 'tool runs',
                 `${toolCount - extCount} built-in · ${extCount} external`) +
             (totalCost > 0
-                ? stat(`$${totalCost.toFixed(totalCost < 0.01 ? 4 : 2)}`, 'LLM cost',
-                    '<span title="Total across every LLM run in this trace">whole trace</span>')
+                ? stat(`≈$${totalCost.toFixed(totalCost < 0.01 ? 4 : 2)}`, 'LLM cost · est.',
+                    '<span title="Estimated from transcript token counts × API list prices — total across every LLM run in this trace. Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced.">list-price equivalent</span>')
                 : '') +
             (dur && dur !== '0s'
                 ? stat(dur, 'wall clock', '<span title="Time from the first to the last run — not per-run latency">first → last run</span>')
@@ -1349,6 +1396,9 @@ const AgentRunsPage = {
                 cur.tools.push(s);
             }
         });
+        // Chronological step numbers BEFORE reversing: step 1 = the first thing
+        // that happened, whatever the display order.
+        turns.forEach((t, i) => { t.step = i + 1; });
         turns.reverse(); // most-recent turn on top (matches the flat default)
 
         let k = 0;
@@ -1356,23 +1406,28 @@ const AgentRunsPage = {
             const turn = turns[k];
             if (collapse && turn.gen && turn.tools.length === 0) {
                 const grp = [];
-                while (k < turns.length && turns[k].gen && turns[k].tools.length === 0) { grp.push(turns[k].gen); k++; }
-                if (grp.length >= 2) { detail.appendChild(this._genGroup(grp, (x) => x, 0)); continue; }
-                detail.appendChild(this._genSpan(grp[0]));
+                while (k < turns.length && turns[k].gen && turns[k].tools.length === 0) { grp.push(turns[k]); k++; }
+                if (grp.length >= 2) { detail.appendChild(this._genGroup(grp.map(t => t.gen), (x) => x, 0)); continue; }
+                detail.appendChild(this._genSpan(grp[0].gen, grp[0].step));
                 continue;
             }
-            if (turn.gen) detail.appendChild(this._genSpan(turn.gen));
-            if (turn.tools.length) {
-                if (turn.gen) {
-                    const kids = document.createElement('div');
-                    kids.className = 'ar-turn-children';
-                    turn.tools.forEach(t => kids.appendChild(this._toolSpanEl(t)));
-                    detail.appendChild(kids);
-                } else {
-                    // Rootless tool runs (before the first LLM run, or a trace
-                    // with no readable transcript) render at the root level.
-                    turn.tools.forEach(t => detail.appendChild(this._toolSpanEl(t)));
-                }
+            if (turn.gen && turn.tools.length) {
+                // One STEP block: the LLM turn + the tool calls it triggered,
+                // joined by the elbow rail and numbered on the spine.
+                const step = document.createElement('div');
+                step.className = 'ar-step';
+                step.appendChild(this._genSpan(turn.gen, turn.step));
+                const kids = document.createElement('div');
+                kids.className = 'ar-turn-children';
+                turn.tools.forEach(t => kids.appendChild(this._toolSpanEl(t)));
+                step.appendChild(kids);
+                detail.appendChild(step);
+            } else if (turn.gen) {
+                detail.appendChild(this._genSpan(turn.gen, turn.step));
+            } else if (turn.tools.length) {
+                // Rootless tool runs (before the first LLM run, or a trace
+                // with no readable transcript) render at the root level.
+                turn.tools.forEach(t => detail.appendChild(this._toolSpanEl(t)));
             }
             k++;
         }
@@ -1435,7 +1490,8 @@ const AgentRunsPage = {
             `<div class="ar-span-row">${caret}<span class="ar-turn">#${s.turn_index ?? '–'}</span>` +
             `<span class="ar-span-tool">${this._esc(s.function_name || s.tool_id || 'tool')}</span>` +
             kind + badge + reason +
-            `<span class="ar-time">${this._fmtTime(s.called_at)}</span></div>` +
+            `<span class="ar-time">${this._fmtTime(s.called_at)}</span>` +
+            this._timingHtml(s, o.color) + `</div>` +
             this._detectionRow(s) +
             this._spanDetail(s, external);
         const row = span.querySelector('.ar-span-row');
@@ -1658,7 +1714,7 @@ const AgentRunsPage = {
      *  enforcement verdict; it shows model · token flow · cost, with the
      *  redacted input/output preview revealed on expand. Neutral/teal accent
      *  (a generation is not a security state — SOC colour discipline). */
-    _genSpan(s) {
+    _genSpan(s, stepN) {
         const span = document.createElement('div');
         span.className = 'ar-span ar-span-gen';
         const inTok = this._fmtTok(s.input_tokens);
@@ -1679,16 +1735,20 @@ const AgentRunsPage = {
             stop = s.stop_reason
                 ? `<span class="ar-gen-stop">${this._esc(String(s.stop_reason).replace(/_/g, ' '))}</span>` : '';
         }
+        const dotHtml = (stepN != null)
+            ? `<span class="ar-span-dot ar-gen-dot ar-step-dot" title="Step ${stepN} — chronological order within this trace">${stepN}</span>`
+            : `<span class="ar-span-dot ar-gen-dot">${AR_ROBOT_SVG('#5eadb8', 12)}</span>`;
         span.innerHTML =
-            `<span class="ar-span-dot ar-gen-dot">${AR_ROBOT_SVG('#5eadb8', 12)}</span>` +
+            dotHtml +
             `<div class="ar-span-row">${caret}<span class="ar-turn">#${s.turn_index ?? '–'}</span>` +
             `<span class="ar-span-tool ar-gen-model">${this._esc(s.model || 'model')}</span>` +
             `<span class="ar-kind ar-gen-kind">LLM</span>` +
             `<span class="ar-gen-flow"><span class="ar-gen-tok">${inTok}</span>` +
             `<span class="ar-gen-arrow">→</span><span class="ar-gen-tok">${outTok}</span>` +
             `<span class="ar-gen-toklabel">tok</span></span>` +
-            `<span class="ar-gen-cost">${cost}</span>${stop}` +
-            `<span class="ar-time">${this._fmtTime(s.called_at)}</span></div>` +
+            `<span class="ar-gen-cost" title="Estimated: transcript token counts × API list price. Not metered billing — on a subscription plan this usage is included.">${cost}</span>${stop}` +
+            `<span class="ar-time">${this._fmtTime(s.called_at)}</span>` +
+            this._timingHtml(s, '#5eadb8') + `</div>` +
             this._genDetail(s);
         span.querySelector('.ar-span-row').addEventListener('click', () => span.classList.toggle('open'));
         return span;
@@ -1902,6 +1962,31 @@ const AgentRunsPage = {
         const d = new Date(t);
         if (isNaN(d)) return String(iso);
         return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    },
+
+    /** "+2.3s" — wall clock between this run's start and the previous run's
+     *  start. Start-to-start gap, NOT per-run latency (we don't have that). */
+    _fmtGap(ms) {
+        if (ms < 1000) return '+' + Math.round(ms) + 'ms';
+        if (ms < 10000) return '+' + (ms / 1000).toFixed(1) + 's';
+        if (ms < 60000) return '+' + Math.round(ms / 1000) + 's';
+        if (ms < 3600000) return '+' + Math.floor(ms / 60000) + 'm' + (Math.round((ms % 60000) / 1000) ? ' ' + Math.round((ms % 60000) / 1000) + 's' : '');
+        return '+' + Math.floor(ms / 3600000) + 'h ' + Math.floor((ms % 3600000) / 60000) + 'm';
+    },
+
+    /** Shared right-edge timing cluster for a run row: the start-to-start gap
+     *  chip ("+2.3s", or START on the trace's first event) and the position
+     *  mini-timeline (tick = when this run started within the trace window). */
+    _timingHtml(s, tickColor) {
+        const gap = (s._gap == null)
+            ? `<span class="ar-delta first" title="First event of this trace">start</span>`
+            : `<span class="ar-delta" title="Started ${this._fmtGap(s._gap).slice(1)} after the previous run (start-to-start — not this run’s latency)">${this._fmtGap(s._gap)}</span>`;
+        const p = Math.max(4, Math.min(96, (s._pos || 0) * 100)); // keep the tick fully visible at the rails
+        const pos = (typeof s._pos === 'number')
+            ? `<span class="ar-tl" title="When this run started within the trace (${Math.round(s._pos * 100)}% through)">` +
+              `<i style="left:calc(${p.toFixed(1)}% - 3px);background:${tickColor}"></i></span>`
+            : '';
+        return gap + pos;
     },
 
     /** Wall-clock duration between two timestamps → "42s" / "3m 20s" / "1h 5m".
