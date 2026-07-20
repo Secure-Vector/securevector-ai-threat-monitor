@@ -9,7 +9,7 @@ const Sidebar = {
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
         // conversion-ux — the download hook: opt-in retroactive scan of the
         // agent history already on disk. Sits beside Threat Monitor: past vs live.
-        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did — a local, opt-in scan of past Claude Code / Codex sessions' },
+        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
         // Agent Replay umbrella — collapsible parent grouping the three
         // observability views that share the same per-agent lens. Top-level
         // 'replay' route still works as a deep-link (the Timeline sub-item

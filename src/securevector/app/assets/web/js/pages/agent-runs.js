@@ -372,6 +372,7 @@ const AgentRunsPage = {
             .ar-row-caret { width:12px; height:12px; color:var(--text-muted,#7d8590); transition:transform .16s; }
             .ar-run.open .ar-row-caret { transform:rotate(90deg); color:var(--accent-primary,#5eadb8); }
             .ar-row-name { display:flex; align-items:center; gap:8px; min-width:0; }
+            .ar-row-id { font-family:var(--font-mono,monospace); font-size:10.5px; color:var(--text-secondary,#8b949e); opacity:.65; letter-spacing:.02em; flex:0 0 auto; }
             .ar-row-c { text-align:right; font-size:11.5px; color:var(--text-secondary,#b1bac4); white-space:nowrap; }
             .ar-row-c .ar-dim0 { color:var(--text-muted,#7d8590); opacity:.5; }
             .ar-row-time { text-align:right; color:var(--text-muted,#7d8590); font-size:11px; white-space:nowrap; }
@@ -1199,6 +1200,7 @@ const AgentRunsPage = {
                 `<svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
                 `<span class="ar-run-dot" style="background:${color}"></span>` +
                 `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
+                `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
                 (this._isLive(r.ended_at) ? this._liveBadge() : '') +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
                 `<span class="ar-row-c"><span class="ar-num">${r.spans}</span></span>` +
