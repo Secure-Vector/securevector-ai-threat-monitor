@@ -94,7 +94,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
         root.appendChild(code('curl -s http://localhost:8741/api/hooks/status | python3 -m json.tool'));
-        root.appendChild(p('2. Send a message through your OpenClaw gateway, then check Agent Activity → Tool Activity in the app. Every tool call (read, write, exec, web_search, …) appears as allow, block, or log_only, tagged runtime_kind=openclaw.'));
+        root.appendChild(p('2. Send a message through your OpenClaw gateway, then check Observability → Tool Activity in the app. Every tool call (read, write, exec, web_search, …) appears as allow, block, or log_only, tagged runtime_kind=openclaw.'));
 
         // --- Plugin API ---
         root.appendChild(h2('Plugin API'));

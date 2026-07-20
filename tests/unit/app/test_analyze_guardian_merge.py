@@ -3,7 +3,8 @@
 The route runs SecureVector Guardian in parallel with the regex engine and
 folds its result into the calibrated gate ADDITIVELY at two bars:
 
-* ML ALONE (no rule survived)        → needs confidence ≥ _ML_ALONE_BAR (0.90)
+* ML ALONE (no rule survived)        → needs confidence ≥ _ML_ALONE_BAR (0.92
+  outgoing, _ML_ALONE_BAR_INCOMING 0.97 on incoming fetched/tool content)
 * ML CORROBORATES a surviving rule   → needs confidence ≥ _ML_CORROBORATE_BAR (0.60)
 
 It is gated on BOTH the persisted Settings toggle (app_settings.
@@ -166,8 +167,17 @@ def _build_client(monkeypatch, engine_result, *, guardian_result=None,
     return TestClient(app), guardian_calls
 
 
-def _post(client, text="hello world"):
-    r = client.post("/api/v1/analyze", json={"text": text, "source": "test"})
+# Default test text must clear the Guardian short-text floors
+# (_ML_MIN_TEXT_CHARS / _ML_MIN_TEXT_WORDS) — these tests exercise the merge
+# policy, not the length guard, which has its own tests below.
+_LONG_ENOUGH = "please summarize the quarterly report for the team"
+
+
+def _post(client, text=_LONG_ENOUGH, direction=None):
+    payload = {"text": text, "source": "test"}
+    if direction is not None:
+        payload["direction"] = direction
+    r = client.post("/api/v1/analyze", json=payload)
     assert r.status_code == 200
     return r.json()
 
@@ -266,3 +276,75 @@ def test_guardian_benign_never_suppresses_rules(monkeypatch):
     body = _post(client)
     assert body["is_threat"] is True
     assert [r["source"] for r in body["matched_rules"]] == ["community"]
+
+
+# --- Short-text guard --------------------------------------------------------
+# Char-n-gram TF-IDF has no context on fragments: the literal word "all"
+# scored prompt_injection at 99 on the live model. Guardian is skipped
+# entirely below the char/word floors; the regex pack owns short attacks.
+
+def test_short_text_skips_guardian(monkeypatch):
+    """A fragment ('all') never reaches Guardian, even at stub conf 0.99."""
+    client, calls = _build_client(
+        monkeypatch, _engine_clean(), guardian_result=_guardian_hit(0.99)
+    )
+    body = _post(client, text="all")
+    assert calls == []
+    assert body["is_threat"] is False
+
+
+def test_few_words_skip_guardian(monkeypatch):
+    """Long enough in chars but under the word floor → still skipped."""
+    client, calls = _build_client(
+        monkeypatch, _engine_clean(), guardian_result=_guardian_hit(0.99)
+    )
+    body = _post(client, text="supercalifragilisticexpialidocious indeed")
+    assert calls == []
+    assert body["is_threat"] is False
+
+
+def test_short_text_still_gets_rule_verdict(monkeypatch):
+    """Skipping Guardian must not suppress the regex engine on short text."""
+    client, calls = _build_client(
+        monkeypatch, _engine_rule(0.95), guardian_result=_guardian_hit(0.99)
+    )
+    body = _post(client, text="drop all")
+    assert calls == []
+    assert body["is_threat"] is True
+    assert [r["source"] for r in body["matched_rules"]] == ["community"]
+
+
+# --- Incoming ML-alone bar (0.97) -------------------------------------------
+# Benign files/docs read as incoming context score 0.88–0.94 on the live
+# model; genuinely buried/paraphrased injections score 0.99+. Incoming
+# ML-alone promotion therefore needs 0.97; outgoing keeps 0.90.
+
+def test_ml_alone_incoming_band_stays_quiet(monkeypatch):
+    """0.92 clears the outgoing bar but NOT the incoming one → no threat."""
+    client, _ = _build_client(
+        monkeypatch, _engine_clean(), guardian_result=_guardian_hit(0.92)
+    )
+    body = _post(client, direction="incoming")
+    assert body["is_threat"] is False
+    assert body["matched_rules"] == []
+
+
+def test_ml_alone_incoming_high_conf_promotes(monkeypatch):
+    """0.98 clears the incoming bar → threat (real buried-injection band)."""
+    client, _ = _build_client(
+        monkeypatch, _engine_clean(), guardian_result=_guardian_hit(0.98)
+    )
+    body = _post(client, direction="incoming")
+    assert body["is_threat"] is True
+    assert body["matched_rules"][0]["source"] == "model"
+
+
+def test_ml_corroborate_bar_unchanged_on_incoming(monkeypatch):
+    """Corroboration (rule already firing) keeps the 0.60 bar on incoming."""
+    client, _ = _build_client(
+        monkeypatch, _engine_rule(0.65), guardian_result=_guardian_hit(0.65)
+    )
+    body = _post(client, direction="incoming")
+    assert body["is_threat"] is True
+    sources = {r["source"] for r in body["matched_rules"]}
+    assert sources == {"community", "model"}

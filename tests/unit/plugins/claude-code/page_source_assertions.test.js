@@ -48,12 +48,20 @@ test('categoryLabels declares claude_code → "Claude Code"', () => {
 });
 
 
-test('categoryAccents declares claude_code with color + bg fields', () => {
+test('categoryAccents declares claude_code with the shared brand accent (v5)', () => {
   const src = readPage();
+  // v5 color policy: categories are labels, not statuses — every category
+  // shares one BRAND_ACCENT object ({ color, bg }) instead of a per-category
+  // rainbow. Assert the shared constant exists and claude_code uses it.
   assert.match(
     src,
-    /claude_code:\s*\{\s*color:\s*'#[0-9a-fA-F]+',\s*bg:\s*'rgba/,
-    'expected categoryAccents.claude_code to define color + bg',
+    /BRAND_ACCENT\s*=\s*\{\s*color:\s*'#[0-9a-fA-F]+',\s*bg:\s*'rgba/,
+    'expected the shared BRAND_ACCENT { color, bg } constant',
+  );
+  assert.match(
+    src,
+    /claude_code:\s*BRAND_ACCENT/,
+    'expected categoryAccents.claude_code to use BRAND_ACCENT',
   );
 });
 

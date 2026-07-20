@@ -107,7 +107,13 @@ const GovernancePage = {
         },
     ],
 
-    _band(rows) {
+    _band(rows, sessionCount) {
+        // Honesty gate: a posture band is only meaningful once at least one
+        // agent has actually reported through Guard/SDK. With nothing
+        // connected there is no telemetry to grade, so a green "Strong" would
+        // overclaim (same principle as the Connect Wizard "Guard active" vs
+        // "Protected" fix). Report "Not assessed" in neutral grey instead.
+        if (!sessionCount) return { name: 'Not assessed', color: 'var(--text-muted, #7d8590)', def: 'no connected agent has reported activity yet — there is nothing to assess', unassessed: true };
         // A "gap" is a required control off, or a meaningful partial/proxy gap.
         const gaps = rows.filter(r => r.gap || (r.required && r.state === 'partial'));
         const required = rows.filter(r => r.required);
@@ -137,7 +143,10 @@ const GovernancePage = {
             '.sv-gov-flash{animation:sv-gov-flash 0.6s ease-in-out 3;}',
             '@keyframes gov-in{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}',
             '.gov-wrap{max-width:920px;}',
-            '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;}',
+            '.gov-card{background:var(--bg-card);border:1px solid var(--border-default);border-radius:14px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--elevate-1);}',
+            // v5 posture hero — the signature card gets the deeper elevation
+            // and a hairline accent so the score reads as the page centerpiece.
+            '.gov-hero{padding:22px 24px;box-shadow:var(--elevate-2);}',
             // posture meter (segmented bar)
             '.gov-meter{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--border-default);margin-top:14px;}',
             '.gov-meter>span{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1);}',
@@ -162,6 +171,25 @@ const GovernancePage = {
             '.gov-statline{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}',
             '.gov-stat{font-size:11px;font-weight:600;color:var(--text-secondary);display:inline-flex;align-items:center;gap:6px;}',
             '.gov-stat i{width:8px;height:8px;border-radius:2px;display:inline-block;font-style:normal;}',
+            // Next-action card — the page's to-do, not just a report.
+            '.gov-next{display:flex;align-items:center;gap:14px;border-left:3px solid var(--next-color,var(--accent-primary));}',
+            '.gov-next-eyebrow{font-family:var(--font-mono);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--next-color,var(--accent-primary));font-weight:700;}',
+            '.gov-next-lab{font-family:var(--font-display);font-weight:650;font-size:14px;color:var(--text-primary);margin-top:2px;}',
+            '.gov-next-note{font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5;}',
+            '.gov-next-btn{flex:none;margin-left:auto;border:1px solid var(--next-color,var(--accent-primary));border-radius:8px;padding:8px 16px;cursor:pointer;',
+            '  background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 12%, transparent);color:var(--text-primary);font:600 12.5px var(--font-display,inherit);transition:background .15s;}',
+            '.gov-next-btn:hover{background:color-mix(in srgb, var(--next-color,var(--accent-primary)) 22%, transparent);}',
+            // Evidence tiles — live enforcement counts that click through to the
+            // page holding the receipts.
+            '.gov-evi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px;}',
+            '.gov-evi-tile{border:1px solid var(--border-default);border-radius:10px;padding:12px 14px;background:var(--bg-tertiary,transparent);cursor:pointer;text-align:left;transition:border-color .15s,background .15s;}',
+            '.gov-evi-tile:hover{border-color:var(--accent-primary);background:var(--bg-hover,rgba(255,255,255,0.03));}',
+            '.gov-evi-n{font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1.1;color:var(--text-primary);font-variant-numeric:tabular-nums;}',
+            '.gov-evi-l{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--text-muted);margin-top:4px;}',
+            // Posture history — tiny per-day bars; height = enforced/total.
+            '.gov-hist{display:flex;align-items:flex-end;gap:3px;height:26px;margin-top:12px;}',
+            '.gov-hist i{display:inline-block;width:9px;border-radius:2px 2px 0 0;min-height:3px;opacity:.9;}',
+            '.gov-hist-note{font-size:10.5px;color:var(--text-muted);margin-top:5px;}',
         ].join('');
         document.head.appendChild(st);
     },
@@ -235,6 +263,10 @@ const GovernancePage = {
             openclawActive = activeRuntimes.some(r => /openclaw/i.test(r));
             toolCallsSeen = hs.length > 0 || ss.length > 0;
         } catch (e) {}
+        // Evidence: what enforcement actually did in the last 7 days — the
+        // live numbers that make posture concrete (and give the page a pulse).
+        let traceRows = [];
+        try { const td = await API.getTraces({ window_days: 7 }); traceRows = (td && td.runs) || []; } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
         const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive };
         // One canonical scope phrase reused in the band + scope + warnings.
@@ -243,7 +275,7 @@ const GovernancePage = {
             : (sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' across ' + activeRuntimes.length + ' harness' + (activeRuntimes.length === 1 ? '' : 'es') + ' connected via SV Guard / SDK' + (activeRuntimes.length ? ' (' + activeRuntimes.join(', ') + ')' : ''));
 
         const rows = this.CONTROLS.map(c => Object.assign({}, c, c.evaluate(settings, ctx)));
-        const band = this._band(rows);
+        const band = this._band(rows, sessionCount);
         const onCount = rows.filter(r => r.state === 'on' || r.state === 'native').length;
         const partialCount = rows.filter(r => r.state === 'partial').length;
         const gapCount = rows.filter(r => r.gap).length;
@@ -251,26 +283,40 @@ const GovernancePage = {
         const wrap = document.createElement('div'); wrap.className = 'gov-wrap';
         const card = (mb) => { const d = document.createElement('div'); d.className = 'gov-card'; if (mb != null) d.style.marginBottom = mb + 'px'; return d; };
 
-        // Combined "what this is + what it covers" — ONE yellow-highlighted block
-        // so the scope boundary is always read together with the explanation.
+        // "What this is + scope" — collapsed by default so the posture hero
+        // leads the page instead of a wall of caveats (persona review: the top
+        // showed too much). The scope/honesty text stays one click away for
+        // the reader who wants it (auditors, first run); the disclosure state
+        // persists. The "nothing to govern yet" signal is NOT hidden here —
+        // the hero band ("Not assessed") already carries it.
         const intro = card();
-        intro.style.borderColor = 'var(--warning, #f59e0b)';
-        intro.style.background = 'linear-gradient(0deg, rgba(245,158,11,0.07), rgba(245,158,11,0.07)), var(--bg-card)';
-        const inTitle = document.createElement('div'); inTitle.textContent = 'What this is — and what it covers'; inTitle.style.cssText = 'font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 6px;'; intro.appendChild(inTitle);
-        const inBody = document.createElement('p'); inBody.style.cssText = 'margin: 0 0 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
+        intro.style.padding = '0';
+        intro.style.borderColor = 'var(--border-default)';
+        const introKey = 'sv-gov-about-open';
+        let introOpen = false; try { introOpen = localStorage.getItem(introKey) === '1'; } catch (_) {}
+        const inHead = document.createElement('button');
+        inHead.type = 'button';
+        inHead.style.cssText = 'width:100%; display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer; padding:13px 18px; font:inherit; text-align:left; color:var(--text-secondary);';
+        const inChev = document.createElement('span'); inChev.setAttribute('aria-hidden', 'true'); inChev.style.cssText = 'font-size:11px; transition:transform .15s; color:var(--text-muted);'; inChev.textContent = '▸';
+        const inHeadLbl = document.createElement('span'); inHeadLbl.style.cssText = 'font-family:var(--font-display); font-weight:600; font-size:13px; color:var(--text-primary);'; inHeadLbl.textContent = 'What this is — scope & how to read it';
+        const inHeadHint = document.createElement('span'); inHeadHint.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-left:auto;'; inHeadHint.textContent = 'operational posture · not a compliance score';
+        inHead.appendChild(inChev); inHead.appendChild(inHeadLbl); inHead.appendChild(inHeadHint);
+        intro.appendChild(inHead);
+        const inBodyWrap = document.createElement('div'); inBodyWrap.style.cssText = 'padding:0 18px 15px; border-top:1px solid var(--border-default);';
+        const inBody = document.createElement('p'); inBody.style.cssText = 'margin: 12px 0 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
         inBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your connected agent runtimes. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. Computed locally — nothing leaves your machine — it is an operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
-        intro.appendChild(inBody);
-        const inCount = document.createElement('div'); inCount.style.cssText = 'font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;';
-        inCount.textContent = 'This device · ' + agentTxt.charAt(0).toUpperCase() + agentTxt.slice(1) + '.';
-        intro.appendChild(inCount);
+        inBodyWrap.appendChild(inBody);
         const inScope = document.createElement('p'); inScope.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
         inScope.textContent = 'Scope: this covers ONLY agents/harnesses connected to SecureVector here (plugin · OpenClaw proxy · framework SDK · MCP). Agents you run WITHOUT a SecureVector integration — e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire — are invisible and NOT included. A “Strong” band means the controls are enforced for these connected integrations; it does not attest that every agent you run is governed.';
-        intro.appendChild(inScope);
-        if (!ctx.toolCallsSeen) {
-            const inWarn = document.createElement('div'); inWarn.style.cssText = 'margin-top: 8px; font-size: 11.5px; font-weight: 700; color: var(--warning, #f59e0b);';
-            inWarn.textContent = 'No connected integration has reported activity on this device yet — so there is nothing for this posture to govern.';
-            intro.appendChild(inWarn);
-        }
+        inBodyWrap.appendChild(inScope);
+        intro.appendChild(inBodyWrap);
+        const applyIntro = () => {
+            inBodyWrap.style.display = introOpen ? 'block' : 'none';
+            inChev.style.transform = introOpen ? 'rotate(90deg)' : 'none';
+            inHead.setAttribute('aria-expanded', String(introOpen));
+        };
+        applyIntro();
+        inHead.addEventListener('click', () => { introOpen = !introOpen; try { localStorage.setItem(introKey, introOpen ? '1' : '0'); } catch (_) {} applyIntro(); });
         wrap.appendChild(intro);
 
         // Band + segmented posture meter
@@ -278,14 +324,32 @@ const GovernancePage = {
         const counts = { on: 0, native: 0, partial: 0, gap: 0, off: 0 };
         rows.forEach(r => { if (r.state === 'on') counts.on++; else if (r.state === 'native') counts.native++; else if (r.state === 'partial') counts.partial++; else if (r.gap) counts.gap++; else counts.off++; });
 
-        const bandCard = card(); bandCard.className = 'gov-card' + (firstView ? ' sv-gov-flash' : '');
-        const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;';
-        const hLeft = document.createElement('div');
-        const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-weight: 700; font-size: 16px; color: var(--text-primary);'; hLeft.appendChild(hTitle);
-        const hSub = document.createElement('div'); hSub.textContent = (sessionCount === 0 ? 'No agent sessions connected' : sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' connected') + ' · ' + rows.length + ' controls assessed'; hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;'; hLeft.appendChild(hSub);
+        const bandCard = card(); bandCard.className = 'gov-card gov-hero' + (firstView ? ' sv-gov-flash' : '');
+        const head = document.createElement('div'); head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;';
+        const hLeft = document.createElement('div'); hLeft.style.cssText = 'display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;';
+        // v5 signature: the posture reads as a telemetry instrument — a big
+        // mono "enforced / total" fraction is the hero metric, colored by the
+        // band (green Strong → amber → red). Tabular mono = it looks measured.
+        const enforced = counts.on + counts.native;
+        const scoreWrap = document.createElement('div');
+        const score = document.createElement('div');
+        score.style.cssText = 'font-family: var(--font-mono); font-weight:700; font-size:40px; line-height:1; letter-spacing:-0.03em; color:' + band.color + '; font-variant-numeric: tabular-nums;';
+        score.innerHTML = enforced + '<span style="color:var(--text-muted); font-size:26px;">/' + rows.length + '</span>';
+        scoreWrap.appendChild(score);
+        const scoreLbl = document.createElement('div');
+        scoreLbl.style.cssText = 'font-family: var(--font-mono); font-size:10px; letter-spacing:0.7px; text-transform:uppercase; color:var(--text-muted); margin-top:6px;';
+        // "enforced" implies live enforcement on real traffic; with nothing
+        // connected these controls are only CONFIGURED, not exercised.
+        scoreLbl.textContent = band.unassessed ? 'controls configured' : 'controls enforced';
+        scoreWrap.appendChild(scoreLbl);
+        hLeft.appendChild(scoreWrap);
+        const hTextCol = document.createElement('div');
+        const hTitle = document.createElement('div'); hTitle.textContent = 'This device'; hTitle.style.cssText = 'font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing:-0.01em; color: var(--text-primary);'; hTextCol.appendChild(hTitle);
+        const hSub = document.createElement('div'); hSub.textContent = (sessionCount === 0 ? 'No agent sessions connected' : sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' connected') + ' · ' + rows.length + ' controls assessed'; hSub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-top: 3px;'; hTextCol.appendChild(hSub);
+        hLeft.appendChild(hTextCol);
         head.appendChild(hLeft);
-        const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:9px; padding:7px 16px; border-radius:999px; border:1px solid ' + band.color + '; color:' + band.color + '; font-weight:800; font-size:16px; letter-spacing:.2px;';
-        const dot = document.createElement('span'); dot.style.cssText = 'width:9px; height:9px; border-radius:50%; background:' + band.color + ';'; pill.appendChild(dot);
+        const pill = document.createElement('div'); pill.style.cssText = 'display:inline-flex; align-items:center; gap:9px; padding:8px 18px; border-radius:999px; border:1px solid ' + band.color + '; background:color-mix(in srgb, ' + band.color + ' 12%, transparent); color:' + band.color + '; font-family:var(--font-display); font-weight:600; font-size:15px; letter-spacing:.2px;';
+        const dot = document.createElement('span'); dot.style.cssText = 'width:9px; height:9px; border-radius:50%; background:' + band.color + '; box-shadow:0 0 8px ' + band.color + ';'; pill.appendChild(dot);
         pill.appendChild(document.createTextNode(band.name));
         pill.title = band.name + ' — ' + band.def + '. Operational posture, not a compliance score.';
         head.appendChild(pill); bandCard.appendChild(head);
@@ -296,14 +360,139 @@ const GovernancePage = {
         bandCard.appendChild(meter);
 
         const statline = document.createElement('div'); statline.className = 'gov-statline';
-        const stat = (n, label, color) => { if (!n) return; const s = document.createElement('span'); s.className = 'gov-stat'; const i = document.createElement('i'); i.style.background = color; s.appendChild(i); s.appendChild(document.createTextNode(n + ' ' + label)); statline.appendChild(s); };
+        const stat = (n, label, color) => { if (!n) return; const s = document.createElement('span'); s.className = 'gov-stat'; const i = document.createElement('i'); i.style.background = color; s.appendChild(i); const num = document.createElement('b'); num.textContent = n; num.style.cssText = 'font-family: var(--font-mono); font-weight:700; font-variant-numeric: tabular-nums;'; s.appendChild(num); s.appendChild(document.createTextNode(' ' + label)); statline.appendChild(s); };
         stat(counts.on, 'enforced', C.on); stat(counts.native, 'native', C.native); stat(counts.partial, 'partial', C.partial); stat(counts.gap, counts.gap === 1 ? 'gap' : 'gaps', C.gap); stat(counts.off, 'off', C.off);
         bandCard.appendChild(statline);
 
         const legend = document.createElement('div'); legend.style.cssText = 'margin-top:12px; font-size:11px; color: var(--text-muted, #7d8590); line-height:1.5;';
         legend.textContent = 'Strong = no gaps · Partial = some off / partial / gap · Minimal = most required controls off. An operational band, not a compliance score.';
         bandCard.appendChild(legend);
+
+        // --- Posture history (local only): one sample per calendar day, so
+        // the hero answers "is this getting better?" — a reason to come back.
+        // Recorded only when the posture is actually assessed (an agent has
+        // reported); an unassessed day is a non-sample, not a zero.
+        try {
+            const histKey = 'sv-gov-posture-history';
+            let hist = [];
+            try { hist = JSON.parse(localStorage.getItem(histKey) || '[]'); } catch (_) { hist = []; }
+            const todayKey = new Date().toISOString().slice(0, 10);
+            if (!band.unassessed) {
+                const entry = { d: todayKey, e: enforced, t: rows.length, g: gapCount };
+                const i = hist.findIndex(h => h.d === todayKey);
+                if (i >= 0) hist[i] = entry; else hist.push(entry);
+                hist = hist.slice(-30);
+                try { localStorage.setItem(histKey, JSON.stringify(hist)); } catch (_) {}
+            }
+            if (hist.length) {
+                const shown = hist.slice(-14);
+                const bars = document.createElement('div'); bars.className = 'gov-hist';
+                shown.forEach(h => {
+                    const i = document.createElement('i');
+                    const frac = h.t ? h.e / h.t : 0;
+                    i.style.height = Math.max(12, Math.round(frac * 100)) + '%';
+                    i.style.background = h.g > 0 ? 'var(--warning, #f59e0b)' : 'var(--success, #10b981)';
+                    i.title = h.d + ' — ' + h.e + '/' + h.t + ' enforced' + (h.g ? ', ' + h.g + ' gap' + (h.g === 1 ? '' : 's') : '');
+                    bars.appendChild(i);
+                });
+                bandCard.appendChild(bars);
+                const note = document.createElement('div'); note.className = 'gov-hist-note';
+                const prev = hist.filter(h => h.d !== todayKey).slice(-1)[0];
+                if (prev && !band.unassessed) {
+                    const dE = enforced - prev.e, dG = gapCount - prev.g;
+                    note.textContent = (dE === 0 && dG === 0)
+                        ? 'Posture unchanged since ' + prev.d + ' · recorded daily on this device'
+                        : 'Since ' + prev.d + ': ' + (dE ? ((dE > 0 ? '+' : '') + dE + ' enforced') : '') +
+                          (dE && dG ? ', ' : '') + (dG ? ((dG > 0 ? '+' : '−') + Math.abs(dG) + ' gap' + (Math.abs(dG) === 1 ? '' : 's')) : '');
+                } else {
+                    note.textContent = 'Posture history starts today — recorded daily on this device, never uploaded.';
+                }
+                bandCard.appendChild(note);
+            }
+        } catch (_) { /* history is a bonus — never break the page */ }
         wrap.appendChild(bandCard);
+
+        // --- Next action: the single highest-impact thing to do right now.
+        // Gaps are ranked by CONTROLS order (blocking first), so the first gap
+        // is the one to fix. No gaps → point at the evidence instead. This is
+        // what turns the page from a report into a to-do.
+        const firstGap = rows.find(r => r.gap) || rows.find(r => r.required && r.state === 'partial');
+        const nextCard = card();
+        nextCard.classList.add('gov-next');
+        if (firstGap) {
+            const m2 = this._mark(firstGap);
+            nextCard.style.setProperty('--next-color', m2.color);
+            const body = document.createElement('div');
+            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
+                '<div class="gov-next-lab"></div><div class="gov-next-note"></div>';
+            body.querySelector('.gov-next-lab').textContent = firstGap.label;
+            body.querySelector('.gov-next-note').textContent = firstGap.note;
+            nextCard.appendChild(body);
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
+            btn.textContent = 'Fix now →';
+            btn.addEventListener('click', () => this._go(firstGap.nav));
+            nextCard.appendChild(btn);
+        } else if (band.unassessed) {
+            nextCard.style.setProperty('--next-color', 'var(--accent-primary)');
+            const body = document.createElement('div');
+            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
+                '<div class="gov-next-lab">Connect an agent</div>' +
+                '<div class="gov-next-note">Nothing has reported through SV Guard / SDK yet, so there is nothing to govern. Connect a runtime to light this page up.</div>';
+            nextCard.appendChild(body);
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
+            btn.textContent = 'Connect →';
+            btn.addEventListener('click', () => this._go('guide-connect-agents'));
+            nextCard.appendChild(btn);
+        } else {
+            nextCard.style.setProperty('--next-color', 'var(--success, #10b981)');
+            const body = document.createElement('div');
+            body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
+                '<div class="gov-next-lab">No gaps — review what enforcement did</div>' +
+                '<div class="gov-next-note">Every required control is enforced for your connected integrations. The evidence below links to the receipts.</div>';
+            nextCard.appendChild(body);
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
+            btn.textContent = 'Blocked Actions →';
+            btn.addEventListener('click', () => this._go('blocked-ledger'));
+            nextCard.appendChild(btn);
+        }
+        wrap.appendChild(nextCard);
+
+        // --- Evidence: live enforcement counts (7 days), each tile deep-links
+        // to the page holding the receipts. SOC colour discipline: neutral
+        // numbers; colour only where it encodes a security state.
+        {
+            const evi = card();
+            const eTitle = document.createElement('div'); eTitle.textContent = 'Evidence — last 7 days on this device';
+            eTitle.style.cssText = 'font-weight:700; font-size:14px; color:var(--text-primary);';
+            evi.appendChild(eTitle);
+            const eHint = document.createElement('div');
+            eHint.textContent = 'What the controls above actually did. Click a tile for the detail.';
+            eHint.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-top:2px;';
+            evi.appendChild(eHint);
+            const sum = (k) => traceRows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+            const tiles = document.createElement('div'); tiles.className = 'gov-evi';
+            const tile = (n, label, nav, color) => {
+                const t = document.createElement('button'); t.type = 'button'; t.className = 'gov-evi-tile';
+                const v = document.createElement('div'); v.className = 'gov-evi-n'; v.textContent = Number(n).toLocaleString();
+                if (color && n > 0) v.style.color = color;
+                const l = document.createElement('div'); l.className = 'gov-evi-l'; l.textContent = label;
+                t.appendChild(v); t.appendChild(l);
+                t.addEventListener('click', () => this._go(nav));
+                tiles.appendChild(t);
+            };
+            tile(sum('spans'), 'tool runs governed', 'agent-runs');
+            tile(sum('detections'), 'threats detected', 'threats', 'var(--danger, #ef4444)');
+            tile(sum('blocked'), 'actions blocked', 'blocked-ledger', 'var(--success, #10b981)');
+            tile(sum('secrets'), 'secrets caught', 'redactions', 'var(--warning, #f59e0b)');
+            evi.appendChild(tiles);
+            if (!traceRows.length) {
+                const none = document.createElement('div');
+                none.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-top:8px;';
+                none.textContent = 'No agent traces in the window yet — these fill in as soon as a connected agent runs.';
+                evi.appendChild(none);
+            }
+            wrap.appendChild(evi);
+        }
 
         // (Scope + explainer are merged into the yellow intro block at the top.)
 

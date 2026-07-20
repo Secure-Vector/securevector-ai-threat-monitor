@@ -56,6 +56,18 @@ const GlobalBanners = {
         }
         slot.textContent = '';
 
+        // v5 banner policy — ONE banner, ONE place. App-level notices live
+        // on the Dashboard only (the home page every session starts from or
+        // returns to), and never render underneath an open modal; the
+        // welcome flow re-renders this slot when its modal closes. The
+        // if/else chain below already guarantees a single banner at a time.
+        const onDashboard = !window.App || App.currentPage === 'dashboard';
+        const modalOpen = !!document.querySelector('.modal-overlay');
+        if (!onDashboard || modalOpen) {
+            slot.style.display = 'none';
+            return;
+        }
+
         // Fetch settings + enrollment state in parallel. Each fetch fails-open
         // to null so a transient API issue never breaks the dashboard (the
         // dependent banner just doesn't render that pass).
@@ -63,6 +75,14 @@ const GlobalBanners = {
             fetch('/api/settings').then(r => r.ok ? r.json() : null).catch(() => null),
             fetch('/api/v1/policy-sync/status').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
+
+        // Re-check the modal AFTER the awaits — the welcome modal opens a
+        // beat after the page load that kicked this render off, and it wins
+        // the surface (the dismiss handler re-renders us when it closes).
+        if (document.querySelector('.modal-overlay')) {
+            slot.style.display = 'none';
+            return;
+        }
 
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
         const guardianAcked = localStorage.getItem(this.KEY_GUARDIAN_NOTICE) === '1';
@@ -249,7 +269,7 @@ const GlobalBanners = {
         explore.addEventListener('click', () => {
             localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
             // Lands on the Agent Map (the hero topology view) \u2014 navigate()
-            // expands the Agent Activity section automatically.
+            // expands the Observability section automatically.
             if (window.Sidebar) Sidebar.navigate('agent-map');
             this.render();
         });

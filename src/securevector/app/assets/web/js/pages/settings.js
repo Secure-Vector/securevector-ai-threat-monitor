@@ -1177,6 +1177,13 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             container.appendChild(indicator);
         }
 
+        // One-click trial CTA — the primary path when not connected. The
+        // manual paste-a-key flow below stays as the fallback (and the only
+        // path for org svet_ enrollment tokens).
+        if (!this.cloudSettings.credentials_configured) {
+            this.renderTrialCta(container);
+        }
+
         // Instructions if not connected
         if (!this.cloudSettings.credentials_configured) {
             const helpText = document.createElement('div');
@@ -1309,6 +1316,176 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
             container.appendChild(disconnectRow);
         }
+    },
+
+    // ---- One-click cloud trial (device flow) ----
+
+    renderTrialCta(container) {
+        const panel = document.createElement('div');
+        panel.id = 'cloud-trial-panel';
+        panel.style.cssText =
+            'margin-bottom:16px;padding:16px;border:1px solid var(--border-color,#2a3441);'
+            + 'border-radius:10px;background:var(--bg-secondary,#0f1720);';
+
+        const head = document.createElement('div');
+        head.style.cssText = 'font-weight:600;font-size:14px;margin-bottom:4px;';
+        head.textContent = 'Start a free 30-day cloud trial';
+        panel.appendChild(head);
+
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size:13px;color:var(--text-secondary);margin-bottom:12px;';
+        sub.textContent =
+            'One click: sign up in your browser and this device connects itself — '
+            + 'no key to copy. Metadata-only, same consent gates as manual connect.';
+        panel.appendChild(sub);
+
+        const body = document.createElement('div');
+        body.id = 'cloud-trial-body';
+        panel.appendChild(body);
+
+        const startBtn = document.createElement('button');
+        startBtn.id = 'cloud-trial-start';
+        startBtn.className = 'btn btn-primary';
+        startBtn.textContent = 'Start free cloud trial';
+        startBtn.addEventListener('click', () => this.startCloudTrial());
+        body.appendChild(startBtn);
+
+        container.appendChild(panel);
+    },
+
+    async startCloudTrial() {
+        const body = document.getElementById('cloud-trial-body');
+        if (!body) return;
+
+        // Phase 1 — request a device code.
+        body.textContent = '';
+        const wait = document.createElement('div');
+        wait.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        wait.textContent = 'Contacting SecureVector Cloud…';
+        body.appendChild(wait);
+
+        let grant;
+        try {
+            grant = await API.startCloudTrial();
+        } catch (error) {
+            body.textContent = '';
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+            if (error.code === 'trial_unavailable' || error.code === 'network_error') {
+                note.textContent =
+                    'One-click signup isn’t reachable right now — use the manual '
+                    + 'steps below (app.securevector.io → create a key → paste it here).';
+            } else if (error.code === 'rate_limited') {
+                note.textContent = 'Too many attempts from this device — try again in a bit.';
+            } else {
+                note.textContent = 'Could not start the trial: ' + error.message;
+            }
+            body.appendChild(note);
+            const retry = document.createElement('button');
+            retry.className = 'btn btn-secondary btn-small';
+            retry.style.marginTop = '8px';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', () => this.startCloudTrial());
+            body.appendChild(retry);
+            return;
+        }
+
+        // Phase 2 — send the user to the browser and poll for completion.
+        window.open(grant.verification_uri_complete, '_blank', 'noopener');
+
+        body.textContent = '';
+        const status = document.createElement('div');
+        status.style.cssText = 'font-size:13px;line-height:1.6;';
+        const line1 = document.createElement('div');
+        line1.textContent = 'Finish signup in the browser tab that just opened.';
+        status.appendChild(line1);
+        const codeLine = document.createElement('div');
+        codeLine.style.cssText = 'color:var(--text-secondary);';
+        codeLine.append('If asked for a code, enter ');
+        const code = document.createElement('code');
+        code.style.cssText = 'font-weight:700;letter-spacing:1px;';
+        code.textContent = grant.user_code;
+        codeLine.appendChild(code);
+        status.appendChild(codeLine);
+        const spin = document.createElement('div');
+        spin.style.cssText = 'margin-top:8px;color:var(--text-secondary);';
+        spin.textContent = 'Waiting for you to finish…';
+        status.appendChild(spin);
+        body.appendChild(status);
+
+        const cancel = document.createElement('button');
+        cancel.className = 'btn btn-secondary btn-small';
+        cancel.style.marginTop = '10px';
+        cancel.textContent = 'Cancel';
+        body.appendChild(cancel);
+
+        let cancelled = false;
+        cancel.addEventListener('click', () => {
+            cancelled = true;
+            body.textContent = '';
+            this._rebuildTrialStart(body);
+        });
+
+        let intervalMs = Math.max(3, grant.interval || 5) * 1000;
+        const deadline = Date.now() + Math.min(grant.expires_in || 900, 1800) * 1000;
+
+        while (!cancelled && Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            if (cancelled || !body.isConnected) return;
+            let result;
+            try {
+                result = await API.pollCloudTrial(grant.device_code);
+            } catch (error) {
+                body.textContent = '';
+                const note = document.createElement('div');
+                note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+                note.textContent = error.code === 'expired_token'
+                    ? 'The signup window expired — start again when ready.'
+                    : error.code === 'access_denied'
+                        ? 'Signup was cancelled in the browser.'
+                        : 'Trial signup failed: ' + error.message;
+                body.appendChild(note);
+                this._rebuildTrialStart(body, 'Start again');
+                return;
+            }
+            if (result.status === 'complete') {
+                Toast.success(result.message || 'Connected — your cloud trial is live.');
+                body.textContent = '';
+                const done = document.createElement('div');
+                done.style.cssText = 'font-size:13px;';
+                done.textContent = 'Connected'
+                    + (result.user_email ? ' as ' + result.user_email : '')
+                    + '. Opening your Governance view…';
+                body.appendChild(done);
+                const gov = document.createElement('a');
+                gov.href = 'https://app.securevector.io/governance';
+                gov.target = '_blank';
+                gov.rel = 'noopener';
+                gov.style.cssText = 'display:inline-block;margin-top:6px;color:var(--accent);font-size:13px;';
+                gov.textContent = 'app.securevector.io/governance →';
+                body.appendChild(gov);
+                setTimeout(() => window.location.reload(), 2500);
+                return;
+            }
+            if (result.status === 'slow_down') intervalMs += 5000;
+        }
+        if (!cancelled && body.isConnected) {
+            body.textContent = '';
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+            note.textContent = 'The signup window expired — start again when ready.';
+            body.appendChild(note);
+            this._rebuildTrialStart(body, 'Start again');
+        }
+    },
+
+    _rebuildTrialStart(body, label) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary';
+        btn.style.marginTop = '8px';
+        btn.textContent = label || 'Start free cloud trial';
+        btn.addEventListener('click', () => this.startCloudTrial());
+        body.appendChild(btn);
     },
 
     async saveCloudApiKey() {

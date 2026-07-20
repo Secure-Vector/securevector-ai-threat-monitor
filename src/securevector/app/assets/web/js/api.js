@@ -165,6 +165,39 @@ const API = {
         return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
     },
 
+    // conversion-ux — Instant Agent Audit. Opt-in retroactive scan of on-disk
+    // agent transcripts; consent travels in the run request body.
+    async getInstantAuditStatus() {
+        return this.request('/api/instant-audit/status').catch(() => null);
+    },
+
+    async runInstantAudit(body) {
+        return this.request('/api/instant-audit/run', {
+            method: 'POST', body: JSON.stringify(body || {}),
+        }).catch(() => ({ error: true }));
+    },
+
+    async getInstantAuditReport() {
+        return this.request('/api/instant-audit/report').catch(() => null);
+    },
+
+    async deleteInstantAuditReport() {
+        return this.request('/api/instant-audit/report', { method: 'DELETE' }).catch(() => null);
+    },
+
+    // agent-observability §3.2 — blocked-action ledger. What enforcement
+    // PREVENTED in the window, grouped by reason + by tool, with hit counts.
+    async getBlockedLedger(params = {}) {
+        const q = new URLSearchParams();
+        if (params.window_days) q.set('window_days', params.window_days);
+        const qs = q.toString();
+        return this.request(`/api/blocked-ledger${qs ? '?' + qs : ''}`).catch(() => ({
+            window_days: params.window_days || 7,
+            summary: { blocked_total: 0, tools_blocked: 0, agents_affected: 0, last_at: null },
+            by_reason: [], by_tool: [],
+        }));
+    },
+
     // active-agent-observability — Timeline. Flat, newest-first feed of every
     // enforced tool call (across all runs). Reuses the existing call-audit log.
     async getCallAudit(params = {}) {
@@ -201,9 +234,14 @@ const API = {
         if (params.source) queryParams.set('source', params.source);
         // Deep-link from an Agent Runs detection to the exact record.
         if (params.request_id) queryParams.set('request_id', params.request_id);
+        // All scans for one agent run (Runs page scanned-content panel).
+        if (params.session_id) queryParams.set('session_id', params.session_id);
         // Range-scoped fetches (dashboard charts). Server-side filter.
         if (params.start_date) queryParams.set('start_date', params.start_date);
         if (params.end_date) queryParams.set('end_date', params.end_date);
+        // Sessions merged trace reads a session's scans oldest-first.
+        if (params.sort) queryParams.set('sort', params.sort);
+        if (params.order) queryParams.set('order', params.order);
 
         const query = queryParams.toString();
         return this.request(`/api/threat-intel${query ? '?' + query : ''}`).catch(() => ({
@@ -424,6 +462,34 @@ const API = {
         });
     },
 
+    // One-click cloud trial (device flow). Raw fetch instead of request():
+    // error bodies carry {detail: {error, message}} and the UI needs the
+    // machine-readable `error` code (e.g. trial_unavailable) to pick a
+    // fallback, which request()'s string-only Error would flatten away.
+    async _trialCall(endpoint, body) {
+        const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            const detail = (data && typeof data.detail === 'object') ? data.detail : {};
+            const err = new Error(detail.message || data.detail || `HTTP ${resp.status}`);
+            err.code = detail.error || `http_${resp.status}`;
+            throw err;
+        }
+        return data;
+    },
+
+    async startCloudTrial() {
+        return this._trialCall('/api/settings/cloud/trial/start');
+    },
+
+    async pollCloudTrial(deviceCode) {
+        return this._trialCall('/api/settings/cloud/trial/poll', { device_code: deviceCode });
+    },
+
     // ==================== Tool Permissions ====================
 
     async getEssentialTools() {
@@ -464,6 +530,63 @@ const API = {
         return this.request(`/api/tool-permissions/overrides/${encodeURIComponent(toolId)}`, {
             method: 'DELETE',
         });
+    },
+
+    // ==================== JIT Access (requests + grants) ====================
+
+    // Per-run decision token. Approve/deny/revoke are human-only actions:
+    // the server requires this token, which only the web UI fetches. Cached
+    // for the page's lifetime; refetched transparently after a server restart.
+    _jitToken: null,
+    async _getJitToken() {
+        if (!this._jitToken) {
+            const r = await this.request('/api/jit/ui-token');
+            this._jitToken = r.token;
+        }
+        return this._jitToken;
+    },
+    async _jitDecision(endpoint, body) {
+        // NB: request() replaces the whole headers object when options.headers
+        // is set (the ...options spread wins), so Content-Type must be
+        // restated here or FastAPI 422s on an unparseable body.
+        const call = async () => this.request(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-SV-UI-Token': await this._getJitToken(),
+            },
+            body: JSON.stringify(body || {}),
+        });
+        try {
+            return await call();
+        } catch (e) {
+            // Retry once ONLY for a stale token (app restarted since the
+            // token was cached) — any other failure surfaces immediately.
+            if (!/UI token/i.test(String(e && e.message))) throw e;
+            this._jitToken = null;
+            return call();
+        }
+    },
+
+    async getJitRequests(status = null) {
+        const q = status ? `?status=${encodeURIComponent(status)}` : '';
+        return this.request(`/api/jit/requests${q}`).catch(() => ({ items: [], pending: 0 }));
+    },
+
+    async getJitGrants() {
+        return this.request('/api/jit/grants').catch(() => ({ items: [], active: [] }));
+    },
+
+    async approveJitRequest(id, duration) {
+        return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/approve`, { duration });
+    },
+
+    async denyJitRequest(id, reason = null) {
+        return this._jitDecision(`/api/jit/requests/${encodeURIComponent(id)}/deny`, { reason });
+    },
+
+    async revokeJitGrant(id) {
+        return this._jitDecision(`/api/jit/grants/${encodeURIComponent(id)}/revoke`, {});
     },
 
     // ==================== Custom Tools ====================

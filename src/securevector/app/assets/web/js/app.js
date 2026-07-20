@@ -10,10 +10,14 @@ const App = {
         guide: GettingStartedPage,
         dashboard: DashboardPage,
         threats: ThreatsPage,
+        // conversion-ux — retroactive scan of on-disk agent history (opt-in).
+        'instant-audit': InstantAuditPage,
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,
         'agent-timeline': AgentTimelinePage,
+        'storylines': StorylinesPage,
+        'blocked-ledger': BlockedLedgerPage,
         rules: RulesPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
@@ -26,6 +30,9 @@ const App = {
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
+        // Connect Wizard (v5.0.0) — detect → protect → verify activation flow.
+        // Auto-launched once on fresh installs (see maybeAutoLaunchWizard).
+        'connect-wizard': { render: (c) => ConnectWizardPage.render(c) },
         'guide-connect-agents': { render: (c) => GuideConnectAgentsPage.render(c) },
         'guide-claude-code': { render: (c) => GuideClaudeCodePage.render(c) },
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
@@ -39,7 +46,7 @@ const App = {
         // nav entry land the user directly on the toggle.
         'guardian-ml': { render: (c) => { SettingsPage.focusGuardian = true; return SettingsPage.render(c); } },
         // Bundle 0.4 follow-up — Agent Replay umbrella in sidebar.
-        // Tool Activity / Cost Tracking are sub-items under Agent Replay;
+        // Tool Activity / Cost & Tokens are sub-items under Agent Replay;
         // Tool Permissions / Cost Settings are top-level configure entries.
         // Each nav entry maps to ONE tab — tab bar hidden so the nav stays
         // the single source of truth for which view is shown.
@@ -82,10 +89,11 @@ const App = {
             if (status && status.port) window.__SV_PROXY_PORT = status.port;
         } catch (_) {}
 
-        // Render components
+        // Render components. Global banners render per page-load (see
+        // loadPage) — v5 banner policy keeps them to ONE banner, ONE place
+        // (the Dashboard), so no init-time render here.
         Sidebar.render();
         Header.render();
-        if (window.GlobalBanners) GlobalBanners.render();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {
@@ -94,7 +102,8 @@ const App = {
         });
 
         // Load initial page from URL or default to dashboard
-        const initialPage = this.getPageFromURL();
+        let initialPage = this.getPageFromURL();
+        initialPage = await this.maybeAutoLaunchWizard(initialPage);
         await this.loadPage(initialPage);
 
         // Show welcome modal on first launch. For OpenClaw users we surface
@@ -103,7 +112,39 @@ const App = {
         this.showFirstLaunchWelcome();
     },
 
+    /**
+     * v5.0.0 Connect Wizard auto-launch — once, ever, and only when there is
+     * nothing protected yet. A fresh install landing on an empty dashboard is
+     * the funnel's biggest silent drop-off; landing on the wizard instead
+     * turns the first session into detect → protect → verify. Existing
+     * installs (any connected runtime or audited framework) are never
+     * redirected, and any explicit deep link wins.
+     */
+    async maybeAutoLaunchWizard(initialPage) {
+        if (initialPage !== 'dashboard') return initialPage;
+        if (localStorage.getItem('sv-wizard-autolaunched')) return initialPage;
+        try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 1500);
+            const res = await fetch('/api/detection/agents', { signal: ctrl.signal });
+            clearTimeout(t);
+            if (!res.ok) return initialPage;
+            const data = await res.json();
+            const anyProtected = (data.harnesses || []).some(h => h.plugin_connected) ||
+                (data.frameworks || []).length > 0;
+            localStorage.setItem('sv-wizard-autolaunched', '1');
+            if (anyProtected) return initialPage;
+            this._skipWelcomeModal = true; // the wizard IS the welcome
+            return 'connect-wizard';
+        } catch (_) {
+            return initialPage; // detection unavailable — never block startup
+        }
+    },
+
     async showFirstLaunchWelcome() {
+        // The Connect Wizard IS the welcome — never stack the intro modal on
+        // top of it (covers both the auto-launch path and direct deep links).
+        if (this._skipWelcomeModal || this.currentPage === 'connect-wizard') return;
         // v2 — refreshed welcome now leads with "What's new" (OpenClaw plugin,
         // Tool Inventory, Secret Detections, Reports on Dashboard). Bumping the
         // storage key so existing users see the updated welcome once.
@@ -161,7 +202,13 @@ const App = {
         const dismissModal = () => {
             localStorage.setItem('sv-welcome-seen-v2', 'true');
             overlay.classList.remove('active');
-            setTimeout(() => overlay.remove(), 150);
+            setTimeout(() => {
+                overlay.remove();
+                // The banner slot suppresses itself while a modal is open —
+                // re-render now so a pending notice (e.g. Guardian consent)
+                // takes its turn instead of silently never appearing.
+                if (window.GlobalBanners) GlobalBanners.render();
+            }, 150);
         };
 
         const navigateTo = (page, expandSection) => {
@@ -231,7 +278,7 @@ const App = {
         // Feature list — structured, not inline
         const featureList = document.createElement('div');
         featureList.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px;';
-        ['Threat Detection', 'Cost Tracking', 'Tool Monitoring'].forEach(f => {
+        ['Threat Detection', 'Cost & Tokens', 'Tool Monitoring'].forEach(f => {
             const tag = document.createElement('span');
             tag.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px;';
             const check = document.createElement('span');
@@ -392,9 +439,9 @@ const App = {
         ));
         whatsNewList.appendChild(makeNewItem(
             'OBSERVE',
-            'Agent Map, Runs & Secrets',
-            'Live device → agent → tool topology, step-by-step run traces, tool inventory (SBOM), and mid-flight secret detection.',
-            'agent-map',
+            'Traces & Map',
+            'Every agent session is a trace — open it to see its runs (each LLM call and tool call) with the enforcement verdict on each, plus session replay, live device → agent → tool topology, tool inventory (SBOM), and mid-flight secret detection.',
+            'agent-runs',
             'agent-activity'
         ));
 
@@ -480,6 +527,11 @@ const App = {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
+        // One surface at a time: with the overlay now in the DOM, re-render
+        // the banner slot so its modal gate hides any banner that beat the
+        // modal in the initial-load race (dismissModal re-renders it back).
+        if (window.GlobalBanners) GlobalBanners.render();
+
         // Click outside to dismiss
         overlay.addEventListener('click', (e) => { if (e.target === overlay) dismissModal(); });
 
@@ -515,6 +567,10 @@ const App = {
 
         this.currentPage = page;
 
+        // v5 banner policy: one banner, one place. The slot shows/hides
+        // itself based on the current page (Dashboard only).
+        if (window.GlobalBanners) GlobalBanners.render();
+
         // Update URL
         if (pushState) {
             const url = '/' + page;
@@ -545,6 +601,12 @@ const App = {
         try {
             await pageHandler.render(container);
             this.applyDynamicPorts(container);
+            // v5 motion layer: one subtle entrance per navigation. Re-adding
+            // the class restarts the CSS animation; prefers-reduced-motion
+            // disables it in styles.css.
+            container.classList.remove('sv-page-enter');
+            void container.offsetWidth; // reflow so the animation can restart
+            container.classList.add('sv-page-enter');
         } catch (error) {
             console.error('Failed to render page:', error);
             this.renderError(container, error);

@@ -129,7 +129,7 @@ const ToolPermissionsPage = {
     SOURCE_META: {
         official:     { label: 'Official MCP',  bg: 'rgba(94,173,184,0.12)',  text: '#5eadb8', border: 'rgba(94,173,184,0.3)',  icon: '\u2713' },
         openclaw:     { label: 'Google Workspace MCP', bg: 'rgba(94,173,184,0.12)', text: '#5eadb8', border: 'rgba(94,173,184,0.3)', icon: '\uD83D\uDCE7' },
-        community:    { label: 'Community MCP',  bg: 'rgba(16,185,129,0.12)', text: '#10b981', border: 'rgba(16,185,129,0.3)', icon: '\u2665' },
+        community:    { label: 'Community MCP',  bg: 'var(--bg-tertiary)', text: 'var(--text-secondary)', border: 'var(--border-default)', icon: '\u2665' },
         conventional: { label: 'Conventional',   bg: 'rgba(100,116,139,0.1)', text: '#94a3b8', border: 'rgba(100,116,139,0.2)', icon: '~' },
     },
 
@@ -139,7 +139,10 @@ const ToolPermissionsPage = {
         btn.style.cssText = 'display: flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: var(--radius-full); font-size: 10px; font-weight: 600; line-height: 1.4; border: none; cursor: pointer; transition: all 0.2s; min-width: 56px; justify-content: center; flex-shrink: 0; ' +
             (isBlocked
                 ? 'background: rgba(239,68,68,0.15); color: #ef4444;'
-                : 'background: rgba(16,185,129,0.15); color: #10b981;');
+                // v5: Allow is the quiet default state — neutral pill. Only
+                // the restrictive verdict (Block) earns color, so blocked
+                // tools pop instantly on a 200-row table.
+                : 'background: var(--bg-tertiary); color: var(--text-secondary);');
     },
 
     _setBtnContent(btn, blocked) {
@@ -313,8 +316,8 @@ const ToolPermissionsPage = {
                         : '🔒 Managed by ' + (tool.synced_source_org || 'cloud') + ' — locked'
                 );
             } else {
-                actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)';
-                actionBtn.style.color = blocked ? '#ef4444' : '#10b981';
+                actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'var(--bg-tertiary)';
+                actionBtn.style.color = blocked ? '#ef4444' : 'var(--text-secondary)';
                 actionBtn.textContent = (blocked ? '✕  Block — click to allow' : '✓  Allow — click to block');
             }
         };
@@ -510,6 +513,12 @@ const ToolPermissionsPage = {
         if (!content) return;
         content.textContent = '';
 
+        // The audit-integrity banner mounts above the tab bar (outside this
+        // content div), so clearing the content doesn't remove it — do so
+        // explicitly; the activity tab re-creates it.
+        const staleBanner = document.getElementById('audit-integrity-banner');
+        if (staleBanner) staleBanner.remove();
+
         if (this.activeTab === 'permissions') await this._renderPermissionsTab(content);
         else if (this.activeTab === 'activity') await this._renderActivityTab(content);
         else if (this.activeTab === 'bill') await this._renderBillOfToolsTab(content);
@@ -530,18 +539,19 @@ const ToolPermissionsPage = {
         const helpText = document.createElement('span');
         helpText.style.cssText = 'flex: 1; line-height: 1.5;';
         helpText.textContent = 'Tool calls are recorded on the Tool Activity tab as ';
-        const allowBadge = document.createElement('strong');
-        allowBadge.style.color = 'var(--success)';
+        const badgeCss = 'font-family: var(--font-mono, monospace); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); font-weight: 600;';
+        const allowBadge = document.createElement('code');
+        allowBadge.style.cssText = badgeCss;
         allowBadge.textContent = 'allow';
         helpText.appendChild(allowBadge);
         helpText.appendChild(document.createTextNode(', '));
-        const blockBadge = document.createElement('strong');
-        blockBadge.style.color = 'var(--error)';
+        const blockBadge = document.createElement('code');
+        blockBadge.style.cssText = badgeCss;
         blockBadge.textContent = 'block';
         helpText.appendChild(blockBadge);
         helpText.appendChild(document.createTextNode(', or '));
-        const logBadge = document.createElement('strong');
-        logBadge.style.color = 'var(--warning)';
+        const logBadge = document.createElement('code');
+        logBadge.style.cssText = badgeCss;
         logBadge.textContent = 'log_only';
         helpText.appendChild(logBadge);
         helpText.appendChild(document.createTextNode(' depending on the tool\u2019s policy and whether block mode is on. '));
@@ -560,6 +570,14 @@ const ToolPermissionsPage = {
         helpText.appendChild(helpLink);
         helpBanner.appendChild(helpText);
         page.appendChild(helpBanner);
+
+        // JIT access requests + active grants. Rendered above the rules list
+        // because a pending request is the one thing on this page that is
+        // waiting on the human. Hidden entirely when there's nothing to show.
+        const jitBox = document.createElement('div');
+        jitBox.id = 'jit-panel';
+        page.appendChild(jitBox);
+        this._renderJitPanel(jitBox); // async; fills itself in
 
         // Compact toolbar: toggle + cloud info + add button
         const toolbar = document.createElement('div');
@@ -844,16 +862,25 @@ const ToolPermissionsPage = {
         // Title is in the Header; in the body we explain what the page is for
         // and how to use the data — auditors and devs alike open this page
         // cold, so a compact "what + how" framing earns its keep.
+        // One-line framing with the column glossary tucked behind a native
+        // <details> toggle — the four-bullet block used to dominate the page
+        // before the table (the actual content) even started.
         const intro = document.createElement('div');
-        intro.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:820px;line-height:1.5;margin-bottom:14px;';
+        intro.style.cssText = 'font-size:12px;color:var(--text-secondary);max-width:860px;line-height:1.5;margin-bottom:12px;';
         intro.innerHTML = [
-            '<div style="margin-bottom:6px;color:var(--text-primary);font-weight:600;">Per-device Software Bill of Materials (SBOM) for AI tools — every (MCP server, tool) your agents called in the window.</div>',
-            '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
+            '<details>',
+            '<summary style="cursor:pointer;color:var(--text-secondary);list-style-position:inside;">',
+            '<span style="color:var(--text-primary);font-weight:600;">Per-device SBOM for AI tools</span>',
+            ' — every (MCP server, tool) pair your agents called in the window. ',
+            '<span style="color:var(--accent-primary);font-weight:600;">What do the columns mean?</span>',
+            '</summary>',
+            '<ul style="margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
             '<li><span style="color:var(--text-primary);font-weight:600;">Source</span> — is the tool covered by an org policy, registered locally, discovered via MCP, or a harness built-in?</li>',
             '<li><span style="color:var(--text-primary);font-weight:600;">Auth scope</span> — SecureVector\'s classification (read / write / delete / admin), not the MCP server\'s self-declared capability.</li>',
             '<li><span style="color:var(--text-primary);font-weight:600;">Touched secrets</span> — any call in the window flagged by a credential / PII rule. Catches rule-fired hits; does not catch unflagged exfil through a tool that legitimately accepts secrets.</li>',
             '<li><span style="color:var(--text-primary);font-weight:600;">Policy</span> — which org-pushed policy currently governs this tool, if any. Empty means no cloud policy attached.</li>',
             '</ul>',
+            '</details>',
         ].join('');
         page.appendChild(intro);
 
@@ -1036,13 +1063,13 @@ const ToolPermissionsPage = {
         const sourceBadge = (source) => {
             // Four visually distinct pills aligned to the theme tokens:
             //   cloud-policy → cyan   (--accent-primary)  — strongest governance signal
-            //   local-custom → red    (--accent-secondary) — user-classified, asserting control
+            //   local-custom → neutral outline — user-registered, identity not alarm
             //   mcp          → green  (--success)         — discovered third-party tool
             //   built-in     → grey   (--text-secondary)  — harness baseline, no opinion
             // All low-alpha backgrounds so the colour reads but doesn't shout.
             const palette =
                 source === 'cloud-policy' ? 'background:rgba(94,173,184,0.20);color:var(--accent-primary);border:1px solid rgba(94,173,184,0.35);'
-              : source === 'local-custom' ? 'background:rgba(192,101,94,0.18);color:var(--accent-secondary);border:1px solid rgba(192,101,94,0.35);'
+              : source === 'local-custom' ? 'background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-default);'
               : source === 'mcp'          ? 'background:rgba(16,185,129,0.15);color:var(--success);border:1px solid rgba(16,185,129,0.35);'
               :                              'background:rgba(148,163,184,0.15);color:var(--text-secondary);border:1px solid rgba(148,163,184,0.30);';
             const span = document.createElement('span');
@@ -1307,9 +1334,9 @@ const ToolPermissionsPage = {
             boxShadow: row.style.boxShadow,
         };
         row.style.transition = 'border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease';
-        row.style.borderColor = '#06b6d4';
-        row.style.background = 'rgba(6,182,212,0.22)';
-        row.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.45)';
+        row.style.borderColor = '#5eadb8';
+        row.style.background = 'rgba(94,173,184,0.22)';
+        row.style.boxShadow = '0 0 0 3px rgba(94,173,184,0.45)';
         setTimeout(() => {
             row.style.borderColor = orig.borderColor;
             row.style.background = orig.background;
@@ -1368,13 +1395,13 @@ const ToolPermissionsPage = {
         // Stable server order
         const serverOrder = Array.from(byServer.keys()).sort();
 
-        const accent = { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' };
+        const accent = { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' };
         const col = document.createElement('div');
         col.dataset.categoryCol = 'cloud-only';
         // Tinted column — visually marks the cloud-managed section as
         // distinct from local-editable categories. Matches the framing
         // OpenClaw's column already uses for its proxy tools.
-        col.style.cssText = 'min-width: 0; border-radius: 10px; padding: 8px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.30);';
+        col.style.cssText = 'min-width: 0; border-radius: 10px; padding: 8px; background: rgba(94,173,184,0.06); border: 1px solid rgba(94,173,184,0.30);';
 
         // Column header — SVG cloud-check icon (replaces the 🔒 emoji)
         // plus a small "From SecureVector cloud" badge so the provenance
@@ -1387,7 +1414,7 @@ const ToolPermissionsPage = {
         catTitle.appendChild(document.createTextNode('Cloud-managed'));
         catHeader.appendChild(catTitle);
         const catCount = document.createElement('span');
-        catCount.style.cssText = 'font-size: 10px; color: ' + accent.color + '; margin-left: auto; padding: 1px 6px; background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.35); border-radius: var(--radius-full); font-weight: 600;';
+        catCount.style.cssText = 'font-size: 10px; color: ' + accent.color + '; margin-left: auto; padding: 1px 6px; background: rgba(94,173,184,0.15); border: 1px solid rgba(94,173,184,0.35); border-radius: var(--radius-full); font-weight: 600;';
         catCount.textContent = cloudOnly.length;
         catHeader.appendChild(catCount);
         col.appendChild(catHeader);
@@ -1395,7 +1422,7 @@ const ToolPermissionsPage = {
         // Provenance badge + subtitle — makes the cloud origin explicit
         // instead of relying on the lock glyph alone.
         const provBadge = document.createElement('div');
-        provBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: ' + accent.color + '; background: rgba(6,182,212,0.10); border: 1px solid rgba(6,182,212,0.30); border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;';
+        provBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: ' + accent.color + '; background: rgba(94,173,184,0.10); border: 1px solid rgba(94,173,184,0.30); border-radius: 999px; padding: 2px 8px; margin-bottom: 6px;';
         provBadge.appendChild(this._svgCloudCheck(11));
         provBadge.appendChild(document.createTextNode('Synced from SecureVector cloud'));
         col.appendChild(provBadge);
@@ -1547,9 +1574,9 @@ const ToolPermissionsPage = {
         const chipBtns = {};
         const setChipStyle = (btn, active) => {
             btn.style.cssText = 'padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid ' +
-                (active ? 'var(--accent-primary, #06b6d4)' : 'var(--border-default)') + '; ' +
+                (active ? 'var(--accent-primary, #5eadb8)' : 'var(--border-default)') + '; ' +
                 (active
-                    ? 'background: rgba(6,182,212,0.15); color: var(--accent-primary, #06b6d4);'
+                    ? 'background: rgba(94,173,184,0.15); color: var(--accent-primary, #5eadb8);'
                     : 'background: var(--bg-card); color: var(--text-secondary);');
         };
         chipDefs.forEach((def, i) => {
@@ -1693,24 +1720,28 @@ const ToolPermissionsPage = {
             browser_automation: 'Browser Automation',
         };
 
-        // Category accent colors for left border + icon background
+        // v5 color policy: categories and providers are LABELS, not states —
+        // they all share the single brand accent. A per-category rainbow
+        // taught users nothing and buried the one colored thing that matters
+        // on this page (the Allow/Block verdicts).
+        const BRAND_ACCENT = { color: '#5eadb8', bg: 'rgba(94,173,184,0.10)' };
         const categoryAccents = {
-            openclaw: { color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-            claude_code: { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
-            codex: { color: '#C0655E', bg: 'rgba(192,101,94,0.12)' },
-            copilot_cli: { color: '#8957e5', bg: 'rgba(137,87,229,0.12)' },
-            cursor: { color: '#9ca3af', bg: 'rgba(156,163,175,0.14)' },
-            hermes: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-            communication: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
-            project_management: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-            code_devops: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
-            file_system: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-            database: { color: '#7cc0c9', bg: 'rgba(34,211,238,0.12)' },
-            cloud_infra: { color: '#5eadb8', bg: 'rgba(94,173,184,0.12)' },
-            payment: { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-            social_media: { color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
-            security: { color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' },
-            browser_automation: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+            openclaw: BRAND_ACCENT,
+            claude_code: BRAND_ACCENT,
+            codex: BRAND_ACCENT,
+            copilot_cli: BRAND_ACCENT,
+            cursor: BRAND_ACCENT,
+            hermes: BRAND_ACCENT,
+            communication: BRAND_ACCENT,
+            project_management: BRAND_ACCENT,
+            code_devops: BRAND_ACCENT,
+            file_system: BRAND_ACCENT,
+            database: BRAND_ACCENT,
+            cloud_infra: BRAND_ACCENT,
+            payment: BRAND_ACCENT,
+            social_media: BRAND_ACCENT,
+            security: BRAND_ACCENT,
+            browser_automation: BRAND_ACCENT,
         };
 
         const CATEGORY_ORDER = [
@@ -1760,9 +1791,9 @@ const ToolPermissionsPage = {
         // ── OpenClaw info note (now above the table, no longer per-column) ──
         if (categories.openclaw && !sessionStorage.getItem('sv-openclaw-note-dismissed')) {
             const note = document.createElement('div');
-            note.style.cssText = 'position: relative; font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 8px 32px 8px 12px; background: rgba(249,115,22,0.07); border: 1px solid rgba(249,115,22,0.25); border-radius: 6px;';
+            note.style.cssText = 'position: relative; font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 8px 32px 8px 12px; background: rgba(94,173,184,0.06); border: 1px solid var(--border-default); border-radius: 6px;';
             const noteText = document.createElement('div');
-            noteText.innerHTML = '<strong style="color:#f97316;">🔥 OpenClaw tools detected.</strong> SecureVector auto-detected your running OpenClaw proxy and added its Google Workspace tools (Gmail, Drive, Calendar, Meet, etc.) below.';
+            noteText.innerHTML = '<strong style="color:var(--text-primary);">OpenClaw tools detected.</strong> SecureVector auto-detected your running OpenClaw proxy and added its Google Workspace tools (Gmail, Drive, Calendar, Meet, etc.) below.';
             note.appendChild(noteText);
             const closeNote = document.createElement('button');
             closeNote.textContent = '×';
@@ -1867,7 +1898,7 @@ const ToolPermissionsPage = {
         };
 
         const localChip = mkInlineFilter('override',    counts.override,    'local',       '#d97706');
-        const cloudChip = mkInlineFilter('synced',      counts.synced,      'cloud',       '#06b6d4');
+        const cloudChip = mkInlineFilter('synced',      counts.synced,      'cloud',       '#5eadb8');
         const lastChip  = mkInlineFilter('last_resort', counts.last_resort, 'last-resort', '#dc2626');
         if (localChip || cloudChip || lastChip) {
             const sep = document.createElement('span');
@@ -1994,21 +2025,21 @@ const ToolPermissionsPage = {
             tab.dataset.tabKey = tabKeyStr;
 
             const restingBorder = isHighlighted
-                ? (accentColor || '#06b6d4')
+                ? (accentColor || '#5eadb8')
                 : 'var(--border-default)';
             const borderColor = isActive
-                ? (accentColor || '#06b6d4')
+                ? (accentColor || '#5eadb8')
                 : restingBorder;
 
             const restingBg = isHighlighted
                 ? (accentColor
                     ? 'color-mix(in srgb, ' + accentColor + ' 12%, var(--bg-card))'
-                    : 'rgba(6,182,212,0.10)')
+                    : 'rgba(94,173,184,0.10)')
                 : 'var(--bg-tertiary)';
             const fillBg = isActive
                 ? (accentColor
                     ? 'color-mix(in srgb, ' + accentColor + ' 22%, var(--bg-card))'
-                    : 'rgba(6,182,212,0.16)')
+                    : 'rgba(94,173,184,0.16)')
                 : restingBg;
 
             const txtColor = (isActive || isHighlighted)
@@ -2016,7 +2047,7 @@ const ToolPermissionsPage = {
                 : 'var(--text-secondary)';
             const borderWidth = isHighlighted ? '1.5px' : '1px';
             const ringShadow = isHighlighted
-                ? '0 0 0 2px ' + (accentColor || '#06b6d4') + '1f, 0 1px 4px ' + (accentColor || '#06b6d4') + '24'
+                ? '0 0 0 2px ' + (accentColor || '#5eadb8') + '1f, 0 1px 4px ' + (accentColor || '#5eadb8') + '24'
                 : 'none';
 
             tab.style.cssText = 'flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font: inherit; font-size: 11px; font-weight: 700; background: ' + fillBg + '; border: ' + borderWidth + ' solid ' + borderColor + '; border-radius: 6px; color: ' + txtColor + '; cursor: pointer; line-height: 1; white-space: nowrap; box-shadow: ' + ringShadow + '; transition: color 0.12s, border-color 0.12s, background 0.12s, transform 0.08s, box-shadow 0.12s;';
@@ -2039,7 +2070,7 @@ const ToolPermissionsPage = {
                 // visually distinct from the category tabs without a
                 // second color cue.
                 const ico = this._svgCloudCheck(12);
-                ico.style.color = accentColor || '#06b6d4';
+                ico.style.color = accentColor || '#5eadb8';
                 tab.appendChild(ico);
             } else if (accentColor && key !== null) {
                 const dot = document.createElement('span');
@@ -2051,7 +2082,7 @@ const ToolPermissionsPage = {
             lbl.textContent = label;
             tab.appendChild(lbl);
             const cnt = document.createElement('span');
-            cnt.style.cssText = 'font-size: 10px; font-weight: 500; padding: 1px 6px; background: ' + (isActive ? (accentColor ? 'color-mix(in srgb, ' + accentColor + ' 18%, transparent)' : 'rgba(6,182,212,0.18)') : 'var(--bg-tertiary)') + '; color: ' + (isActive ? (accentColor || '#06b6d4') : 'var(--text-muted)') + '; border-radius: 999px;';
+            cnt.style.cssText = 'font-size: 10px; font-weight: 500; padding: 1px 6px; background: ' + (isActive ? (accentColor ? 'color-mix(in srgb, ' + accentColor + ' 18%, transparent)' : 'rgba(94,173,184,0.18)') : 'var(--bg-tertiary)') + '; color: ' + (isActive ? (accentColor || '#5eadb8') : 'var(--text-muted)') + '; border-radius: 999px;';
             cnt.textContent = String(count);
             tab.appendChild(cnt);
             tab.addEventListener('click', () => {
@@ -2086,7 +2117,7 @@ const ToolPermissionsPage = {
             // and the byline below says "Managed in your cloud admin
             // console", so the longer label was redundant + caused
             // tab-row wrap on narrow viewports.
-            tabBar.appendChild(mkTab('__cloud__', 'Org Policies', cloudPolicyCount, '#06b6d4', true));
+            tabBar.appendChild(mkTab('__cloud__', 'Org Policies', cloudPolicyCount, '#5eadb8', true));
         }
         visibleCats.forEach(cat => {
             const acc = categoryAccents[cat] || { color: '#64748b' };
@@ -2250,6 +2281,275 @@ const ToolPermissionsPage = {
         container.appendChild(attribution);
     },
 
+    // ==================== JIT access requests + grants ====================
+
+    // Legal/UX boundaries from the idea page's pre-implementation review:
+    // Approve and Deny carry EQUAL visual weight; the justification is
+    // attacker-supplied text and is rendered inert (textContent, no links);
+    // the confirm copy always reads "You are granting …" (the human owns the
+    // decision — never "SecureVector allows …"); durations are 15 min / 1 h /
+    // this session only.
+    _JIT_RUNTIME_LABEL: {
+        'claude-code': 'Claude Code', codex: 'Codex', openclaw: 'OpenClaw',
+        'copilot-cli': 'Copilot CLI', cursor: 'Cursor',
+        langchain: 'LangChain', langgraph: 'LangGraph', crewai: 'CrewAI',
+        hermes: 'Hermes',
+    },
+
+    _jitRel(sqlTs) {
+        if (!sqlTs) return '';
+        const d = new Date(String(sqlTs).replace(' ', 'T') + 'Z');
+        if (isNaN(d)) return '';
+        const m = Math.round((Date.now() - d.getTime()) / 60000);
+        if (m <= 0) return 'just now';
+        if (m < 60) return `${m}m ago`;
+        if (m < 1440) return `${Math.round(m / 60)}h ago`;
+        return `${Math.round(m / 1440)}d ago`;
+    },
+
+    _jitExpiresIn(sqlTs) {
+        if (!sqlTs) return '';
+        const d = new Date(String(sqlTs).replace(' ', 'T') + 'Z');
+        if (isNaN(d)) return '';
+        const m = Math.round((d.getTime() - Date.now()) / 60000);
+        if (m <= 0) return 'expiring';
+        if (m < 60) return `expires in ${m}m`;
+        return `expires in ${Math.round(m / 60)}h ${m % 60}m`;
+    },
+
+    _injectJitStyles() {
+        if (document.getElementById('jit-styles')) return;
+        const st = document.createElement('style');
+        st.id = 'jit-styles';
+        st.textContent = `
+            .jit-panel { border: 1px solid var(--border-default); border-radius: 10px;
+                background: var(--bg-card); padding: 14px 16px; margin-bottom: 12px; }
+            .jit-title { font-size: 13px; font-weight: 700; color: var(--text-primary);
+                display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+            .jit-count { font-size: 10.5px; font-weight: 800; padding: 1px 8px; border-radius: 999px;
+                background: color-mix(in srgb, var(--warning, #f59e0b) 18%, transparent);
+                color: var(--warning, #f59e0b); }
+            .jit-card { border: 1px solid var(--border-default); border-radius: 8px;
+                background: var(--bg-tertiary); padding: 12px 14px; margin-bottom: 10px; }
+            .jit-card:last-child { margin-bottom: 0; }
+            .jit-line1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+            .jit-tool { font-family: ui-monospace, Menlo, monospace; font-weight: 700;
+                font-size: 13px; color: var(--text-primary); }
+            .jit-meta { font-size: 11.5px; color: var(--text-secondary); }
+            .jit-when { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+            .jit-just { margin: 8px 0; padding: 8px 11px; border-left: 3px solid var(--border-default);
+                background: var(--bg-card); border-radius: 0 6px 6px 0; font-size: 12px;
+                color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+            .jit-grant-copy { font-size: 12px; color: var(--text-primary); margin: 8px 0 6px; }
+            .jit-durs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 8px;
+                background: var(--bg-card); border: 1px solid var(--border-default); margin: 2px 0 10px; }
+            .jit-dur { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer;
+                font-size: 11.5px; font-weight: 600; padding: 4px 11px; border-radius: 6px; }
+            .jit-dur[aria-pressed="true"] { background: var(--accent-primary); color: #fff; }
+            .jit-dur:disabled { opacity: .45; cursor: not-allowed; }
+            .jit-dur:focus-visible, .jit-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+            .jit-actions { display: flex; gap: 10px; }
+            /* Approve and Deny are deliberately IDENTICAL in size and weight —
+               only the accent hue differs. No default action. */
+            .jit-btn { flex: 0 0 auto; min-width: 110px; padding: 7px 16px; border-radius: 8px;
+                font-size: 12.5px; font-weight: 700; cursor: pointer; background: var(--bg-card);
+                border: 1.5px solid; text-align: center; }
+            .jit-btn.approve { color: var(--success, #10b981); border-color: color-mix(in srgb, var(--success, #10b981) 55%, transparent); }
+            .jit-btn.approve:hover { background: color-mix(in srgb, var(--success, #10b981) 12%, transparent); }
+            .jit-btn.deny { color: var(--error, #ef4444); border-color: color-mix(in srgb, var(--error, #ef4444) 55%, transparent); }
+            .jit-btn.deny:hover { background: color-mix(in srgb, var(--error, #ef4444) 12%, transparent); }
+            .jit-grant-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px;
+                border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+                font-size: 12px; flex-wrap: wrap; }
+            .jit-grant-row:first-of-type { border-top: 0; }
+            .jit-revoke { margin-left: auto; border: 1px solid var(--border-default); background: transparent;
+                color: var(--text-secondary); font-size: 11.5px; font-weight: 600; padding: 4px 12px;
+                border-radius: 6px; cursor: pointer; }
+            .jit-revoke:hover { color: var(--error, #ef4444); border-color: var(--error, #ef4444); }
+        `;
+        document.head.appendChild(st);
+    },
+
+    async _renderJitPanel(box) {
+        this._injectJitStyles();
+        let reqs, grants;
+        try {
+            [reqs, grants] = await Promise.all([API.getJitRequests('pending'), API.getJitGrants()]);
+        } catch (_) { return; }
+        const pending = (reqs && reqs.items) || [];
+        const active = (grants && grants.active) || [];
+        box.textContent = '';
+        if (!pending.length && !active.length) return; // nothing waiting — stay quiet
+
+        const refresh = () => this._renderJitPanel(box);
+
+        if (pending.length) {
+            const panel = document.createElement('div');
+            panel.className = 'jit-panel';
+            panel.setAttribute('role', 'region');
+            panel.setAttribute('aria-label', 'Pending tool access requests');
+            const title = document.createElement('div');
+            title.className = 'jit-title';
+            title.textContent = 'Tool access requests ';
+            const count = document.createElement('span');
+            count.className = 'jit-count';
+            count.textContent = `${pending.length} waiting`;
+            title.appendChild(count);
+            panel.appendChild(title);
+            pending.forEach(r => panel.appendChild(this._jitRequestCard(r, refresh)));
+            box.appendChild(panel);
+        }
+
+        if (active.length) {
+            const panel = document.createElement('div');
+            panel.className = 'jit-panel';
+            panel.setAttribute('role', 'region');
+            panel.setAttribute('aria-label', 'Active JIT grants');
+            const title = document.createElement('div');
+            title.className = 'jit-title';
+            title.textContent = 'Active time-boxed grants';
+            panel.appendChild(title);
+            active.forEach(g => panel.appendChild(this._jitGrantRow(g, refresh)));
+            box.appendChild(panel);
+        }
+    },
+
+    _jitRequestCard(req, refresh) {
+        const card = document.createElement('div');
+        card.className = 'jit-card';
+
+        const line1 = document.createElement('div');
+        line1.className = 'jit-line1';
+        const tool = document.createElement('span');
+        tool.className = 'jit-tool';
+        tool.textContent = req.function_name || req.tool_id;
+        line1.appendChild(tool);
+        const meta = document.createElement('span');
+        meta.className = 'jit-meta';
+        const rt = this._JIT_RUNTIME_LABEL[req.runtime_kind] || req.runtime_kind || 'an agent';
+        meta.textContent = `${rt} · denied by ${req.rule_source === 'synced' ? 'org policy (requestable)' : 'your local rule'}`;
+        line1.appendChild(meta);
+        const when = document.createElement('span');
+        when.className = 'jit-when';
+        when.textContent = this._jitRel(req.requested_at);
+        line1.appendChild(when);
+        card.appendChild(line1);
+
+        if (req.justification) {
+            // Inert on purpose: agent-supplied text must never become markup
+            // or a clickable link inside the approval UI.
+            const just = document.createElement('div');
+            just.className = 'jit-just';
+            just.textContent = req.justification;
+            card.appendChild(just);
+        }
+
+        let duration = '15m';
+        const copy = document.createElement('div');
+        copy.className = 'jit-grant-copy';
+        const updateCopy = () => {
+            const durTxt = duration === '15m' ? '15 minutes'
+                : duration === '1h' ? '1 hour' : 'the rest of this session';
+            copy.textContent = `You are granting ${rt} access to ${req.tool_id} on this device for ${durTxt}.`;
+        };
+        updateCopy();
+        card.appendChild(copy);
+
+        const durs = document.createElement('div');
+        durs.className = 'jit-durs';
+        durs.setAttribute('role', 'group');
+        durs.setAttribute('aria-label', 'Grant duration');
+        [['15m', '15 minutes'], ['1h', '1 hour'], ['session', 'This session']].forEach(([v, label]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'jit-dur';
+            b.textContent = label;
+            b.setAttribute('aria-pressed', v === duration ? 'true' : 'false');
+            if (v === 'session' && !req.session_id) {
+                b.disabled = true;
+                b.title = 'This request did not include a session id';
+            }
+            b.addEventListener('click', () => {
+                duration = v;
+                durs.querySelectorAll('.jit-dur').forEach(x =>
+                    x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+                updateCopy();
+            });
+            durs.appendChild(b);
+        });
+        card.appendChild(durs);
+
+        const actions = document.createElement('div');
+        actions.className = 'jit-actions';
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.className = 'jit-btn approve';
+        approve.textContent = 'Approve';
+        approve.setAttribute('aria-label', `Approve access to ${req.tool_id}`);
+        approve.addEventListener('click', async () => {
+            approve.disabled = true;
+            try {
+                await API.approveJitRequest(req.id, duration);
+                if (window.Toast) Toast.success('Grant created — it expires automatically.');
+            } catch (e) {
+                if (window.Toast) Toast.error('Approve failed: ' + e.message);
+            }
+            refresh();
+        });
+        const deny = document.createElement('button');
+        deny.type = 'button';
+        deny.className = 'jit-btn deny';
+        deny.textContent = 'Deny';
+        deny.setAttribute('aria-label', `Deny access to ${req.tool_id}`);
+        deny.addEventListener('click', async () => {
+            deny.disabled = true;
+            try {
+                await API.denyJitRequest(req.id);
+                if (window.Toast) Toast.info('Request denied.');
+            } catch (e) {
+                if (window.Toast) Toast.error('Deny failed: ' + e.message);
+            }
+            refresh();
+        });
+        actions.appendChild(approve);
+        actions.appendChild(deny);
+        card.appendChild(actions);
+        return card;
+    },
+
+    _jitGrantRow(g, refresh) {
+        const row = document.createElement('div');
+        row.className = 'jit-grant-row';
+        const tool = document.createElement('span');
+        tool.className = 'jit-tool';
+        tool.style.fontSize = '12px';
+        tool.textContent = g.tool_id;
+        row.appendChild(tool);
+        const meta = document.createElement('span');
+        meta.className = 'jit-meta';
+        const rt = this._JIT_RUNTIME_LABEL[g.runtime_kind] || g.runtime_kind || 'all runtimes';
+        meta.textContent = `${rt} · ${g.duration === 'session' ? 'this session' : g.duration}` +
+            ` · ${this._jitExpiresIn(g.expires_at)}`;
+        row.appendChild(meta);
+        const revoke = document.createElement('button');
+        revoke.type = 'button';
+        revoke.className = 'jit-revoke';
+        revoke.textContent = 'Revoke now';
+        revoke.setAttribute('aria-label', `Revoke grant for ${g.tool_id}`);
+        revoke.addEventListener('click', async () => {
+            revoke.disabled = true;
+            try {
+                await API.revokeJitGrant(g.id);
+                if (window.Toast) Toast.info('Grant revoked.');
+            } catch (e) {
+                if (window.Toast) Toast.error('Revoke failed: ' + e.message);
+            }
+            refresh();
+        });
+        row.appendChild(revoke);
+        return row;
+    },
+
     // ==================== Tool Call Audit Log ====================
 
     async renderAuditSection(container) {
@@ -2283,21 +2583,30 @@ const ToolPermissionsPage = {
         if (sessionStorage.getItem(_dismissKey) === '1') {
             integrityBanner.style.display = 'none';
         }
-        container.appendChild(integrityBanner);
+        // The chain-integrity verdict scopes the WHOLE page (every row below
+        // it), so it mounts above the tab bar, not inside the tab body.
+        // _renderActiveTab removes it when the user switches tabs.
+        const tabsEl = document.getElementById('tp-tabs');
+        if (tabsEl && tabsEl.parentNode) {
+            tabsEl.parentNode.insertBefore(integrityBanner, tabsEl);
+        } else {
+            container.appendChild(integrityBanner);
+        }
         console.log('[sv-audit] integrity banner mounted');
 
-        // Re-verify lives in its own slot ABOVE the chart, not inside
-        // the banner. Banner is evidence; button is action — separating
-        // them keeps each readable and lets the banner be dismissible.
-        const integrityActions = document.createElement('div');
-        integrityActions.className = 'sv-integrity-actions';
+        // Re-verify is an action, so it lives in the toolbar next to Refresh
+        // (appended there below) — its old dedicated row wasted a full line
+        // under the banner. Banner stays evidence; button joins the actions.
         const reverifyBtn = document.createElement('button');
         reverifyBtn.type = 'button';
-        reverifyBtn.className = 'btn btn-secondary btn-compact sv-integrity-reverify';
-        reverifyBtn.textContent = '↻ Re-verify audit chain';
+        reverifyBtn.className = 'sv-integrity-reverify';
+        reverifyBtn.style.cssText = 'padding: 3px 10px; border-radius: var(--radius-full); font-size: 12px; '
+            + 'border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); '
+            + 'cursor: pointer; transition: color 0.15s;';
+        reverifyBtn.textContent = '↻ Re-verify chain';
         reverifyBtn.title = 'Re-walk the SHA-256 hash chain over all tool-call audit rows.';
-        integrityActions.appendChild(reverifyBtn);
-        container.appendChild(integrityActions);
+        reverifyBtn.addEventListener('mouseenter', () => { reverifyBtn.style.color = 'var(--text-primary)'; });
+        reverifyBtn.addEventListener('mouseleave', () => { reverifyBtn.style.color = 'var(--text-muted)'; });
 
         const renderIntegrity = async () => {
             console.log('[sv-audit] verifying chain…');
@@ -2428,115 +2737,63 @@ const ToolPermissionsPage = {
                 });
             }
 
-            const maxVal = Math.max(...buckets.map(b => b.blocked + b.allowed + b.logged), 1);
-
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
-
-            buckets.forEach(bucket => {
-                const total = bucket.blocked + bucket.allowed + bucket.logged;
-                const col = document.createElement('div');
-                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-                col.title = bucket.label + '\nBlocked: ' + bucket.blocked + '\nAllowed: ' + bucket.allowed + '\nLogged: ' + bucket.logged;
-
-                // Value label
-                const valLbl = document.createElement('div');
-                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
-                valLbl.textContent = total > 0 ? total : '';
-                col.appendChild(valLbl);
-
-                // Bar area — stacked segments
-                const barArea = document.createElement('div');
-                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                const pctBlock   = (bucket.blocked / maxVal) * 100;
-                const pctAllow   = (bucket.allowed / maxVal) * 100;
-                const pctLogged  = (bucket.logged  / maxVal) * 100;
-                const pctTotal   = pctBlock + pctAllow + pctLogged;
-
-                if (pctTotal > 0) {
-                    // Stacked from bottom: logged (muted) → allowed (cyan) → blocked (red)
-                    const stack = document.createElement('div');
-                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                    if (pctBlock > 0) {
-                        const seg = document.createElement('div');
-                        seg.style.cssText = 'background: #ef4444; flex: ' + bucket.blocked + ';';
-                        stack.appendChild(seg);
-                    }
-                    if (pctAllow > 0) {
-                        const seg = document.createElement('div');
-                        seg.style.cssText = 'background: #5eadb8; flex: ' + bucket.allowed + ';';
-                        stack.appendChild(seg);
-                    }
-                    if (pctLogged > 0) {
-                        const seg = document.createElement('div');
-                        seg.style.cssText = 'background: #475569; flex: ' + bucket.logged + ';';
-                        stack.appendChild(seg);
-                    }
-                    barArea.appendChild(stack);
-                } else {
-                    // Empty day — faint baseline
-                    const base = document.createElement('div');
-                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
-                    barArea.appendChild(base);
-                }
-
-                col.appendChild(barArea);
-
-                // Day label
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
-                lbl.textContent = bucket.label;
-                col.appendChild(lbl);
-
-                wrap.appendChild(col);
-            });
-
-            chartBody.appendChild(wrap);
-
-            // Legend
-            const legend = document.createElement('div');
-            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary);';
-            [['#ef4444', 'Blocked'], ['#5eadb8', 'Allowed'], ['#475569', 'Logged']]
-                .forEach(([color, label]) => {
-                    const item = document.createElement('span');
-                    item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
-                    const dot = document.createElement('span');
-                    dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
-                    item.appendChild(dot);
-                    item.appendChild(document.createTextNode(label));
-                    legend.appendChild(item);
+            // Line chart (v5) — reuses the dashboard's timeline renderer so
+            // the two charts read as one system: dashed gridlines, one
+            // polyline+dots per series, legend underneath. Allowed rides the
+            // brand accent; Blocked is the semantic red; Logged is slate.
+            if (window.DashboardPage && typeof DashboardPage._renderTimelineChart === 'function') {
+                DashboardPage._renderTimelineChart(chartBody, {
+                    labels: buckets.map(b => b.label),
+                    series: [
+                        { label: 'Allowed', color: '#5eadb8', data: buckets.map(b => b.allowed) },
+                        { label: 'Blocked', color: '#ef4444', data: buckets.map(b => b.blocked) },
+                        { label: 'Logged',  color: '#64748b', data: buckets.map(b => b.logged) },
+                    ],
+                    yFormat: n => Math.round(n).toLocaleString(),
+                    // Full-width card — taller plot for a sane aspect ratio.
+                    height: 220,
                 });
-            chartBody.appendChild(legend);
+            } else {
+                // Extremely defensive fallback — plain totals text.
+                const totals = buckets.map(b => `${b.label}: ${b.blocked + b.allowed + b.logged}`).join(' · ');
+                chartBody.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">' + totals + '</div>';
+            }
         });
 
-        // Stat cards row (like costs page)
+        // Compact stat strip — dot + value + label chips (same visual language
+        // as the Agent Runs header stats), replacing the oversized stat-card
+        // boxes that dwarfed the numbers they carried.
         const statsGrid = document.createElement('div');
-        statsGrid.className = 'stats-grid';
-        statsGrid.style.marginBottom = '20px';
+        statsGrid.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;';
         container.appendChild(statsGrid);
 
         const statsWrapEl = { total: null, blocked: null, allowed: null, logged: null };
         const makeStatCard = (key, label, color) => {
             const card = document.createElement('div');
-            card.className = 'stat-card';
-            const val = document.createElement('div');
-            val.className = 'stat-value';
-            val.style.color = color || '';
+            card.style.cssText = 'display: flex; align-items: baseline; gap: 9px; padding: 9px 16px; '
+                + 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px;';
+            if (color) {
+                const dot = document.createElement('span');
+                dot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; align-self: center; '
+                    + 'flex: 0 0 auto; background: ' + color + ';';
+                card.appendChild(dot);
+            }
+            const val = document.createElement('span');
+            val.style.cssText = 'font-size: 19px; font-weight: 800; line-height: 1.1; '
+                + 'font-variant-numeric: tabular-nums; color: ' + (color || 'var(--text-primary)') + ';';
             val.textContent = '—';
-            const lbl = document.createElement('div');
-            lbl.className = 'stat-label';
+            const lbl = document.createElement('span');
+            lbl.style.cssText = 'font-size: 11.5px; font-weight: 600; color: var(--text-secondary);';
             lbl.textContent = label;
             card.appendChild(val);
             card.appendChild(lbl);
             statsWrapEl[key] = val;
             statsGrid.appendChild(card);
         };
-        makeStatCard('total',   'Total Calls',    '');
-        makeStatCard('blocked', 'Blocked',        '#ef4444');
-        makeStatCard('allowed', 'Allowed',        '#5eadb8');
-        makeStatCard('logged',  'Logged (Pass)',  '#94a3b8');
+        makeStatCard('total',   'Total calls',   '');
+        makeStatCard('blocked', 'Blocked',       '#ef4444');
+        makeStatCard('allowed', 'Allowed',       '#5eadb8');
+        makeStatCard('logged',  'Logged (pass)', '#94a3b8');
 
         // Toolbar: filter buttons + refresh
         const toolbar = document.createElement('div');
@@ -2583,6 +2840,7 @@ const ToolPermissionsPage = {
         refreshBtn.addEventListener('mouseenter', () => { refreshBtn.style.color = 'var(--text-primary)'; });
         refreshBtn.addEventListener('mouseleave', () => { refreshBtn.style.color = 'var(--text-muted)'; });
         toolbar.appendChild(refreshBtn);
+        toolbar.appendChild(reverifyBtn);
 
         const deleteSelectedBtn = document.createElement('button');
         deleteSelectedBtn.id = 'audit-delete-selected-btn';
@@ -3318,7 +3576,7 @@ const ToolPermissionsPage = {
         // from the hero tiles so visual language is consistent.
         let stripeColor;
         if (tool.is_last_resort)    stripeColor = '#dc2626';
-        else if (tool.is_synced)    stripeColor = '#06b6d4';
+        else if (tool.is_synced)    stripeColor = '#5eadb8';
         else if (tool.has_override) stripeColor = '#d97706';
         else                        stripeColor = 'var(--border-default)';
 
@@ -3418,7 +3676,7 @@ const ToolPermissionsPage = {
         nameWrap.appendChild(nameEl);
         if (tool.popular === true) {
             const star = document.createElement('span');
-            star.style.cssText = 'font-size: 10px; color: #f59e0b; flex-shrink: 0;';
+            star.style.cssText = 'font-size: 10px; color: var(--text-muted); flex-shrink: 0;';
             star.title = 'Commonly used by agents';
             star.setAttribute('aria-label', 'Commonly used by agents');
             star.setAttribute('role', 'img');
@@ -3442,7 +3700,7 @@ const ToolPermissionsPage = {
             meta.appendChild(catDot);
             // Category label uses --text-secondary so 11px/600 over
             // --bg-card passes WCAG AA — accent.color often fails
-            // (e.g. #a78bfa for browser_automation).
+            // (v5: single brand accent for all categories).
             const catTxt = document.createElement('span');
             catTxt.style.cssText = 'color: var(--text-secondary); font-weight: 600;';
             catTxt.textContent = catName;

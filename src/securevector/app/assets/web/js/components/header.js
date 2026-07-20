@@ -52,10 +52,10 @@ const Header = {
 
         const headerSubtitleEl = document.createElement('div');
         headerSubtitleEl.id = 'header-page-subtitle';
-        // Allow the subtitle to wrap to a second line on pages with longer
-        // descriptions (Tool Inventory's SBOM line, Secret Detections' storage
-        // posture). Cap at two lines so the header doesn't grow unbounded.
-        headerSubtitleEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 1px; max-width: 900px; line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;';
+        // One line, ellipsized (v5) — the pages explain themselves now
+        // (mastheads, "How to read" links), so the subtitle is a scent, not a
+        // paragraph. setPageInfo mirrors the full text into a tooltip.
+        headerSubtitleEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 1px; max-width: 900px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
         titleGroup.appendChild(headerSubtitleEl);
 
         left.appendChild(titleGroup);
@@ -64,6 +64,12 @@ const Header = {
         // Right side - Help, AI Analysis, agent dropdown, cloud mode (rightmost)
         const right = document.createElement('div');
         right.className = 'header-right';
+
+        // Guardian ML — moved out of the left nav (v5 IA): it's one global
+        // on/off switch, not a destination, so it lives here as a status
+        // control. Click opens an anchored card with the explainer + toggle.
+        const guardianCtl = this.createGuardianControl();
+        right.appendChild(guardianCtl);
 
         // Theme toggle button (sun/moon)
         const themeBtn = this.createThemeToggle();
@@ -139,7 +145,7 @@ const Header = {
     createThemeToggle() {
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         const btn = document.createElement('button');
-        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 8px; padding: 0;';
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 10px; padding: 0;';
         btn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
         btn.setAttribute('aria-label', 'Toggle theme');
 
@@ -188,10 +194,14 @@ const Header = {
     },
 
     createTourButton() {
+        // Icon-only (v5): after the first week nobody reads "Tour" — the
+        // compass in a circle matches the theme toggle, and the tooltip
+        // carries the words. Frees header width at laptop sizes.
         const btn = document.createElement('button');
         btn.className = 'tour-btn';
-        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); height: 28px; padding: 0 10px; border-radius: 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s; margin-right: 10px;';
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 10px; padding: 0;';
         btn.title = 'Take the guided setup tour';
+        btn.setAttribute('aria-label', 'Take the guided setup tour');
 
         // Compass icon — "find your way around".
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -209,10 +219,6 @@ const Header = {
         poly.setAttribute('points', '16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76');
         svg.appendChild(poly);
         btn.appendChild(svg);
-
-        const label = document.createElement('span');
-        label.textContent = 'Tour';
-        btn.appendChild(label);
 
         btn.addEventListener('mouseenter', () => {
             btn.style.borderColor = 'var(--accent-primary)';
@@ -1256,12 +1262,223 @@ const Header = {
         setTimeout(() => this.showCloudConnectGuide(), 200);
     },
 
+    // Guardian ML header control — the sentinel robot that used to live as a
+    // left-nav row. The nav row navigated to Settings just to reach one
+    // toggle; here the click opens an anchored card that explains what the
+    // model does and flips it in place. The card IS the informed-consent
+    // surface, so the toggle commits directly (no second confirm modal —
+    // unlike the Settings page, where the toggle stands alone). The old
+    // 'guardian-ml' route (Settings → Guardian section) still works for deep
+    // links and is reachable from the card footer.
+    createGuardianControl() {
+        const wrap = document.createElement('div');
+        wrap.className = 'guardian-hdr-wrap';
+        wrap.style.cssText = 'position: relative; display: flex; margin-right: 10px;';
+
+        // Icon-only circular button — a single small darkened circle with the
+        // sentinel robot inside. The header was getting crowded (title cluster
+        // + Guardian + theme + tour + Connect + Cloud), so Guardian drops its
+        // text label and status dot and reads as one compact glyph, matching
+        // the theme toggle's circular footprint. On/off state is carried by
+        // the circle itself: accent ring + soft glow when active, muted +
+        // dimmed robot when off.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'guardian-hdr-btn';
+        btn.className = 'guardian-hdr-btn';
+        btn.setAttribute('aria-haspopup', 'dialog');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-label', 'Guardian ML — local AI threat detection. Click to turn on or off.');
+        btn.title = 'Guardian ML — local AI threat detection. Click to turn on or off.';
+        // Filled darkened disc (bg-tertiary) so the robot sits on a subtle
+        // backdrop rather than floating; 30px to match the theme circle.
+        btn.style.cssText = 'position: relative; background: var(--bg-tertiary); border: 1.5px solid var(--border-default); width: 30px; height: 30px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; flex-shrink: 0;';
+
+        // The sentinel robot IS the icon — carried over from its old nav row
+        // so the mascot survives the move. Static here (no 30s orbit): the
+        // header sits next to the page title on every page, and a perpetual
+        // orbiting satellite there is noise, not delight.
+        const robo = document.createElement('span');
+        robo.className = 'gm-robo gm-static gm-hdr';
+        robo.setAttribute('aria-hidden', 'true');
+        robo.innerHTML = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <g class="gm-bot">
+                <line class="gm-ant" x1="17.6" y1="12.4" x2="15.5" y2="8.2" stroke-linecap="round"/>
+                <circle class="gm-ant-tip l" cx="15" cy="7.3" r="1.5"/>
+                <line class="gm-ant" x1="22.4" y1="12.4" x2="24.5" y2="8.2" stroke-linecap="round"/>
+                <circle class="gm-ant-tip r" cx="25" cy="7.3" r="1.5"/>
+                <rect class="gm-head" x="11.5" y="12.2" width="17" height="14.5" rx="4.6"/>
+                <circle class="gm-eye l" cx="17.2" cy="18.6" r="1.6"/>
+                <circle class="gm-eye r" cx="22.8" cy="18.6" r="1.6"/>
+                <path class="gm-smile" d="M16.6 22 Q20 24.6 23.4 22" stroke-linecap="round"/>
+            </g>
+        </svg>`;
+        btn.appendChild(robo);
+
+        // Kept for the status-reflect plumbing below (the on/off signal now
+        // lives on the circle ring itself, but the card's status line still
+        // reads this node's state). Off-DOM: a 0-size hidden marker.
+        const dot = document.createElement('span');
+        dot.id = 'guardian-hdr-dot';
+        dot.style.cssText = 'display: none;';
+        btn.appendChild(dot);
+        wrap.appendChild(btn);
+
+        // ---- Anchored card ----
+        const pop = document.createElement('div');
+        pop.id = 'guardian-hdr-pop';
+        pop.setAttribute('role', 'dialog');
+        pop.setAttribute('aria-label', 'Guardian ML — local ML threat detection');
+        pop.style.cssText = 'display: none; position: absolute; top: 38px; right: 0; width: 330px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 18px; box-shadow: 0 12px 32px rgba(0,0,0,0.30); z-index: 1200; text-align: left; cursor: default;';
+
+        const headRow = document.createElement('div');
+        headRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 4px;';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size: 15px; font-weight: 700; color: var(--text-primary); flex: 1;';
+        title.textContent = 'Guardian ML';
+        headRow.appendChild(title);
+
+        // Toggle switch — same .toggle / .toggle-slider markup as Settings so
+        // the two surfaces stay visually identical.
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+        toggle.style.cssText = 'flex-shrink: 0;';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-label', 'Toggle Guardian ML detection');
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(checkbox);
+        toggle.appendChild(slider);
+        headRow.appendChild(toggle);
+        pop.appendChild(headRow);
+
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
+        sub.textContent = 'Local ML model screening every analyze call alongside the regex rules — catches obfuscated, paraphrased, and encoded attacks the rules miss.';
+        pop.appendChild(sub);
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'margin: 0 0 12px; padding-left: 16px; font-size: 12px; line-height: 1.7; color: var(--text-secondary);';
+        [
+            'Fully offline — nothing leaves your machine, no API key.',
+            'Sub-millisecond on a typical prompt or tool call.',
+            'Additive only — strengthens a verdict, never silences a rule.',
+        ].forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            list.appendChild(li);
+        });
+        pop.appendChild(list);
+
+        const statusLine = document.createElement('div');
+        statusLine.id = 'guardian-hdr-status';
+        statusLine.style.cssText = 'display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 7px; background: var(--bg-tertiary); margin-bottom: 10px;';
+        const stDot = document.createElement('span');
+        stDot.style.cssText = 'width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;';
+        const stText = document.createElement('span');
+        statusLine.appendChild(stDot);
+        statusLine.appendChild(stText);
+        pop.appendChild(statusLine);
+
+        const foot = document.createElement('a');
+        foot.href = '#';
+        foot.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary); text-decoration: none;';
+        foot.textContent = 'Guardian settings →';
+        foot.addEventListener('click', (e) => {
+            e.preventDefault();
+            closePop();
+            if (window.Sidebar) Sidebar.navigate('guardian-ml');
+        });
+        pop.appendChild(foot);
+        wrap.appendChild(pop);
+
+        // ---- State plumbing ----
+        // One place keeps the circle ring + card status + checkbox in sync.
+        // On = accent ring + soft teal glow + full-opacity robot; off = muted
+        // border, no glow, dimmed robot. That's the entire at-a-glance signal
+        // now that the text label and status dot are gone.
+        const reflect = (on) => {
+            checkbox.checked = on;
+            btn.style.borderColor = on ? 'var(--accent-primary)' : 'var(--border-default)';
+            btn.style.boxShadow = on ? '0 0 0 1px rgba(94,173,184,0.35), 0 0 8px rgba(94,173,184,0.30)' : 'none';
+            robo.style.opacity = on ? '1' : '0.45';
+            btn.dataset.on = on ? 'true' : 'false';
+            stDot.style.background = on ? 'var(--accent-primary)' : 'var(--text-muted)';
+            stText.textContent = on
+                ? 'Active — screening every call alongside the regex rules'
+                : 'Off — detection is running on regex rules only';
+        };
+
+        // Optimistic default ON (matches the server default) so the dot
+        // doesn't flash "off" before the settings fetch resolves.
+        reflect(true);
+        const refresh = () => API.getSettings()
+            .then(s => reflect((s && s.guardian_ml_enabled) !== false))
+            .catch(() => { /* keep last known state */ });
+        refresh();
+
+        let suppress = false;
+        checkbox.addEventListener('change', async (e) => {
+            if (suppress) return;
+            const enabled = e.target.checked;
+            reflect(enabled);
+            try {
+                await API.updateSettings({ guardian_ml_enabled: enabled });
+                if (window.Toast) {
+                    Toast.success(enabled
+                        ? 'Guardian ML detection enabled'
+                        : 'Guardian ML detection disabled — regex rules still active');
+                }
+            } catch (err) {
+                suppress = true;
+                reflect(!enabled);
+                suppress = false;
+                if (window.Toast) Toast.error('Failed to update Guardian setting');
+            }
+        });
+
+        // ---- Open / close ----
+        const openPop = () => {
+            refresh();           // never show a stale toggle state
+            pop.style.display = 'block';
+            btn.setAttribute('aria-expanded', 'true');
+        };
+        const closePop = () => {
+            pop.style.display = 'none';
+            btn.setAttribute('aria-expanded', 'false');
+        };
+        btn.addEventListener('click', () => {
+            (pop.style.display === 'none' ? openPop : closePop)();
+        });
+        // Hover brightens the disc without overriding the on/off ring color
+        // (that's reflect()'s job) — a subtle background lift only.
+        btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--bg-hover, #30363d)'; });
+        btn.addEventListener('mouseleave', () => { btn.style.background = 'var(--bg-tertiary)'; });
+
+        // Outside click / Escape dismiss. Header re-renders (e.g. theme
+        // toggle) recreate this control, so tear down the previous document
+        // listeners first — otherwise they stack per render and hold dead
+        // DOM alive.
+        if (this._guardianTeardown) this._guardianTeardown();
+        const onDocClick = (e) => { if (!wrap.contains(e.target)) closePop(); };
+        const onDocKey = (e) => { if (e.key === 'Escape') closePop(); };
+        document.addEventListener('click', onDocClick);
+        document.addEventListener('keydown', onDocKey);
+        this._guardianTeardown = () => {
+            document.removeEventListener('click', onDocClick);
+            document.removeEventListener('keydown', onDocKey);
+        };
+
+        return wrap;
+    },
+
     createConnectAgentsButton() {
         const btn = document.createElement('button');
         // Matches the Tour button's neutral colour (text-secondary border + text,
         // accent on hover) but carries a soft drop shadow so it still reads as the
         // primary CTA. Shadow uses rgba black so it's visible in light AND dark.
-        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); height: 30px; padding: 0 15px; border-radius: 15px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: all 0.2s; margin-right: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.18);';
+        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); height: 30px; padding: 0 15px; border-radius: 15px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: all 0.2s; margin-right: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.18); white-space: nowrap;';
         btn.title = 'Connect your agents to this engine';
 
         // Plug icon — "connect".
@@ -1850,7 +2067,7 @@ graph.add_edge("output_security", END)`,
     PAGE_INFO: {
         dashboard:         { title: 'Dashboard',           subtitle: 'Scanned requests, active threats, cost trends, and recent activity' },
         threats:           { title: 'Threat Monitor',      subtitle: 'All LLM requests analyzed for threats' },
-        replay:            { title: 'Agent Activity',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
+        replay:            { title: 'Observability',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
         'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called — two tabs, one dataset' },
@@ -1859,7 +2076,7 @@ graph.add_edge("output_security", END)`,
         governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture — operational, not a legal/compliance assessment' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
         'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection — runs offline alongside the regex rules' },
-        costs:             { title: 'Cost Tracking',       subtitle: 'Track LLM token spend per agent' },
+        costs:             { title: 'Cost & Tokens',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
         'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine — Framework SDKs or coding-agent plugins, local or self-host' },
@@ -1887,7 +2104,12 @@ graph.add_edge("output_security", END)`,
         const hpt = document.getElementById('header-page-title');
         if (hpt) hpt.textContent = title || '';
         const hps = document.getElementById('header-page-subtitle');
-        if (hps) hps.textContent = subtitle !== undefined ? subtitle : '';
+        if (hps) {
+            hps.textContent = subtitle !== undefined ? subtitle : '';
+            // Subtitle is clamped to one line — the full text survives as a
+            // tooltip for the few pages whose description still runs long.
+            hps.title = subtitle || '';
+        }
     },
 };
 

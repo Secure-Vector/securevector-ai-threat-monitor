@@ -5,7 +5,11 @@ rules:
   metadata:
     author: SecureVector Community
     created_at: '2026-02-02T00:00:00Z'
-    direction: output
+    # Was legacy `output` (dead value → normalized to `both`), which let the
+    # entropy-token heuristic fire on test fixtures and code read as incoming
+    # context (2026-07 flood). Model-side only; real secret VALUES in tool
+    # output are still covered by the PEM/PII value rules below (`both`).
+    direction: outgoing
     tags:
     - credential_leak
     - api_key

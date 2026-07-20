@@ -291,7 +291,7 @@ const DashboardPage = {
 
         const sub = document.createElement('div');
         sub.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 14px;';
-        sub.textContent = 'Head to Connect Agents — pick your agent or harness, choose where SecureVector runs, and copy the commands. This dashboard fills in automatically once your first agent runs.';
+        sub.textContent = 'The Connect Wizard scans this device for agent runtimes, installs the Guard plugin in one click, and verifies your first protected call live. This dashboard fills in automatically once your first agent runs.';
         card.appendChild(sub);
 
         // Single CTA — the Connect Agents page is now the one front door, so the
@@ -299,7 +299,7 @@ const DashboardPage = {
         // button (no cyan fill / white text).
         const cta = document.createElement('button');
         cta.style.cssText = 'display: inline-flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--accent-primary) 15%, transparent); border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent); color: var(--accent-primary); border-radius: 9px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.14s, border-color 0.14s;';
-        cta.textContent = 'Connect Agents →';
+        cta.textContent = 'Connect your first agent →';
         cta.addEventListener('mouseenter', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 24%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 60%, transparent)'; });
         cta.addEventListener('mouseleave', () => { cta.style.background = 'color-mix(in srgb, var(--accent-primary) 15%, transparent)'; cta.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 45%, transparent)'; });
         cta.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('guide-connect-agents'); });
@@ -346,9 +346,17 @@ const DashboardPage = {
     async renderContent(container) {
         container.textContent = '';
 
-        // Posture header — outcome-encoded status sentence + global range
-        // selector (24h/7d/30d). Banners/what's-new live in GlobalBanners.
-        this._renderPostureHeader(container);
+        // ── Tier 1 — protection hero ────────────────────────────────────────
+        // One card that answers "am I protected?" at a glance: the
+        // outcome-encoded posture sentence (with the global 24h/7d/30d range
+        // selector) plus the headline aggregates as a single stat strip.
+        // Same data the old KPI grid showed — recomposed, not changed.
+        const hero = document.createElement('div');
+        hero.className = 'sv-dash-hero';
+        hero.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 18px 20px 8px; margin-bottom: 20px;';
+        container.appendChild(hero);
+        this._renderPostureHeader(hero);
+        this._renderHeroStats(hero); // render-then-fill; never blocks the page
 
 
         // Needs-attention stack — ONE prioritized home for everything that
@@ -428,7 +436,7 @@ const DashboardPage = {
             const dismissedAt = (id) => {
                 try { return Number(localStorage.getItem('sv-attn-dismiss-' + id) || 0); } catch (_) { return 0; }
             };
-            const buildGapItem = (id, text, cta, onRemove) => {
+            const buildGapItem = (ids, text, cta, onRemove) => {
                 const bar = document.createElement('div');
                 bar.style.cssText = 'padding: 9px 14px; border-radius: 8px; border: 1px solid rgba(180,130,0,0.6); background: rgba(180,130,0,0.06); display: flex; align-items: center; gap: 12px;';
                 const txt = document.createElement('div');
@@ -449,7 +457,7 @@ const DashboardPage = {
                 dismiss.textContent = '×';
                 dismiss.style.cssText = 'background:none; border:none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1;';
                 dismiss.addEventListener('click', () => {
-                    try { localStorage.setItem('sv-attn-dismiss-' + id, String(Date.now())); } catch (_) { /* */ }
+                    try { ids.forEach(id => localStorage.setItem('sv-attn-dismiss-' + id, String(Date.now()))); } catch (_) { /* */ }
                     bar.remove();
                     if (onRemove) onRemove();
                 });
@@ -472,9 +480,21 @@ const DashboardPage = {
                 if (this.settings.guardian_ml_available !== false && this.settings.guardian_ml_enabled === false) {
                     gaps.push(['guardian-ml', 'Guardian ML is off — detection is running on rules only', 'Turn on']);
                 }
-                gaps.forEach(([id, text, cta]) => {
-                    if (Date.now() - dismissedAt(id) > 86400000) stack.appendChild(buildGapItem(id, text, cta, syncVis));
-                });
+                // v5 banner policy: never stack gap bars. One gap renders its
+                // full sentence; several gaps merge into a single summary line
+                // (same conditions, same destination, and dismissing it snoozes
+                // every listed gap for the same 24h the singles always had).
+                const due = gaps.filter(([id]) => Date.now() - dismissedAt(id) > 86400000);
+                if (due.length === 1) {
+                    stack.appendChild(buildGapItem([due[0][0]], due[0][1], due[0][2], syncVis));
+                } else if (due.length > 1) {
+                    const names = { 'block-mode': 'Block mode', 'output-scan': 'Output scan', 'guardian-ml': 'Guardian ML' };
+                    const list = due.map(([id]) => names[id] || id).join(', ');
+                    stack.appendChild(buildGapItem(
+                        due.map(([id]) => id),
+                        `${due.length} protections are off — ${list}. Threats are detected and logged, but not fully enforced.`,
+                        'Review', syncVis));
+                }
                 syncVis();
             };
             if (!dayZero) {
@@ -492,167 +512,30 @@ const DashboardPage = {
             }
         } catch (e) { /* attention stack is non-critical */ }
 
-        // ── Compact status bar + metrics grid ──────────────────────────────
-        try {
-            const valueSection = document.createElement('div');
-            valueSection.style.cssText = 'margin-bottom: 18px;';
+        // ── Tier 2 — live proof ─────────────────────────────────────────────
+        // Recent threat activity sits directly under the hero: the app
+        // visibly *doing* something is the dashboard's immediate value.
+        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
+        activityCard.style.marginBottom = '20px';
+        this.renderRecentActivity(activityCard.querySelector('.card-body'));
+        container.appendChild(activityCard);
 
-            // 5-KPI band data — every count respects the global range where
-            // the backend can scope it (tool calls + secrets); spend is
-            // always "today" because that's what the budget is set against.
-            const kpiDays = this.rangeDays;
-            const [auditDaily, redactions, costData, guardian] = await Promise.all([
-                API.getToolCallAuditDaily(kpiDays).catch(() => null),
-                API.getRedactions(kpiDays, { limit: 1 }).catch(() => null),
-                API.getDashboardCostSummary().catch(() => null),
-                API.getBudgetGuardian().catch(() => null),
-            ]);
-
-            // The daily endpoint buckets by calendar day and over-returns at
-            // the window edge (days=1 includes yesterday) — clamp to the
-            // last N calendar days client-side so 24h means "today".
-            const kpiSinceDay = (() => {
-                const d = new Date(Date.now() - (kpiDays - 1) * 86400000);
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            })();
-            const toolCalls = auditDaily && auditDaily.days
-                ? auditDaily.days.filter(d => d.day >= kpiSinceDay)
-                    .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
-                : 0;
-            const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
-            // Format: $0.00 when zero or sub-cent (4-decimal precision feels
-            // performative on a dashboard); $0.0123 only when the amount is
-            // small but non-trivial. Two decimals once you've crossed $1.
-            const _formatCost = (n) => {
-                if (!n || n < 0.005) return '$0.00';
-                if (n < 1) return '$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-                return '$' + n.toFixed(2);
-            };
-            const todayCost = costData ? _formatCost(costData.today_cost_usd || 0) : '$0.00';
-
-            // In-range threat slices \u2014 same lookback the posture sentence uses.
-            const kpiCutoff = Date.now() - kpiDays * 86400000;
-            const kpiParse = (iso) => {
-                const d = new Date(String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z'));
-                return isNaN(d) ? null : d;
-            };
-            const kpiThreats = (this.threats || []).filter(t => {
-                const d = kpiParse(t.created_at);
-                return t.is_threat && d && d.getTime() >= kpiCutoff;
-            });
-            const kpiBlocked = kpiThreats.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
-            const kpiCritical = kpiThreats.filter(t => t.risk_score >= 80).length;
-
-            // Value metrics grid
-            const metricsGrid = document.createElement('div');
-            metricsGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px;';
-
-            const makeMetric = (value, label, color, navPage) => {
-                const card = document.createElement('div');
-                // KPI band is the dashboard's headline — give the cards real
-                // presence (larger numbers, more padding) so the hero metrics
-                // read first, ahead of the charts below.
-                card.style.cssText = 'background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 16px 18px; cursor: pointer; transition: border-color 0.15s, transform 0.1s;';
-                card.addEventListener('mouseenter', () => { card.style.borderColor = color + '66'; card.style.transform = 'translateY(-1px)'; });
-                card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border-default)'; card.style.transform = ''; });
-                if (navPage) card.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
-
-                const valEl = document.createElement('div');
-                valEl.style.cssText = 'font-size: 28px; font-weight: 800; color: ' + color + '; line-height: 1.05; margin-bottom: 6px; letter-spacing: -0.5px;';
-                valEl.textContent = value;
-                card.appendChild(valEl);
-
-                const lblEl = document.createElement('div');
-                lblEl.style.cssText = 'font-size: 11.5px; color: var(--text-secondary); font-weight: 600; line-height: 1.3; letter-spacing: 0.2px;';
-                lblEl.textContent = label;
-                card.appendChild(lblEl);
-
-                return card;
-            };
-
-            const rangeTag = kpiDays === 1 ? '24h' : kpiDays + 'd';
-            metricsGrid.appendChild(makeMetric(
-                toolCalls.toLocaleString(),
-                `Tool calls · ${rangeTag}`,
-                '#5eadb8', 'tool-activity'
-            ));
-            metricsGrid.appendChild(makeMetric(
-                kpiBlocked,
-                `Threats blocked · ${rangeTag}`,
-                kpiBlocked > 0 ? '#ef4444' : '#10b981', 'threats'
-            ));
-            metricsGrid.appendChild(makeMetric(
-                kpiCritical,
-                `Critical · ${rangeTag}`,
-                kpiCritical > 0 ? '#ef4444' : '#10b981', 'threats'
-            ));
-            metricsGrid.appendChild(makeMetric(
-                secretsCaught,
-                `Secrets caught · ${rangeTag}`,
-                secretsCaught > 0 ? '#f59e0b' : '#10b981', 'redactions'
-            ));
-
-            // Spend today — with a budget progress bar ONLY when a budget is
-            // actually configured. No bar against an imaginary denominator.
-            const spendCard = makeMetric(todayCost, 'Spend today', '#f59e0b', 'costs');
-            const budgetUsd = guardian && guardian.global_budget_usd != null ? guardian.global_budget_usd : null;
-            if (budgetUsd) {
-                const pct = Math.min((guardian.global_pct_used || 0) * 100, 100);
-                const barColor = guardian.global_over_budget ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981';
-                const track = document.createElement('div');
-                track.style.cssText = 'height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; margin-top: 7px;';
-                const fill = document.createElement('div');
-                fill.style.cssText = `height: 100%; border-radius: 2px; width: ${pct}%; background: ${barColor};`;
-                track.appendChild(fill);
-                spendCard.appendChild(track);
-                const cap = document.createElement('div');
-                cap.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 3px;';
-                cap.textContent = `of $${Number(budgetUsd).toFixed(2)} budget`;
-                spendCard.appendChild(cap);
-            }
-            metricsGrid.appendChild(spendCard);
-
-            valueSection.appendChild(metricsGrid);
-
-            container.appendChild(valueSection);
-        } catch (e) { /* value section is non-critical */ }
-
-        // Reports — surface immediately under the overview metrics so the
-        // weekly artifacts (Tool Inventory, Secret Detections, Threats) are
-        // one glance away.
-        this.renderReportsSection(container);
-
-        // Charts row — threat trend + cost trend side by side
+        // ── Tier 3 — everything else, demoted ───────────────────────────────
+        // One full-width chart: requests + threats. Cost/token trends live
+        // on Cost & Tokens now (that page owns spend + tokens together) —
+        // a second chart here was the main source of dashboard cramp.
         const chartsRow = document.createElement('div');
-        chartsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;';
+        chartsRow.style.cssText = 'margin-bottom: 24px;';
 
         const chartDays = this.rangeDays;
         const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
-        // Cost/token telemetry is day-grained — a 24h dollar chart would be
-        // a single point, so the cost card never narrows below 7 days.
-        const costDays = Math.max(chartDays, 7);
 
         const trendCard = Card.create({ title: `LLM Requests — ${chartLabel}`, gradient: true });
         const trendBody = trendCard.querySelector('.card-body');
-        trendBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
+        trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(trendCard);
         this.renderTrendChart(trendBody, chartDays).catch(() => {
-            trendBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
-        });
-
-        const costTrendCard = Card.create({ title: `Provider Cost — Last ${costDays} Days`, gradient: true });
-        const costBody = costTrendCard.querySelector('.card-body');
-        // Show a lightweight placeholder and populate this chart WITHOUT
-        // awaiting it. When there's no provider cost we fall back to the
-        // token-usage chart, whose endpoints walk on-disk agent session logs
-        // (~1.7s for Claude Code transcripts). Awaiting here previously blocked
-        // the whole charts row AND everything rendered below it (security
-        // controls, recent activity). Fire-and-forget so the page is
-        // interactive immediately; the chart fills in when its data arrives.
-        costBody.innerHTML = '<div class="loading-container" style="height:140px;"><div class="spinner"></div></div>';
-        chartsRow.appendChild(costTrendCard);
-        this.renderCostTrendChart(costBody, costTrendCard, costDays).catch(() => {
-            costBody.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
+            trendBody.innerHTML = '<div style="height:160px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
         });
 
         container.appendChild(chartsRow);
@@ -666,10 +549,165 @@ const DashboardPage = {
         // Governance posture moved to its own Cloud-section page
         // (GovernancePage) — kept off the dashboard to reduce clutter.
 
-        // Recent activity
-        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
-        this.renderRecentActivity(activityCard.querySelector('.card-body'));
-        container.appendChild(activityCard);
+        // Reports — weekly artifacts, last in the reading order as compact
+        // tiles; the full pages (and rich PDF export) are one click away.
+        this.renderReportsSection(container);
+    },
+
+    /**
+     * Hero stat strip — the old 5-card KPI grid recomposed into one compact
+     * row inside the protection hero, led by "Runtimes guarded" so the strip
+     * reads as proof of protection, not just traffic. Same sources, same
+     * lookback semantics; renders placeholders immediately and fills in the
+     * background so the page never blocks on these fetches.
+     */
+    async _renderHeroStats(host) {
+        const days = this.rangeDays;
+        const rangeTag = days === 1 ? '24h' : days + 'd';
+
+        const strip = document.createElement('div');
+        strip.style.cssText = 'display: flex; flex-wrap: wrap; border-top: 1px solid var(--border-default); margin-top: 4px;';
+        host.appendChild(strip);
+
+        const makeStat = (label, color, navPage) => {
+            const cell = document.createElement('div');
+            cell.style.cssText = 'flex: 1 1 130px; min-width: 120px; padding: 16px 22px 14px 0; cursor: pointer;';
+            const valEl = document.createElement('div');
+            // v5 type signature: hero numbers in the mono face read like a
+            // telemetry instrument (tabular, technical). Class hook lets the
+            // stylesheet own the font so it stays consistent app-wide.
+            valEl.className = 'stat-value';
+            valEl.style.cssText = 'font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: ' + color + '; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;';
+            valEl.textContent = '—';
+            cell.appendChild(valEl);
+            const lblEl = document.createElement('div');
+            lblEl.className = 'stat-label';
+            lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
+            lblEl.textContent = label;
+            cell.appendChild(lblEl);
+            cell.addEventListener('mouseenter', () => { valEl.style.textDecoration = 'underline'; });
+            cell.addEventListener('mouseleave', () => { valEl.style.textDecoration = ''; });
+            if (navPage) cell.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
+            strip.appendChild(cell);
+            return { valEl, cell };
+        };
+
+        // v5 color policy: stat values are neutral by default — color is
+        // applied per-value ONLY when it signals a security state (red when
+        // threats are present, amber for needs-attention). A rainbow of
+        // always-on colored stats reads as alarm soup on a security console.
+        const NEUTRAL = 'var(--text-primary)';
+        const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
+        const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
+        const blockedStat = makeStat(`Threats blocked · ${rangeTag}`, NEUTRAL, 'threats');
+        const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
+        const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
+        const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
+
+        // In-range threat slices are synchronous — same lookback the posture
+        // sentence uses. Fill them before any network round-trip.
+        const cutoff = Date.now() - days * 86400000;
+        const parseTs = (iso) => {
+            const d = new Date(String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z'));
+            return isNaN(d) ? null : d;
+        };
+        const inRange = (this.threats || []).filter(t => {
+            const d = parseTs(t.created_at);
+            return t.is_threat && d && d.getTime() >= cutoff;
+        });
+        const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
+        const critical = inRange.filter(t => t.risk_score >= 80).length;
+        blockedStat.valEl.textContent = blocked.toLocaleString();
+        if (blocked > 0) blockedStat.valEl.style.color = '#ef4444';
+        criticalStat.valEl.textContent = critical.toLocaleString();
+        if (critical > 0) criticalStat.valEl.style.color = '#ef4444';
+
+        // Async fills — each independent, each failure-tolerant.
+        try {
+            const [agents, auditDaily, redactions, costData, guardian] = await Promise.all([
+                fetch('/api/detection/agents').then(r => r.ok ? r.json() : null).catch(() => null),
+                API.getToolCallAuditDaily(days).catch(() => null),
+                API.getRedactions(days, { limit: 1 }).catch(() => null),
+                API.getDashboardCostSummary().catch(() => null),
+                API.getBudgetGuardian().catch(() => null),
+            ]);
+            if (!strip.isConnected) return; // page switched mid-fetch
+
+            if (agents) {
+                const n = (agents.harnesses || []).filter(h => h.plugin_connected).length +
+                    (agents.frameworks || []).length;
+                guarded.valEl.textContent = String(n);
+                if (n === 0) {
+                    guarded.valEl.style.color = '#f59e0b';
+                    guarded.cell.title = 'Nothing is protected yet — open the Connect Wizard';
+                }
+            }
+
+            // The daily endpoint buckets by calendar day and over-returns at
+            // the window edge (days=1 includes yesterday) — clamp to the
+            // last N calendar days client-side so 24h means "today".
+            const sinceDay = (() => {
+                const d = new Date(Date.now() - (days - 1) * 86400000);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })();
+            const toolCalls = auditDaily && auditDaily.days
+                ? auditDaily.days.filter(d => d.day >= sinceDay)
+                    .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
+                : 0;
+            calls.valEl.textContent = toolCalls.toLocaleString();
+
+            const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
+            secretsStat.valEl.textContent = secretsCaught.toLocaleString();
+            if (secretsCaught > 0) secretsStat.valEl.style.color = '#f59e0b';
+
+            // Format: $0.00 when zero or sub-cent (4-decimal precision feels
+            // performative on a dashboard); $0.0123 only when the amount is
+            // small but non-trivial. Two decimals once you've crossed $1.
+            const formatCost = (n) => {
+                if (!n || n < 0.005) return '$0.00';
+                if (n < 1) return '$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+                return '$' + n.toFixed(2);
+            };
+            // Two cost sources, reconciled honestly: metered spend (proxy path
+            // only — $0 for hook/plugin-connected agents) vs the transcript
+            // estimate (API-list-price value of today's LLM turns, same number
+            // the Traces page shows). When only the estimate exists, show it
+            // AS an estimate — "≈$X est." — never a flat $0 that contradicts
+            // Traces, and never an unlabeled figure that reads as billed spend
+            // (on a Claude/OpenAI subscription this usage is included, not
+            // invoiced).
+            const metered = costData ? (costData.today_cost_usd || 0) : 0;
+            const estOnly = costData && metered < 0.005 && (costData.today_estimate_usd || 0) >= 0.005;
+            if (estOnly) {
+                spendStat.valEl.textContent = '≈' + formatCost(costData.today_estimate_usd);
+                spendStat.cell.title = 'Estimated from session transcripts (token counts × API list prices) — the same figure Traces shows. '
+                    + 'Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced. '
+                    + 'Metered proxy spend today: $0.';
+                const est = document.createElement('div');
+                est.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 3px;';
+                est.textContent = 'est. from transcripts · not billed';
+                spendStat.cell.appendChild(est);
+            } else {
+                spendStat.valEl.textContent = costData ? formatCost(metered) : '$0.00';
+            }
+
+            // Budget progress bar ONLY when a budget is actually configured.
+            const budgetUsd = guardian && guardian.global_budget_usd != null ? guardian.global_budget_usd : null;
+            if (budgetUsd) {
+                const pct = Math.min((guardian.global_pct_used || 0) * 100, 100);
+                const barColor = guardian.global_over_budget ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981';
+                const track = document.createElement('div');
+                track.style.cssText = 'height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; margin-top: 6px; max-width: 120px;';
+                const fill = document.createElement('div');
+                fill.style.cssText = `height: 100%; border-radius: 2px; width: ${pct}%; background: ${barColor};`;
+                track.appendChild(fill);
+                spendStat.cell.appendChild(track);
+                const cap = document.createElement('div');
+                cap.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 3px;';
+                cap.textContent = `of $${Number(budgetUsd).toFixed(2)} budget`;
+                spendStat.cell.appendChild(cap);
+            }
+        } catch (_) { /* hero stats are non-critical */ }
     },
 
     renderReportsSection(container) {
@@ -794,15 +832,27 @@ const DashboardPage = {
     },
 
     _reportCard({ title, blurb, openPage, onCsv }) {
-        // Match the visual treatment of sibling Card.create({gradient:true})
-        // sections (bg-card + subtle gradient via accent-tinted border-top).
+        // Tier-3 compact tile — the whole tile opens the full report page;
+        // CSV stays as a quiet inline action. The blurb survives as a
+        // tooltip so no information is lost, it just stops competing with
+        // the hero for space.
         const card = document.createElement('div');
-        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-top:2px solid rgba(94,173,184,0.45);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0;';
+        card.title = blurb;
+        card.style.cssText = 'background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer;transition:border-color 0.15s;';
+        card.addEventListener('mouseenter', () => { card.style.borderColor = 'rgba(94,173,184,0.55)'; });
+        card.addEventListener('mouseleave', () => { card.style.borderColor = 'var(--border-default)'; });
+        card.addEventListener('click', () => {
+            if (window.App && App.loadPage) App.loadPage(openPage);
+        });
+
+        const main = document.createElement('div');
+        main.style.cssText = 'flex:1;min-width:0;';
+        card.appendChild(main);
 
         const h = document.createElement('h3');
         h.textContent = title;
-        h.style.cssText = 'margin:0;font-size:14px;font-weight:700;color:var(--text-primary);';
-        card.appendChild(h);
+        h.style.cssText = 'margin:0 0 2px;font-size:13px;font-weight:700;color:var(--text-primary);';
+        main.appendChild(h);
 
         // Live stats line — populated by _populateReportStats. Renders a
         // single em-dash while waiting so the layout doesn't jump.
@@ -810,33 +860,21 @@ const DashboardPage = {
         stats.className = 'sv-report-stats';
         stats.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.4;min-height:17px;';
         stats.textContent = '—';
-        card.appendChild(stats);
-
-        const sub = document.createElement('div');
-        sub.textContent = blurb;
-        sub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;flex:1;';
-        card.appendChild(sub);
-
-        const actions = document.createElement('div');
-        actions.style.cssText = 'display:flex;gap:8px;';
+        main.appendChild(stats);
 
         const csvBtn = document.createElement('button');
         csvBtn.className = 'sv-btn-secondary';
-        csvBtn.textContent = 'Export CSV';
-        csvBtn.style.cssText = 'padding:5px 10px;font-size:12px;';
-        csvBtn.addEventListener('click', onCsv);
-        actions.appendChild(csvBtn);
+        csvBtn.textContent = 'CSV';
+        csvBtn.title = 'Export CSV (last 7 days)';
+        csvBtn.style.cssText = 'padding:4px 9px;font-size:11.5px;flex-shrink:0;';
+        csvBtn.addEventListener('click', (e) => { e.stopPropagation(); onCsv(); });
+        card.appendChild(csvBtn);
 
-        const viewBtn = document.createElement('button');
-        viewBtn.className = 'sv-btn-secondary';
-        viewBtn.textContent = 'View report →';
-        viewBtn.style.cssText = 'padding:5px 10px;font-size:12px;';
-        viewBtn.addEventListener('click', () => {
-            if (window.App && App.loadPage) App.loadPage(openPage);
-        });
-        actions.appendChild(viewBtn);
+        const arrow = document.createElement('span');
+        arrow.textContent = '→';
+        arrow.style.cssText = 'color:var(--text-muted);font-size:14px;flex-shrink:0;';
+        card.appendChild(arrow);
 
-        card.appendChild(actions);
         return card;
     },
 
@@ -1016,30 +1054,59 @@ const DashboardPage = {
     _renderTimelineChart(container, opts) {
         const series = opts.series || [];
         const labels = opts.labels || [];
-        const height = opts.height || 140;
+        const height = opts.height || 160;
         const yFormat = opts.yFormat || (n => Math.round(n).toLocaleString());
         if (series.length === 0 || labels.length === 0) return;
-        // Clear any prior content (e.g. the async "Loading…" placeholder the
-        // cost/token card shows while its on-disk data is fetched).
-        container.textContent = '';
+
+        // The chart owns an inner host div so a responsive re-render clears
+        // only itself — siblings the caller appended (e.g. the dashboard's
+        // truncation note) survive.
+        let host = container.querySelector(':scope > .sv-linechart');
+        if (!host) {
+            container.textContent = '';
+            host = document.createElement('div');
+            host.className = 'sv-linechart';
+            container.appendChild(host);
+        } else {
+            host.textContent = '';
+        }
+
+        // True pixel coordinates. The previous fixed-600 viewBox with
+        // preserveAspectRatio="none" stretched non-uniformly to the card —
+        // circles became ellipses, text and strokes distorted. Rendering at
+        // the container's real width keeps every glyph and marker crisp; a
+        // ResizeObserver re-renders when the card's width actually changes.
+        const w = container.clientWidth || 600;
+        container._svTimelineOpts = opts;
+        container._svTimelineLastW = w;
+        if (!container._svTimelineRO && window.ResizeObserver) {
+            const ro = new ResizeObserver(() => {
+                const cw = container.clientWidth;
+                if (!cw || Math.abs(cw - (container._svTimelineLastW || 0)) < 8) return;
+                requestAnimationFrame(() =>
+                    this._renderTimelineChart(container, container._svTimelineOpts));
+            });
+            ro.observe(container);
+            container._svTimelineRO = ro;
+        }
 
         const n = labels.length;
-        // Compute the per-series max separately, then the global max for
-        // scale. A single shared y-axis keeps the two series comparable.
+        // Shared y-axis across series keeps them comparable; round the max
+        // up to a "nice" value so tick labels are clean.
         const allValues = series.flatMap(s => s.data || []);
         const maxVal = Math.max(...allValues, 1);
-        // Round up to a "nice" max so the y-tick labels are clean.
         const niceMax = (() => {
-            if (maxVal <= 10) return Math.ceil(maxVal);
+            // Keep small maxima even so the mid gridline's label is exact
+            // (a max of 3 would put a rounded "2" at the 1.5 line).
+            if (maxVal <= 10) return Math.max(2, Math.ceil(maxVal / 2) * 2);
             const pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
             const norm = maxVal / pow;
             const rounded = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
             return rounded * pow;
         })();
 
-        // SVG layout — fixed paddings so labels never get cropped.
-        const padL = 36, padR = 8, padT = 8, padB = 22;
-        const w = 600; // logical width; viewBox preserves aspect, host can scale
+        // Fixed paddings so labels never get cropped.
+        const padL = 40, padR = 12, padT = 10, padB = 24;
         const innerW = w - padL - padR;
         const innerH = height - padT - padB;
 
@@ -1049,8 +1116,9 @@ const DashboardPage = {
         const svgNS = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${w} ${height}`);
-        svg.setAttribute('preserveAspectRatio', 'none');
-        svg.style.cssText = `width: 100%; height: ${height}px; display: block; overflow: visible;`;
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', height);
+        svg.style.cssText = 'display: block; overflow: visible; max-width: 100%;';
         svg.setAttribute('role', 'img');
         svg.setAttribute('aria-label', series.map(s => s.label).join(' and ') + ' over time');
 
@@ -1079,12 +1147,11 @@ const DashboardPage = {
         });
 
         // X-axis labels. One tick per data point collides once the window
-        // grows (30 daily "MM/DD" or 24 hourly "HH:00" labels overrun 600px),
-        // so thin to a stride that targets ~8 evenly-spaced ticks. First and
-        // last are always shown; interior labels are dropped on the stride.
-        // The text-anchor on the edge ticks is nudged inward so they don't
-        // clip past the plot area.
-        const targetTicks = 8;
+        // grows, so thin to a stride derived from the real pixel width —
+        // roughly one tick per 80px, clamped to a sane band. First and last
+        // are always shown; interior labels are dropped on the stride. The
+        // text-anchor on the edge ticks is nudged inward so they don't clip.
+        const targetTicks = Math.max(4, Math.min(12, Math.floor(innerW / 80)));
         const stride = Math.max(1, Math.ceil(n / targetTicks));
         labels.forEach((lbl, i) => {
             const isFirst = i === 0;
@@ -1102,46 +1169,65 @@ const DashboardPage = {
             svg.appendChild(t);
         });
 
-        // Catmull-Rom → cubic Bézier path for smooth lines without
-        // sharp corners at each data point. Avoids degenerate splines
-        // when n < 3 by falling back to straight L commands.
+        // Monotone cubic interpolation (Fritsch–Carlson) — the standard for
+        // count/metric lines. Unlike a cardinal spline it never overshoots:
+        // a series of zeros stays flat on the baseline instead of dipping
+        // below it between points, and peaks aren't exaggerated.
+        const r1 = v => Math.round(v * 10) / 10;
         const smoothPath = (data) => {
-            if (data.length === 0) return '';
-            if (data.length === 1) {
-                return `M ${xAt(0)} ${yAt(data[0])}`;
+            const len = data.length;
+            if (len === 0) return '';
+            const xs = data.map((_, i) => xAt(i));
+            const ys = data.map(v => yAt(v));
+            if (len === 1) return `M ${r1(xs[0])} ${r1(ys[0])}`;
+            if (len === 2) return `M ${r1(xs[0])} ${r1(ys[0])} L ${r1(xs[1])} ${r1(ys[1])}`;
+            const dxs = [], slopes = [];
+            for (let i = 0; i < len - 1; i++) {
+                dxs.push(xs[i + 1] - xs[i]);
+                slopes.push((ys[i + 1] - ys[i]) / dxs[i]);
             }
-            let d = `M ${xAt(0)} ${yAt(data[0])}`;
-            for (let i = 0; i < data.length - 1; i++) {
-                const x0 = xAt(Math.max(i - 1, 0));
-                const y0 = yAt(data[Math.max(i - 1, 0)]);
-                const x1 = xAt(i);
-                const y1 = yAt(data[i]);
-                const x2 = xAt(i + 1);
-                const y2 = yAt(data[i + 1]);
-                const x3 = xAt(Math.min(i + 2, data.length - 1));
-                const y3 = yAt(data[Math.min(i + 2, data.length - 1)]);
-                // Cardinal spline tension 0.5.
-                const cp1x = x1 + (x2 - x0) / 6;
-                const cp1y = y1 + (y2 - y0) / 6;
-                const cp2x = x2 - (x3 - x1) / 6;
-                const cp2y = y2 - (y3 - y1) / 6;
-                d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+            const tangents = [slopes[0]];
+            for (let i = 1; i < len - 1; i++) {
+                if (slopes[i - 1] * slopes[i] <= 0) {
+                    tangents.push(0);
+                } else {
+                    const w1 = 2 * dxs[i] + dxs[i - 1];
+                    const w2 = dxs[i] + 2 * dxs[i - 1];
+                    tangents.push((w1 + w2) / (w1 / slopes[i - 1] + w2 / slopes[i]));
+                }
+            }
+            tangents.push(slopes[len - 2]);
+            let d = `M ${r1(xs[0])} ${r1(ys[0])}`;
+            for (let i = 0; i < len - 1; i++) {
+                const h = dxs[i] / 3;
+                d += ` C ${r1(xs[i] + h)} ${r1(ys[i] + tangents[i] * h)}, ` +
+                    `${r1(xs[i + 1] - h)} ${r1(ys[i + 1] - tangents[i + 1] * h)}, ` +
+                    `${r1(xs[i + 1])} ${r1(ys[i + 1])}`;
             }
             return d;
         };
 
-        series.forEach((s, sIdx) => {
+        // Visible markers only when the data is sparse enough to read them
+        // (dense windows become a dotted mess); hover always surfaces one.
+        const showDots = n <= 16;
+        // Area fills muddy fast when several series overlap — keep the
+        // subtle fill for 1–2 series, lines only beyond that.
+        const fillOpacity = series.length <= 2 ? 0.10 : 0;
+
+        series.forEach((s) => {
             const data = s.data || [];
             const pathStr = smoothPath(data);
             if (!pathStr) return;
 
             // Area fill — same path closed to baseline with low alpha.
-            const areaStr = `${pathStr} L ${xAt(data.length - 1)} ${padT + innerH} L ${xAt(0)} ${padT + innerH} Z`;
-            const area = document.createElementNS(svgNS, 'path');
-            area.setAttribute('d', areaStr);
-            area.setAttribute('fill', s.color);
-            area.setAttribute('fill-opacity', '0.14');
-            svg.appendChild(area);
+            if (fillOpacity > 0 && data.length > 1) {
+                const areaStr = `${pathStr} L ${r1(xAt(data.length - 1))} ${r1(padT + innerH)} L ${r1(xAt(0))} ${r1(padT + innerH)} Z`;
+                const area = document.createElementNS(svgNS, 'path');
+                area.setAttribute('d', areaStr);
+                area.setAttribute('fill', s.color);
+                area.setAttribute('fill-opacity', String(fillOpacity));
+                svg.appendChild(area);
+            }
 
             // Line stroke.
             const line = document.createElementNS(svgNS, 'path');
@@ -1153,28 +1239,28 @@ const DashboardPage = {
             line.setAttribute('stroke-linejoin', 'round');
             svg.appendChild(line);
 
-            // Dot markers — every point, larger on the latest day.
+            // Markers + hover targets. Visible dots only on sparse data;
+            // dense windows get a clean line and the dot appears on hover.
             data.forEach((v, i) => {
+                const isLast = i === data.length - 1;
+                const restR = showDots ? (isLast ? 4 : 3) : 0;
                 const dot = document.createElementNS(svgNS, 'circle');
-                dot.setAttribute('cx', xAt(i));
-                dot.setAttribute('cy', yAt(v));
-                dot.setAttribute('r', i === data.length - 1 ? '4' : '3');
+                dot.setAttribute('cx', r1(xAt(i)));
+                dot.setAttribute('cy', r1(yAt(v)));
+                dot.setAttribute('r', String(restR));
                 dot.setAttribute('fill', 'var(--bg-card)');
                 dot.setAttribute('stroke', s.color);
                 dot.setAttribute('stroke-width', '2');
+                if (!showDots) dot.setAttribute('opacity', '0');
                 svg.appendChild(dot);
 
-                // Invisible, generously-sized hit target over each point so
-                // the value tooltip is easy to trigger — the visible dot is
-                // only r≈3 and the SVG scales with preserveAspectRatio=none,
-                // which distorts tiny hover zones. A transparent r=14 circle
-                // gives a forgiving target and drives a styled HTML tooltip
+                // Generous invisible hit target driving a styled HTML tooltip
                 // (faster + better-looking than the native SVG <title>).
                 const fmt = s.format || yFormat;
                 const hit = document.createElementNS(svgNS, 'circle');
-                hit.setAttribute('cx', xAt(i));
-                hit.setAttribute('cy', yAt(v));
-                hit.setAttribute('r', '14');
+                hit.setAttribute('cx', r1(xAt(i)));
+                hit.setAttribute('cy', r1(yAt(v)));
+                hit.setAttribute('r', '12');
                 hit.setAttribute('fill', 'transparent');
                 hit.style.cursor = 'pointer';
                 const label = `${labels[i]} · ${s.label}: ${fmt(v)}`;
@@ -1185,7 +1271,7 @@ const DashboardPage = {
                 const show = (ev) => {
                     tooltip.textContent = label;
                     tooltip.style.opacity = '1';
-                    const rect = container.getBoundingClientRect();
+                    const rect = host.getBoundingClientRect();
                     let x = ev.clientX - rect.left + 12;
                     let y = ev.clientY - rect.top - 10;
                     // Keep the tooltip inside the card horizontally.
@@ -1197,16 +1283,22 @@ const DashboardPage = {
                 hit.addEventListener('mouseenter', show);
                 hit.addEventListener('mousemove', show);
                 hit.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
-                // Enlarge the visible dot on hover for feedback.
-                hit.addEventListener('mouseenter', () => dot.setAttribute('r', '5'));
-                hit.addEventListener('mouseleave', () => dot.setAttribute('r', i === data.length - 1 ? '4' : '3'));
+                // Surface / enlarge the dot on hover for feedback.
+                hit.addEventListener('mouseenter', () => {
+                    dot.setAttribute('opacity', '1');
+                    dot.setAttribute('r', '5');
+                });
+                hit.addEventListener('mouseleave', () => {
+                    dot.setAttribute('r', String(restR));
+                    if (!showDots) dot.setAttribute('opacity', '0');
+                });
                 svg.appendChild(hit);
             });
         });
 
         // Host the SVG in a positioned wrapper so the HTML tooltip can be
         // absolutely placed relative to the chart.
-        container.style.position = container.style.position || 'relative';
+        host.style.position = 'relative';
         const tooltip = document.createElement('div');
         tooltip.style.cssText = [
             'position:absolute', 'pointer-events:none', 'opacity:0',
@@ -1216,9 +1308,9 @@ const DashboardPage = {
             'padding:4px 8px', 'font-size:11px', 'font-weight:600',
             'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
         ].join(';');
-        container.appendChild(tooltip);
+        host.appendChild(tooltip);
 
-        container.appendChild(svg);
+        host.appendChild(svg);
 
         // Legend — uses the same color swatches as the lines.
         const legend = document.createElement('div');
@@ -1232,7 +1324,7 @@ const DashboardPage = {
             item.appendChild(document.createTextNode(s.label));
             legend.appendChild(item);
         });
-        container.appendChild(legend);
+        host.appendChild(legend);
     },
 
     /**
@@ -1293,6 +1385,8 @@ const DashboardPage = {
                 { label: 'Threats (risk ≥60%)', color: '#ef4444', data: buckets.map(b => b.threats) },
             ],
             yFormat: n => Math.round(n).toLocaleString(),
+            // Full-width card — a taller plot keeps the aspect ratio sane.
+            height: 220,
         });
         if (total > items.length) {
             const note = document.createElement('div');
@@ -1300,142 +1394,6 @@ const DashboardPage = {
             note.textContent = `Showing the most recent ${items.length.toLocaleString()} of ${total.toLocaleString()} events in this window`;
             container.appendChild(note);
         }
-    },
-
-    async renderCostTrendChart(container, card, days = 7) {
-        const buckets = [];
-        const now = new Date();
-        const toLocalDateStr2 = ts => {
-            const d = new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
-            return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-        };
-        for (let i = days - 1; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-            buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), dateStr, cost: 0 });
-        }
-        try {
-            const start = new Date(now);
-            start.setDate(start.getDate() - days);
-            const records = await API.getCostRecords({ start: start.toISOString(), page_size: 200 });
-            (records.items || []).forEach(r => {
-                const dateStr = toLocalDateStr2(r.recorded_at || new Date().toISOString());
-                const bucket = buckets.find(b => b.dateStr === dateStr);
-                if (bucket) bucket.cost += r.total_cost_usd || 0;
-            });
-        } catch (e) {}
-
-        // Plugin runtimes (Claude Code / Codex / OpenClaw) never produce
-        // provider-cost records — token cost lives in the LLM API/SDK
-        // layer that the tool-call hooks can't see, so the dollar chart is
-        // a flat $0 line for plugin-only users. When there's genuinely no
-        // spend in the window, fall back to a combined token-usage chart
-        // (summed across the plugins that expose token telemetry — Codex +
-        // Claude Code; OpenClaw has no token endpoint and contributes 0)
-        // so the widget shows something honest and useful instead of $0.
-        const weeklyCostUSD = buckets.reduce((sum, b) => sum + (b.cost || 0), 0);
-        if (weeklyCostUSD > 0) {
-            this._renderTimelineChart(container, {
-                labels: buckets.map(b => b.label),
-                series: [
-                    {
-                        label: 'Daily spend (USD)',
-                        color: '#10b981',
-                        data: buckets.map(b => b.cost),
-                        format: n => '$' + (n || 0).toFixed(2),
-                    },
-                ],
-                yFormat: n => '$' + (n || 0).toFixed(2),
-            });
-            return;
-        }
-
-        await this._renderTokenTrendChart(container, card, buckets);
-    },
-
-    /**
-     * Token-usage fallback for the dashboard cost widget. Renders one
-     * series PER plugin runtime that exposes token telemetry (Codex +
-     * Claude Code) over the same 7-day buckets the cost chart uses, then
-     * retitles the card to "Token Usage — Last 7 Days". OpenClaw has no
-     * token-usage endpoint, so it contributes no series.
-     *
-     * Both endpoints return `daily: [{day: "YYYY-MM-DD" (local tz), ...}]`.
-     * Per-day total = input + output + cache-create + cache-read
-     * (+ reasoning for Codex). Each fetch is independently fail-safe — a
-     * missing/unreachable endpoint just yields a flat-zero series, and a
-     * runtime with no activity in the window is omitted entirely so the
-     * legend only lists plugins the user actually ran.
-     */
-    async _renderTokenTrendChart(container, card, buckets) {
-        const dayTotal = row => (
-            (row.input_tokens || 0) +
-            (row.output_tokens || 0) +
-            (row.cache_creation_input_tokens || 0) +
-            (row.cache_read_input_tokens || 0) +
-            (row.reasoning_output_tokens || 0)
-        );
-
-        const fetchDaily = async (url) => {
-            try {
-                const resp = await fetch(url);
-                if (!resp.ok) return [];
-                const data = await resp.json();
-                return Array.isArray(data.daily) ? data.daily : [];
-            } catch (e) {
-                return [];
-            }
-        };
-
-        // One bucket-aligned token array per runtime. Colors match each
-        // plugin's canonical accent used elsewhere in the app (Codex coral
-        // #C0655E — sidebar banner, costs panel, tool-permissions; Claude Code
-        // cyan #06b6d4). Keep these in sync with those surfaces.
-        const RUNTIMES = [
-            { key: 'codex', label: 'Codex', color: '#C0655E', url: '/api/hooks/codex/token-usage' },
-            { key: 'claude-code', label: 'Claude Code', color: '#06b6d4', url: '/api/hooks/claude-code/token-usage' },
-            { key: 'copilot-cli', label: 'Copilot CLI', color: '#4a8fe7', url: '/api/hooks/copilot-cli/token-usage' },
-            { key: 'hermes', label: 'Hermes', color: '#f59e0b', url: '/api/hooks/hermes/token-usage' },
-        ];
-
-        const dailyByRuntime = await Promise.all(RUNTIMES.map(r => fetchDaily(r.url)));
-
-        if (card) {
-            const titleEl = card.querySelector('.card-title');
-            if (titleEl) titleEl.textContent = `Token Usage — Last ${buckets.length} Days`;
-        }
-
-        const fmtTokens = n => {
-            n = n || 0;
-            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-            return Math.round(n).toLocaleString();
-        };
-
-        const series = RUNTIMES.map((r, i) => {
-            const byDay = new Map((dailyByRuntime[i] || []).map(row => [row.day, dayTotal(row)]));
-            const data = buckets.map(b => byDay.get(b.dateStr) || 0);
-            return {
-                label: r.label,
-                color: r.color,
-                data,
-                format: fmtTokens,
-                _total: data.reduce((s, n) => s + n, 0),
-            };
-        // Omit runtimes with zero activity in the window so the legend
-        // only shows plugins the user actually ran. If BOTH are empty,
-        // keep them so the chart renders an honest empty state rather
-        // than a blank card.
-        });
-        const active = series.filter(s => s._total > 0);
-        const shown = active.length > 0 ? active : series;
-
-        this._renderTimelineChart(container, {
-            labels: buckets.map(b => b.label),
-            series: shown.map(s => ({ label: s.label, color: s.color, data: s.data, format: s.format })),
-            yFormat: fmtTokens,
-        });
     },
 
     renderRecentActivity(container) {

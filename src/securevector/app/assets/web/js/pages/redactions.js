@@ -1,7 +1,7 @@
 /**
  * Redactions page — audit log of redact_secrets() matches.
  *
- * Sibling to Bill of Tools under Agent Activity. Shows what got
+ * Sibling to Bill of Tools under Observability. Shows what got
  * redacted, from which tool, when, and in which scan direction. The
  * raw secret values are NEVER displayed — only a SHA-256 hash and the
  * pattern_id + secret_type metadata. See backend route /api/redactions
@@ -49,7 +49,7 @@ const RedactionsPage = {
         if (window.Header) {
             Header.setPageInfo(
                 'Secret Detections',
-                'Redactions audit log — credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.'
+                'Credentials & PII caught and scrubbed — only SHA-256 hashes stored, never raw values.'
             );
         }
 
@@ -60,7 +60,7 @@ const RedactionsPage = {
         if (this._activeRequestId) {
             const banner = document.createElement('div');
             banner.className = 'deep-link-banner';
-            banner.innerHTML = `<span>Showing the secret detection from Agent Runs (<code>${String(this._activeRequestId).replace(/[<>&"]/g, '')}</code>).</span>`;
+            banner.innerHTML = `<span>Showing the secret detection from Traces (<code>${String(this._activeRequestId).replace(/[<>&"]/g, '')}</code>).</span>`;
             const clr = document.createElement('button');
             clr.className = 'deep-link-clear';
             clr.textContent = '✕ show all secrets';
@@ -302,7 +302,9 @@ const RedactionsPage = {
             'Distinct tools',
             s.distinct_tools ?? 0,
             'sources we scrubbed from',
-            'var(--success)'
+            // Neutral count → muted cyan (green is reserved for security-safe
+            // states; a tool count is not a verdict).
+            'color-mix(in srgb, var(--accent-primary) 40%, transparent)'
         ));
         const incomingCount = (s.by_direction || {}).incoming || 0;
         summaryMount.appendChild(tile(

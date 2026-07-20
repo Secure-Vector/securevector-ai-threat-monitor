@@ -3,7 +3,7 @@
  *
  * A spotlight overlay that steps the user through the setup → operate flow:
  * install a plugin (or enable the proxy) → set tool permissions → cost settings
- * → rules → MCP policies → SIEM forwarding → skills → Agent Activity.
+ * → rules → MCP policies → SIEM forwarding → skills → Observability.
  *
  * Each step drives the real sidebar: it navigates to the relevant page,
  * expands the owning nav section, then spotlights the matching nav item and
@@ -54,7 +54,7 @@ const Tour = {
                 badge: 'Configure', title: 'Cost settings',
                 body: `Set dollar <b>budgets and pricing</b> for <b>proxy-based</b> agents. Claude Code and Codex ` +
                     `run on your own subscription, so there's no per-call dollar cost — they're still tracked, ` +
-                    `but <b>Cost Tracking shows token usage</b> for them instead of dollars.`,
+                    `but <b>Cost & Tokens shows token usage</b> for them instead of dollars.`,
             },
             {
                 nav: 'rules', go: 'rules',
@@ -82,11 +82,12 @@ const Tour = {
                     `network / file / exec patterns before you trust a skill.`,
             },
             {
-                nav: 'agent-activity', go: 'agent-map', expand: 'agent-activity',
+                nav: 'agent-activity', go: 'agent-runs', expand: 'agent-activity',
                 badge: 'Operate', title: 'Watch your agents',
-                body: `Head to <b>Agent Activity</b>. Explore your runs as an <b>Agent Map</b> ` +
-                    `(Tree · Radial · Mesh · Sankey), the <b>Runs</b> list, and the <b>Timeline</b> — and keep an eye ` +
-                    `on <b>Secret Detections</b> and <b>Cost Tracking</b>.`,
+                body: `Head to <b>Traces</b> — one trace per agent session. Open a trace to see its ` +
+                    `<b>runs</b> (each LLM call and tool call) and the enforcement verdict on each, with <b>replay</b> and the ` +
+                    `<b>Agent Map</b> (Tree · Radial · Mesh · Sankey) one tab away. Keep an eye on ` +
+                    `<b>Blocked Actions</b>, <b>Secret Detections</b> and <b>Cost & Tokens</b>.`,
             },
             {
                 nav: 'guide', go: 'guide', expand: 'guide',
@@ -346,7 +347,7 @@ const Tour = {
         this._backdrop = this._ring = this._card = null;
         if (completed) {
             try { localStorage.setItem(this.DONE_KEY, '1'); } catch (_) {}
-            if (window.Toast) Toast.success("You're set up — explore Agent Activity any time.");
+            if (window.Toast) Toast.success("You're set up — explore Observability any time.");
         }
     },
 };

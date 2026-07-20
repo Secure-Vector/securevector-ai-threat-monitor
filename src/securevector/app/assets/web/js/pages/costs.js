@@ -32,7 +32,7 @@ const CostsPage = {
         if (this.mode === 'settings') {
             if (window.Header) Header.setPageInfo('Cost Settings', 'Set daily budgets and manage model pricing');
         } else {
-            if (window.Header) Header.setPageInfo('Cost Tracking', 'Track LLM token spend per agent');
+            if (window.Header) Header.setPageInfo('Cost & Tokens', 'Token usage and LLM spend, per connected agent');
         }
 
         // Settings mode: budget card + pricing reference, no tab bar
@@ -192,10 +192,17 @@ const CostsPage = {
         const fmt = n => (n || 0).toLocaleString();
 
         const panel = document.createElement('div');
-        panel.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid #5eadb8; border-radius: 8px;';
+        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
+        panel.dataset.svRuntimeAccent = '#8b949e'; // Claude Code — same hue as the observability pages
 
         const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        // Runtime identity dot — same colour the observability pages use for
+        // this runtime, replacing the old alert-looking left border.
+        const accentDot = document.createElement('span');
+        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
+            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
+        header.appendChild(accentDot);
         const title = document.createElement('strong');
         title.textContent = 'Claude Code · Session Tokens';
         title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
@@ -211,9 +218,9 @@ const CostsPage = {
         grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
         const tile = (label, value, sub) => {
             const t = document.createElement('div');
-            t.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
             const v = document.createElement('div');
-            v.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.2;';
+            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
             v.textContent = value;
             const l = document.createElement('div');
             l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
@@ -236,7 +243,7 @@ const CostsPage = {
 
         // Cost row — "Not applicable" only. No explanatory copy.
         const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
 
         const costLabel = document.createElement('span');
         costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
@@ -245,12 +252,12 @@ const CostsPage = {
 
         const costValue = document.createElement('span');
         costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Not applicable';
+        costValue.textContent = 'Billed via your provider account';
         costRow.appendChild(costValue);
 
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Token sessions available above';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details toggle — token breakdown only, no $.
@@ -390,9 +397,9 @@ const CostsPage = {
                     };
                     // Order in column-reverse: last appended = top.
                     seg('#475569', bucket.cacheRead);   // muted slate
-                    seg('#f59e0b', bucket.cacheWrite);  // amber
-                    seg('#06b6d4', bucket.input);       // cyan
-                    seg('#5eadb8', bucket.output);      // teal
+                    seg('#64748b', bucket.cacheWrite);  // slate (light)
+                    seg('#5eadb8', bucket.input);       // teal
+                    seg('#8ccdd6', bucket.output);      // light teal
                     barArea.appendChild(stack);
                 } else {
                     const base = document.createElement('div');
@@ -408,15 +415,28 @@ const CostsPage = {
 
                 wrap.appendChild(col);
             });
-            chartCard.appendChild(wrap);
+            // No tokens anywhere in the window → a friendly note beats seven
+            // empty columns (the blank chart read as "broken", not "quiet").
+            const windowTotal = buckets.reduce((s, b) =>
+                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
+                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
+            if (windowTotal === 0) {
+                const quiet = document.createElement('div');
+                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
+                    + 'font-size: 12px; color: var(--text-muted);';
+                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                chartCard.appendChild(quiet);
+            } else {
+                chartCard.appendChild(wrap);
+            }
 
             // Legend — colours match the stack order.
             const legend = document.createElement('div');
             legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
             [
-                ['#5eadb8', 'Output'],
-                ['#06b6d4', 'Input'],
-                ['#f59e0b', 'Cache write'],
+                ['#8ccdd6', 'Output'],
+                ['#5eadb8', 'Input'],
+                ['#64748b', 'Cache write'],
                 ['#475569', 'Cache read'],
             ].forEach(([color, label]) => {
                 const item = document.createElement('span');
@@ -478,13 +498,20 @@ const CostsPage = {
         const fmt = n => (n || 0).toLocaleString();
 
         const panel = document.createElement('div');
-        // Coral accent (#C0655E) matches the Codex sidebar banner and
+        // Neutral runtime dot — runtimes are labels, not statuses, and
         // the Tool Permissions Codex category — visual consistency
         // across every surface that surfaces Codex-attributed data.
-        panel.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid #C0655E; border-radius: 8px;';
+        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
+        panel.dataset.svRuntimeAccent = '#8b949e'; // Codex — same hue as the observability pages
 
         const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        // Runtime identity dot — same colour the observability pages use for
+        // this runtime, replacing the old alert-looking left border.
+        const accentDot = document.createElement('span');
+        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
+            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
+        header.appendChild(accentDot);
         const title = document.createElement('strong');
         title.textContent = 'Codex · Session Tokens';
         title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
@@ -500,9 +527,9 @@ const CostsPage = {
         grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
         const tile = (label, value, sub) => {
             const t = document.createElement('div');
-            t.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
             const v = document.createElement('div');
-            v.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.2;';
+            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
             v.textContent = value;
             const l = document.createElement('div');
             l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
@@ -525,18 +552,18 @@ const CostsPage = {
 
         // Cost row — "Not applicable" only. Same rationale as CC.
         const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
         const costLabel = document.createElement('span');
         costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
         costLabel.textContent = 'Cost';
         costRow.appendChild(costLabel);
         const costValue = document.createElement('span');
         costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Not applicable';
+        costValue.textContent = 'Billed via your provider account';
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Token sessions available above';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Codex sessions typically run a single
@@ -665,9 +692,9 @@ const CostsPage = {
                     };
                     // column-reverse: last appended = top
                     seg('#475569', bucket.cacheRead);  // muted slate (biggest)
-                    seg('#C0655E', bucket.input);      // codex coral
-                    seg('#5eadb8', bucket.output);     // teal
-                    seg('#a78bfa', bucket.reasoning);  // violet — reasoning
+                    seg('#5eadb8', bucket.input);      // teal
+                    seg('#8ccdd6', bucket.output);     // light teal
+                    seg('#34707a', bucket.reasoning);  // deep teal
                     barArea.appendChild(stack);
                 } else {
                     const base = document.createElement('div');
@@ -683,14 +710,27 @@ const CostsPage = {
 
                 wrap.appendChild(col);
             });
-            chartCard.appendChild(wrap);
+            // No tokens anywhere in the window → a friendly note beats seven
+            // empty columns (the blank chart read as "broken", not "quiet").
+            const windowTotal = buckets.reduce((s, b) =>
+                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
+                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
+            if (windowTotal === 0) {
+                const quiet = document.createElement('div');
+                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
+                    + 'font-size: 12px; color: var(--text-muted);';
+                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                chartCard.appendChild(quiet);
+            } else {
+                chartCard.appendChild(wrap);
+            }
 
             const legend = document.createElement('div');
             legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
             [
-                ['#a78bfa', 'Reasoning'],
-                ['#5eadb8', 'Output'],
-                ['#C0655E', 'Input'],
+                ['#34707a', 'Reasoning'],
+                ['#8ccdd6', 'Output'],
+                ['#5eadb8', 'Input'],
                 ['#475569', 'Cache read'],
             ].forEach(([color, label]) => {
                 const item = document.createElement('span');
@@ -720,7 +760,7 @@ const CostsPage = {
      * Sources from `/api/hooks/copilot-cli/token-usage` which walks
      * `~/.copilot/session-state/<id>/events.jsonl` and reads each session's
      * final cumulative `modelMetrics` snapshot. Mirrors the CC / Codex
-     * panels — blue accent (#4a8fe7, same hue as the Copilot sidebar
+     * panels — neutral runtime dot (runtimes are labels, not statuses;
      * banner), and a "Cache write" tile instead of Codex's "Reasoning"
      * (Copilot reports cacheWriteTokens; reasoning is folded into output).
      *
@@ -747,13 +787,20 @@ const CostsPage = {
         const fmt = n => (n || 0).toLocaleString();
 
         const panel = document.createElement('div');
-        // Blue accent (#4a8fe7) matches the Copilot sidebar banner and the
+        // Neutral runtime dot — same rationale as the other panels; the
         // dashboard token-trend series — consistent across every surface
         // that shows Copilot-attributed data.
-        panel.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid #4a8fe7; border-radius: 8px;';
+        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
+        panel.dataset.svRuntimeAccent = '#8b949e'; // Copilot CLI
 
         const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        // Runtime identity dot — same colour the observability pages use for
+        // this runtime, replacing the old alert-looking left border.
+        const accentDot = document.createElement('span');
+        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
+            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
+        header.appendChild(accentDot);
         const title = document.createElement('strong');
         title.textContent = 'Copilot CLI · Session Tokens';
         title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
@@ -769,9 +816,9 @@ const CostsPage = {
         grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
         const tile = (label, value, sub) => {
             const t = document.createElement('div');
-            t.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
             const v = document.createElement('div');
-            v.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.2;';
+            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
             v.textContent = value;
             const l = document.createElement('div');
             l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
@@ -794,18 +841,18 @@ const CostsPage = {
 
         // Cost row — "Not applicable" only. Same rationale as CC / Codex.
         const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
         const costLabel = document.createElement('span');
         costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
         costLabel.textContent = 'Cost';
         costRow.appendChild(costLabel);
         const costValue = document.createElement('span');
         costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Not applicable';
+        costValue.textContent = 'Billed via your provider account';
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Token sessions available above';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Copilot sessions frequently switch models
@@ -933,9 +980,9 @@ const CostsPage = {
                     };
                     // column-reverse: last appended = top
                     seg('#475569', bucket.cacheRead);   // muted slate (biggest)
-                    seg('#4a8fe7', bucket.input);       // copilot blue
-                    seg('#5eadb8', bucket.output);      // teal
-                    seg('#a78bfa', bucket.cacheWrite);  // violet — cache priming
+                    seg('#5eadb8', bucket.input);       // teal
+                    seg('#8ccdd6', bucket.output);      // light teal
+                    seg('#64748b', bucket.cacheWrite);  // slate (light) — cache priming
                     barArea.appendChild(stack);
                 } else {
                     const base = document.createElement('div');
@@ -951,14 +998,27 @@ const CostsPage = {
 
                 wrap.appendChild(col);
             });
-            chartCard.appendChild(wrap);
+            // No tokens anywhere in the window → a friendly note beats seven
+            // empty columns (the blank chart read as "broken", not "quiet").
+            const windowTotal = buckets.reduce((s, b) =>
+                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
+                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
+            if (windowTotal === 0) {
+                const quiet = document.createElement('div');
+                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
+                    + 'font-size: 12px; color: var(--text-muted);';
+                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                chartCard.appendChild(quiet);
+            } else {
+                chartCard.appendChild(wrap);
+            }
 
             const legend = document.createElement('div');
             legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
             [
-                ['#a78bfa', 'Cache write'],
-                ['#5eadb8', 'Output'],
-                ['#4a8fe7', 'Input'],
+                ['#64748b', 'Cache write'],
+                ['#8ccdd6', 'Output'],
+                ['#5eadb8', 'Input'],
                 ['#475569', 'Cache read'],
             ].forEach(([color, label]) => {
                 const item = document.createElement('span');
@@ -995,13 +1055,20 @@ const CostsPage = {
         const fmt = n => (n || 0).toLocaleString();
 
         const panel = document.createElement('div');
-        // Amber accent (#f59e0b) matches the Hermes sidebar banner and the
+        // Neutral runtime dot — same rationale as the other panels; the
         // dashboard token-trend series — consistent across every surface
         // that shows Hermes-attributed data.
-        panel.style.cssText = 'margin-bottom: 12px; padding: 12px 14px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid #f59e0b; border-radius: 8px;';
+        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
+        panel.dataset.svRuntimeAccent = '#8b949e'; // Hermes
 
         const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
+        // Runtime identity dot — same colour the observability pages use for
+        // this runtime, replacing the old alert-looking left border.
+        const accentDot = document.createElement('span');
+        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
+            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
+        header.appendChild(accentDot);
         const title = document.createElement('strong');
         title.textContent = 'Hermes · Session Tokens';
         title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
@@ -1017,9 +1084,9 @@ const CostsPage = {
         grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
         const tile = (label, value, sub) => {
             const t = document.createElement('div');
-            t.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
             const v = document.createElement('div');
-            v.style.cssText = 'font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.2;';
+            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
             v.textContent = value;
             const l = document.createElement('div');
             l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
@@ -1043,18 +1110,18 @@ const CostsPage = {
         // Cost row — token counts only here; Hermes's own /insights estimates
         // spend from its pricing table, so we don't double-report a number.
         const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
+        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
         const costLabel = document.createElement('span');
         costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
         costLabel.textContent = 'Cost';
         costRow.appendChild(costLabel);
         const costValue = document.createElement('span');
         costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Not applicable';
+        costValue.textContent = 'Billed via your provider account';
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Token sessions above — Hermes /insights holds its own cost estimate';
+        costHint.textContent = 'Hermes /insights holds its own cost estimate \u2014 proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Hermes sessions switch models freely
@@ -1182,9 +1249,9 @@ const CostsPage = {
                     };
                     // column-reverse: last appended = top
                     seg('#475569', bucket.cacheRead);   // muted slate (biggest)
-                    seg('#f59e0b', bucket.input);       // hermes amber
-                    seg('#5eadb8', bucket.output);      // teal
-                    seg('#a78bfa', bucket.cacheWrite);  // violet — cache priming
+                    seg('#5eadb8', bucket.input);       // teal
+                    seg('#8ccdd6', bucket.output);      // light teal
+                    seg('#64748b', bucket.cacheWrite);  // slate (light) — cache priming
                     barArea.appendChild(stack);
                 } else {
                     const base = document.createElement('div');
@@ -1200,14 +1267,27 @@ const CostsPage = {
 
                 wrap.appendChild(col);
             });
-            chartCard.appendChild(wrap);
+            // No tokens anywhere in the window → a friendly note beats seven
+            // empty columns (the blank chart read as "broken", not "quiet").
+            const windowTotal = buckets.reduce((s, b) =>
+                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
+                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
+            if (windowTotal === 0) {
+                const quiet = document.createElement('div');
+                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
+                    + 'font-size: 12px; color: var(--text-muted);';
+                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                chartCard.appendChild(quiet);
+            } else {
+                chartCard.appendChild(wrap);
+            }
 
             const legend = document.createElement('div');
             legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
             [
-                ['#a78bfa', 'Cache write'],
-                ['#5eadb8', 'Output'],
-                ['#f59e0b', 'Input'],
+                ['#64748b', 'Cache write'],
+                ['#8ccdd6', 'Output'],
+                ['#5eadb8', 'Input'],
                 ['#475569', 'Cache read'],
             ].forEach(([color, label]) => {
                 const item = document.createElement('span');
@@ -1302,7 +1382,7 @@ const CostsPage = {
         this._updateAgentsSection();
 
         // Hide the proxy cost UI entirely when there's no proxy traffic.
-        // The Cost Tracking page exists to surface SecureVector-proxy
+        // The Cost & Tokens page exists to surface SecureVector-proxy
         // spend; if the user is running CC-plugin-only (no proxy), the
         // 5 $0/0 tiles + empty daily-spend chart + empty per-agent
         // section collectively eat ~700px of vertical noise. The CC
@@ -1338,19 +1418,23 @@ const CostsPage = {
             if (!placeholder) {
                 placeholder = document.createElement('div');
                 placeholder.id = 'sv-proxy-cost-placeholder';
-                placeholder.style.cssText = 'padding: 12px 16px; margin-top: 8px; background: var(--bg-secondary); border: 1px dashed var(--border-default); border-radius: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
+                placeholder.style.cssText = 'padding: 28px 24px; margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; text-align: center;';
                 placeholder.textContent = '';
+                const icon = document.createElement('div');
+                icon.innerHTML = '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--text-muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>';
+                icon.style.cssText = 'margin-bottom: 8px;';
+                placeholder.appendChild(icon);
                 const line1 = document.createElement('div');
-                line1.style.cssText = 'font-weight: 600; color: var(--text-primary); margin-bottom: 4px;';
-                line1.textContent = 'No proxy-cost data available.';
+                line1.style.cssText = 'font-weight: 700; font-size: 13.5px; color: var(--text-primary); margin-bottom: 5px;';
+                line1.textContent = 'No proxy cost data yet';
                 placeholder.appendChild(line1);
                 const line2 = document.createElement('div');
-                line2.style.cssText = 'color: var(--text-muted); font-size: 11px; margin-bottom: 6px;';
-                line2.textContent = 'The SecureVector proxy is either not running on this machine or no LLM requests have been routed through 127.0.0.1 yet. Cost tiles populate once proxy traffic flows.';
+                line2.style.cssText = 'color: var(--text-secondary); font-size: 12px; line-height: 1.55; max-width: 560px; margin: 0 auto 4px;';
+                line2.textContent = 'Cost tiles populate once LLM requests are routed through the SecureVector proxy on 127.0.0.1.';
                 placeholder.appendChild(line2);
                 const line3 = document.createElement('div');
-                line3.style.cssText = 'color: var(--text-muted); font-size: 11px; font-style: italic;';
-                line3.textContent = 'If the Claude Code plugin is your only agent runtime, cost will NOT appear here — Claude Code traffic doesn’t flow through the SecureVector proxy. Use the token panel above for usage.';
+                line3.style.cssText = 'color: var(--text-muted); font-size: 11.5px; line-height: 1.55; max-width: 560px; margin: 0 auto;';
+                line3.textContent = 'Plugin-guarded runtimes (like Claude Code) don’t use the proxy — their token usage lives in the session panels above.';
                 placeholder.appendChild(line3);
                 content.appendChild(placeholder);
             } else {
@@ -1868,8 +1952,8 @@ const CostsPage = {
         tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
         const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
             ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
-        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '\u2014', '#10b981'));
-        tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), '#f59e0b'));
+        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '\u2014', 'var(--text-primary)'));
+        tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), 'var(--text-primary)'));
         wrap.appendChild(section('Token Usage', tokenGrid));
         return wrap;
     },
@@ -2583,7 +2667,7 @@ const CostsPage = {
 
         // Edit button (right — only when limit is set) — gradient so it's visible
         const editBtn = document.createElement('button');
-        editBtn.style.cssText = 'display: ' + (hasLimit ? 'inline-flex' : 'none') + '; align-items: center; gap: 5px; padding: 4px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: linear-gradient(135deg, #5eadb8, #ef4444); color: #fff; cursor: pointer; transition: opacity 0.15s;';
+        editBtn.style.cssText = 'display: ' + (hasLimit ? 'inline-flex' : 'none') + '; align-items: center; gap: 5px; padding: 4px 14px; border-radius: var(--radius-full); font-size: 12px; font-weight: 600; border: none; background: var(--gradient); color: #fff; cursor: pointer; transition: opacity 0.15s;';
         editBtn.textContent = '✏ Edit';
         editBtn.addEventListener('mouseenter', () => { editBtn.style.opacity = '0.85'; });
         editBtn.addEventListener('mouseleave', () => { editBtn.style.opacity = '1'; });

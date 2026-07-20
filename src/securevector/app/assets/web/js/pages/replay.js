@@ -21,7 +21,7 @@ const ReplayPage = {
 
     async render(container) {
         container.textContent = '';
-        if (window.Header) Header.setPageInfo('Agent Activity', 'Per-agent timeline of scans, tool calls, and LLM cost');
+        if (window.Header) Header.setPageInfo('Observability', 'Per-agent timeline of scans, tool calls, and LLM cost');
 
         // Filter bar
         const bar = document.createElement('div');

@@ -137,7 +137,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(expectP);
         root.appendChild(p('2. Run any tool in Codex (e.g. a shell command), then read the most recent audit row:'));
         root.appendChild(code(`curl -s 'http://127.0.0.1:8741/api/tool-permissions/call-audit?limit=1' | python3 -m json.tool\n# Expect runtime_kind="codex" on the entry.`));
-        root.appendChild(p('3. Visit http://127.0.0.1:8741 → Agent Activity. Your Codex run appears on the Agent Map, in Runs, and on the Timeline.'));
+        root.appendChild(p('3. Visit http://127.0.0.1:8741 → Observability. Your Codex run appears on the Agent Map, in Runs, and on the Timeline.'));
 
         // --- Configuration ---
         root.appendChild(h2('Configuration'));

@@ -24,6 +24,11 @@ from securevector.app.services.credentials import (
 )
 from securevector.app.services.enrollment import EnrollmentError, enroll
 from securevector.app.services.cloud_proxy import get_cloud_proxy, CloudProxyError
+from securevector.app.services.trial_signup import (
+    TrialSignupError,
+    poll_trial_token,
+    request_device_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +417,113 @@ async def remove_credentials() -> MessageResponse:
     except Exception as e:
         logger.error(f"Failed to remove credentials: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class TrialStartResponse(BaseModel):
+    """Device-flow grant handed to the UI — it opens the browser and polls."""
+
+    device_code: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str
+    interval: int
+    expires_in: int
+
+
+class TrialPollRequest(BaseModel):
+    """One poll of the trial device flow."""
+
+    device_code: str = Field(..., min_length=1)
+
+
+class TrialPollResponse(BaseModel):
+    """Poll outcome. status: pending | slow_down | complete."""
+
+    status: str
+    user_email: Optional[str] = None
+    message: Optional[str] = None
+
+
+@router.post("/settings/cloud/trial/start", response_model=TrialStartResponse)
+async def start_cloud_trial() -> TrialStartResponse:
+    """
+    One-click cloud trial, step 1: request a device code from the auth
+    service. The UI opens `verification_uri_complete` in the browser (signup
+    or login happens there) and then polls /settings/cloud/trial/poll.
+
+    404-style responses from the cloud map to `trial_unavailable` so the UI
+    can quietly fall back to the manual paste-a-key path — this keeps the
+    local half shippable before the cloud half is deployed.
+    """
+    try:
+        from securevector import __version__ as app_version
+    except Exception:  # noqa: BLE001
+        app_version = None
+    try:
+        grant = await request_device_code(app_version=app_version)
+    except TrialSignupError as exc:
+        status = (
+            503 if exc.code in {"trial_unavailable", "network_error"}
+            else 429 if exc.code == "rate_limited"
+            else 502
+        )
+        raise HTTPException(
+            status_code=status, detail={"error": exc.code, "message": str(exc)}
+        )
+    return TrialStartResponse(
+        device_code=grant.device_code,
+        user_code=grant.user_code,
+        verification_uri=grant.verification_uri,
+        verification_uri_complete=grant.verification_uri_complete,
+        interval=grant.interval,
+        expires_in=grant.expires_in,
+    )
+
+
+@router.post("/settings/cloud/trial/poll", response_model=TrialPollResponse)
+async def poll_cloud_trial(request: TrialPollRequest) -> TrialPollResponse:
+    """
+    One-click cloud trial, step 2: poll the token exchange. On completion the
+    minted personal `svpk_` key is persisted via the existing credentials
+    service and cloud mode flips on — the same settings block the manual
+    paste path uses, so both paths converge.
+    """
+    try:
+        result = await poll_trial_token(request.device_code)
+    except TrialSignupError as exc:
+        status = (
+            410 if exc.code == "expired_token"
+            else 403 if exc.code == "access_denied"
+            else 503 if exc.code in {"trial_unavailable", "network_error"}
+            else 502
+        )
+        raise HTTPException(
+            status_code=status, detail={"error": exc.code, "message": str(exc)}
+        )
+
+    if result.status != "complete":
+        return TrialPollResponse(status=result.status)
+
+    if not save_credentials(result.api_key):
+        raise HTTPException(
+            status_code=500, detail="Trial key received but could not be saved"
+        )
+    try:
+        db = get_database()
+        settings_repo = SettingsRepository(db)
+        await settings_repo.update(
+            cloud_connected_at=datetime.utcnow().isoformat(),
+            cloud_mode_enabled=True,
+            cloud_user_email=result.user_email,
+        )
+    except Exception as exc:  # noqa: BLE001 — key persisted; settings is best-effort
+        logger.warning("Trial connect succeeded but settings update failed: %s", exc)
+    logger.info("Cloud trial connected, cloud mode enabled")
+    return TrialPollResponse(
+        status="complete",
+        user_email=result.user_email,
+        message="Connected — your 30-day cloud trial is live.",
+    )
 
 
 @router.put("/settings/cloud/mode", response_model=CloudModeResponse)

@@ -1,11 +1,11 @@
 /**
- * ObsTabs — shared Map | Runs | Timeline switcher for the Agent Observability
- * pages.
+ * ObsTabs — shared Sessions | Traces | Map switcher for the Agent
+ * Observability pages.
  *
- * The Agent Map (topology), Agent Runs (per-session trace) and Timeline
- * (chronological feed) views are three lenses on one feature, so they live
- * under a single sidebar entry and switch via this segmented control instead
- * of separate nav items.
+ * Sessions (behavior over time), Traces (per-session trace + span waterfall,
+ * with the Live feed as a sub-view) and the Agent Map (topology) are three
+ * lenses on one feature, so they live under a single sidebar entry and switch
+ * via this segmented control instead of separate nav items.
  *
  * Also the one place that classifies a tool as built-in vs external: an MCP /
  * plugin tool is namespaced `server:tool` (a colon); a built-in harness tool
@@ -136,7 +136,8 @@ const ObsTabs = {
         w.document.write(
             '<!doctype html><html><head><meta charset="utf-8"><title>' + title + '</title><style>' +
             'body{font:13px -apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:32px;}' +
-            'h1{font-size:18px;margin:0 0 2px;} .sub{color:#666;font-size:12px;margin-bottom:18px;}' +
+            'h1{font-size:18px;margin:0 0 2px;} .sub{color:#666;font-size:12px;margin-bottom:6px;}' +
+            'h2{font-size:14px;margin:22px 0 8px;padding-bottom:4px;border-bottom:1px solid #ddd;}' +
             'table{border-collapse:collapse;width:100%;font-size:11.5px;} th,td{border:1px solid #ddd;padding:5px 8px;text-align:left;vertical-align:top;}' +
             'th{background:#f5f5f5;font-weight:700;} tr:nth-child(even) td{background:#fafafa;}' +
             'svg{max-width:100%;height:auto;border:1px solid #eee;border-radius:6px;background:#fff;}' +
@@ -154,14 +155,35 @@ const ObsTabs = {
         return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
     },
 
-    // Order = Map first. The topology Map is the hero view (the product's wow
-    // feature), so it leads and is the default landing; Runs (per-session) and
-    // Timeline (chronological feed) follow. All three are always shown.
+    // Order = Sessions first (v5 default flip). Three tabs, one per level of
+    // the observability hierarchy (v5.0.0 consolidation):
+    //   Sessions   — behavior over time: sessions grouped per agent, matching
+    //                the "Sessions" concept in LangSmith / Langfuse / Phoenix.
+    //                This is the daily workhorse (what did my agent do?), so
+    //                it leads and is the Observability landing view.
+    //   Traces     — execution: the trace list + per-step span waterfall
+    //                (industry-standard naming: Session → Trace → Span; "run"
+    //                was our old LangSmith-ism). The old Timeline (flat
+    //                chronological feed) is now a VIEW inside Traces (the
+    //                "Live feed" toggle).
+    //   Map        — topology: where agents connect and what they touch. The
+    //                overview/demo lens, one click away rather than the door.
+    // v5.1: Sessions and Traces were the same unit (1 session = 1 trace here),
+    // so they merged into one "Agent Activity" view — the trace list +
+    // waterfall, with Sessions' per-agent grouping + drift chips folded in.
+    // Map is the alternate topology lens. (The legacy 'storylines' route still
+    // resolves for deep links; it's just no longer a tab.)
+    // v5.2 vocabulary lock (industry-standard, per the 5-pillar model):
+    //   Trace = one recorded agent execution (1 per session — we derive
+    //           trace_id from the session, so they're 1:1). The unit you pick.
+    //   Run   = one step inside a trace: an LLM run (a model call) or a Tool
+    //           run (an enforced tool call). Every row is a Run.
+    // "Session" is demoted to a provenance line ("from session <id>"), not a
+    // competing noun; "Activity / Sessions / turns / steps / spans" are retired
+    // from the UI. This is the whole fix for the Trace-vs-Run-vs-Session soup.
     _TABS: [
-        // label, page, inline-svg path(s) for a 24-grid icon
-        { label: 'Map',      page: 'agent-map',      icon: 'M5 7h4v4H5zM15 13h4v4h-4zM9 9h6M17 11v2' },
-        { label: 'Runs',     page: 'agent-runs',     icon: 'M4 6h16M4 12h16M4 18h10' },
-        { label: 'Timeline', page: 'agent-timeline', icon: 'M4 12h16M7 12a2 2 0 1 0 0-.01M15 12a2 2 0 1 0 0-.01' },
+        { label: 'Traces', page: 'agent-runs', icon: 'M4 6h16M4 12h16M4 18h10' },
+        { label: 'Map',    page: 'agent-map',  icon: 'M5 7h4v4H5zM15 13h4v4h-4zM9 9h6M17 11v2' },
     ],
 
     _injectStyle() {
@@ -222,13 +244,16 @@ const ObsTabs = {
             `<path d="${d}"/></svg>`;
     },
 
-    /** active: 'map' | 'runs' | 'timeline' */
+    /** active: 'map' | 'runs' | 'timeline' | 'storylines'
+     *  ('timeline' highlights the Runs tab — the feed is a Runs view now). */
     render(container, active) {
         this._injectStyle();
         const wrap = document.createElement('div');
         wrap.className = 'sv-obs-tabs';
         wrap.setAttribute('role', 'tablist');
-        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-timeline' }[active];
+        // 'storylines' (the retired Sessions page) maps to the Activity tab so
+        // a deep link still highlights the merged view.
+        const activePage = { map: 'agent-map', runs: 'agent-runs', timeline: 'agent-runs', storylines: 'agent-runs' }[active];
         this._TABS.forEach(t => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -241,6 +266,52 @@ const ObsTabs = {
             wrap.appendChild(b);
         });
         container.appendChild(wrap);
+        // The Traces tab has two views: the grouped trace list ("By trace")
+        // and the flat chronological feed (the pre-v5 Timeline page, now
+        // "Live feed"). Render the sub-toggle right next to the tabs on both.
+        if (active === 'runs' || active === 'timeline') {
+            container.appendChild(this._viewToggle(active));
+        }
+    },
+
+    /** Small segmented "By trace | Live feed" control shown on the Traces tab. */
+    _viewToggle(active) {
+        if (!document.getElementById('sv-obs-viewtoggle-style')) {
+            const st = document.createElement('style');
+            st.id = 'sv-obs-viewtoggle-style';
+            st.textContent = `
+                .sv-obs-viewtoggle { display:inline-flex; gap:2px; padding:3px; border-radius:9px;
+                    background:var(--bg-tertiary,#21262d); border:1px solid var(--border-default,#30363d); }
+                .sv-obs-viewbtn { border:0; background:transparent; color:var(--text-secondary,#b1bac4);
+                    font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; padding:5px 12px;
+                    border-radius:6px; cursor:pointer; transition:color .12s, background .12s; white-space:nowrap; }
+                .sv-obs-viewbtn.on { background:var(--bg-card,#161b22); color:var(--text-primary,#e6edf3);
+                    box-shadow:0 1px 2px rgba(0,0,0,.25); }
+                .sv-obs-viewbtn:hover:not(.on) { color:var(--text-primary,#e6edf3); }
+                .sv-obs-viewbtn:focus-visible { outline:2px solid var(--accent-primary,#5eadb8); outline-offset:2px; }
+            `;
+            document.head.appendChild(st);
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'sv-obs-viewtoggle';
+        wrap.setAttribute('role', 'group');
+        wrap.setAttribute('aria-label', 'Traces view');
+        // "Waterfall" = one trace's runs in order (the default). "Live feed" =
+        // a flat chronological stream of runs across every trace. (We're inside
+        // the Traces tab, so the old "By trace" label was redundant.)
+        [
+            { label: 'Waterfall', page: 'agent-runs',     on: active === 'runs' },
+            { label: 'Live feed', page: 'agent-timeline', on: active === 'timeline' },
+        ].forEach(v => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sv-obs-viewbtn' + (v.on ? ' on' : '');
+            b.setAttribute('aria-pressed', v.on ? 'true' : 'false');
+            b.textContent = v.label;
+            b.addEventListener('click', () => { if (!v.on && window.App) App.loadPage(v.page); });
+            wrap.appendChild(b);
+        });
+        return wrap;
     },
 };
 window.ObsTabs = ObsTabs;

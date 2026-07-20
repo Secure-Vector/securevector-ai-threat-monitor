@@ -151,7 +151,7 @@ install(mode="enforce")`));
         root.appendChild(p('Run your agent once with the SDK installed. The Integrations card for your framework auto-detects the first tool call and flips to Active with live counters — no "connect" step. The calls also appear in:'));
         const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0 8px 18px; color: var(--text-secondary);';
         [['Agent Map', 'a node per runtime_kind (langchain / langgraph / crewai / hermes), with calls and blocked counts'],
-         ['Runs', 'each session as its own run, with per-tool decisions'],
+         ['Traces', 'each session as its own trace, with per-tool decisions'],
          ['Evidence (CSV)', 'export from the Integrations card for an auditor-ready, attributed record']].forEach(([k, v]) => {
             const li = document.createElement('li'); li.style.cssText = 'margin: 4px 0;';
             const s = document.createElement('strong'); s.style.color = 'var(--text-primary)'; s.textContent = k + ' — '; li.appendChild(s); li.appendChild(document.createTextNode(v)); ul.appendChild(li);

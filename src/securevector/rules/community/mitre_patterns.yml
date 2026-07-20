@@ -380,6 +380,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     source: securevector_community
     tags:
     - adversarial_ml
@@ -418,6 +419,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     source: securevector_community
     tags:
     - privacy_attack
@@ -456,6 +458,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     kill_chain_phase:
     - reconnaissance
     - exploitation
@@ -488,6 +491,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     kill_chain_phase:
     - weaponization
     - delivery
@@ -512,6 +516,7 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    direction: outgoing
     kill_chain_phase:
     - reconnaissance
     - actions_objectives

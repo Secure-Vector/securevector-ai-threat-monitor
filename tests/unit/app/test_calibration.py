@@ -63,9 +63,16 @@ def test_resolve_direction_explicit_tag_wins():
     assert resolve_direction("any_id", "data_leakage", "both") == "both"
 
 
-def test_resolve_direction_legacy_values_normalize_to_both():
-    # input/output/llm_response were dead config → treated as unset → both.
-    assert resolve_direction("sv_x_001", "prompt_injection", "input") == "both"
+def test_resolve_direction_legacy_input_means_outgoing():
+    # Legacy `input` was authored to mean "user prompt" — it maps to
+    # `outgoing` so user-request-shaped rules stop firing on incoming
+    # fetched/tool content (2026-07 FP flood).
+    assert resolve_direction("sv_x_001", "prompt_injection", "input") == "outgoing"
+
+
+def test_resolve_direction_legacy_output_and_unset_stay_both():
+    # Legacy `output` stays `both`: those rules match secret VALUES, which
+    # are worth catching in tool output too. Unset stays `both`.
     assert resolve_direction("sv_x_001", "data_leakage", "output") == "both"
     assert resolve_direction("sv_x_001", "data_leakage", None) == "both"
 
