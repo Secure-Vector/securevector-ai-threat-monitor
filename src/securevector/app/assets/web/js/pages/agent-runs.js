@@ -132,7 +132,7 @@ const AgentRunsPage = {
         // touch the audit table, so the row alone can't see them).
         const sel = (this.runs || []).find(r => r.trace_id === this.selected);
         const t = this._trace;
-        if (!sel || !t || t.trace_id !== this.selected) return;
+        if (!sel || !t || t.trace_id !== this.selected || !this._inDetail()) return;
         const advanced = (sel.spans || 0) !== (t.tool_call_count || 0)
             || this._ms(sel.ended_at) > this._ms(t.ended_at);
         const heartbeat = this._isLive(sel.ended_at) && (Date.now() - (this._live.lastDetail || 0)) > 15000;
@@ -271,7 +271,7 @@ const AgentRunsPage = {
             || shown.find(r => (r[flagKey] || 0) > 0);
         this._awayDismiss();
         if (hit) this.selectRun(hit.trace_id);
-        else if (this._trace) this.renderWaterfall(this._trace);
+        else if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
     },
 
     _awayDismiss() {
@@ -334,10 +334,16 @@ const AgentRunsPage = {
         away.id = 'ar-away';
         container.appendChild(away);
 
+        // Accordion drill-down (CrowdStrike-style): a FULL-WIDTH agent list
+        // grouped by runtime; clicking an agent expands the waterfall INLINE
+        // beneath its row (click again to collapse). No split panes, no page
+        // swap — the single #ar-detail node is moved under whichever row is
+        // open. It lives outside the list here so renderRuns can rebuild the
+        // rows without destroying it.
         const layout = document.createElement('div');
         layout.className = 'ar-layout';
-        layout.innerHTML = '<div class="ar-rail"><div class="ar-rail-head" id="ar-rail-head"></div>' +
-            '<div class="ar-runlist" id="ar-runlist"></div></div><div class="ar-detail" id="ar-detail"></div>';
+        layout.innerHTML = '<div class="ar-listview" id="ar-listview"><div class="ar-rail-head" id="ar-rail-head"></div>' +
+            '<div class="ar-runlist" id="ar-runlist"></div></div><div class="ar-detail" id="ar-detail" hidden></div>';
         container.appendChild(layout);
 
         await this.loadData();
@@ -350,8 +356,29 @@ const AgentRunsPage = {
         st.id = 'agent-runs-style';
         st.textContent = `
             @keyframes arFade { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:none; } }
-            .ar-layout { display:flex; gap:16px; align-items:flex-start; }
-            .ar-rail { width:308px; flex:0 0 308px; display:flex; flex-direction:column; gap:8px; }
+            .ar-layout { display:block; }
+            .ar-listview { display:flex; flex-direction:column; gap:8px; }
+            .ar-detail[hidden] { display:none; }
+            /* Trace TABLE (the Langfuse/LangSmith/Datadog pattern): one
+               full-width row per agent with aligned columns; the shared grid
+               template keeps the header and every row in lockstep. */
+            .ar-cols, .ar-run { display:grid; align-items:center; gap:10px;
+                grid-template-columns:14px 10px minmax(160px,1fr) 90px 90px 90px 90px 150px; }
+            .ar-cols { padding:0 13px 0 42px; margin-top:2px;
+                font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.9px;
+                text-transform:uppercase; color:var(--text-muted,#7d8590); }
+            .ar-cols span { text-align:right; }
+            .ar-cols .col-name { text-align:left; }
+            .ar-row-caret { width:12px; height:12px; color:var(--text-muted,#7d8590); transition:transform .16s; }
+            .ar-run.open .ar-row-caret { transform:rotate(90deg); color:var(--accent-primary,#5eadb8); }
+            .ar-row-name { display:flex; align-items:center; gap:8px; min-width:0; }
+            .ar-row-c { text-align:right; font-size:11.5px; color:var(--text-secondary,#b1bac4); white-space:nowrap; }
+            .ar-row-c .ar-dim0 { color:var(--text-muted,#7d8590); opacity:.5; }
+            .ar-row-time { text-align:right; color:var(--text-muted,#7d8590); font-size:11px; white-space:nowrap; }
+            @media (max-width:900px) {
+                .ar-cols, .ar-run { grid-template-columns:14px 10px minmax(120px,1fr) 70px 70px 120px; }
+                .col-det, .col-sec { display:none; }
+            }
             .ar-rail-head { display:flex; align-items:baseline; gap:8px; padding:2px 4px 0;
                 font:600 11px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px; text-transform:uppercase;
                 color:var(--text-muted,#7d8590); }
@@ -362,6 +389,24 @@ const AgentRunsPage = {
             .ar-rail-live::before { content:''; width:5px; height:5px; border-radius:50%; background:var(--accent-primary,#5eadb8);
                 animation:arLivePulse 1.6s ease-in-out infinite; }
             .ar-rail-win { margin-left:auto; letter-spacing:.4px; }
+            /* --- Runtime group headers: the list's first level is the
+               runtime/harness; its agents grid underneath. --- */
+            .ar-group-head { display:flex; align-items:center; gap:7px; width:100%; text-align:left; cursor:pointer;
+                margin:10px 0 4px; padding:6px 8px; border:none; border-radius:8px; background:transparent;
+                color:var(--text-secondary,#b1bac4); transition:background .12s; }
+            .ar-group-head:first-of-type { margin-top:2px; }
+            .ar-group-head:hover { background:var(--bg-hover,#21262d); }
+            .ar-group-head .ar-caret { transform:rotate(90deg); }
+            .ar-group-head.closed .ar-caret { transform:none; }
+            .ar-group-rt { font:700 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); }
+            .ar-group-n { font:11px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-muted,#7d8590);
+                font-variant-numeric:tabular-nums; }
+            .ar-group-flag { font:600 10.5px 'Avenir Next',Avenir,system-ui,sans-serif; white-space:nowrap; }
+            .ar-group-body { display:flex; flex-direction:column; gap:6px; padding-left:26px; }
+            .ar-group-body .ar-run { margin:0; }
+            /* Inline drill-down: the waterfall expands directly beneath its
+               row and collapses on a second click (accordion). */
+            .ar-group-body .ar-detail { margin:2px 0 10px; animation:arFade .18s ease-out; }
             /* "While you were away" digest strip — one line, above the layout.
                Neutral by default; red/amber ONLY on the security chips. */
             .ar-away { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 12px;
@@ -391,14 +436,14 @@ const AgentRunsPage = {
                 border-radius:4px; }
             .ar-away-x:hover { color:var(--text-primary,#e6edf3); background:var(--bg-hover,#21262d); }
             @media (prefers-reduced-motion: reduce) { .ar-away { animation:none; } }
-            .ar-runlist { max-height:680px; overflow:auto; display:flex; flex-direction:column; gap:9px; padding:2px; }
-            .ar-detail { flex:1; min-width:0; border:1px solid var(--border-default,#30363d); border-radius:14px;
+            .ar-runlist { display:flex; flex-direction:column; gap:9px; padding:2px; }
+            .ar-detail { min-width:0; border:1px solid var(--border-default,#30363d); border-radius:14px;
                 background:linear-gradient(180deg, var(--bg-card,#161b22), color-mix(in srgb, var(--bg-card,#161b22) 88%, #000)); padding:18px 20px; min-height:320px; }
             /* Run cards: runtime-coloured left rail, lift on hover, accent when selected.
                flex:0 0 auto is load-bearing — the runlist is a flex column with max-height,
                so without it many runs flex-shrink every card to ~24px and crush the text. */
             .ar-run { position:relative; flex:0 0 auto; text-align:left; cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:12px;
-                background:var(--bg-card,#161b22); padding:11px 13px 11px 16px; overflow:hidden;
+                background:var(--bg-card,#161b22); padding:9px 13px 9px 16px; overflow:hidden;
                 transition:border-color .14s,background .14s,box-shadow .14s,transform .14s; }
             .ar-run::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--ar-accent,#5eadb8); opacity:.5; transition:opacity .14s,width .14s; }
             .ar-run:hover { border-color:var(--accent-primary,#5eadb8); box-shadow:0 4px 14px rgba(0,0,0,.22); transform:translateY(-1px); }
@@ -442,6 +487,9 @@ const AgentRunsPage = {
             .ar-det-dim { color:var(--text-muted,#7d8590); }
             /* "TRACE" eyebrow on the detail header — names what this panel IS, so
                the left list reads as a list of traces and the right as its runs. */
+            .ar-det-x { cursor:pointer; border:none; background:none; color:var(--text-muted,#7d8590);
+                font-size:17px; line-height:1; padding:2px 7px; border-radius:6px; }
+            .ar-det-x:hover { color:var(--text-primary,#e6edf3); background:var(--bg-hover,#21262d); }
             .ar-det-eyebrow { margin-left:auto; font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:1.2px;
                 text-transform:uppercase; color:var(--accent-primary,#5eadb8); border-radius:999px; padding:3px 10px;
                 border:1px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 50%, transparent);
@@ -640,7 +688,7 @@ const AgentRunsPage = {
             .ar-tl { flex:0 0 auto; position:relative; width:72px; height:6px; border-radius:3px;
                 background:color-mix(in srgb, var(--border-default,#30363d) 60%, transparent); overflow:hidden; }
             .ar-tl i { position:absolute; top:0; bottom:0; width:5px; border-radius:2px; }
-            @media (max-width:1180px) { .ar-tl { display:none; } .ar-delta { min-width:0; } }
+            @media (max-width:980px) { .ar-tl { display:none; } .ar-delta { min-width:0; } }
             /* Replay visibility: hide events past the playhead; spotlight current. */
             .ar-replay-hidden { display:none !important; }
             .ar-replay-current > .ar-span-row { background:color-mix(in srgb, var(--accent-primary,#5eadb8) 15%, transparent);
@@ -773,10 +821,9 @@ const AgentRunsPage = {
         hsel.appendChild(allOpt);
         hsel.addEventListener('change', () => {
             this.runtimeFilter = hsel.value || null;
-            this.renderRuns();
-            const shown = this._filteredRuns();
-            if (shown.length) this.selectRun((shown.find(r => r.trace_id === this.selected) || shown[0]).trace_id);
-            else this._detailEmpty(`No ${this.runtimeFilter} runs in this window.`, 'Pick another harness or widen the Window.');
+            // Changing harness returns to the list (the filter is a list-level
+            // concept); an open drill-down that no longer matches would lie.
+            this._showList();
         });
         hgrp.appendChild(hsel);
         bar.appendChild(hgrp);
@@ -802,7 +849,7 @@ const AgentRunsPage = {
             cb.checked = !!this.kinds[k.key];
             cb.addEventListener('change', () => {
                 this.kinds[k.key] = cb.checked;
-                if (this._trace) this.renderWaterfall(this._trace);
+                if (this._inDetail() && this._trace) this.renderWaterfall(this._trace);
             });
             const dot = document.createElement('span');
             dot.className = 'ar-check-dot';
@@ -831,7 +878,7 @@ const AgentRunsPage = {
             if (v === this.outcomeFilter) o.selected = true;
             osel.appendChild(o);
         });
-        osel.addEventListener('change', () => { this.outcomeFilter = osel.value; if (this._trace) this.renderWaterfall(this._trace); });
+        osel.addEventListener('change', () => { this.outcomeFilter = osel.value; if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
         ogrp.appendChild(osel);
         bar.appendChild(ogrp);
         this._outcomeSel = osel;
@@ -956,24 +1003,24 @@ const AgentRunsPage = {
         this._snapSave();
         this.renderRuns();
         const shown = this._filteredRuns();
+        // Land on the full-width agent LIST. Only drill straight into a trace
+        // when a click demanded one: a Map agent-node (wantTrace), an outcome
+        // drill (Blocked Actions → first flagged trace), or the user is
+        // already inside a trace that's still present (window change).
+        const flagKey = { blocked: 'blocked', threat: 'detections', secret: 'secrets' }[this._wantFlagged];
+        this._wantFlagged = null;
+        const flagged = flagKey ? shown.find(r => (r[flagKey] || 0) > 0) : null;
         if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
-            // A Map agent-node click → open that exact session's run.
             this.selectRun(wantTrace);
         } else if (wantTrace) {
-            this._detailEmpty('That trace isn’t in this window.',
-                `Session ${this._esc(String(wantTrace).slice(0, 12))}… — widen the Window to load older traces.`);
-        } else if (shown.length) {
-            // An outcome drill (Blocked Actions → Traces) prefers the first
-            // trace that actually contains such runs over a stale selection.
-            const flagKey = { blocked: 'blocked', threat: 'detections', secret: 'secrets' }[this._wantFlagged];
-            this._wantFlagged = null;
-            const flagged = flagKey ? shown.find(r => (r[flagKey] || 0) > 0) : null;
-            const keep = flagged || shown.find(r => r.trace_id === this.selected);
-            this.selectRun((keep || shown[0]).trace_id);
-        } else if (this.runtimeFilter) {
-            this._detailEmpty(`No ${this.runtimeFilter} traces in this window.`, 'Clear the filter to see traces from other runtimes.');
+            if (window.Toast) Toast.error('That trace isn’t in this window — widen the Window to load older traces.');
+            this._showList();
+        } else if (flagged) {
+            this.selectRun(flagged.trace_id);
+        } else if (this._inDetail() && this.selected && shown.some(r => r.trace_id === this.selected)) {
+            this.selectRun(this.selected, { refresh: true }); // refresh the open drill-down in place
         } else {
-            this._detailEmpty('No traces in this window.', 'Install a Guard plugin and run an agent — each session becomes a trace here.');
+            this._showList();
         }
     },
 
@@ -992,6 +1039,9 @@ const AgentRunsPage = {
     /** Display label for a run: custom name (set on the Map) → "agent #N" →
      *  runtime kind. The runtime is still shown as a small sub-tag alongside. */
     _agentLabel(r) {
+        // Unnamed traces read "agent #N" — numbering matches the Map. The rail
+        // groups them under their runtime, so the header carries the harness
+        // and each card is one agent run.
         if (!r) return 'trace';
         const nm = ObsTabs.agentName(r.trace_id);
         if (nm) return nm;
@@ -1023,22 +1073,62 @@ const AgentRunsPage = {
 
     clearRuntimeFilter() {
         this.runtimeFilter = null;
+        if (this._harnessSel) this._harnessSel.value = '';
         this.renderRuns();
-        const shown = this._filteredRuns();
-        if (shown.length) this.selectRun((shown.find(r => r.trace_id === this.selected) || shown[0]).trace_id);
+    },
+
+    /** Collapse the inline drill-down and show the plain list. */
+    _showList() {
+        const det = document.getElementById('ar-detail');
+        if (det) {
+            det.hidden = true;
+            const layout = det.closest('.ar-layout') || document.querySelector('.ar-layout');
+            if (layout && det.parentElement !== layout) layout.appendChild(det); // park it outside the list
+        }
+        this.selected = null;
+        this.renderRuns();
+    },
+
+    /** Move the single detail node directly beneath the clicked row and show
+     *  it (the accordion expansion). Falls back to end-of-list if the row is
+     *  gone (e.g. filtered out between click and render). */
+    _expandUnder(traceId, scroll = true) {
+        const det = document.getElementById('ar-detail');
+        if (!det) return;
+        const row = [...document.querySelectorAll('.ar-run')].find(c => c.dataset.trace === traceId);
+        if (row) row.after(det); else (document.getElementById('ar-runlist') || document.body).appendChild(det);
+        det.hidden = false;
+        document.querySelectorAll('.ar-run.open').forEach(el => el.classList.remove('open'));
+        document.querySelectorAll('.ar-run.sel').forEach(el => el.classList.remove('sel'));
+        if (row) {
+            row.classList.add('open', 'sel');
+            if (scroll) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    },
+
+    _inDetail() {
+        const det = document.getElementById('ar-detail');
+        return !!(det && !det.hidden);
     },
 
     renderRuns() {
         const list = document.getElementById('ar-runlist');
         if (!list) return;
+        // The single #ar-detail node may be expanded inside the list — park
+        // it outside before the rebuild wipes the rows, then re-seat it under
+        // the selected row afterwards (bottom of this function).
+        const det = document.getElementById('ar-detail');
+        const detOpen = !!(det && !det.hidden && this.selected);
+        const layout = document.querySelector('.ar-layout');
+        if (det && layout && det.parentElement !== layout) layout.appendChild(det);
         list.textContent = '';
-        // Rail header — names the column (this is the list of TRACES) and
-        // carries the pulse: how many, how many live right now, the window.
+        // List header — names the level (agents) and carries the pulse:
+        // how many, how many live right now, the window.
         const rh = document.getElementById('ar-rail-head');
         if (rh) {
             const all = this._filteredRuns();
             const nLive = all.filter(r => this._isLive(r.ended_at)).length;
-            rh.innerHTML = `<b>${all.length}</b>&nbsp;trace${all.length === 1 ? '' : 's'}` +
+            rh.innerHTML = `<b>${all.length}</b>&nbsp;agent${all.length === 1 ? '' : 's'}` +
                 (nLive ? `<span class="ar-rail-live">${nLive} live</span>` : '') +
                 `<span class="ar-rail-win">last ${this.windowDays === 1 ? '24h' : this.windowDays + 'd'}</span>`;
         }
@@ -1059,61 +1149,133 @@ const AgentRunsPage = {
             chip.className = 'ar-filter-chip';
             chip.title = 'Clear tool filter';
             chip.innerHTML = `Tool <b>${this._esc(String(this.toolFilter).split(':').pop())}</b><span class="ar-chip-x">×</span>`;
-            chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._trace) this.renderWaterfall(this._trace); });
+            chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
             list.appendChild(chip);
         }
         const shown = this._filteredRuns();
         if (!shown.length) {
             const msg = document.createElement('div');
             msg.className = 'ar-empty';
-            msg.textContent = this.runtimeFilter ? `No ${this.runtimeFilter} runs.` : 'No runs.';
+            msg.innerHTML = this.runtimeFilter
+                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} traces in this window.</div><div style="font-size:13px;">Clear the filter to see traces from other runtimes.</div>`
+                : `<div style="font-size:15px;margin-bottom:6px;">No traces in this window.</div><div style="font-size:13px;">Install a Guard plugin and run an agent — each session becomes a trace here.</div>`;
             list.appendChild(msg);
             return;
         }
         const prevCounts = this._prevCounts || {};
         const nextCounts = {};
+        // The list groups agents under their runtime/harness (the way
+        // CrowdStrike groups events under a host): one section per runtime,
+        // one card per agent run.
+        const groups = [];
+        const byRt = new Map();
         shown.forEach(r => {
+            const k = r.runtime_kind || 'unknown';
+            if (!byRt.has(k)) { const g = { rt: k, runs: [] }; byRt.set(k, g); groups.push(g); }
+            byRt.get(k).runs.push(r);
+        });
+        if (!this._groupsCollapsed) {
+            try { this._groupsCollapsed = JSON.parse(localStorage.getItem('sv-ar-groups') || '{}'); }
+            catch (e) { this._groupsCollapsed = {}; }
+        }
+        const collapsed = this._groupsCollapsed;
+        const buildCard = (r) => {
             const card = document.createElement('button');
-            card.className = 'ar-run' + (r.trace_id === this.selected ? ' sel' : '');
+            card.className = 'ar-run' + (r.trace_id === this.selected ? ' sel' + (detOpen ? ' open' : '') : '');
             card.type = 'button';
+            card.dataset.trace = r.trace_id;
             const color = RUNTIME_COLOR[r.runtime_kind] || '#64748b';
             card.style.setProperty('--ar-accent', color);
-            // Count-tick flash: when a live update raised this card's numbers,
-            // pulse the card once so the change is visible without reading.
+            // Count-tick flash: when a live update raised this row's numbers,
+            // pulse it once so the change is visible without reading.
             const countKey = `${r.spans}|${r.blocked}|${r.detections}|${r.secrets}`;
             nextCounts[r.trace_id] = countKey;
             if (prevCounts[r.trace_id] && prevCounts[r.trace_id] !== countKey) card.classList.add('ar-card-tick');
-            // Label leads with the custom name or "agent #N" (matching the Map);
-            // the runtime/harness is always shown as a small secondary tag.
-            const rtMain = `<span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
-                `<span class="ar-run-sub">${this._esc(r.runtime_kind)}</span>` +
-                (this._isLive(r.ended_at) ? this._liveBadge() : '');
+            // One table row per agent run (custom name wins); numeric columns
+            // align under the header. Zero-count cells render a dim dash so
+            // the eye catches the non-zero (colored) cells instantly.
+            const dash = '<span class="ar-dim0">—</span>';
             card.innerHTML =
-                `<div class="ar-run-top"><span class="ar-run-dot" style="background:${color}"></span>` +
-                rtMain +
-                `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green}" title="risk: ${r.risk}"></span></div>` +
-                `<div class="ar-run-meta"><span><span class="ar-num">${r.spans}</span> tool ${r.spans === 1 ? 'run' : 'runs'}</span>` +
-                (r.blocked ? `<span class="ar-blk">${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span> blocked</span>` : '') +
-                (r.detections ? `<span class="ar-thr" title="threats detected in this trace">${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444">${r.detections}</span> detected</span>` : '') +
-                (r.secrets ? `<span class="ar-sec" title="secret/credential detections in this trace">${AR_LOCK_SVG('#f59e0b', 12)}<span class="ar-num" style="color:#f59e0b">${r.secrets}</span> secret</span>` : '') +
-                `<span class="ar-run-time">${this._fmtTime(r.ended_at)}</span></div>`;
+                `<svg class="ar-row-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
+                `<span class="ar-run-dot" style="background:${color}"></span>` +
+                `<span class="ar-row-name"><span class="ar-run-rt">${this._esc(this._agentLabel(r))}</span>` +
+                (this._isLive(r.ended_at) ? this._liveBadge() : '') +
+                `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
+                `<span class="ar-row-c"><span class="ar-num">${r.spans}</span></span>` +
+                `<span class="ar-row-c">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
+                `<span class="ar-row-c col-det" title="threats detected in this trace">${r.detections ? `${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444"> ${r.detections}</span>` : dash}</span>` +
+                `<span class="ar-row-c col-sec" title="secret/credential detections in this trace">${r.secrets ? `${AR_LOCK_SVG('#f59e0b', 12)}<span class="ar-num" style="color:#f59e0b"> ${r.secrets}</span>` : dash}</span>` +
+                `<span class="ar-row-time">${this._fmtTime(r.ended_at)}</span>`;
             card.addEventListener('click', () => this.selectRun(r.trace_id));
-            list.appendChild(card);
+            return card;
+        };
+        // Column header — one, above the first group (the runtime group rows
+        // between sections carry their own rolled-up numbers).
+        const cols = document.createElement('div');
+        cols.className = 'ar-cols';
+        cols.innerHTML = '<span></span><span></span><span class="col-name">Agent</span>' +
+            '<span>Tool runs</span><span>Blocked</span><span class="col-det">Detected</span>' +
+            '<span class="col-sec">Secrets</span><span>Last activity</span>';
+        list.appendChild(cols);
+        groups.forEach(g => {
+            const color = RUNTIME_COLOR[g.rt] || '#64748b';
+            const live = g.runs.filter(r => this._isLive(r.ended_at)).length;
+            const blk = g.runs.reduce((a, r) => a + (r.blocked || 0), 0);
+            const det = g.runs.reduce((a, r) => a + (r.detections || 0), 0);
+            const sec = g.runs.reduce((a, r) => a + (r.secrets || 0), 0);
+            // A collapsed group holding the selection re-opens: hiding the
+            // selected agent behind a closed header reads as data loss.
+            const holdsSel = g.runs.some(r => r.trace_id === this.selected);
+            const isClosed = !!collapsed[g.rt] && !holdsSel;
+            const head = document.createElement('button');
+            head.type = 'button';
+            head.className = 'ar-group-head' + (isClosed ? ' closed' : '');
+            head.title = (isClosed ? 'Expand' : 'Collapse') + ' the ' + g.rt + ' agents';
+            head.innerHTML =
+                `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>` +
+                `<span class="ar-run-dot" style="background:${color}"></span>` +
+                `<span class="ar-group-rt">${this._esc(g.rt)}</span>` +
+                `<span class="ar-group-n">${g.runs.length} agent${g.runs.length === 1 ? '' : 's'}</span>` +
+                (blk ? `<span class="ar-group-flag" style="color:#ef4444" title="blocked actions across this runtime's agents">${blk} blocked</span>` : '') +
+                (det ? `<span class="ar-group-flag" style="color:#ef4444" title="threats detected across this runtime's agents">${det} detected</span>` : '') +
+                (sec ? `<span class="ar-group-flag" style="color:#f59e0b" title="secrets caught across this runtime's agents">${sec} secret</span>` : '') +
+                (live ? this._liveBadge(live + ' agent' + (live === 1 ? '' : 's') + ' active now') : '');
+            const body = document.createElement('div');
+            body.className = 'ar-group-body';
+            body.hidden = isClosed;
+            g.runs.forEach(r => body.appendChild(buildCard(r)));
+            head.addEventListener('click', () => {
+                const closing = !body.hidden;
+                body.hidden = closing;
+                head.classList.toggle('closed', closing);
+                collapsed[g.rt] = closing;
+                try { localStorage.setItem('sv-ar-groups', JSON.stringify(collapsed)); } catch (e) { /* private mode */ }
+            });
+            list.appendChild(head);
+            list.appendChild(body);
         });
+        // Re-seat the open drill-down under its (freshly rebuilt) row — no
+        // scroll: live re-renders must not yank the viewport around.
+        if (detOpen) this._expandUnder(this.selected, false);
         this._prevCounts = { ...prevCounts, ...nextCounts };
         // Snapshot which traces rendered as live, so a badge expiring (trace
         // goes quiet, data unchanged) still triggers a repaint on the next poll.
         this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
     },
 
-    async selectRun(traceId) {
+    async selectRun(traceId, opts) {
+        // Accordion toggle: clicking the already-open row collapses it. A
+        // programmatic refresh (live tick / window change) must NOT toggle.
+        if (!(opts && opts.refresh) && this.selected === traceId && this._inDetail()) {
+            this._showList();
+            return;
+        }
         this.selected = traceId;
         this.runSearch = '';  // a new trace starts unfiltered
         this._replayStop();   // a new trace resets any in-progress replay
         this._live.pendingDetail = false; // stale "new activity" pull is void
         this._live.lastDetail = Date.now();
-        document.querySelectorAll('.ar-run').forEach(el => el.classList.remove('sel'));
-        this.renderRuns();
+        this._expandUnder(traceId, !(opts && opts.refresh));
         const detail = document.getElementById('ar-detail');
         if (detail) detail.innerHTML = '<div class="ar-empty">Loading trace…</div>';
         const trace = await API.getTrace(traceId);
@@ -1135,7 +1297,9 @@ const AgentRunsPage = {
             `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
             (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running — the trace refreshes itself while activity continues') : '') +
-            `<span class="ar-det-eyebrow" title="One recorded agent execution. Every row below is a run inside this trace.">Trace</span>`;
+            `<span class="ar-det-eyebrow" title="One recorded agent execution. Every row below is a run inside this trace.">Trace</span>` +
+            `<button type="button" class="ar-det-x" title="Collapse this trace (or click the agent row again)">×</button>`;
+        head.querySelector('.ar-det-x').addEventListener('click', () => this._showList());
         detail.appendChild(head);
 
         const allSpans = trace.spans || [];
@@ -1953,7 +2117,9 @@ const AgentRunsPage = {
 
     _detailEmpty(title, sub) {
         const detail = document.getElementById('ar-detail');
-        if (detail) detail.innerHTML = `<div class="ar-empty"><div style="font-size:15px;margin-bottom:6px;">${title}</div><div style="font-size:13px;">${sub}</div></div>`;
+        if (!detail) return;
+        // Inline under its row — the row click (or the ×) collapses it.
+        detail.innerHTML = `<div class="ar-empty"><div style="font-size:15px;margin-bottom:6px;">${title}</div><div style="font-size:13px;">${sub}</div></div>`;
     },
 
     _fmtTime(iso) {

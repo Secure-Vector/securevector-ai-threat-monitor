@@ -165,6 +165,26 @@ const API = {
         return this.request(`/api/traces/${encodeURIComponent(traceId)}`).catch(() => null);
     },
 
+    // conversion-ux — Instant Agent Audit. Opt-in retroactive scan of on-disk
+    // agent transcripts; consent travels in the run request body.
+    async getInstantAuditStatus() {
+        return this.request('/api/instant-audit/status').catch(() => null);
+    },
+
+    async runInstantAudit(body) {
+        return this.request('/api/instant-audit/run', {
+            method: 'POST', body: JSON.stringify(body || {}),
+        }).catch(() => ({ error: true }));
+    },
+
+    async getInstantAuditReport() {
+        return this.request('/api/instant-audit/report').catch(() => null);
+    },
+
+    async deleteInstantAuditReport() {
+        return this.request('/api/instant-audit/report', { method: 'DELETE' }).catch(() => null);
+    },
+
     // agent-observability §3.2 — blocked-action ledger. What enforcement
     // PREVENTED in the window, grouped by reason + by tool, with hit counts.
     async getBlockedLedger(params = {}) {

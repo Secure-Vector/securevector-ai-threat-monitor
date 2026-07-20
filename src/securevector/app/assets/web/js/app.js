@@ -10,6 +10,8 @@ const App = {
         guide: GettingStartedPage,
         dashboard: DashboardPage,
         threats: ThreatsPage,
+        // conversion-ux — retroactive scan of on-disk agent history (opt-in).
+        'instant-audit': InstantAuditPage,
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,

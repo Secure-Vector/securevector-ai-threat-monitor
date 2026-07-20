@@ -381,6 +381,9 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # Local detection — what harnesses/sessions/agents are running on this device.
     from securevector.app.server.routes import detection
     app.include_router(detection.router, prefix="/api", tags=["Detection"])
+    # conversion-ux — Instant Agent Audit (opt-in retroactive transcript scan).
+    from securevector.app.server.routes import instant_audit
+    app.include_router(instant_audit.router, prefix="/api", tags=["Instant Audit"])
 
     # Serve web UI static files
     if WEB_ASSETS_PATH.exists():

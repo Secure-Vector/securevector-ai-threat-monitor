@@ -7,6 +7,9 @@ const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        // conversion-ux — the download hook: opt-in retroactive scan of the
+        // agent history already on disk. Sits beside Threat Monitor: past vs live.
+        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did — a local, opt-in scan of past Claude Code / Codex sessions' },
         // Agent Replay umbrella — collapsible parent grouping the three
         // observability views that share the same per-agent lens. Top-level
         // 'replay' route still works as a deep-link (the Timeline sub-item
@@ -37,17 +40,23 @@ const Sidebar = {
         // ---- Govern (v5 IA) ----
         // Everything below until Connect is a control the human sets: what
         // agents may do, which rules fire, what ML runs, what budgets cap.
-        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
-        { id: 'rules', label: 'Rules', icon: 'rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
-        // Skills + Tools entries cover their primary "configure" surfaces
-        // (the Permissions / Policy tabs); the Activity / Tracking tabs are
-        // surfaced under Observability above.
-        { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
-        // Guardian ML no longer has a nav row — it's one global on/off, not a
-        // destination. It lives in the header as the sentinel-robot control
-        // (Header.createGuardianControl); the 'guardian-ml' route stays alive
-        // for deep links (Governance, dashboard gaps, global banners).
-        { id: 'cost-settings', label: 'Cost Settings', icon: 'sliders', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Observability.' },
+        // 2026-07-20 persona review (nav clutter): the four local-control
+        // singles fold into one collapsible group. Page ids are untouched, so
+        // every deep link (Governance gap cards, guides, palette) still lands.
+        // MCP Policies stays OUTSIDE this group on purpose — it's the
+        // CLOUD_TIER org-managed surface (#151), not a local control.
+        // Guardian ML still has no nav row — it's the header sentinel-robot
+        // control (Header.createGuardianControl); the 'guardian-ml' route
+        // stays alive for deep links.
+        { id: 'policies-controls', label: 'Policies & Controls', icon: 'lock', collapsible: true, defaultExpanded: true, subItems: [
+            { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
+            { id: 'rules', label: 'Rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+            // Skills + Tools entries cover their primary "configure" surfaces
+            // (the Permissions / Policy tabs); the Activity / Tracking tabs
+            // are surfaced under Observability above.
+            { id: 'skill-scanner', label: 'Skills Scanner', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
+            { id: 'cost-settings', label: 'Cost Settings', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Observability.' },
+        ]},
         // ---- Cloud section (#151) ----
         // The cloud-account surfaces get their own labelled section
         // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
@@ -296,14 +305,14 @@ const Sidebar = {
         // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
             'dashboard':          'Visibility',
-            'tool-permissions':   'Govern',
+            'policies-controls':  'Govern',
             'guide-connect-agents': 'Connect',
             'siem-export':        'Cloud & Forwarders',
             'guide':              'Help & Settings',
         };
 
         // Items that get a divider before them — the IA section boundaries.
-        const DIVIDER_BEFORE = new Set(['tool-permissions', 'guide-connect-agents', 'siem-export', 'guide']);
+        const DIVIDER_BEFORE = new Set(['policies-controls', 'guide-connect-agents', 'siem-export', 'guide']);
 
         // Section groups — each Observe/Govern/Connect header is a toggle
         // that collapses every row in its group. Rows register into the
