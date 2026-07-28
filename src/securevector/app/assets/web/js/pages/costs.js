@@ -257,7 +257,7 @@ const CostsPage = {
 
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details toggle — token breakdown only, no $.
@@ -333,7 +333,7 @@ const CostsPage = {
 
             const chartTitle = document.createElement('div');
             chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend — Last 7 Days';
+            chartTitle.textContent = 'Token Trend: Last 7 Days';
             chartCard.appendChild(chartTitle);
 
             // Build full 7-day buckets in local-tz, filling sparse days
@@ -424,7 +424,7 @@ const CostsPage = {
                 const quiet = document.createElement('div');
                 quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
                     + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
                 chartCard.appendChild(quiet);
             } else {
                 chartCard.appendChild(wrap);
@@ -563,7 +563,7 @@ const CostsPage = {
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Codex sessions typically run a single
@@ -633,7 +633,7 @@ const CostsPage = {
 
             const chartTitle = document.createElement('div');
             chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend — Last 7 Days';
+            chartTitle.textContent = 'Token Trend: Last 7 Days';
             chartCard.appendChild(chartTitle);
 
             const buckets = [];
@@ -719,7 +719,7 @@ const CostsPage = {
                 const quiet = document.createElement('div');
                 quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
                     + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
                 chartCard.appendChild(quiet);
             } else {
                 chartCard.appendChild(wrap);
@@ -852,7 +852,7 @@ const CostsPage = {
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars \u2014 proxied spend appears in Cost Summary below';
+        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Copilot sessions frequently switch models
@@ -921,7 +921,7 @@ const CostsPage = {
 
             const chartTitle = document.createElement('div');
             chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend — Last 7 Days';
+            chartTitle.textContent = 'Token Trend: Last 7 Days';
             chartCard.appendChild(chartTitle);
 
             const buckets = [];
@@ -1007,7 +1007,7 @@ const CostsPage = {
                 const quiet = document.createElement('div');
                 quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
                     + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
                 chartCard.appendChild(quiet);
             } else {
                 chartCard.appendChild(wrap);
@@ -1121,7 +1121,7 @@ const CostsPage = {
         costRow.appendChild(costValue);
         const costHint = document.createElement('span');
         costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Hermes /insights holds its own cost estimate \u2014 proxied spend appears in Cost Summary below';
+        costHint.textContent = 'Hermes /insights holds its own cost estimate: proxied spend appears in Cost Summary below';
         costRow.appendChild(costHint);
 
         // Per-model details — Hermes sessions switch models freely
@@ -1190,7 +1190,7 @@ const CostsPage = {
 
             const chartTitle = document.createElement('div');
             chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend — Last 7 Days';
+            chartTitle.textContent = 'Token Trend: Last 7 Days';
             chartCard.appendChild(chartTitle);
 
             const buckets = [];
@@ -1276,7 +1276,7 @@ const CostsPage = {
                 const quiet = document.createElement('div');
                 quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
                     + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days — sessions will chart here as they run.';
+                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
                 chartCard.appendChild(quiet);
             } else {
                 chartCard.appendChild(wrap);
@@ -1434,7 +1434,7 @@ const CostsPage = {
                 placeholder.appendChild(line2);
                 const line3 = document.createElement('div');
                 line3.style.cssText = 'color: var(--text-muted); font-size: 11.5px; line-height: 1.55; max-width: 560px; margin: 0 auto;';
-                line3.textContent = 'Plugin-guarded runtimes (like Claude Code) don’t use the proxy — their token usage lives in the session panels above.';
+                line3.textContent = 'Plugin-guarded runtimes (like Claude Code) don’t use the proxy: their token usage lives in the session panels above.';
                 placeholder.appendChild(line3);
                 content.appendChild(placeholder);
             } else {
@@ -1581,7 +1581,7 @@ const CostsPage = {
         if (agents.some(a => a.has_unknown_pricing)) {
             const warn = document.createElement('div');
             warn.className = 'alert alert-warning';
-            warn.textContent = 'Some requests used models with unknown pricing — costs show as $0.00. Update rates in the Pricing Reference tab.';
+            warn.textContent = 'Some requests used models with unknown pricing: costs show as $0.00. Update rates in the Pricing Reference tab.';
             el.appendChild(warn);
         }
 
@@ -1625,7 +1625,7 @@ const CostsPage = {
                 }},
                 { key: null, label: 'Daily Budget', render: (_, row) => self._buildAgentBudgetCell(row, true) },
                 { key: 'providers_used', label: 'Providers', render: v => (v || []).join(', ') },
-                { key: 'last_seen', label: 'Last Seen', sortable: true, defaultDir: 'desc', render: v => v ? new Date(v).toLocaleString() : '\u2014' },
+                { key: 'last_seen', label: 'Last Seen', sortable: true, defaultDir: 'desc', render: v => v ? new Date(v).toLocaleString() : '—' },
             ],
             data: agents,
             sortKey: 'total_cost_usd',
@@ -1851,14 +1851,14 @@ const CostsPage = {
                 { key: 'agent_id', label: 'Agent', sortable: true, render: v => {
                     const c = document.createElement('code');
                     if (v && v.length > 28) { c.textContent = v.slice(0, 28) + '\u2026'; c.title = v; }
-                    else c.textContent = v || '\u2014';
+                    else c.textContent = v || '—';
                     return c;
                 }},
                 { key: 'provider', label: 'Provider', sortable: true },
                 { key: 'model_id', label: 'Model', sortable: true },
                 { key: 'input_tokens', label: 'Input', sortable: true, render: v => (v || 0).toLocaleString() },
                 { key: 'input_cached_tokens', label: 'Cached', sortable: true, render: (v, row) => {
-                    if (!v || v <= 0) return '\u2014';
+                    if (!v || v <= 0) return '—';
                     const pct = row.input_tokens > 0 ? ` (${Math.round(v / row.input_tokens * 100)}%)` : '';
                     return v.toLocaleString() + pct;
                 }},
@@ -1928,13 +1928,13 @@ const CostsPage = {
         metaGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px;';
         const agentEl = document.createElement('code');
         agentEl.style.cssText = 'font-size: 12px; color: var(--text-primary); word-break: break-all;';
-        agentEl.textContent = r.agent_id || '\u2014';
+        agentEl.textContent = r.agent_id || '—';
         metaGrid.appendChild(section('Agent ID', agentEl));
-        metaGrid.appendChild(section('Provider', r.provider || '\u2014'));
+        metaGrid.appendChild(section('Provider', r.provider || '—'));
         wrap.appendChild(metaGrid);
         const modelEl = document.createElement('code');
         modelEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-primary);';
-        modelEl.textContent = r.model_id || '\u2014';
+        modelEl.textContent = r.model_id || '—';
         wrap.appendChild(section('Model', modelEl));
         const tokenGrid = document.createElement('div');
         tokenGrid.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;';
@@ -1952,7 +1952,7 @@ const CostsPage = {
         tokenGrid.appendChild(tokenCard('Input', r.input_tokens.toLocaleString(), '#60a5fa'));
         const cachedPct = r.input_tokens > 0 && r.input_cached_tokens > 0
             ? Math.round(r.input_cached_tokens / r.input_tokens * 100) + '%' : '0%';
-        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '\u2014', 'var(--text-primary)'));
+        tokenGrid.appendChild(tokenCard('Cached', r.input_cached_tokens > 0 ? r.input_cached_tokens.toLocaleString() + ' (' + cachedPct + ')' : '—', 'var(--text-primary)'));
         tokenGrid.appendChild(tokenCard('Output', r.output_tokens.toLocaleString(), 'var(--text-primary)'));
         wrap.appendChild(section('Token Usage', tokenGrid));
         return wrap;
@@ -2291,7 +2291,7 @@ const CostsPage = {
 
         const infoText = document.createElement('div');
         infoText.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.6;';
-        infoText.textContent = 'Set daily USD spend limits to protect against runaway agent costs. The global limit is a wallet cap — it compares against your total spend across all agents today. Per-agent budgets compare only that agent\'s own spend and override the global limit. When exceeded, the proxy will warn (log + header) or block the request. Budgets reset at midnight UTC.';
+        infoText.textContent = 'Set daily USD spend limits to protect against runaway agent costs. The global limit is a wallet cap: it compares against your total spend across all agents today. Per-agent budgets compare only that agent\'s own spend and override the global limit. When exceeded, the proxy will warn (log + header) or block the request. Budgets reset at midnight UTC.';
         infoBanner.appendChild(infoText);
         content.appendChild(infoBanner);
 
@@ -2394,7 +2394,7 @@ const CostsPage = {
         const globalNote = document.createElement('p');
         globalNote.className = 'help-text';
         globalNote.style.marginTop = '10px';
-        globalNote.textContent = 'Wallet cap — triggers when total spend across all agents exceeds this amount today. Use per-agent budgets below for per-agent limits.';
+        globalNote.textContent = 'Wallet cap: triggers when total spend across all agents exceeds this amount today. Use per-agent budgets below for per-agent limits.';
         globalCard.appendChild(globalNote);
 
         globalSection.appendChild(globalCard);
@@ -3011,10 +3011,10 @@ const CostsPage = {
         const titleEl = document.createElement('div');
         titleEl.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; flex: 1; min-width: 0;';
         if (this._chartState.mode === 'range') {
-            titleEl.textContent = `Daily Spend — ${this._chartState.rangeStart}  →  ${this._chartState.rangeEnd}`;
+            titleEl.textContent = `Daily Spend: ${this._chartState.rangeStart}  →  ${this._chartState.rangeEnd}`;
         } else {
             const d = new Date(this._chartState.year, this._chartState.month - 1, 1);
-            titleEl.textContent = `Daily Spend — ${d.toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+            titleEl.textContent = `Daily Spend: ${d.toLocaleString('default', { month: 'long', year: 'numeric' })}`;
         }
         header.appendChild(titleEl);
 

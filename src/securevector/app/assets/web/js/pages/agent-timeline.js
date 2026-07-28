@@ -39,7 +39,7 @@ const AgentTimelinePage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Traces — Live feed', 'Every enforced tool call across all traces, newest first.');
+            Header.setPageInfo('Traces: Live feed', 'Every enforced tool call across all traces, newest first.');
         }
         this._injectStyle();
 
@@ -243,7 +243,7 @@ const AgentTimelinePage = {
             feed.innerHTML = '<div class="tl-empty"><div class="t1">' +
                 (noKind ? 'No tool kind selected.' : 'No matching tool calls in this window.') + '</div>' +
                 '<div class="t2">' + (noKind ? 'Tick Built-in or External MCP to show calls.'
-                    : 'Adjust the Show / Tool filters, or run an agent — every tool call lands here in order.') + '</div></div>';
+                    : 'Adjust the Show / Tool filters, or run an agent: every tool call lands here in order.') + '</div></div>';
             return;
         }
         feed.textContent = '';
@@ -292,7 +292,7 @@ const AgentTimelinePage = {
             note.className = 'tl-trunc';
             note.textContent =
                 `Showing the latest ${this.entries.length} of ${this.total} enforced calls in this window. ` +
-                `Older calls aren't listed here — the chart above counts all of them.`;
+                `Older calls aren't listed here: the chart above counts all of them.`;
             feed.appendChild(note);
         }
     },
@@ -459,7 +459,7 @@ const AgentTimelinePage = {
         const rows = this._exportRows();
         if (!rows.length) return;
         const shown = this.action ? this.action : 'all';
-        ObsTabs.printDoc('SecureVector — Timeline',
+        ObsTabs.printDoc('SecureVector: Timeline',
             `<h1>Timeline</h1><div class="sub">${rows.length} events · last ${this.windowDays} day(s) · show: ${shown}</div>` +
             ObsTabs.tableHTML(this._exportCols(), rows));
     },

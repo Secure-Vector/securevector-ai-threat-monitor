@@ -51,6 +51,7 @@ const AgentRunsPage = {
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
     outcomeFilter: 'all',  // span verdict filter: all | allow | blocked | log_only | threat | secret
+    listView: 'all',       // list-level triage view: all | flagged | blocked | detected | secret
     collapseGens: true,    // fold consecutive LLM turns into a summary (persona #1 ask)
     runSearch: '',         // in-trace filter: match runs by tool / model / reason
     // Session replay (§3.1): step/play through the trace's event stream in
@@ -76,7 +77,7 @@ const AgentRunsPage = {
     // case a "new activity" pill appears instead and the user pulls.
     _LIVE_MS: 120000,
     _POLL_MS: 5000,
-    _live: { timer: null, pendingDetail: false, lastDetail: 0 },
+    _live: { timer: null, pendingDetail: false, lastDetail: 0, paused: false },
 
     _ms(ts) {
         if (!ts) return 0;
@@ -88,6 +89,38 @@ const AgentRunsPage = {
 
     _liveBadge(title) {
         return `<span class="ar-live" title="${title || 'Activity in the last 2 minutes'}">live</span>`;
+    },
+
+    /** The hold-still control next to the LIVE badge on an open trace. While
+     *  a session is running, live refreshes re-sort the list and grow the
+     *  waterfall under the reader; this is the explicit "stop moving the
+     *  page" switch. Pausing freezes ALL live updates on the page (nothing is
+     *  lost; resume catches up immediately). */
+    _pauseBtnHtml() {
+        const paused = !!this._live.paused;
+        return `<button type="button" class="ar-live-pause${paused ? ' paused' : ''}" ` +
+            `title="${paused ? 'Resume live updates' : 'Hold this view still while you read. Live updates stop until you resume.'}">` +
+            this._pauseBtnFace(paused) + `</button>`;
+    },
+    _pauseBtnFace(paused) {
+        return paused
+            ? `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>Resume</span>`
+            : `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pause</span>`;
+    },
+    _livePauseToggle(btn) {
+        this._live.paused = !this._live.paused;
+        const paused = this._live.paused;
+        if (btn) {
+            btn.classList.toggle('paused', paused);
+            btn.title = paused ? 'Resume live updates' : 'Hold this view still while you read. Live updates stop until you resume.';
+            btn.innerHTML = this._pauseBtnFace(paused);
+        }
+        if (!paused) {
+            // Catch up right away: refresh the open trace (explicit ask, so it
+            // may rebuild) and let the next tick bring the list up to date.
+            this._livePill(false);
+            this._liveRefreshDetail(true);
+        }
     },
 
     _liveStart() {
@@ -108,9 +141,13 @@ const AgentRunsPage = {
             return;
         }
         if (document.hidden) return; // don't poll a background tab
+        // User-requested pause: hold the whole page still — no list rebuild,
+        // no detail refresh — until they resume. Nothing is lost; resume pulls.
+        if (this._live.paused) return;
         const data = await API.getTraces({ window_days: this.windowDays });
         const list = document.getElementById('ar-runlist');
         if (!data || !data.runs || !list) return; // unmounted / failed mid-fetch
+        if (this._live.paused) return; // paused while the fetch was in flight
         // Re-render the card list when the data changed OR a badge expired
         // (a trace goes quiet with no new rows — same data, different state).
         const liveKey = data.runs.filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
@@ -118,9 +155,14 @@ const AgentRunsPage = {
         if (changed) {
             this.runs = data.runs;
             this._computeAgentNums();
+            // The list scrolls with the page, so restore BOTH scroll owners —
+            // a live re-sort (a running agent bubbles up) must not move the view.
             const keepScroll = list.scrollTop;
+            const se = document.scrollingElement || document.documentElement;
+            const keepPage = se.scrollTop;
             this.renderRuns();
             list.scrollTop = keepScroll;
+            se.scrollTop = keepPage;
         }
         // Tab-return digest: while hidden the ticks (and snapshot saves) stop,
         // so a long-hidden tab comes back to a stale snapshot — same "away"
@@ -158,15 +200,27 @@ const AgentRunsPage = {
             || (det.contains(document.activeElement) && document.activeElement !== document.body)));
     },
 
-    async _liveRefreshDetail() {
+    async _liveRefreshDetail(force) {
         const id = this.selected;
         if (!id) return;
         this._live.lastDetail = Date.now();
         const trace = await API.getTrace(id);
         if (!trace || this.selected !== id || !document.getElementById('ar-detail')) return;
         this._trace = trace;
+        // Re-check AFTER the fetch: the user may have entered replay, focused
+        // a control, or hit pause while it was in flight. A stale render here
+        // is exactly the "page keeps moving" yank — pill instead. An explicit
+        // pill click (force) is the user asking, so it always goes through.
+        if (!force && (this._detailBusy() || this._live.paused)) {
+            this._live.pendingDetail = true;
+            this._livePill(true);
+            return;
+        }
         this._live.pendingDetail = false;
+        const se = document.scrollingElement || document.documentElement;
+        const keepPage = se.scrollTop;
         this.renderWaterfall(trace);
+        se.scrollTop = keepPage;
     },
 
     /** Show/remove the "new activity" pull-pill on the runs heading. */
@@ -179,9 +233,9 @@ const AgentRunsPage = {
         pill = document.createElement('button');
         pill.type = 'button';
         pill.className = 'ar-live-pill';
-        pill.title = 'This trace has new runs — click to load them';
-        pill.textContent = 'new activity — refresh';
-        pill.onclick = () => { this._live.pendingDetail = false; this._liveRefreshDetail(); };
+        pill.title = 'This trace has new runs: click to load them';
+        pill.textContent = 'new activity: refresh';
+        pill.onclick = () => { this._live.pendingDetail = false; this._liveRefreshDetail(true); };
         head.insertBefore(pill, head.firstChild.nextSibling);
     },
 
@@ -311,7 +365,7 @@ const AgentRunsPage = {
             this._pendingOutcome = null;
         }
         if (window.Header) {
-            Header.setPageInfo('Traces', 'One trace per agent session — every LLM and tool run with its verdict, tokens and cost.');
+            Header.setPageInfo('Traces', 'One trace per agent session: every LLM and tool run with its verdict, tokens and cost.');
         }
         this._injectStyle();
 
@@ -441,7 +495,7 @@ const AgentRunsPage = {
             .ar-detail { min-width:0; border:1px solid var(--border-default,#30363d); border-radius:14px;
                 background:linear-gradient(180deg, var(--bg-card,#161b22), color-mix(in srgb, var(--bg-card,#161b22) 88%, #000)); padding:18px 20px; min-height:320px; }
             /* Run cards: runtime-coloured left rail, lift on hover, accent when selected.
-               flex:0 0 auto is load-bearing — the runlist is a flex column with max-height,
+               flex:0 0 auto is load-bearing, the runlist is a flex column with max-height,
                so without it many runs flex-shrink every card to ~24px and crush the text. */
             .ar-run { position:relative; flex:0 0 auto; text-align:left; cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:12px;
                 background:var(--bg-card,#161b22); padding:9px 13px 9px 16px; overflow:hidden;
@@ -518,6 +572,17 @@ const AgentRunsPage = {
             .ar-live-pill::before { content:''; width:5px; height:5px; border-radius:50%; background:var(--accent-primary,#5eadb8);
                 animation:arLivePulse 1.6s ease-in-out infinite; }
             .ar-live-pill:hover { background:rgba(94,173,184,0.18); }
+            /* Hold-still switch beside the LIVE badge: neutral chrome, teal on
+               hover; the "paused" state carries the accent so it can't be
+               missed while updates are frozen. */
+            .ar-live-pause { display:inline-flex; align-items:center; gap:4px; cursor:pointer; flex:0 0 auto;
+                font:600 10px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.3px;
+                color:var(--text-secondary,#b1bac4); background:var(--bg-tertiary,#21262d);
+                border:1px solid var(--border-default,#30363d); border-radius:9px; padding:2px 8px; }
+            .ar-live-pause:hover { color:var(--text-primary,#e6edf3); border-color:var(--accent-primary,#5eadb8); }
+            .ar-live-pause.paused { color:var(--accent-primary,#5eadb8);
+                border-color:color-mix(in srgb, var(--accent-primary,#5eadb8) 55%, transparent);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 12%, transparent); }
             @media (prefers-reduced-motion: reduce) {
                 .ar-live::before, .ar-live-pill::before { animation:none; }
                 .ar-card-tick { animation:none; }
@@ -678,7 +743,7 @@ const AgentRunsPage = {
                 font:700 9px ui-monospace,'JetBrains Mono',Menlo,monospace; letter-spacing:-.3px;
                 color:var(--accent-primary,#5eadb8); font-variant-numeric:tabular-nums; }
             /* Honest per-run timing: "+2.3s" = this run STARTED that long after
-               the previous run (wall clock between starts — we don't have
+               the previous run (wall clock between starts: we don't have
                per-run latency and never fake it). */
             .ar-delta { flex:0 0 auto; font:600 10px ui-monospace,'JetBrains Mono',Menlo,monospace;
                 color:var(--text-muted,#7d8590); font-variant-numeric:tabular-nums; min-width:46px; text-align:right; }
@@ -783,6 +848,72 @@ const AgentRunsPage = {
                 font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); user-select:none; }
             .ar-check input { width:14px; height:14px; cursor:pointer; accent-color:var(--accent-primary,#5eadb8); margin:0; }
             .ar-check-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+            /* --- Triage quick views (list-level saved views) --- */
+            .ar-view-chips { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:2px 0 4px; }
+            .ar-view-chip { display:inline-flex; align-items:center; cursor:pointer;
+                font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif; padding:4px 12px; border-radius:999px;
+                border:1px solid var(--border-default,#30363d); background:var(--bg-secondary,#161b22);
+                color:var(--text-secondary,#b1bac4); transition:background .12s,border-color .12s,color .12s; }
+            .ar-view-chip b { font:700 11.5px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                font-variant-numeric:tabular-nums; color:var(--text-primary,#e6edf3); }
+            .ar-view-chip:hover { background:var(--bg-hover,#21262d); }
+            .ar-view-chip.active { border-color:var(--accent-primary,#5eadb8);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 14%, var(--bg-card,#161b22));
+                color:var(--text-primary,#e6edf3); }
+            /* --- Session minimap (trace summary strip) --- */
+            .ar-minimap { display:flex; align-items:center; gap:10px; margin:8px 0 2px;
+                padding:6px 10px; border:1px solid var(--border-default,#30363d); border-radius:10px;
+                background:var(--bg-secondary,#161b22); }
+            .ar-mini-track { position:relative; flex:1; height:34px; min-width:0; cursor:pointer; }
+            .ar-mini-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+            .ar-mini-tick { position:absolute; top:2px; bottom:2px; width:5px; margin-left:-2.5px;
+                padding:0; border:none; border-radius:2px; cursor:pointer; background:#ef4444; opacity:.9;
+                transition:opacity .12s, transform .12s; }
+            .ar-mini-tick.sec { background:#f59e0b; }
+            .ar-mini-tick:hover { opacity:1; transform:scaleX(1.6); }
+            .ar-mini-time { flex:0 0 auto; font:10.5px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-muted,#7d8590); white-space:nowrap; font-variant-numeric:tabular-nums; }
+            .ar-mini-nav { display:inline-flex; align-items:center; gap:4px; flex:0 0 auto; margin-left:2px; }
+            .ar-mini-navbtn { width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center;
+                cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:6px;
+                background:var(--bg-card,#161b22); color:var(--text-secondary,#b1bac4);
+                font:700 13px 'Avenir Next',Avenir,system-ui,sans-serif; line-height:1; padding:0 0 2px; }
+            .ar-mini-navbtn:hover { background:var(--bg-hover,#21262d); color:var(--text-primary,#e6edf3);
+                border-color:var(--accent-primary,#5eadb8); }
+            .ar-mini-count { font:600 10.5px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-secondary,#b1bac4); white-space:nowrap; font-variant-numeric:tabular-nums;
+                min-width:52px; text-align:center; }
+            /* Jump-flash: two soft pulses on the row the minimap landed on.
+               Teal (attention), not a security color. */
+            @keyframes arJumpHit {
+                0%, 55% { box-shadow:0 0 0 2px color-mix(in srgb, var(--accent-primary,#5eadb8) 65%, transparent);
+                          background:color-mix(in srgb, var(--accent-primary,#5eadb8) 10%, transparent); }
+                27%, 100% { box-shadow:0 0 0 2px transparent; background:transparent; }
+            }
+            .ar-jump-hit { animation:arJumpHit 1.6s ease-out 1; border-radius:8px; }
+            /* --- Chat-style LLM turn I/O --- */
+            .ar-chat { display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+            .ar-msg { max-width:88%; border:1px solid var(--border-default,#30363d); border-radius:12px;
+                padding:7px 10px 8px; background:var(--bg-secondary,#161b22); }
+            .ar-msg.prompt { align-self:flex-start; border-top-left-radius:4px; }
+            .ar-msg.model { align-self:flex-end; border-top-right-radius:4px;
+                border-color:color-mix(in srgb, var(--accent-primary,#5eadb8) 45%, var(--border-default,#30363d));
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 7%, var(--bg-secondary,#161b22)); }
+            .ar-msg.tool { align-self:flex-start; max-width:82%; margin-left:14px; border-radius:10px;
+                border-style:dashed; background:transparent; }
+            .ar-msg-role { display:flex; align-items:center; gap:5px; margin-bottom:4px;
+                font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.8px;
+                text-transform:uppercase; color:var(--text-muted,#7d8590); }
+            .ar-msg.model .ar-msg-role { color:var(--accent-primary,#5eadb8); }
+            .ar-msg .ar-gen-pre { margin:0; border:none; background:transparent; padding:0; }
+            .ar-msg .ar-gen-note { margin:0; }
+            /* --- Per-row gap bar (inline duration signal) --- */
+            .ar-gapbar { flex:0 0 auto; width:52px; height:3.5px; border-radius:2px; overflow:hidden;
+                background:color-mix(in srgb, var(--border-default,#30363d) 60%, transparent); }
+            .ar-gapbar i { display:block; height:100%; border-radius:2px;
+                background:var(--text-muted,#7d8590); opacity:.75; }
+            .ar-gapbar.first { visibility:hidden; }
+            @media (max-width:1100px) { .ar-gapbar { display:none; } }
         `;
         document.head.appendChild(st);
     },
@@ -796,7 +927,7 @@ const AgentRunsPage = {
         grp.appendChild(lbl);
         const sel = document.createElement('select');
         sel.className = 'filter-select';
-        [['1', '24h'], ['7', '7 days'], ['30', '30 days']].forEach(([v, t]) => {
+        [['1', '24h'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v; o.textContent = t;
             if (Number(v) === this.windowDays) o.selected = true;
@@ -919,8 +1050,8 @@ const AgentRunsPage = {
             policyTable = ObsTabs.tableHTML([{ label: 'policy / rule that fired', get: r => r.reason }, { label: 'blocks', get: r => r.count }, { label: 'tools', get: r => r.tools }, { label: 'agents', get: r => r.agents }], ledger.by_reason);
         }
         const win = this.windowDays === 1 ? '24 hours' : this.windowDays + ' days';
-        const methodology = `<h2>Methodology &amp; data posture</h2><p style="font-size:12px;line-height:1.6;color:#333;">Generated locally from the tamper-evident tool-call audit log and agent transcripts. Tool argument and LLM input/output previews are capped at 200 characters and secret-redacted before storage — SecureVector never stores full prompts, responses, or command bodies.</p>`;
-        ObsTabs.printDoc('SecureVector — Agent Activity Audit Report',
+        const methodology = `<h2>Methodology &amp; data posture</h2><p style="font-size:12px;line-height:1.6;color:#333;">Generated locally from the tamper-evident tool-call audit log and agent transcripts. Tool argument and LLM input/output previews are capped at 200 characters and secret-redacted before storage: SecureVector never stores full prompts, responses, or command bodies.</p>`;
+        ObsTabs.printDoc('SecureVector: Agent Activity Audit Report',
             `<h1>Agent Activity Audit Report</h1><div class="sub">Last ${win} · ${totals.sessions} sessions · ${totals.steps.toLocaleString()} enforced calls · ${totals.blocked} blocked</div>` +
             `<h2>By agent</h2>${agentTable}<h2>Policies that fired</h2>${policyTable}<h2>All sessions (${rows.length})</h2>${sessionTable}` + methodology);
     },
@@ -987,7 +1118,7 @@ const AgentRunsPage = {
         const gens = t.generation_count || 0;
         const sub = `${t.runtime_kind || 'unknown'} · ${rows.length} tool runs` +
             (gens ? ` · ${gens} LLM runs` : '') + ` · ${t.blocked || 0} blocked · trace ${String(t.trace_id).slice(0, 12)}…`;
-        ObsTabs.printDoc('SecureVector — Agent Trace',
+        ObsTabs.printDoc('SecureVector: Agent Trace',
             `<h1>Agent Trace</h1><div class="sub">${sub}</div>` +
             ObsTabs.tableHTML(this._exportCols(), rows));
     },
@@ -1014,7 +1145,18 @@ const AgentRunsPage = {
         if (wantTrace && this.runs.some(r => r.trace_id === wantTrace)) {
             this.selectRun(wantTrace);
         } else if (wantTrace) {
-            if (window.Toast) Toast.error('That trace isn’t in this window — widen the Window to load older traces.');
+            // Deep-linked trace is older than the current window. Widen to the
+            // API's 90-day max and retry once before giving up — an Instant
+            // Audit or Map click should land on its trace, not on an error.
+            if (this.windowDays < 90) {
+                this.windowDays = 90;
+                const winSel = document.querySelector('#agent-runs-toolbar select.filter-select');
+                if (winSel) winSel.value = '90';
+                this._pendingTrace = wantTrace;
+                if (window.Toast) Toast.info('Trace is older than the current window, widened to 90 days.');
+                return this.loadData();
+            }
+            if (window.Toast) Toast.error('No trace found in the last 90 days for that session.');
             this._showList();
         } else if (flagged) {
             this.selectRun(flagged.trace_id);
@@ -1066,10 +1208,27 @@ const AgentRunsPage = {
     },
 
     /** Runs after applying the active runtime filter (Map drill-down). */
-    _filteredRuns() {
+    /** Runs after the harness filter but BEFORE the triage view — the set the
+     *  triage chips count over, so counts don't change as views are clicked. */
+    _baseRuns() {
         return this.runtimeFilter
             ? this.runs.filter(r => (r.runtime_kind || '') === this.runtimeFilter)
             : this.runs;
+    },
+
+    /** Does a run belong to the given triage view? */
+    _viewMatch(r, v) {
+        if (v === 'flagged') return (r.blocked || 0) + (r.detections || 0) + (r.secrets || 0) > 0;
+        if (v === 'blocked') return (r.blocked || 0) > 0;
+        if (v === 'detected') return (r.detections || 0) > 0;
+        if (v === 'secret') return (r.secrets || 0) > 0;
+        return true;
+    },
+
+    _filteredRuns() {
+        const base = this._baseRuns();
+        const v = this.listView || 'all';
+        return v === 'all' ? base : base.filter(r => this._viewMatch(r, v));
     },
 
     clearRuntimeFilter() {
@@ -1087,6 +1246,7 @@ const AgentRunsPage = {
             if (layout && det.parentElement !== layout) layout.appendChild(det); // park it outside the list
         }
         this.selected = null;
+        this._live.paused = false; // leaving the trace releases the hold
         this.renderRuns();
     },
 
@@ -1153,13 +1313,50 @@ const AgentRunsPage = {
             chip.addEventListener('click', () => { this.toolFilter = null; this.renderRuns(); if (this._inDetail() && this._trace) this.renderWaterfall(this._trace); });
             list.appendChild(chip);
         }
+        // Triage quick views (the Braintrust built-in-views pattern): one click
+        // narrows the agent list to the rows an analyst actually works. Counts
+        // come from the harness-filtered set so they hold steady across clicks.
+        // Color stays reserved for security state: only the count colors.
+        const base = this._baseRuns();
+        if (base.length) {
+            const chips = document.createElement('div');
+            chips.className = 'ar-view-chips';
+            const views = [
+                ['all', 'All', base.length, ''],
+                ['flagged', 'Flagged', base.filter(r => this._viewMatch(r, 'flagged')).length, '#ef4444'],
+                ['blocked', 'Blocked', base.filter(r => this._viewMatch(r, 'blocked')).length, '#ef4444'],
+                ['detected', 'Detected', base.filter(r => this._viewMatch(r, 'detected')).length, '#ef4444'],
+                ['secret', 'Secrets', base.filter(r => this._viewMatch(r, 'secret')).length, '#f59e0b'],
+            ];
+            views.forEach(([key, label, n, color]) => {
+                // A zero-count view is noise unless it's the one active now
+                // (a live refresh can empty the view under the user).
+                if (!n && key !== 'all' && this.listView !== key) return;
+                const c = document.createElement('button');
+                c.type = 'button';
+                c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
+                c.innerHTML = `${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
+                c.title = key === 'all' ? 'Every trace in this window'
+                    : `Only traces with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
+                c.addEventListener('click', () => {
+                    this.listView = (this.listView === key ? 'all' : key);
+                    // Keep an open drill-down only if its row survives the view.
+                    if (this.selected && !this._filteredRuns().some(r => r.trace_id === this.selected)) this._showList();
+                    else this.renderRuns();
+                });
+                chips.appendChild(c);
+            });
+            list.appendChild(chips);
+        }
         const shown = this._filteredRuns();
         if (!shown.length) {
             const msg = document.createElement('div');
             msg.className = 'ar-empty';
-            msg.innerHTML = this.runtimeFilter
-                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} traces in this window.</div><div style="font-size:13px;">Clear the filter to see traces from other runtimes.</div>`
-                : `<div style="font-size:15px;margin-bottom:6px;">No traces in this window.</div><div style="font-size:13px;">Install a Guard plugin and run an agent — each session becomes a trace here.</div>`;
+            msg.innerHTML = (this.listView && this.listView !== 'all')
+                ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.listView)} traces in this window.</div><div style="font-size:13px;">Good sign. Click the view again (or All) to see every trace.</div>`
+                : this.runtimeFilter
+                    ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} traces in this window.</div><div style="font-size:13px;">Clear the filter to see traces from other runtimes.</div>`
+                    : `<div style="font-size:15px;margin-bottom:6px;">No traces in this window.</div><div style="font-size:13px;">Install a Guard plugin and run an agent: each session becomes a trace here.</div>`;
             list.appendChild(msg);
             return;
         }
@@ -1276,6 +1473,7 @@ const AgentRunsPage = {
         this.runSearch = '';  // a new trace starts unfiltered
         this._replayStop();   // a new trace resets any in-progress replay
         this._live.pendingDetail = false; // stale "new activity" pull is void
+        this._live.paused = false;        // pause is per-viewing, not sticky
         this._live.lastDetail = Date.now();
         this._expandUnder(traceId, !(opts && opts.refresh));
         const detail = document.getElementById('ar-detail');
@@ -1298,10 +1496,12 @@ const AgentRunsPage = {
         head.innerHTML = `<span class="ar-run-dot" style="background:${color}"></span>` +
             `<span class="ar-det-title">${this._esc(this._agentLabel(trace))}</span>` +
             `<span class="ar-run-sub">${this._esc(trace.runtime_kind)}</span>` +
-            (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running — the trace refreshes itself while activity continues') : '') +
+            (this._isLive(trace.ended_at) ? this._liveBadge('This agent is still running: the trace refreshes itself while activity continues') + this._pauseBtnHtml() : '') +
             `<span class="ar-det-eyebrow" title="One recorded agent execution. Every row below is a run inside this trace.">Trace</span>` +
             `<button type="button" class="ar-det-x" title="Collapse this trace (or click the agent row again)">×</button>`;
         head.querySelector('.ar-det-x').addEventListener('click', () => this._showList());
+        const pauseBtn = head.querySelector('.ar-live-pause');
+        if (pauseBtn) pauseBtn.addEventListener('click', () => this._livePauseToggle(pauseBtn));
         detail.appendChild(head);
 
         const allSpans = trace.spans || [];
@@ -1317,7 +1517,11 @@ const AgentRunsPage = {
             allSpans.forEach((s, i) => {
                 s._gap = i > 0 ? Math.max(0, this._ms(s.called_at) - this._ms(allSpans[i - 1].called_at)) : null;
                 s._pos = (t1 > t0) ? (this._ms(s.called_at) - t0) / (t1 - t0) : 0;
+                s._seq = i; // chronological id — the minimap jumps by it
             });
+            // Largest start-to-start gap — scales the per-row gap bars so the
+            // slow steps are visually scannable (log scale in _timingHtml).
+            this._maxGap = allSpans.reduce((a, s) => Math.max(a, s._gap || 0), 0);
         }
         const toolSpans = allSpans.filter(s => s.span_kind !== 'generation');
         const genCount = trace.generation_count != null
@@ -1346,11 +1550,23 @@ const AgentRunsPage = {
             stat(toolCount.toLocaleString(), toolCount === 1 ? 'tool run' : 'tool runs',
                 `${toolCount - extCount} built-in · ${extCount} external`) +
             (totalCost > 0
-                ? stat(`≈$${totalCost.toFixed(totalCost < 0.01 ? 4 : 2)}`, 'LLM cost · est.',
-                    '<span title="Estimated from transcript token counts × API list prices — total across every LLM run in this trace. Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced.">list-price equivalent</span>')
+                ? (() => {
+                    // Multi-day session: the lifetime figure can't match the
+                    // dashboard's "Spend today", so surface today's slice to
+                    // make the two numbers reconcilable at a glance.
+                    const todayCost = Number(trace.generation_today_cost || 0);
+                    const multiDay = totalCost - todayCost > 0.005;
+                    const det = (multiDay
+                        ? `≈$${todayCost.toFixed(todayCost < 0.01 ? 4 : 2)} of it today · `
+                        : '') + 'list-price equivalent';
+                    const tip = 'Estimated from transcript token counts × API list prices, total across every LLM run in this trace. Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced.'
+                        + (multiDay ? ' The dashboard\'s Spend today counts only the today slice.' : '');
+                    return stat(`≈$${totalCost.toFixed(totalCost < 0.01 ? 4 : 2)}`, 'LLM cost · est.',
+                        `<span title="${tip}">${det}</span>`);
+                })()
                 : '') +
             (dur && dur !== '0s'
-                ? stat(dur, 'wall clock', '<span title="Time from the first to the last run — not per-run latency">first → last run</span>')
+                ? stat(dur, 'wall clock', '<span title="Time from the first to the last run: not per-run latency">first → last run</span>')
                 : '') +
             (trace.blocked
                 ? stat(Number(trace.blocked).toLocaleString(), 'blocked', 'enforcement stopped these', 'danger')
@@ -1407,6 +1623,13 @@ const AgentRunsPage = {
             detail.appendChild(strip);
         }
 
+        // Session minimap (the Honeycomb trace-summary pattern): the whole
+        // session as one horizontal strip, flagged runs as clickable ticks,
+        // prev/next navigation across them. Long traces stop being a scroll
+        // hunt: the strip shows WHERE the trouble is before you scroll.
+        const mini = this._miniMap(allSpans);
+        if (mini) detail.appendChild(mini);
+
         // Apply the built-in / external checkbox filter. The API returns spans
         // oldest→newest by seq. Normal view shows NEWEST first; replay shows
         // OLDEST first so the session plays forward in time.
@@ -1455,7 +1678,7 @@ const AgentRunsPage = {
             const search = document.createElement('input');
             search.type = 'search';
             search.className = 'ar-run-search';
-            search.placeholder = 'Filter runs — tool, model, reason…';
+            search.placeholder = 'Filter runs: tool, model, reason…';
             search.value = this.runSearch;
             search.addEventListener('input', () => {
                 const was = this.runSearch;
@@ -1600,6 +1823,137 @@ const AgentRunsPage = {
     },
 
     /** Lower-cased searchable text for a run: tool/model/reason/verdict. */
+    // ---------------- session minimap ----------------
+
+    /** One horizontal strip = the whole session. Every run is a faint tick on
+     *  a canvas (LLM runs shorter, tool runs taller); flagged runs (blocked /
+     *  threat / secret) are real buttons on top, colored by security state.
+     *  Click anywhere to jump to the nearest run; ‹ › steps through flags.
+     *  Returns null for short traces where the waterfall is scannable as-is. */
+    _miniMap(allSpans) {
+        if ((allSpans || []).length < 20) return null;
+        const flagged = allSpans.filter(s => s.span_kind !== 'generation'
+            && (s.outcome === 'blocked' || s.action === 'block' || !!s.detection_source));
+        this._flagged = flagged;
+        this._flagIdx = -1;
+        const wrap = document.createElement('div');
+        wrap.className = 'ar-minimap';
+        const track = document.createElement('div');
+        track.className = 'ar-mini-track';
+        track.title = 'The whole session, first run to last. Click to jump there in the waterfall.';
+        // Density layer: a fixed-resolution canvas scaled by CSS, so we never
+        // have to measure the container or re-draw on resize.
+        const W = 1200, H = 34;
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = H;
+        cv.className = 'ar-mini-canvas';
+        const ctx = cv.getContext('2d');
+        allSpans.forEach(s => {
+            const gen = s.span_kind === 'generation';
+            const h = gen ? 10 : 18;
+            ctx.fillStyle = gen ? 'rgba(139,148,158,0.20)' : 'rgba(139,148,158,0.42)';
+            ctx.fillRect(Math.round(s._pos * (W - 3)) + 1, (H - h) / 2, 2, h);
+        });
+        track.appendChild(cv);
+        flagged.forEach((s, i) => {
+            const blocked = s.outcome === 'blocked' || s.action === 'block';
+            const sec = !blocked && this._isSecret(s);
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'ar-mini-tick' + (sec ? ' sec' : '');
+            b.style.left = ((s._pos || 0) * 100) + '%';
+            b.title = `#${s.turn_index ?? '?'} ${s.function_name || s.tool_id || 'tool'} · ` +
+                (blocked ? 'blocked' : sec ? 'secret detected' : 'threat detected');
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._flagIdx = i;
+                this._flagCountSync();
+                this._jumpToSpan(s._seq);
+            });
+            track.appendChild(b);
+        });
+        track.addEventListener('click', (e) => {
+            const r = track.getBoundingClientRect();
+            if (!r.width) return;
+            const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+            let best = null, bd = 2;
+            allSpans.forEach(s => {
+                const d = Math.abs((s._pos || 0) - frac);
+                if (d < bd) { bd = d; best = s; }
+            });
+            if (best) this._jumpToSpan(best._seq);
+        });
+        const lab = (txt) => {
+            const el = document.createElement('span');
+            el.className = 'ar-mini-time';
+            el.textContent = txt;
+            return el;
+        };
+        wrap.appendChild(lab(this._fmtTime(allSpans[0].called_at)));
+        wrap.appendChild(track);
+        wrap.appendChild(lab(this._fmtTime(allSpans[allSpans.length - 1].called_at)));
+        if (flagged.length) {
+            const nav = document.createElement('span');
+            nav.className = 'ar-mini-nav';
+            const mk = (glyph, dir, title) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'ar-mini-navbtn';
+                b.textContent = glyph;
+                b.title = title;
+                b.addEventListener('click', () => this._flagNav(dir));
+                return b;
+            };
+            nav.appendChild(mk('‹', -1, 'Previous flagged run'));
+            const count = document.createElement('span');
+            count.className = 'ar-mini-count';
+            count.textContent = flagged.length + ' flagged';
+            this._flagCountEl = count;
+            nav.appendChild(count);
+            nav.appendChild(mk('›', 1, 'Next flagged run'));
+            wrap.appendChild(nav);
+        }
+        return wrap;
+    },
+
+    /** Step the flag cursor and jump. Wraps at both ends. */
+    _flagNav(dir) {
+        const flags = this._flagged || [];
+        if (!flags.length) return;
+        this._flagIdx = ((this._flagIdx == null ? -1 : this._flagIdx) + dir + flags.length) % flags.length;
+        this._flagCountSync();
+        this._jumpToSpan(flags[this._flagIdx]._seq);
+    },
+
+    _flagCountSync() {
+        const flags = this._flagged || [];
+        if (this._flagCountEl && flags.length) {
+            this._flagCountEl.textContent = this._flagIdx >= 0
+                ? `${this._flagIdx + 1} / ${flags.length}` : flags.length + ' flagged';
+        }
+    },
+
+    /** Scroll the waterfall to the run with this chronological id and flash
+     *  it. Falls back to the nearest VISIBLE run when the exact row is folded
+     *  into a collapsed LLM group or hidden by search/filters. */
+    _jumpToSpan(seq) {
+        const detail = document.getElementById('ar-detail');
+        if (!detail) return;
+        let el = detail.querySelector(`.ar-span[data-seq="${seq}"]`);
+        if (el && (el.offsetParent === null || el.classList.contains('ar-search-hidden'))) el = null;
+        if (!el) {
+            const rows = [...detail.querySelectorAll('.ar-span[data-seq]')]
+                .filter(r => r.offsetParent !== null && !r.classList.contains('ar-search-hidden'));
+            if (!rows.length) return;
+            el = rows.reduce((a, r) =>
+                Math.abs(+r.dataset.seq - seq) < Math.abs(+a.dataset.seq - seq) ? r : a, rows[0]);
+        }
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.remove('ar-jump-hit');
+        void el.offsetWidth; // restart the flash animation
+        el.classList.add('ar-jump-hit');
+    },
+
     _searchText(s) {
         if (s.span_kind === 'generation') {
             return [s.model, s.stop_reason, ...(s.tools_called || [])].join(' ').toLowerCase();
@@ -1644,6 +1998,7 @@ const AgentRunsPage = {
         const external = ObsTabs.isExternalTool(s.tool_id);
         const span = document.createElement('div');
         span.className = 'ar-span';
+        if (s._seq != null) span.dataset.seq = s._seq; // minimap jump target
         const dot = `<span class="ar-span-dot" style="background:${o.color}"></span>`;
         const caret = `<svg class="ar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
         const badge = `<span class="ar-badge" style="background:${o.color}22;color:${o.color}">` +
@@ -1883,6 +2238,7 @@ const AgentRunsPage = {
     _genSpan(s, stepN) {
         const span = document.createElement('div');
         span.className = 'ar-span ar-span-gen';
+        if (s._seq != null) span.dataset.seq = s._seq; // minimap jump target
         const inTok = this._fmtTok(s.input_tokens);
         const outTok = this._fmtTok(s.output_tokens);
         const cost = (s.cost != null) ? ('$' + Number(s.cost).toFixed(s.cost < 0.01 ? 4 : 2)) : '—';
@@ -1912,7 +2268,7 @@ const AgentRunsPage = {
             `<span class="ar-gen-flow"><span class="ar-gen-tok">${inTok}</span>` +
             `<span class="ar-gen-arrow">→</span><span class="ar-gen-tok">${outTok}</span>` +
             `<span class="ar-gen-toklabel">tok</span></span>` +
-            `<span class="ar-gen-cost" title="Estimated: transcript token counts × API list price. Not metered billing — on a subscription plan this usage is included.">${cost}</span>${stop}` +
+            `<span class="ar-gen-cost" title="Estimated: transcript token counts × API list price. Not metered billing: on a subscription plan this usage is included.">${cost}</span>${stop}` +
             `<span class="ar-time">${this._fmtTime(s.called_at)}</span>` +
             this._timingHtml(s, '#5eadb8') + `</div>` +
             this._genDetail(s);
@@ -1925,41 +2281,46 @@ const AgentRunsPage = {
      *  the privacy contract — 200-char cap, secret-redacted, and the
      *  "not stored" state when the user's Store-text-content setting is off. */
     _genDetail(s) {
-        const box = (label, preview, truncated, isTool) => {
-            let bodyHtml;
-            if (preview == null) {
-                bodyHtml = `<div class="ar-gen-note">Text preview off — enable “Store text content” in Settings to capture a redacted excerpt. Tokens and cost are always recorded.</div>`;
-            } else if (!preview) {
-                bodyHtml = `<div class="ar-gen-note">${isTool ? 'Turn driven by a tool result (no prompt text).' : 'No text in this turn (tool call / reasoning only).'}</div>`;
-            } else {
-                bodyHtml = `<pre class="ar-gen-pre">${this._esc(preview)}${truncated ? '<span class="ar-gen-ellipsis">…</span>' : ''}</pre>`;
-            }
-            return `<div class="ar-gen-io"><div class="ar-args-label">${label}</div>${bodyHtml}</div>`;
+        // Chat-style I/O (the LangSmith/Langfuse/Braintrust convention): the
+        // turn reads as a conversation — prompt bubble in, model bubble out,
+        // tool results as return bubbles — instead of two labelled <pre>
+        // blocks. Same redacted previews, same honesty notes, new shape.
+        const OFF_NOTE = 'Text preview off: enable “Store text content” in Settings to capture a redacted excerpt. Tokens and cost are always recorded.';
+        const bubble = (cls, roleHtml, title, preview, truncated, emptyTxt) => {
+            let body;
+            if (preview == null) body = `<div class="ar-gen-note">${OFF_NOTE}</div>`;
+            else if (!preview) body = `<div class="ar-gen-note">${emptyTxt}</div>`;
+            else body = `<pre class="ar-gen-pre">${this._esc(preview)}${truncated ? '<span class="ar-gen-ellipsis">…</span>' : ''}</pre>`;
+            return `<div class="ar-msg ${cls}"><div class="ar-msg-role" title="${title}">${roleHtml}</div>${body}</div>`;
         };
         const kv = (k, v) => v ? `<dt>${k}</dt><dd>${this._esc(v)}</dd>` : '';
         const cache = (s.cache_read_tokens || s.cache_creation_tokens)
             ? `${this._fmtTok(s.cache_read_tokens)} read · ${this._fmtTok(s.cache_creation_tokens)} created` : '';
+        const promptRole = s.input_is_tool_result ? 'Tool result &#8594; prompt' : 'Prompt';
         // Tool results (Pillar 3) — what the tools this run called returned,
         // matched by tool_use_id in the transcript. Redacted + capped like every
         // other preview; honest "not stored" / "(empty)" states.
         const results = Array.isArray(s.tool_results) ? s.tool_results : [];
-        const resultsHtml = results.length
-            ? `<div class="ar-gen-io"><div class="ar-args-label">Tool results returned (${results.length})</div>` +
-                results.map(r => {
-                    const nm = this._esc(this._prettyTool(r.name || 'tool'));
-                    const err = r.is_error ? '<span class="ar-tr-err">error</span>' : '';
-                    let body;
-                    if (r.preview == null) body = `<div class="ar-gen-note">Not stored — enable “Store text content” in Settings to capture a redacted excerpt.</div>`;
-                    else if (!r.preview) body = `<div class="ar-gen-note">(empty result)</div>`;
-                    else body = `<pre class="ar-gen-pre">${this._esc(r.preview)}${r.truncated ? '<span class="ar-gen-ellipsis">…</span>' : ''}</pre>`;
-                    return `<div class="ar-tr"><div class="ar-tr-head"><span class="ar-tr-arrow">&#8592;</span><b>${nm}</b>${err}</div>${body}</div>`;
-                }).join('') +
-              `</div>`
-            : '';
+        const resultsHtml = results.map(r => {
+            const nm = this._esc(this._prettyTool(r.name || 'tool'));
+            const err = r.is_error ? '<span class="ar-tr-err">error</span>' : '';
+            let body;
+            if (r.preview == null) body = `<div class="ar-gen-note">Not stored: enable “Store text content” in Settings to capture a redacted excerpt.</div>`;
+            else if (!r.preview) body = `<div class="ar-gen-note">(empty result)</div>`;
+            else body = `<pre class="ar-gen-pre">${this._esc(r.preview)}${r.truncated ? '<span class="ar-gen-ellipsis">…</span>' : ''}</pre>`;
+            return `<div class="ar-msg tool"><div class="ar-msg-role" title="Result this tool returned to the model">` +
+                `<span class="ar-tr-arrow">&#8592;</span>${nm}${err}</div>${body}</div>`;
+        }).join('');
         return `<div class="ar-detail-body">` +
-            box('LLM input — prompt (redacted preview)', s.input_preview, s.input_truncated, s.input_is_tool_result) +
-            box('LLM output — response (redacted preview)', s.output_preview, s.output_truncated, false) +
+            `<div class="ar-chat">` +
+            bubble('prompt', promptRole, 'LLM input: prompt (redacted preview)',
+                s.input_preview, s.input_truncated,
+                s.input_is_tool_result ? 'Turn driven by a tool result (no prompt text).' : 'No text in this turn (tool call / reasoning only).') +
+            bubble('model', `${AR_ROBOT_SVG('#5eadb8', 11)} ${this._esc(this._prettyModel(s.model))}`,
+                'LLM output: response (redacted preview)',
+                s.output_preview, s.output_truncated, 'No text in this turn (tool call / reasoning only).') +
             resultsHtml +
+            `</div>` +
             `<dl class="ar-kv">` +
             kv('Model', s.model) +
             kv('Input tokens', (s.input_tokens || 0).toLocaleString()) +
@@ -1971,8 +2332,14 @@ const AgentRunsPage = {
                 ? s.tools_called.map(t => this._prettyTool(t)).join(', ') : '') +
             kv('Time', this._fmtTime(s.called_at)) +
             `</dl>` +
-            `<div class="ar-gen-privacy">Preview only — first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.</div>` +
+            `<div class="ar-gen-privacy">Preview only: first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.</div>` +
             `</div>`;
+    },
+
+    /** Model chip text for the chat bubble role; a bare "Model" when the
+     *  transcript row carried no model name. */
+    _prettyModel(m) {
+        return m ? String(m) : 'Model';
     },
 
     /** Shorten a raw tool name for display: an MCP tool `mcp__server__tool`
@@ -2009,8 +2376,8 @@ const AgentRunsPage = {
         // whether the agent's call was stopped or ran anyway.
         const blocked = s.outcome === 'blocked';
         const outcome = blocked
-            ? '<span class="ar-det-outcome blocked">blocked — stopped</span>'
-            : '<span class="ar-det-outcome allowed">allowed — ran anyway</span>';
+            ? '<span class="ar-det-outcome blocked">blocked: stopped</span>'
+            : '<span class="ar-det-outcome allowed">allowed: ran anyway</span>';
         const ruleTxt = rules.length
             ? `<span class="ar-det-rules">${this._esc(rules.slice(0, 3).join(', '))}</span>`
             : '';
@@ -2060,7 +2427,7 @@ const AgentRunsPage = {
         // step has a correlation id — steps the Guard didn't scan have none.
         const scan = s.request_id
             ? `<div class="ar-scan" data-rid="${this._esc(s.request_id)}">` +
-              `<div class="ar-args-label">Scanned content — LLM input/output excerpt</div>` +
+              `<div class="ar-args-label">Scanned content: LLM input/output excerpt</div>` +
               `<div class="ar-scan-body ar-scan-note">Loading…</div></div>`
             : '';
         return `<div class="ar-detail-body">` +
@@ -2093,7 +2460,7 @@ const AgentRunsPage = {
         } catch (_) { /* fall through to the empty note */ }
         if (!items.length) {
             body.textContent = 'No scanned excerpt stored for this call. SecureVector keeps only what it ' +
-                'scanned — never full prompt/response bodies — and only when "Store text content" is on in Settings.';
+                'scanned (never full prompt/response bodies) and only when "Store text content" is on in Settings.';
             return;
         }
         body.className = 'ar-scan-body';
@@ -2148,13 +2515,25 @@ const AgentRunsPage = {
     _timingHtml(s, tickColor) {
         const gap = (s._gap == null)
             ? `<span class="ar-delta first" title="First event of this trace">start</span>`
-            : `<span class="ar-delta" title="Started ${this._fmtGap(s._gap).slice(1)} after the previous run (start-to-start — not this run’s latency)">${this._fmtGap(s._gap)}</span>`;
+            : `<span class="ar-delta" title="Started ${this._fmtGap(s._gap).slice(1)} after the previous run (start-to-start: not this run’s latency)">${this._fmtGap(s._gap)}</span>`;
+        // Gap bar — the Phoenix inline-duration pattern, on the metric we
+        // honestly have: log-scaled against the trace's largest gap, so the
+        // slow steps pop out of a column of near-identical "+2s" chips.
+        // Neutral fill: gap length is a performance signal, not a security one.
+        let bar = '';
+        if (s._gap != null && this._maxGap > 0) {
+            const f = Math.max(0.05, Math.log1p(s._gap) / Math.log1p(this._maxGap));
+            bar = `<span class="ar-gapbar" title="Relative wait before this run (log scale vs the trace's longest gap)">` +
+                `<i style="width:${(f * 100).toFixed(0)}%"></i></span>`;
+        } else if (s._gap == null) {
+            bar = `<span class="ar-gapbar first"></span>`;
+        }
         const p = Math.max(4, Math.min(96, (s._pos || 0) * 100)); // keep the tick fully visible at the rails
         const pos = (typeof s._pos === 'number')
             ? `<span class="ar-tl" title="When this run started within the trace (${Math.round(s._pos * 100)}% through)">` +
               `<i style="left:calc(${p.toFixed(1)}% - 3px);background:${tickColor}"></i></span>`
             : '';
-        return gap + pos;
+        return gap + bar + pos;
     },
 
     /** Wall-clock duration between two timestamps → "42s" / "3m 20s" / "1h 5m".
@@ -2174,6 +2553,22 @@ const AgentRunsPage = {
 
     _esc(s) {
         return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    },
+    /** Stop live-follow polling and replay playback on navigate-away.
+     *
+     * Called by App._destroyPage(). Traces owns two timers: the 15s live
+     * tick and the replay transport. Both used to survive navigation, so
+     * leaving the page left it polling and, if a replay was mid-flight,
+     * still stepping through spans in the background. */
+    destroy() {
+        if (this._live && this._live.timer) {
+            clearInterval(this._live.timer);
+            this._live.timer = null;
+        }
+        if (this._replay && this._replay.timer) {
+            clearInterval(this._replay.timer);
+            this._replay.timer = null;
+        }
     },
 };
 

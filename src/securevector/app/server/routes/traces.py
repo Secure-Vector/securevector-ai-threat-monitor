@@ -69,9 +69,23 @@ def _ts_key(ts: Optional[str]) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def _run_risk(blocked: int, recent_risk: Optional[str]) -> str:
+def _run_risk(
+    blocked: int,
+    recent_risk: Optional[str],
+    detections: int = 0,
+    secrets: int = 0,
+) -> str:
+    """Roll-up ring colour for a run card.
+
+    red = enforcement fired; amber = something was DETECTED (threat detections,
+    secrets, or a high-risk tool profile) even though nothing was blocked.
+    A run with live detections must never show green — the Map and Traces
+    surfaces have to agree on what amber means.
+    """
     if blocked > 0:
         return "red"
+    if detections > 0 or secrets > 0:
+        return "amber"
     if (recent_risk or "").lower() in _HIGH_RISK:
         return "amber"
     return "green"
@@ -110,7 +124,12 @@ async def list_traces(
             "secrets": int(det.get("secrets") or 0),
             "started_at": r.get("started_at"),
             "ended_at": r.get("ended_at"),
-            "risk": _run_risk(blocked, r.get("recent_risk")),
+            "risk": _run_risk(
+                blocked,
+                r.get("recent_risk"),
+                detections=int(det.get("detections") or 0),
+                secrets=int(det.get("secrets") or 0),
+            ),
             "tools": [t for t in tools.split(",") if t][:8],
         })
     return {"window_days": window_days, "runs": runs}
@@ -223,6 +242,15 @@ async def get_trace(trace_id: str):
     #   - wall-clock bounds across tool calls + LLM runs (a real trace duration;
     #     tool spans are never capped, so the range is complete).
     generation_total_cost = sum((g.get("cost") or 0) for g in generations)
+    # Today's slice of that cost (LOCAL calendar day, same boundary the
+    # dashboard's "Spend today" uses) so a multi-day session can show both
+    # its lifetime figure and the part that matches the dashboard number.
+    _local_today = datetime.now().astimezone().date()
+    generation_today_cost = sum(
+        (g.get("cost") or 0)
+        for g in generations
+        if _ts_key(g.get("called_at")).astimezone().date() == _local_today
+    )
     _all_ts = [s.get("called_at") for s in tool_spans] \
         + [g.get("called_at") for g in generations]
     _all_ts = [t for t in _all_ts if t]
@@ -256,6 +284,7 @@ async def get_trace(trace_id: str):
         "generation_count": len(generations),
         "generation_total": generation_total,
         "generation_total_cost": generation_total_cost,
+        "generation_today_cost": generation_today_cost,
         "generation_truncated": generation_truncated,
         "started_at": started_at,
         "ended_at": ended_at,

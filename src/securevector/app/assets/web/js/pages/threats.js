@@ -67,7 +67,7 @@ const ThreatsPage = {
             /* Content preview — mono, quiet; JSON payloads get a small tag so
                a raw envelope reads as intentional, not broken. */
             /* Cap the Content column so Time + Action never get pushed off
-               the right edge — the full text lives in the tooltip + details. */
+               the right edge: the full text lives in the tooltip + details. */
             .tm-preview { display:inline-flex; align-items:center; gap:7px; max-width:340px; }
             .tm-preview code { min-width:0; }
             .tm-payload-tag { font:700 9px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px;
@@ -576,7 +576,7 @@ const ThreatsPage = {
                 (this.filters.threat_type || this.filters.source || this.filters.min_risk || this.filters.request_id)
                     ? 'matching your filters' : 'everything scanned') +
             stat(highRisk.toLocaleString(), 'high risk',
-                pageNote + 'risk ≥ 60% — review these first', highRisk ? 'danger' : '') +
+                pageNote + 'risk ≥ 60%: review these first', highRisk ? 'danger' : '') +
             stat(llmReviewed.toLocaleString(), 'AI-reviewed',
                 pageNote + (llmReviewed ? totalTokens.toLocaleString() + ' analysis tokens' : 'AI Analysis adds a second opinion'));
         container.appendChild(mast);
@@ -597,7 +597,7 @@ const ThreatsPage = {
                         const tag = document.createElement('span');
                         tag.className = 'tm-payload-tag';
                         tag.textContent = 'payload';
-                        tag.title = 'The analyzed content was a structured tool payload — this is its raw (redacted) preview';
+                        tag.title = 'The analyzed content was a structured tool payload. This is its raw (redacted) preview';
                         wrap.appendChild(tag);
                     }
                     const code = document.createElement('code');
@@ -623,6 +623,16 @@ const ThreatsPage = {
                             + (isOutput ? ' — found in a tool/LLM response, not the prompt.' : '.');
                     }
                     wrap.appendChild(badge);
+                    // Analyst disposition chip — a dismissed FP must read as
+                    // resolved at a glance, without leaving the ledger.
+                    if (((threat.metadata || {}).disposition) === 'false_positive') {
+                        const fp = document.createElement('span');
+                        fp.className = 'type-badge';
+                        fp.style.cssText = 'margin-left:6px;opacity:.7;';
+                        fp.textContent = 'Dismissed FP';
+                        fp.title = 'An analyst dismissed this as a false positive. The record is kept for audit.';
+                        wrap.appendChild(fp);
+                    }
                     return wrap;
                 }},
                 { key: 'detected_by', label: 'Detected by', sortable: false, render: (_, threat) => {
@@ -789,7 +799,15 @@ const ThreatsPage = {
         if (!agree && score !== null) {
             agree = (score < 0.20) ? 'ml_disagrees' : (score >= 0.60 ? 'corroborated' : 'ml_uncertain');
         }
-        return (agree || score !== null) ? { agree, score } : null;
+        // "Corroborated" only means something when a detector OTHER than the
+        // model flagged the content. If the guardian model is the sole entry
+        // in matched_rules, a corroborate badge would be the model agreeing
+        // with itself — exactly the records most likely to be FPs.
+        const rules = Array.isArray(threat.matched_rules) ? threat.matched_rules : [];
+        const modelOnly = rules.length > 0 && rules.every(
+            r => r.source === 'model' || r.rule_id === 'sv_guardian_model'
+        );
+        return (agree || score !== null) ? { agree, score, modelOnly } : null;
     },
 
     // Plain-language phrase per threat type — used for the drawer's verdict
@@ -814,10 +832,10 @@ const ThreatsPage = {
     // Plain-language meaning of each Action value — hover help on the table's
     // Action badges. Copy only; the stored action is unchanged.
     _ACTION_HELP: {
-        blocked: 'SecureVector stopped this content — it never went through.',
+        blocked: 'SecureVector stopped this content: it never went through.',
         redacted: 'Sensitive parts were scrubbed out; the rest went through.',
-        logged: 'Recorded for review only — nothing was stopped.',
-        flagged: 'Marked for attention — the content still went through.',
+        logged: 'Recorded for review only: nothing was stopped.',
+        flagged: 'Marked for attention: the content still went through.',
         allowed: 'Analyzed and allowed through.',
     },
 
@@ -828,7 +846,7 @@ const ThreatsPage = {
     _plainVerdict(threat) {
         const TYPE_PHRASE = this._TYPE_PHRASE;
         if (!threat.is_threat) {
-            return 'Scanned and clean — no security rule or model flagged this content.';
+            return 'Scanned and clean: no security rule or model flagged this content.';
         }
         const action = threat.action_taken === 'blocked' ? 'Blocked'
             : threat.action_taken === 'redacted' ? 'Redacted'
@@ -883,7 +901,7 @@ const ThreatsPage = {
             const mlAdj = document.createElement('span');
             mlAdj.className = 'risk-badge ml-adjusted';
             mlAdj.textContent = 'ML-adjusted ' + mlPct + '%';
-            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context — it does not change the stored verdict.';
+            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context. It does not change the stored verdict.';
             riskMain.appendChild(mlAdj);
         }
 
@@ -892,6 +910,15 @@ const ThreatsPage = {
         typeBadge.textContent = threat.threat_type || 'No Threat Detected';
         riskMain.appendChild(typeBadge);
 
+        if (((threat.metadata || {}).disposition) === 'false_positive') {
+            const fpChip = document.createElement('span');
+            fpChip.className = 'type-badge';
+            fpChip.style.opacity = '.7';
+            fpChip.textContent = 'Dismissed FP';
+            fpChip.title = 'An analyst dismissed this as a false positive. The record is kept for audit.';
+            riskMain.appendChild(fpChip);
+        }
+
         riskHeader.appendChild(riskMain);
 
         // ML corroborate / likely-false-positive badge, promoted to the top
@@ -899,10 +926,16 @@ const ThreatsPage = {
         if (ml && ml.agree) {
             const TIER = {
                 corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
-                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain — worth a review' },
-                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive — ML disagrees' },
+                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain, worth a review' },
+                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive: ML disagrees' },
             };
-            const t = TIER[ml.agree];
+            let t = TIER[ml.agree];
+            // A model-only detection cannot corroborate itself: swap the green
+            // check for an honest caution so the analyst knows no independent
+            // rule fired on this content.
+            if (ml.agree === 'corroborated' && ml.modelOnly) {
+                t = { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' };
+            }
             if (t) {
                 const assess = document.createElement('div');
                 assess.className = 'ml-assessment ' + t.cls + ' threat-detail-ml-badge';
@@ -1228,7 +1261,7 @@ const ThreatsPage = {
                 origin.className = 'matched-rule-origin ' + (isMl ? 'origin-ml' : 'origin-rule');
                 if (isMl && typeof rule.confidence === 'number') {
                     origin.textContent = 'ML · ' + rule.confidence.toFixed(2);
-                    origin.title = 'Detected by Guardian ML — score ' + rule.confidence.toFixed(2);
+                    origin.title = 'Detected by Guardian ML, score ' + rule.confidence.toFixed(2);
                 } else {
                     origin.textContent = isMl ? 'ML' : 'Rule';
                     origin.title = isMl ? 'Detected by Guardian ML' : 'Detected by a regex rule';
@@ -1252,6 +1285,45 @@ const ThreatsPage = {
             // drawer — see showThreatDetails() above — so it isn't duplicated.)
 
             content.appendChild(rulesSection);
+        }
+
+        // Disposition: the non-destructive middle ground between "leave it
+        // screaming" and "delete the evidence". Dismissing marks the record a
+        // false positive (stored in metadata, undoable); it stays in the
+        // ledger for audit.
+        if (threat.is_threat) {
+            const dismissed = ((threat.metadata || {}).disposition) === 'false_positive';
+            const dispRow = document.createElement('div');
+            dispRow.className = 'threat-detail-section';
+            dispRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+            const dispBtn = document.createElement('button');
+            dispBtn.className = 'btn btn-sm btn-secondary';
+            dispBtn.textContent = dismissed ? 'Restore threat' : 'Dismiss as false positive';
+            dispBtn.onclick = async () => {
+                dispBtn.disabled = true;
+                try {
+                    await API.setThreatDisposition(threat.id, dismissed ? null : 'false_positive');
+                    if (window.Toast) Toast.success(dismissed
+                        ? 'Threat restored'
+                        : 'Dismissed as false positive. The record stays in the ledger.');
+                    SideDrawer.close();
+                    await this.loadData();
+                } catch (e) {
+                    dispBtn.disabled = false;
+                    if (window.Toast) Toast.error('Failed to update disposition: ' + e.message);
+                }
+            };
+            dispRow.appendChild(dispBtn);
+
+            const dispHint = document.createElement('span');
+            dispHint.style.cssText = 'font-size:12px;color:var(--text-muted);';
+            dispHint.textContent = dismissed
+                ? 'Marked false positive' + ((threat.metadata || {}).dispositioned_at ? ' on ' + this.formatDate((threat.metadata || {}).dispositioned_at) : '')
+                : 'Keeps the record for audit, unlike Delete.';
+            dispRow.appendChild(dispHint);
+
+            content.appendChild(dispRow);
         }
 
         // Use side drawer instead of modal
@@ -1368,6 +1440,17 @@ const ThreatsPage = {
         errorDiv.appendChild(retry);
 
         container.appendChild(errorDiv);
+    },
+    /** Stop this page's timer when the user navigates away.
+     *
+     * Called by App._destroyPage(). Without it the threat table auto-refresh
+     * kept running (and re-firing its API call) for the rest of the
+     * session, and returning to the page started a second one. */
+    destroy() {
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
     },
 };
 

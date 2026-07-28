@@ -111,11 +111,45 @@ class JitAccessRepository:
 
     # ------------------------------------------------------------ decisions
 
+    async def _latest_grant(self, request_id: str) -> Optional[dict]:
+        """The most recent grant still IN FORCE for a request, if any.
+
+        Used to make approval idempotent: a caller that lost the approval race
+        (or is retrying an already-approved request) gets the real grant back
+        instead of a second one.
+
+        Matches active_grants()' definition of "in force" (not revoked, not
+        expired) on purpose. Returning the newest grant regardless of state
+        would hand a revoked or expired grant back to a retrying client as
+        though access were live — enforcement reads active_grants() so no
+        access is actually conferred, but the API would be reporting a grant
+        that does not exist. None here is the honest answer: the request was
+        approved, and the grant it produced is gone.
+        """
+        row = await self.db.fetch_one(
+            "SELECT * FROM jit_access_grants WHERE request_id = ? "
+            "AND revoked_at IS NULL "
+            "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            "ORDER BY granted_at DESC, rowid DESC LIMIT 1",
+            (request_id,),
+        )
+        return dict(row) if row else None
+
     async def approve_request(self, request_id: str, duration: str) -> Optional[dict]:
-        """Approve a pending request and mint its grant. Returns the grant."""
+        """Approve a pending request and mint its grant. Returns the grant.
+
+        Idempotent: approving an already-approved request returns the grant
+        that was already minted rather than a second one (or a 404). A double
+        click on Approve, or the UI retrying a slow request, must not hand out
+        two live grants — see the rowcount gate below for the racing case.
+        """
         req = await self.get_request(request_id)
-        if not req or req["status"] != "pending":
+        if not req:
             return None
+        if req["status"] != "pending":
+            if req["status"] == "approved":
+                return await self._latest_grant(request_id)
+            return None  # denied / expired — nothing to grant
         if duration not in ("15m", "1h", "session"):
             raise ValueError(f"invalid duration: {duration}")
         # A session grant needs a session to scope to — without one it would
@@ -124,12 +158,23 @@ class JitAccessRepository:
         if duration == "session" and not req.get("session_id"):
             raise ValueError("session-scoped grant requires a session_id on the request")
 
-        await self.db.execute(
+        # The `status = 'pending'` predicate makes this UPDATE the concurrency
+        # gate: exactly one caller can flip a given request out of pending.
+        # We MUST check rowcount before minting — the get_request() read above
+        # is not part of this statement, so two racing approvals (a double
+        # click, or the UI retrying a slow request) both see 'pending' there.
+        # Without this guard both would fall through and INSERT a grant,
+        # handing out two live grants for one approval. A losing caller
+        # returns the grant the winner already minted, so the UI shows the
+        # real grant instead of a spurious 404.
+        cur = await self.db.execute(
             "UPDATE jit_access_requests SET status = 'approved', "
             "decided_at = CURRENT_TIMESTAMP, decided_by = 'local-user' "
             "WHERE id = ? AND status = 'pending'",
             (request_id,),
         )
+        if getattr(cur, "rowcount", 1) == 0:
+            return await self._latest_grant(request_id)
         gid = f"jitgrant_{uuid.uuid4().hex[:20]}"
         if duration in _DURATION_MINUTES:
             await self.db.execute(

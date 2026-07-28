@@ -147,7 +147,7 @@ const GlobalBanners = {
         titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-        title.textContent = 'Guardian ML is active — local AI threat detection';
+        title.textContent = 'Guardian ML is active: local AI threat detection';
         titleRow.appendChild(title);
         const pill = document.createElement('span');
         pill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
@@ -156,7 +156,7 @@ const GlobalBanners = {
         textCol.appendChild(titleRow);
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'A small ML model now scans alongside the regex rules and labels everything it catches (Rule / ML) so you can audit its calls. Fully offline — nothing leaves your device. You\u2019re in control: keep it on, or switch it off anytime.';
+        desc.textContent = 'A small ML model now scans alongside the regex rules and labels everything it catches (Rule / ML) so you can audit its calls. Fully offline: nothing leaves your device. You\u2019re in control: keep it on, or switch it off anytime.';
         textCol.appendChild(desc);
         banner.appendChild(textCol);
 
@@ -187,7 +187,7 @@ const GlobalBanners = {
             } catch (_) {
                 // API hiccup: don't pretend it worked — send them to the
                 // Settings toggle instead of silently acking.
-                offBtn.textContent = 'Failed \u2014 use Settings';
+                offBtn.textContent = 'Failed: use Settings';
             }
             setTimeout(ack, 900);
         });
@@ -330,7 +330,7 @@ const GlobalBanners = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = "Cloud Connect is on. Managed policies sync down and metadata-only audit flows up — here's exactly what's flowing in and out.";
+        desc.textContent = "Cloud Connect is on. Managed policies sync down and metadata-only audit flows up: here's exactly what's flowing in and out.";
         textCol.appendChild(desc);
         card.appendChild(textCol);
 

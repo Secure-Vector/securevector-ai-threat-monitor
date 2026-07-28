@@ -1118,7 +1118,7 @@ const SkillScannerPage = {
             installBtn.disabled = !canInstall;
 
             if (policy && policy.action === 'block') {
-                installBtn.title = 'Installation blocked by policy \u2014 skill has too many dangerous findings';
+                installBtn.title = 'Installation blocked by policy: skill has too many dangerous findings';
                 installBtn.style.opacity = '0.5';
             } else if (policy && policy.action === 'warn') {
                 installBtn.textContent = 'Install (with warnings)';
@@ -1338,7 +1338,7 @@ const SkillScannerPage = {
                 icon.appendChild(svg);
                 const msg = document.createElement('div');
                 msg.className = 'empty-state-text';
-                msg.textContent = 'No scans yet \u2014 scan skills above to get started.';
+                msg.textContent = 'No scans yet: scan skills above to get started.';
                 empty.appendChild(icon);
                 empty.appendChild(msg);
                 historyArea.appendChild(empty);
@@ -2193,7 +2193,7 @@ const SkillScannerPage = {
                 }
 
                 // Preview count
-                dropText.textContent = `${file.name} \u2014 ${parsed.permissions.length} permissions`;
+                dropText.textContent = `${file.name} — ${parsed.permissions.length} permissions`;
                 dropIcon.textContent = '\u2705';
 
                 const resp = await fetch('/api/skill-permissions/import', {
@@ -2211,7 +2211,7 @@ const SkillScannerPage = {
                 await loadPermissions(activeCategory);
                 setTimeout(closeModal, 1500);
             } catch (e) {
-                showStatus('Invalid JSON file \u2014 could not parse', 'error');
+                showStatus('Invalid JSON file: could not parse', 'error');
             }
         };
 
@@ -2234,7 +2234,7 @@ const SkillScannerPage = {
         const RISK_COLOR = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#10b981' };
         const RECS = {
             HIGH:   'DO NOT INSTALL',
-            MEDIUM: 'REVIEW CAREFULLY \u2014 inspect all findings before installing',
+            MEDIUM: 'REVIEW CAREFULLY: inspect all findings before installing',
             LOW:    'SAFE TO INSTALL',
         };
         // Policy-adjusted risk: if policy allows, override raw risk to LOW
@@ -2372,7 +2372,7 @@ const SkillScannerPage = {
                             });
                             if (resp.ok) {
                                 aiBtn.textContent = 'Done \u2713'; aiBtn.style.background = '#10b981';
-                                if (window.Toast) Toast.show('AI review complete — refresh for updated results', 'success');
+                                if (window.Toast) Toast.show('AI review complete: refresh for updated results', 'success');
                             } else {
                                 const err = await resp.json().catch(() => ({}));
                                 aiBtn.textContent = 'Failed'; aiBtn.disabled = false; aiBtn.style.opacity = '1';
@@ -2482,7 +2482,7 @@ const SkillScannerPage = {
                                     body: JSON.stringify({ publisher_name: pubName, trust_level: 'trusted' }),
                                 });
                                 if (resp.ok || resp.status === 409) {
-                                    await rescanAndRefresh(btn, `Publisher "${pubName}" trusted — re-evaluated`);
+                                    await rescanAndRefresh(btn, `Publisher "${pubName}" trusted: re-evaluated`);
                                 } else { btn.textContent = 'Failed'; btn.disabled = false; }
                             } catch { btn.textContent = 'Error'; btn.disabled = false; }
                         }
@@ -2558,7 +2558,7 @@ const SkillScannerPage = {
                                 } catch { /* skip */ }
                             }
                             if (added > 0 || skipped > 0) {
-                                await rescanAndRefresh(btn, added > 0 ? `${added} permission${added !== 1 ? 's' : ''} added — re-evaluated` : 'Patterns already safe — re-evaluated');
+                                await rescanAndRefresh(btn, added > 0 ? `${added} permission${added !== 1 ? 's' : ''} added, re-evaluated` : 'Patterns already safe: re-evaluated');
                             } else {
                                 btn.textContent = 'No patterns found'; btn.disabled = false;
                             }
@@ -2667,10 +2667,10 @@ const SkillScannerPage = {
                 issues.push({ icon: '\u2717', color: '#ef4444', text: `${policy.unknown_count} finding${policy.unknown_count !== 1 ? 's have' : ' has'} no matching permission rules (unclassified). Each adds to the risk score.` });
             }
             if (!policy.trusted_publisher) {
-                issues.push({ icon: '\u2717', color: '#ef4444', text: 'Publisher is not trusted \u2014 no auto-allow shortcut applied.' });
+                issues.push({ icon: '\u2717', color: '#ef4444', text: 'Publisher is not trusted: no auto-allow shortcut applied.' });
             }
             if (data.manifest_present === false) {
-                issues.push({ icon: '\u2717', color: '#ef4444', text: 'Permissions manifest (permissions.yml) is absent \u2014 skill cannot declare its own required permissions.' });
+                issues.push({ icon: '\u2717', color: '#ef4444', text: 'Permissions manifest (permissions.yml) is absent: skill cannot declare its own required permissions.' });
             }
             if (policy.safe_count > 0) {
                 issues.push({ icon: '\u2713', color: '#10b981', text: `${policy.safe_count} finding${policy.safe_count !== 1 ? 's' : ''} matched "safe" permission rules and did not add to the score.` });
@@ -2974,7 +2974,7 @@ const SkillScannerPage = {
         drawerDisclaimer.appendChild(dDisclaimerText);
         wrap.appendChild(drawerDisclaimer);
 
-        SideDrawer.show({ title: 'Scan Detail \u2014 ' + data.skill_name, content: wrap });
+        SideDrawer.show({ title: 'Scan Detail — ' + data.skill_name, content: wrap });
     },
 
     // =====================================================================

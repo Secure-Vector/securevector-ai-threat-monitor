@@ -120,7 +120,7 @@ const AgentMapPage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Agent Map', 'Live map of harness → agent → tool — click any node to drill in.');
+            Header.setPageInfo('Agent Map', 'Live map of harness → agent → tool: click any node to drill in.');
         }
         this._injectStyle();
 
@@ -637,7 +637,7 @@ const AgentMapPage = {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:64px 24px;text-align:center;color:var(--text-secondary,#b1bac4);';
             empty.innerHTML = '<div style="font-size:15px;margin-bottom:6px;">No agent activity in this window.</div>' +
-                '<div style="font-size:13px;">Install a SecureVector Guard plugin and run an agent — every session and tool call shows up here.</div>';
+                '<div style="font-size:13px;">Install a SecureVector Guard plugin and run an agent, every session and tool call shows up here.</div>';
             body.appendChild(empty);
             return;
         }
@@ -742,7 +742,7 @@ const AgentMapPage = {
         const hint = document.createElement('div');
         hint.className = 'sv-hint';
         hint.textContent = this.data.truncated
-            ? `Top ${this.data.node_cap} edges by volume — ${this.data.dropped_edges} hidden · click a node for detail`
+            ? `Top ${this.data.node_cap} edges by volume: ${this.data.dropped_edges} hidden · click a node for detail`
             : 'Click any node for detail · drag to reposition · scroll to zoom · drag canvas to pan';
         if (this.data.truncated) hint.style.color = '#f59e0b';
         body.appendChild(hint);
@@ -1350,7 +1350,7 @@ const AgentMapPage = {
             openLbl = '▸ Open all traces'; openFn = () => this._openRuns();
         } else if (n.kind === 'harness') {
             title = this._esc(n.label); typ = 'Harness' + (n.gray ? ' · inactive' : '');
-            const hstatus = n.gray ? `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}` : 'active';
+            const hstatus = n.gray ? `inactive: no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}` : 'active';
             rows = kv('Status', hstatus) + kv('Last call', this._relTime(n.last_used)) + kv('Agents', n.sessions || 0)
                 + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0);
             openLbl = '▸ Open traces for ' + this._esc(n.label); openFn = () => this._openHarness(n);
@@ -1358,7 +1358,7 @@ const AgentMapPage = {
             title = this._esc(this._sessionLabel(n)); typ = this._esc(n.harness) + (n.active ? '' : ' · inactive');
             const fullSid = String(n.session_id || n.trace_id || '');
             const sstatus = n.active ? 'running'
-                : `inactive — no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
+                : `inactive: no activity in last 24h${n.idle_days != null ? ` (${n.idle_days}d idle)` : ''}`;
             rows = kv('Status', sstatus) + kv('Last call', this._relTime(n.last_used))
                 + kv('Tools', n.tools || 0) + kv('Tool calls', n.calls || 0) + kvBlk('Blocked', n.blocked || 0)
                 + detRow(n)
@@ -1649,7 +1649,7 @@ const AgentMapPage = {
             `<span class="sv-stat"><b>${active}</b> active agents</span>` +
             `<span class="sv-stat"><b>${sessions.length}</b> total</span>` +
             `<span class="sv-stat-sep"></span>` +
-            `<span class="sv-stat ${detected ? 'is-alert' : ''}" title="Threats detected — may have been allowed to run, not necessarily blocked">${ICON.virus(detected ? VIRUS_NODE_COLOR : '#64748b', 13)} <b>${detected}</b> detected</span>` +
+            `<span class="sv-stat ${detected ? 'is-alert' : ''}" title="Threats detected, may have been allowed to run, not necessarily blocked">${ICON.virus(detected ? VIRUS_NODE_COLOR : '#64748b', 13)} <b>${detected}</b> detected</span>` +
             `<span class="sv-stat ${blocked ? 'is-alert' : ''}" title="Tool calls the policy actually blocked">${ICON.ban(blocked ? '#ef4444' : '#64748b', 13)} <b>${blocked}</b> blocked</span>` +
             `<span class="sv-stat ${secrets ? 'is-watch' : ''}">${ICON.lock(secrets ? '#f59e0b' : '#64748b', 13)} <b>${secrets}</b> secret</span>`;
         // "How to read this map" — its own pill at the FAR RIGHT of the same
@@ -1721,7 +1721,7 @@ const AgentMapPage = {
         const svgHTML = new XMLSerializer().serializeToString(clone);
         const sessions = (this.data.nodes || []).filter(n => n.kind === 'session');
         const sub = `${sessions.length} agent sessions · ${this.topo} view · last ${this.windowDays} day(s)`;
-        ObsTabs.printDoc('SecureVector — Agent Map',
+        ObsTabs.printDoc('SecureVector: Agent Map',
             `<h1>Agent Map</h1><div class="sub">${sub}</div>${svgHTML}` +
             `<h2 style="font-size:13px;margin:18px 0 6px;">Connections</h2>` +
             ObsTabs.tableHTML(this._exportCols(), this._edgeRows()));

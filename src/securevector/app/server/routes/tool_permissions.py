@@ -889,6 +889,23 @@ class UpdateCustomToolPermissionRequest(BaseModel):
     default_permission: str = Field(..., pattern="^(block|allow)$")
 
 
+class UpdateCustomToolRequest(BaseModel):
+    """Request to update a custom tool's descriptive fields.
+
+    Every field is optional so a caller can rename without having to resend
+    the description. Notably this does NOT carry default_permission: editing
+    a label must never be able to change what a tool is allowed to do. That
+    stays on its own endpoint.
+
+    Same constraints as CreateCustomToolRequest, so a tool cannot be edited
+    into a state it could not have been created in.
+    """
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    risk: Optional[str] = Field(default=None, pattern="^(read|write|delete|admin)$")
+    description: Optional[str] = Field(default=None, max_length=200)
+
+
 @router.get("/tool-permissions/custom")
 async def list_custom_tools():
     """List all custom tools."""
@@ -975,6 +992,40 @@ async def update_custom_tool_permission(
         raise
     except Exception as e:
         logger.error(f"Failed to update custom tool: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/tool-permissions/custom/{tool_id}")
+async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
+    """Update a custom tool's name / description / risk.
+
+    PATCH rather than PUT because the body is a partial update; PUT on this
+    path already means "set the permission" and must keep that meaning.
+    """
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+
+        existing = await repo.get_custom_tool(tool_id)
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Custom tool '{tool_id}' not found",
+            )
+
+        tool = await repo.update_custom_tool_metadata(
+            tool_id,
+            name=request.name,
+            description=request.description,
+            risk=request.risk,
+        )
+        tool["risk_score"] = get_risk_score(tool.get("risk"))
+        return tool
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update custom tool metadata: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

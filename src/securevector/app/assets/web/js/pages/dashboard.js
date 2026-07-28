@@ -134,7 +134,7 @@ async function showOpenClawProxyStopModal() {
     modalContent.appendChild(codeBlock);
 
     Modal.show({
-        title: 'Block Mode Disabled — Restart OpenClaw',
+        title: 'Block Mode Disabled: Restart OpenClaw',
         content: modalContent,
         size: 'medium',
         actions: [{ label: 'Got it', primary: true }]
@@ -220,7 +220,7 @@ const DashboardPage = {
         let sentence;
         const rangeLabel = days === 1 ? 'last 24h' : `last ${days} days`;
         if (!inRange.length) {
-            sentence = `All clear — no threats in the ${rangeLabel}`;
+            sentence = `All clear: no threats in the ${rangeLabel}`;
         } else if (allowedThrough > 0) {
             tone = 'alert';
             sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel} — review now`;
@@ -285,7 +285,7 @@ const DashboardPage = {
         card.style.cssText = 'padding: 16px 18px; border-radius: 10px; border: 1px solid var(--border-default); background: var(--bg-card);';
 
         const title = document.createElement('div');
-        title.textContent = 'Get protected — connect your first agent';
+        title.textContent = 'Get protected: connect your first agent';
         title.style.cssText = 'font-weight: 700; font-size: 14.5px; color: var(--text-primary); margin-bottom: 6px;';
         card.appendChild(title);
 
@@ -320,7 +320,7 @@ const DashboardPage = {
                 if (stats && stats.total > 0) {
                     clearInterval(poll);
                     try { localStorage.removeItem('sv-day0-since'); } catch (_) { /* */ }
-                    if (window.Toast) Toast.success('First event received — you are live');
+                    if (window.Toast) Toast.success('First event received: you are live');
                     if (this.currentContainer) this.render(this.currentContainer);
                     return;
                 }
@@ -472,13 +472,13 @@ const DashboardPage = {
                 if (!this.settings) return;
                 const gaps = [];
                 if (!this.settings.block_threats) {
-                    gaps.push(['block-mode', 'Block mode is off — threats are detected and logged, but nothing is stopped', 'Turn on']);
+                    gaps.push(['block-mode', 'Block mode is off: threats are detected and logged, but nothing is stopped', 'Turn on']);
                 }
                 if (!this.settings.scan_llm_responses) {
-                    gaps.push(['output-scan', 'Output scan is off — LLM responses are not checked or redacted', 'Turn on']);
+                    gaps.push(['output-scan', 'Output scan is off: LLM responses are not checked or redacted', 'Turn on']);
                 }
                 if (this.settings.guardian_ml_available !== false && this.settings.guardian_ml_enabled === false) {
-                    gaps.push(['guardian-ml', 'Guardian ML is off — detection is running on rules only', 'Turn on']);
+                    gaps.push(['guardian-ml', 'Guardian ML is off: detection is running on rules only', 'Turn on']);
                 }
                 // v5 banner policy: never stack gap bars. One gap renders its
                 // full sentence; several gaps merge into a single summary line
@@ -492,7 +492,7 @@ const DashboardPage = {
                     const list = due.map(([id]) => names[id] || id).join(', ');
                     stack.appendChild(buildGapItem(
                         due.map(([id]) => id),
-                        `${due.length} protections are off — ${list}. Threats are detected and logged, but not fully enforced.`,
+                        `${due.length} protections are off: ${list}. Threats are detected and logged, but not fully enforced.`,
                         'Review', syncVis));
                 }
                 syncVis();
@@ -512,15 +512,10 @@ const DashboardPage = {
             }
         } catch (e) { /* attention stack is non-critical */ }
 
-        // ── Tier 2 — live proof ─────────────────────────────────────────────
-        // Recent threat activity sits directly under the hero: the app
-        // visibly *doing* something is the dashboard's immediate value.
-        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
-        activityCard.style.marginBottom = '20px';
-        this.renderRecentActivity(activityCard.querySelector('.card-body'));
-        container.appendChild(activityCard);
-
-        // ── Tier 3 — everything else, demoted ───────────────────────────────
+        // ── Tier 2 — trend first, then live proof ───────────────────────────
+        // The requests/threats chart leads (founder direction 2026-07-27):
+        // the shape of the day gives the feed its context, so Recent Threat
+        // Activity now sits directly BELOW the graph.
         // One full-width chart: requests + threats. Cost/token trends live
         // on Cost & Tokens now (that page owns spend + tokens together) —
         // a second chart here was the main source of dashboard cramp.
@@ -530,7 +525,7 @@ const DashboardPage = {
         const chartDays = this.rangeDays;
         const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
 
-        const trendCard = Card.create({ title: `LLM Requests — ${chartLabel}`, gradient: true });
+        const trendCard = Card.create({ title: `LLM Requests: ${chartLabel}`, gradient: true });
         const trendBody = trendCard.querySelector('.card-body');
         trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(trendCard);
@@ -539,6 +534,11 @@ const DashboardPage = {
         });
 
         container.appendChild(chartsRow);
+
+        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
+        activityCard.style.marginBottom = '20px';
+        this.renderRecentActivity(activityCard.querySelector('.card-body'));
+        container.appendChild(activityCard);
 
         // Security Controls — moved adjacent to Recent Activity since they're
         // the "see threats / shape your response" pair. Previously they sat
@@ -639,7 +639,7 @@ const DashboardPage = {
                 guarded.valEl.textContent = String(n);
                 if (n === 0) {
                     guarded.valEl.style.color = '#f59e0b';
-                    guarded.cell.title = 'Nothing is protected yet — open the Connect Wizard';
+                    guarded.cell.title = 'Nothing is protected yet: open the Connect Wizard';
                 }
             }
 
@@ -680,7 +680,8 @@ const DashboardPage = {
             const estOnly = costData && metered < 0.005 && (costData.today_estimate_usd || 0) >= 0.005;
             if (estOnly) {
                 spendStat.valEl.textContent = '≈' + formatCost(costData.today_estimate_usd);
-                spendStat.cell.title = 'Estimated from session transcripts (token counts × API list prices) — the same figure Traces shows. '
+                spendStat.cell.title = 'Estimated from session transcripts (token counts × API list prices): the sum of every LLM run that happened today, local time. '
+                    + 'A trace that spans several days shows its lifetime total on Traces, with the today slice noted beside it. '
                     + 'Not metered billing: on a subscription plan (e.g. Claude Pro/Max) this usage is included, not invoiced. '
                     + 'Metered proxy spend today: $0.';
                 const est = document.createElement('div');
@@ -720,7 +721,7 @@ const DashboardPage = {
         h.textContent = 'Reports';
         h.style.cssText = 'margin:0;font-size:16px;color:var(--text-primary);';
         const sub = document.createElement('span');
-        sub.textContent = 'Last 7 days — CSV here, or open the page for the rich PDF.';
+        sub.textContent = 'Last 7 days: CSV here, or open the page for the rich PDF.';
         sub.style.cssText = 'font-size:12px;color:var(--text-secondary);';
         header.appendChild(h);
         header.appendChild(sub);
@@ -735,7 +736,7 @@ const DashboardPage = {
         // blocking await inside renderContent (keeps the dashboard snappy).
         const ti = this._reportCard({
             title: 'Tool Inventory',
-            blurb: 'Per-device SBOM for AI tools — every (server, tool) your agents called.',
+            blurb: 'Per-device SBOM for AI tools: every (server, tool) your agents called.',
             openPage: 'bill-of-tools',
             onCsv: () => this._exportReportCsv('tool-inventory'),
         });
@@ -747,7 +748,7 @@ const DashboardPage = {
         });
         const th = this._reportCard({
             title: 'Threats',
-            blurb: 'Full threat scan log — rule hits, severity, action taken.',
+            blurb: 'Full threat scan log: rule hits, severity, action taken.',
             openPage: 'threats',
             onCsv: () => {
                 if (window.App && App.loadPage) {
@@ -1526,7 +1527,13 @@ const DashboardPage = {
     formatTime(dateStr) {
         if (!dateStr) return '-';
         try {
-            const date = new Date(dateStr);
+            // Backend timestamps are UTC without a zone suffix; bare strings
+            // parse as LOCAL, skewing "Xh ago" by the UTC offset. Same
+            // normalisation as ThreatsPage.formatDate.
+            const norm = /[Z+\-]\d?\d?(:?\d\d)?$/.test(dateStr)
+                ? dateStr
+                : (dateStr.includes('T') ? dateStr + 'Z' : dateStr.replace(' ', 'T') + 'Z');
+            const date = new Date(norm);
             const now = new Date();
             const diffMs = now - date;
             const diffMins = Math.floor(diffMs / 60000);
@@ -1694,7 +1701,7 @@ const DashboardPage = {
             desc: 'Local ML threat detection' + (settings.guardian_model_version ? ` · v${settings.guardian_model_version}` : ''),
             checked: !!settings.guardian_ml_enabled,
             disabled: settings.guardian_ml_available === false,
-            disabledNote: 'Model not installed — see Guardian ML in the sidebar',
+            disabledNote: 'Model not installed: see Guardian ML in the sidebar',
             confirmTitle: (on) => on ? 'Enable Guardian ML?' : 'Disable Guardian ML?',
             confirmMsg: (on) => on
                 ? 'The local ML model scores every prompt alongside the rule engine. Runs entirely on this machine.'
@@ -1785,6 +1792,17 @@ const DashboardPage = {
         errorDiv.appendChild(retry);
 
         container.appendChild(errorDiv);
+    },
+    /** Stop this page's timer when the user navigates away.
+     *
+     * Called by App._destroyPage(). Without it the dashboard auto-refresh poll
+     * kept running (and re-firing its API call) for the rest of the
+     * session, and returning to the page started a second one. */
+    destroy() {
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
     },
 };
 

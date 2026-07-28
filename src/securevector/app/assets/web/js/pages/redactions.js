@@ -49,7 +49,7 @@ const RedactionsPage = {
         if (window.Header) {
             Header.setPageInfo(
                 'Secret Detections',
-                'Credentials & PII caught and scrubbed — only SHA-256 hashes stored, never raw values.'
+                'Credentials & PII caught and scrubbed: only SHA-256 hashes stored, never raw values.'
             );
         }
 
@@ -78,7 +78,7 @@ const RedactionsPage = {
         // Bulleted format — auditors skim this page for the storage posture
         // and direction guarantees. Each bullet should answer ONE question.
         subtitle.innerHTML = [
-            '<div style="margin-bottom:6px;color:var(--text-primary);font-weight:600;">No raw secret values are stored — only redactions and SHA-256 hashes.</div>',
+            '<div style="margin-bottom:6px;color:var(--text-primary);font-weight:600;">No raw secret values are stored, only redactions and SHA-256 hashes.</div>',
             '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
             '<li>Every credential / PII match caught by <code style="font-family:monospace;">redact_secrets()</code> is scrubbed before it lands in <code style="font-family:monospace;">threat_intel_records</code>.</li>',
             '<li>The audit log itself stores only a hash, so the trail is safe to forward to a SIEM.</li>',
@@ -330,7 +330,7 @@ const RedactionsPage = {
         if (!this._state.events.length) {
             const empty = document.createElement('div');
             empty.style.cssText = 'padding:36px;text-align:center;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border-default);border-radius:8px;';
-            empty.textContent = 'No secret detections in this window. Nothing scrubbed means nothing slipped through — or no scans ran yet.';
+            empty.textContent = 'No secret detections in this window. Nothing scrubbed means nothing slipped through: or no scans ran yet.';
             tableMount.appendChild(empty);
             return;
         }
@@ -507,7 +507,7 @@ const RedactionsPage = {
         const logoDataUrl = await this._fetchLogoDataUrl();
         const win = window.open('', '_blank');
         if (!win) {
-            if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
+            if (window.Toast) Toast.show('Popup blocked: allow popups to export PDF', 'error');
             return;
         }
         const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -542,7 +542,7 @@ const RedactionsPage = {
             ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
             : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-            <title>SecureVector — Secret Detections (${esc(stamp)})</title>
+            <title>SecureVector: Secret Detections (${esc(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111;}
                 .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
@@ -571,7 +571,7 @@ const RedactionsPage = {
             <table><thead><tr>
                 <th>Time</th><th>Direction</th><th>Harness</th><th>Pattern</th><th>Secret type</th><th>Source tool</th><th>Hash (SHA-256)</th>
             </tr></thead><tbody>${rowsHtml}</tbody></table>
-            <div class="note">Methodology — Every detection in this report was redacted from content before persistence; <strong>no raw secret values ever land in <code>threat_intel_records</code>, the audit log, or this PDF</strong>. Detection performed by <code>redact_secrets()</code> in <code>src/securevector/app/utils/redaction.py</code>. PEM private-key and OpenSSH-binary patterns apply only to <code>direction='incoming'</code> (tool responses, RAG content). Always-on patterns (sk-, AKIA, ghp_, JWT, kv-pair, password) apply to every direction. PUBLIC KEY blocks are not redacted (not secrets). The Hash column is SHA-256 of the matched substring, persisted that way in <code>redaction_events</code> — auditors can prove a specific match by hash without the underlying secret ever leaving the device.</div>
+            <div class="note">Methodology: Every detection in this report was redacted from content before persistence; <strong>no raw secret values ever land in <code>threat_intel_records</code>, the audit log, or this PDF</strong>. Detection performed by <code>redact_secrets()</code> in <code>src/securevector/app/utils/redaction.py</code>. PEM private-key and OpenSSH-binary patterns apply only to <code>direction='incoming'</code> (tool responses, RAG content). Always-on patterns (sk-, AKIA, ghp_, JWT, kv-pair, password) apply to every direction. PUBLIC KEY blocks are not redacted (not secrets). The Hash column is SHA-256 of the matched substring, persisted that way in <code>redaction_events</code>: auditors can prove a specific match by hash without the underlying secret ever leaving the device.</div>
             <script>setTimeout(()=>window.print(),200);<\/script>
             </body></html>`);
         win.document.close();

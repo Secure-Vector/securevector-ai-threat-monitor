@@ -378,7 +378,9 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 }
 
 .cloud-toggle-btn.gradient-btn {
-    background: var(--gradient);
+    /* Historical class name; flat accent per the one-accent, no-decorative-
+       gradients rule. */
+    background: var(--accent-primary);
     border: none;
     padding: 6px 12px;
     color: #ffffff;

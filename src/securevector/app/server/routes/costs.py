@@ -13,7 +13,7 @@ POST /api/costs/pricing/sync     - On-demand sync from GitHub (bundled YAML fall
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -259,9 +259,11 @@ _est_cache: dict = {"at": None, "value": (0.0, 0)}
 
 
 async def _today_transcript_estimate(db) -> tuple[float, int]:
-    """Sum the API-list-price value of TODAY's (UTC, matching get_today_spend)
-    LLM turns across recent Claude Code / Codex sessions, read from their
-    transcripts. Best-effort: any per-session failure contributes 0."""
+    """Sum the API-list-price value of TODAY's LLM turns across recent Claude
+    Code / Codex sessions, read from their transcripts. "Today" is the LOCAL
+    calendar day — a UTC boundary makes evening turns count toward tomorrow,
+    so the widget would disagree with the sessions the user just watched.
+    Best-effort: any per-session failure contributes 0."""
     now = datetime.utcnow()
     cached_at = _est_cache["at"]
     if cached_at is not None and (now - cached_at).total_seconds() < _EST_TTL_SECONDS:
@@ -280,7 +282,7 @@ async def _today_transcript_estimate(db) -> tuple[float, int]:
         rows = await CustomToolsRepository(db).get_trace_runs(window_days=1, limit=200)
         pricing = await CostsRepository(db).list_pricing()
         price_map = {p.model_id: (p.input_per_million, p.output_per_million) for p in pricing}
-        today = now.date()
+        today = datetime.now().astimezone().date()
         seen_sessions: set[str] = set()
         for r in rows:
             kind = r.get("runtime_kind")
@@ -301,7 +303,10 @@ async def _today_transcript_estimate(db) -> tuple[float, int]:
                 for g in gens:
                     ts = (g.get("called_at") or "").replace("Z", "+00:00")
                     try:
-                        if datetime.fromisoformat(ts).date() != today:
+                        dt = datetime.fromisoformat(ts)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if dt.astimezone().date() != today:
                             continue
                     except ValueError:
                         continue

@@ -26,7 +26,7 @@ const GuideConnectAgentsPage = {
         { id: 'crewai', route: 'A', label: 'CrewAI', guide: 'guide-frameworks', integration: 'proxy-crewai', pkg: 'securevector-sdk-crewai',
             wire: 'from crewai import Agent\nfrom securevector_sdk_crewai import secure_tools\n\n# observe = log-only (default); mode="enforce" blocks\nagent = Agent(role="Researcher", goal="...", backstory="...", tools=secure_tools(my_tools, mode="observe"))' },
         { id: 'hermes', route: 'A', label: 'Hermes', guide: 'guide-frameworks', integration: 'proxy-hermes', pkg: 'securevector-sdk-hermes',
-            wire: '# Zero-config: the SDK registers a Hermes plugin (hermes_agent.plugins\n# entry point) — auto-attached when hermes starts (CLI, gateway, ACP).\nhermes                                # observe = log-only (default)\nSECUREVECTOR_SDK_MODE=enforce hermes  # blocks denied tools\n\n# Library embeddings: from securevector_sdk_hermes import install; install(mode="enforce")' },
+            wire: '# Zero-config: the SDK registers a Hermes plugin (hermes_agent.plugins\n# entry point): auto-attached when hermes starts (CLI, gateway, ACP).\nhermes                                # observe = log-only (default)\nSECUREVECTOR_SDK_MODE=enforce hermes  # blocks denied tools\n\n# Library embeddings: from securevector_sdk_hermes import install; install(mode="enforce")' },
         { id: 'claude-code', route: 'B', label: 'Claude Code', guide: 'guide-claude-code', integration: 'proxy-claude-code', slug: 'claude-code' },
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
@@ -141,7 +141,7 @@ const GuideConnectAgentsPage = {
         // page opens straight into the intro line + guided CTA.
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px; font-size: 14px; line-height: 1.5;';
-        lede.textContent = 'See what is connected and covered on this device, then connect more — the guided one-click way or by copying commands.';
+        lede.textContent = 'See what is connected and covered on this device, then connect more: the guided one-click way or by copying commands.';
         root.appendChild(lede);
 
         // Guided-setup CTA — the old "Connect Wizard" is no longer a separate
@@ -160,7 +160,7 @@ const GuideConnectAgentsPage = {
         const gTxt = document.createElement('div');
         gTxt.style.cssText = 'flex:1; min-width:0;';
         const gT = document.createElement('div'); gT.style.cssText = 'font-family:var(--font-display); font-weight:600; font-size:14.5px; color:var(--text-primary);'; gT.textContent = 'Guided one-click setup';
-        const gS = document.createElement('div'); gS.style.cssText = 'font-size:12.5px; color:var(--text-secondary); margin-top:1px;'; gS.textContent = 'Scan this device, install Guard, and verify the first protected call — recommended.';
+        const gS = document.createElement('div'); gS.style.cssText = 'font-size:12.5px; color:var(--text-secondary); margin-top:1px;'; gS.textContent = 'Scan this device, install Guard, and verify the first protected call: recommended.';
         gTxt.appendChild(gT); gTxt.appendChild(gS);
         guided.appendChild(gTxt);
         const gArrow = document.createElement('span'); gArrow.style.cssText = 'flex:none; color:' + ACCENT + '; font-weight:700;'; gArrow.textContent = '→';
@@ -312,8 +312,8 @@ const GuideConnectAgentsPage = {
                 const foot = document.createElement('div');
                 foot.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;';
                 foot.textContent = selected.route === 'B'
-                    ? 'Installs the CLI + plugin hooks only — your engine stays remote.'
-                    : 'Lightweight adapter — points at your endpoint.';
+                    ? 'Installs the CLI + plugin hooks only: your engine stays remote.'
+                    : 'Lightweight adapter: points at your endpoint.';
                 panel.appendChild(foot);
             }
 
@@ -333,7 +333,7 @@ const GuideConnectAgentsPage = {
             vLink.textContent = 'Observability';
             vLink.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('agent-map'); });
             verify.appendChild(vLink);
-            verify.appendChild(document.createTextNode(' within seconds — tagged by ' + (selected.route === 'B' ? 'harness.' : 'framework.')));
+            verify.appendChild(document.createTextNode(' within seconds: tagged by ' + (selected.route === 'B' ? 'harness.' : 'framework.')));
             panel.appendChild(verify);
 
             // self-host: one muted line answering "where does my data go?" — the
@@ -342,7 +342,7 @@ const GuideConnectAgentsPage = {
             if (selfHost) {
                 const sh = document.createElement('div');
                 sh.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5;';
-                sh.textContent = 'Your cloud keeps all data in your cloud — nothing is sent to SecureVector.';
+                sh.textContent = 'Your cloud keeps all data in your cloud: nothing is sent to SecureVector.';
                 panel.appendChild(sh);
             }
 
@@ -539,7 +539,7 @@ const GuideConnectAgentsPage = {
             detectBody.textContent = '';
             const s = document.createElement('div');
             s.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 12px;';
-            s.textContent = 'Detects installed harnesses, sessions, and which already run Guard. Reads local folders only — nothing leaves this device.';
+            s.textContent = 'Detects installed harnesses, sessions, and which already run Guard. Reads local folders only: nothing leaves this device.';
             detectBody.appendChild(s);
             const btn = document.createElement('button'); btn.type = 'button';
             const btnBg = 'color-mix(in srgb, ' + ACCENT + ' 15%, transparent)';
@@ -564,11 +564,11 @@ const GuideConnectAgentsPage = {
             const body = document.createElement('div'); body.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.6;';
             body.appendChild(document.createTextNode('SecureVector will check this device (' + osName + ') to show what’s running. It reads, locally:'));
             const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0; padding-left: 18px;';
-            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.openclaw) — which are installed',
-             'Their session files — to count sessions and recent activity',
-             'SecureVector’s own tool-call audit — to list active agents/frameworks'].forEach(li => { const l = document.createElement('li'); l.style.cssText = 'margin-bottom: 3px;'; l.textContent = li; ul.appendChild(l); });
+            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.openclaw): which are installed',
+             'Their session files: to count sessions and recent activity',
+             'SecureVector’s own tool-call audit: to list active agents/frameworks'].forEach(li => { const l = document.createElement('li'); l.style.cssText = 'margin-bottom: 3px;'; l.textContent = li; ul.appendChild(l); });
             body.appendChild(ul);
-            const safe = document.createElement('div'); safe.style.cssText = 'font-size: 12.5px; color: var(--text-primary); font-weight: 600;'; safe.textContent = 'It runs entirely on this device — nothing is uploaded or sent anywhere.';
+            const safe = document.createElement('div'); safe.style.cssText = 'font-size: 12.5px; color: var(--text-primary); font-weight: 600;'; safe.textContent = 'It runs entirely on this device: nothing is uploaded or sent anywhere.';
             body.appendChild(safe);
             const btns = document.createElement('div'); btns.style.cssText = 'display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;';
             const cancel = document.createElement('button'); cancel.type = 'button'; cancel.style.cssText = 'background: none; border: 1px solid var(--border-default); color: var(--text-primary); border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;'; cancel.textContent = 'Not now';
@@ -615,10 +615,13 @@ const GuideConnectAgentsPage = {
             // Borderless — the card shell already frames it. Tight.
             // Reflect a one-line summary up into the collapsed header so the
             // rail still communicates coverage when folded away.
-            const uncovered = s.unprotected_sessions || 0;
+            // Warn only about sessions running NOW without Guard — historical
+            // transcripts that predate Guard are not an actionable gap and
+            // made this read as "755 of 798 uncovered" on a healthy setup.
+            const uncovered = s.unprotected_active_sessions || 0;
             dhSummary.textContent = (d.os ? d.os + ' · ' : '') +
                 (s.harnesses_detected || 0) + ' found' +
-                (uncovered > 0 ? ' · ≈' + uncovered + ' uncovered' : '');
+                (uncovered > 0 ? ' · ' + uncovered + ' active uncovered' : '');
             dhSummary.style.color = uncovered > 0 ? 'var(--warning)' : 'var(--text-muted)';
 
             const ctrls = document.createElement('div'); ctrls.style.cssText = 'display: flex; gap: 14px; margin-bottom: 10px;';
@@ -632,8 +635,8 @@ const GuideConnectAgentsPage = {
             wrap.appendChild(sum);
             if (uncovered > 0) {
                 const warn = document.createElement('div'); warn.style.cssText = 'font-size: 11.5px; color: var(--warning); font-weight: 600; margin-bottom: 8px; cursor: help;';
-                warn.textContent = '≈' + uncovered + ' of ' + (s.total_sessions || 0) + ' not covered by Guard';
-                warn.title = 'Estimate: on-disk session transcripts minus the sessions seen in SecureVector’s audit. Older sessions that predate Guard count here. Connecting Guard covers new sessions going forward.';
+                warn.textContent = uncovered + ' active session' + (uncovered === 1 ? '' : 's') + ' not covered by Guard';
+                warn.title = 'Sessions running right now on a harness without Guard connected. Installing Guard on that harness covers them and everything after.';
                 wrap.appendChild(warn);
             } else { sum.style.marginBottom = '8px'; }
 
@@ -662,9 +665,11 @@ const GuideConnectAgentsPage = {
                 // sessions / coverage — a compact second line under the name.
                 const sessTxt = document.createElement('span'); sessTxt.style.cssText = 'font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); flex: 1 1 100%; padding-left: 15px;';
                 if (h.sessions && h.sessions.supported) {
-                    if ((h.unprotected_sessions || 0) > 0) {
-                        sessTxt.appendChild(document.createTextNode((h.protected_sessions || 0) + '/' + h.sessions.total + ' guarded · '));
-                        const u = document.createElement('span'); u.style.cssText = 'color: var(--warning); font-weight: 600;'; u.title = 'Estimate — older sessions predating Guard count here.'; u.textContent = '≈' + h.unprotected_sessions + ' uncovered';
+                    // Warn per-harness only for the actionable case: sessions
+                    // active right now with no Guard on this harness.
+                    if ((h.unprotected_active || 0) > 0) {
+                        sessTxt.appendChild(document.createTextNode(h.sessions.total + ' session' + (h.sessions.total === 1 ? '' : 's') + ' · '));
+                        const u = document.createElement('span'); u.style.cssText = 'color: var(--warning); font-weight: 600;'; u.title = 'Running right now without Guard on this harness.'; u.textContent = h.unprotected_active + ' active uncovered';
                         sessTxt.appendChild(u);
                     } else {
                         sessTxt.textContent = h.sessions.total + ' session' + (h.sessions.total === 1 ? '' : 's');
@@ -708,8 +713,8 @@ const GuideConnectAgentsPage = {
             const t = document.createElement('div');
             t.style.cssText = 'font-size: 14px; font-weight: 800; margin-bottom: 4px;';
             t.textContent = env.in_container
-                ? 'Self-hosted engine (container) — point your agents here'
-                : 'Self-hosted engine — point your agents here';
+                ? 'Self-hosted engine (container): point your agents here'
+                : 'Self-hosted engine: point your agents here';
             cb.appendChild(t);
             const sub = document.createElement('div');
             sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';

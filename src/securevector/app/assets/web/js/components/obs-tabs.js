@@ -93,7 +93,12 @@ const ObsTabs = {
     },
     toCSV(columns, rows) {
         const esc = (v) => {
-            const s = v == null ? '' : String(v);
+            let s = v == null ? '' : String(v);
+            // Formula-injection guard: exported cells carry attacker-influenced
+            // text (tool args, command previews). A leading = + - @ or a
+            // tab/CR would execute as a formula when the CSV is opened in
+            // Excel / Sheets. Prefix with ' so spreadsheets render it inert.
+            if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
             return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
         };
         const head = columns.map(c => esc(c.label)).join(',');

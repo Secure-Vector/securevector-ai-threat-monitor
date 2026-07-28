@@ -17,7 +17,6 @@ from securevector.app.database.models import (
     SCHEMA_SQL,
     MIGRATION_V12_SQL,
     MIGRATION_V13_SQL,
-    MIGRATION_V14_SQL,
     MIGRATION_V18_SQL,
     MIGRATION_V19_SQL,
     MIGRATION_V29_SQL,
@@ -593,7 +592,6 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
 
     Reads pricing/model_pricing.yml and upserts all entries.
     """
-    import json
     from pathlib import Path
     import yaml
 
@@ -1871,6 +1869,11 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     # so both tables respect the same `app_settings.retention_days` knob.
     await cleanup_old_audit_records(db)
 
+    # The remaining append-only event tables. Same knob again, so a user who
+    # sets retention once gets it applied everywhere rather than to two
+    # tables out of five.
+    await cleanup_old_event_records(db)
+
     return version
 
 
@@ -1909,6 +1912,63 @@ async def cleanup_old_audit_records(db: DatabaseConnection) -> None:
             logger.info(f"Cleaned up {deleted} expired audit rows (retention: {retention_days} days)")
     except Exception as e:
         logger.debug(f"Audit records cleanup skipped: {e}")
+
+
+# Append-only event tables that grow with normal use, and the timestamp
+# column each one ages out on. cost_records and tool_call_audit are handled
+# by their own repositories above (both need extra care — chain truncation,
+# aggregate rebuilds), so they are deliberately absent here.
+_EVENT_RETENTION_TABLES = (
+    ("redaction_events", "redacted_at"),
+    ("tool_call_log", "called_at"),
+    ("threat_intel_records", "created_at"),
+)
+
+
+async def cleanup_old_event_records(db: DatabaseConnection) -> None:
+    """Age out the remaining append-only event tables per retention_days.
+
+    Without this these three grew forever: every redaction, every logged tool
+    call, and every threat detection stayed on disk for the life of the
+    install, so the only bounded tables were the two that happened to have
+    bespoke cleanup. A long-lived install would keep paying for year-old rows
+    that the UI's own windows (7/30/90d) never surface.
+
+    Deliberately conservative:
+      * Same single `app_settings.retention_days` knob as the other two, so
+        retention stays one user-visible promise rather than four.
+      * Each table is pruned independently inside its own try — a missing
+        table (older schema) or a locked write must not abort the rest of
+        startup, which is why the caller is best-effort too.
+
+    NOTE: pruning threat_intel_records removes detection history. That is the
+    same trade the audit-row cleanup already makes, and the honest answer for
+    customers who need indefinite retention is a SIEM forwarder, not an
+    ever-growing local SQLite file.
+    """
+    try:
+        row = await db.fetch_one("SELECT retention_days FROM app_settings WHERE id = 1")
+        retention_days = row["retention_days"] if row and row["retention_days"] else 30
+    except Exception as e:  # noqa: BLE001 — settings unreadable: skip, never block startup
+        logger.debug(f"Event records cleanup skipped (no settings): {e}")
+        return
+
+    for table, ts_col in _EVENT_RETENTION_TABLES:
+        try:
+            cur = await db.execute(
+                f"DELETE FROM {table} "  # noqa: S608 — table/column are module constants
+                f"WHERE {ts_col} IS NOT NULL "
+                f"AND {ts_col} < datetime('now', ?)",
+                (f"-{int(retention_days)} days",),
+            )
+            deleted = getattr(cur, "rowcount", 0) or 0
+            if deleted > 0:
+                logger.info(
+                    f"Cleaned up {deleted} expired rows from {table} "
+                    f"(retention: {retention_days} days)"
+                )
+        except Exception as e:  # noqa: BLE001 — one table failing must not stop the others
+            logger.debug(f"Cleanup skipped for {table}: {e}")
 
 
 async def load_community_rules(db: DatabaseConnection) -> int:

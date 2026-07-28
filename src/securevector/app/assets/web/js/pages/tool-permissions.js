@@ -312,13 +312,13 @@ const ToolPermissionsPage = {
                 actionBtn.style.color = 'var(--text-muted)';
                 actionBtn.textContent = (
                     tool.is_last_resort
-                        ? '🔒 Last-resort rule — locked'
+                        ? '🔒 Last-resort rule: locked'
                         : '🔒 Managed by ' + (tool.synced_source_org || 'cloud') + ' — locked'
                 );
             } else {
                 actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'var(--bg-tertiary)';
                 actionBtn.style.color = blocked ? '#ef4444' : 'var(--text-secondary)';
-                actionBtn.textContent = (blocked ? '✕  Block — click to allow' : '✓  Allow — click to block');
+                actionBtn.textContent = (blocked ? '✕  Block: click to allow' : '✓  Allow: click to block');
             }
         };
         applyBtnStyle(isBlocked);
@@ -429,7 +429,7 @@ const ToolPermissionsPage = {
         const badge = document.createElement('span');
         badge.style.cssText = 'font-size: 10px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 700; flex-shrink: 0; border: 1px solid rgba(220,38,38,0.45); background: rgba(220,38,38,0.10); color: #dc2626; cursor: default;';
         badge.textContent = '🔒 LAST-RESORT';
-        badge.title = 'Hard-coded safety rule — cannot be overridden, even by cloud policy.';
+        badge.title = 'Hard-coded safety rule: cannot be overridden, even by cloud policy.';
         return badge;
     },
 
@@ -449,7 +449,7 @@ const ToolPermissionsPage = {
         if (this.activeTab === 'activity') {
             if (window.Header) Header.setPageInfo('Tool Activity', 'Log of every tool call made by your agents');
         } else if (this.activeTab === 'bill') {
-            if (window.Header) Header.setPageInfo('Tool Inventory', 'Every (MCP server, tool) pair your agents called on this device — treated as a Software Bill of Materials (SBOM) for AI tools.');
+            if (window.Header) Header.setPageInfo('Tool Inventory', 'Every (MCP server, tool) pair your agents called on this device: treated as a Software Bill of Materials (SBOM) for AI tools.');
         } else {
             if (window.Header) Header.setPageInfo('Tool Permissions', 'Control which tools your agent is allowed to call');
         }
@@ -793,7 +793,7 @@ const ToolPermissionsPage = {
         const logoDataUrl = await this._fetchBillLogoDataUrl();
         const win = window.open('', '_blank');
         if (!win) {
-            if (window.Toast) Toast.show('Popup blocked — allow popups to export PDF', 'error');
+            if (window.Toast) Toast.show('Popup blocked: allow popups to export PDF', 'error');
             return;
         }
         const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -820,7 +820,7 @@ const ToolPermissionsPage = {
             ? `<img src="${logoDataUrl}" alt="SecureVector" style="width:42px;height:42px;flex:0 0 42px;"/>`
             : '';
         win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-            <title>SecureVector — Tool Inventory (${escapeHtml(stamp)})</title>
+            <title>SecureVector: Tool Inventory (${escapeHtml(stamp)})</title>
             <style>
                 body{font-family:-apple-system,Segoe UI,sans-serif;margin:24px;color:#111}
                 .brand{display:flex;align-items:center;gap:14px;border-bottom:1px solid #e3e6ee;padding-bottom:14px;margin-bottom:18px;}
@@ -848,7 +848,7 @@ const ToolPermissionsPage = {
                 </tr></thead>
                 <tbody>${rowsHtml}</tbody>
             </table>
-            <div class="note">Auth scope is SecureVector's classification (read / write / delete / admin), not the MCP server's self-declared capability. "Touched secrets" reflects audit-row reasons mentioning credential/PII rule hits in the window — does not catch unflagged exfiltration through tools that legitimately accept secrets.</div>
+            <div class="note">Auth scope is SecureVector's classification (read / write / delete / admin), not the MCP server's self-declared capability. "Touched secrets" reflects audit-row reasons mentioning credential/PII rule hits in the window: does not catch unflagged exfiltration through tools that legitimately accept secrets.</div>
             <script>setTimeout(()=>window.print(),200);<\/script>
             </body></html>`);
         win.document.close();
@@ -875,10 +875,10 @@ const ToolPermissionsPage = {
             '<span style="color:var(--accent-primary);font-weight:600;">What do the columns mean?</span>',
             '</summary>',
             '<ul style="margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px;">',
-            '<li><span style="color:var(--text-primary);font-weight:600;">Source</span> — is the tool covered by an org policy, registered locally, discovered via MCP, or a harness built-in?</li>',
-            '<li><span style="color:var(--text-primary);font-weight:600;">Auth scope</span> — SecureVector\'s classification (read / write / delete / admin), not the MCP server\'s self-declared capability.</li>',
-            '<li><span style="color:var(--text-primary);font-weight:600;">Touched secrets</span> — any call in the window flagged by a credential / PII rule. Catches rule-fired hits; does not catch unflagged exfil through a tool that legitimately accepts secrets.</li>',
-            '<li><span style="color:var(--text-primary);font-weight:600;">Policy</span> — which org-pushed policy currently governs this tool, if any. Empty means no cloud policy attached.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Source</span>, is the tool covered by an org policy, registered locally, discovered via MCP, or a harness built-in?</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Auth scope</span>, SecureVector\'s classification (read / write / delete / admin), not the MCP server\'s self-declared capability.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Touched secrets</span>, any call in the window flagged by a credential / PII rule. Catches rule-fired hits; does not catch unflagged exfil through a tool that legitimately accepts secrets.</li>',
+            '<li><span style="color:var(--text-primary);font-weight:600;">Policy</span>, which org-pushed policy currently governs this tool, if any. Empty means no cloud policy attached.</li>',
             '</ul>',
             '</details>',
         ].join('');
@@ -1429,7 +1429,7 @@ const ToolPermissionsPage = {
 
         const subtitle = document.createElement('div');
         subtitle.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.35;';
-        subtitle.textContent = 'Read-only here. Authoring lives in your cloud admin console — these rules apply at runtime even when the tool isn’t in your local registry.';
+        subtitle.textContent = 'Read-only here. Authoring lives in your cloud admin console: these rules apply at runtime even when the tool isn’t in your local registry.';
         col.appendChild(subtitle);
 
         // Sub-group per mcp_server — small label + grouped rows
@@ -2100,7 +2100,7 @@ const ToolPermissionsPage = {
             // Provenance tooltip on the highlighted tabs — supplements
             // the removed in-page intro banner without adding chrome.
             if (withCloudIcon && key === '__cloud__') {
-                tab.title = 'Managed in your cloud admin console — read-only here.';
+                tab.title = 'Managed in your cloud admin console: read-only here.';
             }
             return tab;
         };
@@ -2217,7 +2217,7 @@ const ToolPermissionsPage = {
         if (this._activeCategory === '__cloud__' && activeList.length > 0) {
             const byline = document.createElement('div');
             byline.style.cssText = 'padding: 0 4px; margin-bottom: 2px; font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-            byline.textContent = 'Managed in your cloud admin console — read-only here.';
+            byline.textContent = 'Managed in your cloud admin console: read-only here.';
             mainCol.appendChild(byline);
         }
 
@@ -2490,7 +2490,7 @@ const ToolPermissionsPage = {
             approve.disabled = true;
             try {
                 await API.approveJitRequest(req.id, duration);
-                if (window.Toast) Toast.success('Grant created — it expires automatically.');
+                if (window.Toast) Toast.success('Grant created: it expires automatically.');
             } catch (e) {
                 if (window.Toast) Toast.error('Approve failed: ' + e.message);
             }
@@ -2656,7 +2656,7 @@ const ToolPermissionsPage = {
                     : 'just now';
                 const entryLabel = count === 1 ? 'entry' : 'entries';
                 const deviceFrag = deviceId
-                    ? ' · <span class="sv-integrity-meta sv-integrity-device" title="Stable per-device identifier. Hashed from the OS machine UUID — the raw value never leaves this machine.">device ' + deviceId + '</span>'
+                    ? ' · <span class="sv-integrity-meta sv-integrity-device" title="Stable per-device identifier. Hashed from the OS machine UUID: the raw value never leaves this machine.">device ' + deviceId + '</span>'
                     : '';
                 text.innerHTML = '<strong>Audit chain verified</strong> — '
                     + count + ' ' + entryLabel + ' intact '
@@ -2675,7 +2675,7 @@ const ToolPermissionsPage = {
                 integrityBanner.style.display = '';
             } else {
                 icon.textContent = '…';
-                text.innerHTML = '<strong>Integrity check unavailable</strong> — endpoint did not respond.';
+                text.innerHTML = '<strong>Integrity check unavailable</strong>: endpoint did not respond.';
                 sessionStorage.removeItem(_dismissKey);
                 integrityBanner.style.display = '';
             }
@@ -2711,7 +2711,7 @@ const ToolPermissionsPage = {
 
         const chartTitle = document.createElement('div');
         chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 14px;';
-        chartTitle.textContent = 'Tool Call Activity — Last 7 Days';
+        chartTitle.textContent = 'Tool Call Activity: Last 7 Days';
         chartCard.appendChild(chartTitle);
 
         const chartBody = document.createElement('div');
@@ -3324,7 +3324,7 @@ const ToolPermissionsPage = {
                 riskBadge.textContent = entry.risk;
                 tdRisk.appendChild(riskBadge);
             } else {
-                tdRisk.textContent = '\u2014';
+                tdRisk.textContent = '—';
                 tdRisk.style.color = 'var(--text-muted)';
             }
             tr.appendChild(tdRisk);
@@ -3343,7 +3343,7 @@ const ToolPermissionsPage = {
             // Reason (fixed width, truncated with tooltip)
             const tdReason = document.createElement('td');
             tdReason.style.cssText = 'padding: 8px 12px; font-size: 12px; color: var(--text-secondary); max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-            tdReason.textContent = entry.reason || '\u2014';
+            tdReason.textContent = entry.reason || '—';
             if (entry.reason) tdReason.title = entry.reason;
             tr.appendChild(tdReason);
 
@@ -3357,7 +3357,7 @@ const ToolPermissionsPage = {
                 args.title = entry.args_preview;
                 tdArgs.appendChild(args);
             } else {
-                tdArgs.textContent = '\u2014';
+                tdArgs.textContent = '—';
                 tdArgs.style.color = 'var(--text-muted)';
             }
             tr.appendChild(tdArgs);
@@ -3893,11 +3893,11 @@ const ToolPermissionsPage = {
             const renderSourceBadge = () => {
                 if (tool.has_override) {
                     sourceBadge.textContent = 'Local';
-                    sourceBadge.title = 'Local override — click ↺ to reset to default';
+                    sourceBadge.title = 'Local override: click ↺ to reset to default';
                     sourceBadge.style.cssText = 'flex-shrink: 0; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid rgba(245,158,11,0.45); background: rgba(245,158,11,0.12); color: #d97706; line-height: 1.4;';
                 } else {
                     sourceBadge.textContent = 'Default';
-                    sourceBadge.title = 'Registry default — no override or cloud rule applied';
+                    sourceBadge.title = 'Registry default: no override or cloud rule applied';
                     sourceBadge.style.cssText = 'flex-shrink: 0; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: var(--text-muted); line-height: 1.4;';
                 }
             };
@@ -4316,7 +4316,7 @@ const ToolPermissionsPage = {
         const applyBtnStyle = (blocked) => {
             actionBtn.style.background = blocked ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)';
             actionBtn.style.color = blocked ? '#ef4444' : '#10b981';
-            actionBtn.textContent = blocked ? '✕  Blocked — click to allow' : '✓  Allowed — click to block';
+            actionBtn.textContent = blocked ? '✕  Blocked: click to allow' : '✓  Allowed: click to block';
         };
         applyBtnStyle(isBlocked);
         actionBtn.addEventListener('click', async () => {
@@ -4460,7 +4460,7 @@ const ToolPermissionsPage = {
             pill.style.border = '1px solid #dc2626';
             pill.style.boxShadow = '0 0 0 2px rgba(239,68,68,0.25)';
             pill.textContent = '⚠ TAMPERED';
-            pill.title = 'This row failed hash-chain verification — see the banner above for the specific reason.';
+            pill.title = 'This row failed hash-chain verification: see the banner above for the specific reason.';
         } else if (this.auditIntegrity) {
             // Result available and this row isn't the flagged one →
             // show it as verified. Even when the chain is broken at

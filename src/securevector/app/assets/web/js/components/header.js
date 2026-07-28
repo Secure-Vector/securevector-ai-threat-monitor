@@ -1074,18 +1074,18 @@ const Header = {
                 // Add "ON" badge
                 const indicator = document.createElement('div');
                 indicator.id = 'cloud-mode-indicator';
-                indicator.style.cssText = 'position: absolute; top: -8px; right: -8px; background: linear-gradient(135deg, #10b981, #059669); color: white; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);';
+                indicator.style.cssText = 'position: absolute; top: -8px; right: -8px; background: var(--accent-primary, #5eadb8); color: white; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.5px;';
                 indicator.textContent = 'ON';
                 wrapper.appendChild(indicator);
 
                 // Add hover tooltip
                 const tooltip = document.createElement('div');
                 tooltip.id = 'cloud-mode-tooltip';
-                tooltip.style.cssText = 'position: absolute; top: 100%; right: 0; margin-top: 8px; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 10px 14px; border-radius: 8px; font-size: 12px; white-space: nowrap; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2);';
+                tooltip.style.cssText = 'position: absolute; top: 100%; right: 0; margin-top: 8px; background: var(--bg-tertiary, #21262d); color: var(--text-primary, #e6edf3); border: 1px solid var(--accent-primary, #5eadb8); padding: 10px 14px; border-radius: 8px; font-size: 12px; white-space: nowrap; opacity: 0; visibility: hidden; transition: all 0.2s; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2);';
 
                 const titleLine = document.createElement('div');
                 titleLine.style.cssText = 'font-weight: 600; margin-bottom: 4px;';
-                titleLine.textContent = 'CLOUD MODE ON';
+                titleLine.textContent = 'Cloud Connect is on';
                 tooltip.appendChild(titleLine);
 
                 const routeLine = document.createElement('div');
@@ -1143,17 +1143,8 @@ const Header = {
         const content = document.createElement('div');
         content.className = 'cloud-connect-guide';
 
-        // Highlight banner for proprietary algorithm
-        const highlight = document.createElement('div');
-        highlight.className = 'cloud-highlight-banner';
-        highlight.innerHTML = `
-            <strong>Proprietary Multi-Stage Review Process</strong>
-            <p>Our specialized algorithms are designed to minimize false positives through enterprise-grade threat intelligence.</p>
-        `;
-        content.appendChild(highlight);
-
         const intro = document.createElement('p');
-        intro.textContent = 'Connect to SecureVector Cloud for centralized rule & policy management, fleet visibility, and a real-time dashboard. Your prompt text stays on this device by default — cloud ML analysis is a separate, optional opt-in.';
+        intro.textContent = 'Connect to SecureVector Cloud for centralized rule & policy management, fleet visibility, and a real-time dashboard. Your prompt text stays on this device by default; cloud ML analysis is a separate, optional opt-in.';
         intro.style.marginBottom = '20px';
         content.appendChild(intro);
 
@@ -1191,15 +1182,24 @@ const Header = {
             stepsList.appendChild(stepEl);
         });
 
-        content.appendChild(stepsList);
-
-        // CTA button
+        // CTA buttons — one-click trial leads (#194 f2: device flow, the
+        // device connects itself, no key to copy); manual path demoted.
         const cta = document.createElement('div');
-        cta.style.marginTop = '20px';
-        cta.style.textAlign = 'center';
+        cta.style.cssText = 'margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;';
+
+        const trialBtn = document.createElement('button');
+        trialBtn.className = 'btn btn-primary';
+        trialBtn.textContent = 'Start free cloud trial';
+        trialBtn.title = 'Sign up in the browser; this device connects itself. No key to copy.';
+        trialBtn.addEventListener('click', () => {
+            Modal.close();
+            if (window.SettingsPage) SettingsPage._autoStartTrial = true;
+            if (window.Sidebar) Sidebar.navigate('settings');
+        });
+        cta.appendChild(trialBtn);
 
         const ctaBtn = document.createElement('button');
-        ctaBtn.className = 'btn btn-primary';
+        ctaBtn.className = 'btn btn-secondary';
         ctaBtn.textContent = 'Go to app.securevector.io';
         ctaBtn.addEventListener('click', () => {
             window.open('https://app.securevector.io/login?redirect=desktop', '_blank');
@@ -1210,7 +1210,7 @@ const Header = {
         localNote.className = 'local-mode-highlight';
         localNote.style.marginTop = '20px';
         localNote.style.padding = '12px 16px';
-        localNote.style.background = 'linear-gradient(135deg, rgba(94, 173, 184, 0.1), rgba(244, 67, 54, 0.1))';
+        localNote.style.background = 'rgba(94, 173, 184, 0.08)';
         localNote.style.border = '1px solid var(--accent-primary)';
         localNote.style.borderRadius = '8px';
         localNote.style.fontSize = '13px';
@@ -1229,10 +1229,10 @@ const Header = {
         const noteList = document.createElement('ul');
         noteList.style.cssText = 'margin: 8px 0 0; padding-left: 18px; line-height: 1.6;';
         [
-            'Prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
-            'Rule sync, policy sync, fleet metadata, and governance keep working — none of them send your prompts.',
+            'Prompt input and output are analyzed on-device; by default none of that text is sent to SecureVector Cloud.',
+            'Rule sync, policy sync, fleet metadata, and governance keep working, and none of them send your prompts.',
             'Cloud ML analysis is a separate opt-in that sends prompt text to scan.securevector.io.',
-            'EU data-residency: when your organization enforces it, local-only analysis is hard-locked on and cannot be disabled — prompt text can never leave this device.',
+            'EU data-residency: when your organization enforces it, local-only analysis is hard-locked on and cannot be disabled. Cloud ML stays off and SIEM forwarders are capped to metadata-level detail, so prompt text does not leave this device.',
         ].forEach(t => {
             const li = document.createElement('li');
             li.textContent = t;
@@ -1241,6 +1241,14 @@ const Header = {
         localNote.appendChild(noteList);
 
         content.appendChild(cta);
+
+        // Manual key path AFTER the one-click CTA — it's the fallback (and
+        // the only route for org svet_ enrollment tokens), not the default.
+        const manualLabel = document.createElement('div');
+        manualLabel.style.cssText = 'margin-top:24px;margin-bottom:10px;font-weight:600;font-size:13px;color:var(--text-secondary);';
+        manualLabel.textContent = 'Prefer to connect manually?';
+        content.appendChild(manualLabel);
+        content.appendChild(stepsList);
 
         // Privacy note moved to the TOP of the modal so the local-only /
         // EU-residency guarantees are the first thing the user reads, before
@@ -1288,8 +1296,8 @@ const Header = {
         btn.className = 'guardian-hdr-btn';
         btn.setAttribute('aria-haspopup', 'dialog');
         btn.setAttribute('aria-expanded', 'false');
-        btn.setAttribute('aria-label', 'Guardian ML — local AI threat detection. Click to turn on or off.');
-        btn.title = 'Guardian ML — local AI threat detection. Click to turn on or off.';
+        btn.setAttribute('aria-label', 'Guardian ML: local AI threat detection. Click to turn on or off.');
+        btn.title = 'Guardian ML: local AI threat detection. Click to turn on or off.';
         // Filled darkened disc (bg-tertiary) so the robot sits on a subtle
         // backdrop rather than floating; 30px to match the theme circle.
         btn.style.cssText = 'position: relative; background: var(--bg-tertiary); border: 1.5px solid var(--border-default); width: 30px; height: 30px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; flex-shrink: 0;';
@@ -1328,7 +1336,7 @@ const Header = {
         const pop = document.createElement('div');
         pop.id = 'guardian-hdr-pop';
         pop.setAttribute('role', 'dialog');
-        pop.setAttribute('aria-label', 'Guardian ML — local ML threat detection');
+        pop.setAttribute('aria-label', 'Guardian ML: local ML threat detection');
         pop.style.cssText = 'display: none; position: absolute; top: 38px; right: 0; width: 330px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 18px; box-shadow: 0 12px 32px rgba(0,0,0,0.30); z-index: 1200; text-align: left; cursor: default;';
 
         const headRow = document.createElement('div');
@@ -1355,15 +1363,15 @@ const Header = {
 
         const sub = document.createElement('div');
         sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        sub.textContent = 'Local ML model screening every analyze call alongside the regex rules — catches obfuscated, paraphrased, and encoded attacks the rules miss.';
+        sub.textContent = 'Local ML model screening every analyze call alongside the regex rules. It catches obfuscated, paraphrased, and encoded attacks the rules miss.';
         pop.appendChild(sub);
 
         const list = document.createElement('ul');
         list.style.cssText = 'margin: 0 0 12px; padding-left: 16px; font-size: 12px; line-height: 1.7; color: var(--text-secondary);';
         [
-            'Fully offline — nothing leaves your machine, no API key.',
+            'Fully offline: nothing leaves your machine, no API key.',
             'Sub-millisecond on a typical prompt or tool call.',
-            'Additive only — strengthens a verdict, never silences a rule.',
+            'Additive only: strengthens a verdict, never silences a rule.',
         ].forEach(t => {
             const li = document.createElement('li');
             li.textContent = t;
@@ -1406,8 +1414,8 @@ const Header = {
             btn.dataset.on = on ? 'true' : 'false';
             stDot.style.background = on ? 'var(--accent-primary)' : 'var(--text-muted)';
             stText.textContent = on
-                ? 'Active — screening every call alongside the regex rules'
-                : 'Off — detection is running on regex rules only';
+                ? 'Active: screening every call alongside the regex rules'
+                : 'Off: detection is running on regex rules only';
         };
 
         // Optimistic default ON (matches the server default) so the dot
@@ -1428,7 +1436,7 @@ const Header = {
                 if (window.Toast) {
                     Toast.success(enabled
                         ? 'Guardian ML detection enabled'
-                        : 'Guardian ML detection disabled — regex rules still active');
+                        : 'Guardian ML detection disabled: regex rules still active');
                 }
             } catch (err) {
                 suppress = true;
@@ -1514,7 +1522,7 @@ const Header = {
 
         const intro = document.createElement('p');
         intro.style.cssText = 'margin: 0 0 18px; color: var(--text-secondary); font-size: 14px; line-height: 1.55;';
-        intro.textContent = 'Point your existing agents at this engine. Pick the route that matches how you build them — it works the same whether this is the local app or an engine you deployed with Terraform.';
+        intro.textContent = 'Point your existing agents at this engine. Pick the route that matches how you build them. It works the same whether this is the local app or an engine you deployed with Terraform.';
         content.appendChild(intro);
 
         const routes = [
@@ -1529,7 +1537,7 @@ const Header = {
                 badge: 'Route B',
                 title: 'I use a coding agent',
                 sub: 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw',
-                desc: 'Native Guard plugin hooks your coding agent directly — install the app, register the plugin.',
+                desc: 'Native Guard plugin hooks your coding agent directly: install the app, register the plugin.',
                 anchor: 'route-plugins',
             },
         ];
@@ -1700,13 +1708,13 @@ const Header = {
         if (instructions.whyProxy) {
             const whyBox = document.createElement('div');
             whyBox.className = 'cloud-highlight-banner';
-            whyBox.style.cssText = 'margin-bottom:20px;padding:16px;background:linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(255, 152, 0, 0.1));border:1px solid var(--warning, #ff9800);border-radius:8px;';
+            whyBox.style.cssText = 'margin-bottom:20px;padding:16px;background:var(--bg-secondary);border:1px solid var(--border-default);border-left:3px solid var(--accent-primary, #5eadb8);border-radius:8px;';
 
             const whyTitle = document.createElement('strong');
             whyTitle.textContent = instructions.whyProxy.title;
             whyTitle.style.display = 'block';
             whyTitle.style.marginBottom = '10px';
-            whyTitle.style.color = 'var(--warning, #ff9800)';
+            whyTitle.style.color = 'var(--text-primary)';
             whyBox.appendChild(whyTitle);
 
             const reasonsList = document.createElement('ul');
@@ -1803,7 +1811,7 @@ const Header = {
         if (instructions.note) {
             const noteEl = document.createElement('div');
             noteEl.className = 'local-mode-highlight';
-            noteEl.style.cssText = 'margin-top:20px;padding:12px 16px;background:linear-gradient(135deg, rgba(94, 173, 184, 0.1), rgba(244, 67, 54, 0.1));border:1px solid var(--accent-primary);border-radius:8px;font-size:13px;';
+            noteEl.style.cssText = 'margin-top:20px;padding:12px 16px;background:rgba(94, 173, 184, 0.08);border:1px solid var(--accent-primary);border-radius:8px;font-size:13px;';
 
             const noteIcon = document.createElement('span');
             noteIcon.textContent = '💡 ';
@@ -1877,7 +1885,7 @@ const Header = {
                         'OpenClaw has no message interception hooks',
                         'Hooks only fire AFTER messages reach the LLM (too late)',
                         'Skills require LLM cooperation (unreliable)',
-                        'Proxy intercepts at network level = 100% coverage'
+                        'Proxy intercepts at the network level, before any message reaches the LLM'
                     ]
                 },
                 steps: [
@@ -2070,21 +2078,21 @@ graph.add_edge("output_security", END)`,
         replay:            { title: 'Observability',      subtitle: 'Per-agent timeline of scans, tool calls, and LLM cost' },
         rules:             { title: 'Detection Rules',     subtitle: 'Manage community and custom threat detection rules' },
         'tool-permissions':{ title: 'Tool Permissions',   subtitle: 'Control which tools your agent is allowed to call' },
-        'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called — two tabs, one dataset' },
-        'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called — two tabs, one dataset' },
-        'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log — credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
-        governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture — operational, not a legal/compliance assessment' },
+        'tool-activity':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
+        'bill-of-tools':   { title: 'Tool Activity & Inventory', subtitle: 'Tool-call audit log + the inventory of every (MCP server, tool) pair your agents called: two tabs, one dataset' },
+        'redactions':      { title: 'Secret Detections',   subtitle: 'Redactions audit log: credentials/PII caught and scrubbed. No raw secret values stored, only SHA-256 hashes.' },
+        governance:        { title: 'Agent Governance',          subtitle: 'This device’s local protection posture: operational, not a legal/compliance assessment' },
         'mcp-policies':    { title: 'MCP Policies',        subtitle: 'Org-managed tool rules synced from your SecureVector cloud (read-only)' },
-        'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection — runs offline alongside the regex rules' },
+        'guardian-ml':     { title: 'Guardian ML',         subtitle: 'Local ML threat detection: runs offline alongside the regex rules' },
         costs:             { title: 'Cost & Tokens',       subtitle: 'Track LLM token spend per agent' },
         integrations:      { title: 'Integrations',        subtitle: 'Connect SecureVector to your AI framework' },
         guide:             { title: 'Guide',               subtitle: 'Setup instructions and integration examples' },
-        'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine — Framework SDKs or coding-agent plugins, local or self-host' },
+        'guide-connect-agents': { title: 'Connect Your Agents', subtitle: 'Point your existing agents at this engine: Framework SDKs or coding-agent plugins, local or self-host' },
         settings:          { title: 'Settings',            subtitle: 'Configure SecureVector for your environment' },
-        'proxy-langchain': { title: 'LangChain',           subtitle: 'SecureVector SDK for LangChain tool calls — optional legacy proxy' },
-        'proxy-langgraph': { title: 'LangGraph',           subtitle: 'SecureVector SDK for LangGraph tool calls — optional legacy proxy' },
-        'proxy-crewai':    { title: 'CrewAI',              subtitle: 'SecureVector SDK for CrewAI tool calls — optional legacy proxy' },
-        'proxy-hermes':    { title: 'Hermes',              subtitle: 'SecureVector SDK for Hermes (hermes-agent) tool calls — optional legacy proxy' },
+        'proxy-langchain': { title: 'LangChain',           subtitle: 'SecureVector SDK for LangChain tool calls: optional legacy proxy' },
+        'proxy-langgraph': { title: 'LangGraph',           subtitle: 'SecureVector SDK for LangGraph tool calls: optional legacy proxy' },
+        'proxy-crewai':    { title: 'CrewAI',              subtitle: 'SecureVector SDK for CrewAI tool calls: optional legacy proxy' },
+        'proxy-hermes':    { title: 'Hermes',              subtitle: 'SecureVector SDK for Hermes (hermes-agent) tool calls: optional legacy proxy' },
         'proxy-ollama':    { title: 'Ollama Proxy',        subtitle: 'Proxy setup for Ollama agents' },
         'proxy-openclaw':  { title: 'OpenClaw Proxy',      subtitle: 'Proxy setup for OpenClaw agents' },
         'proxy-n8n':       { title: 'n8n Proxy',           subtitle: 'Proxy setup for n8n workflows' },

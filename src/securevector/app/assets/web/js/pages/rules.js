@@ -207,7 +207,7 @@ const RulesPage = {
         syncBtn.disabled = !cloudAvailable;
         syncBtn.title = cloudAvailable
             ? 'Fetch the latest rule bundle from SecureVector Cloud. You will review the rules before saving.'
-            : 'Cloud rule sync is fully optional. It only becomes available when Cloud Connect is turned on (Settings → Cloud Mode). The app works end-to-end without it — community rules are bundled with the SDK.';
+            : 'Cloud rule sync is fully optional. It only becomes available when Cloud Connect is turned on (Settings → Cloud Mode). The app works end-to-end without it: community rules are bundled with the SDK.';
 
         if (cloudAvailable) {
             // Match the Cloud Connect button's treatment exactly —
@@ -984,7 +984,7 @@ const RulesPage = {
 
         const descHelp = document.createElement('p');
         descHelp.className = 'form-help';
-        descHelp.textContent = 'Plain language description — patterns are generated automatically when you create the rule.';
+        descHelp.textContent = 'Plain language description: patterns are generated automatically when you create the rule.';
         descGroup.appendChild(descHelp);
 
         const descInput = document.createElement('textarea');
@@ -1732,7 +1732,7 @@ const RulesPage = {
         if (!isExpanded && rule.pattern_count > (rule.patterns_preview || []).length) {
             const more = document.createElement('div');
             more.style.cssText = 'font-size:11px;color:var(--text-secondary);font-style:italic;margin-top:2px;';
-            more.textContent = '+' + (rule.pattern_count - rule.patterns_preview.length) + ' more — click ▸ to expand';
+            more.textContent = '+' + (rule.pattern_count - rule.patterns_preview.length) + ' more: click ▸ to expand';
             patternsTd.appendChild(more);
         }
         tr.appendChild(patternsTd);
@@ -1785,7 +1785,7 @@ const RulesPage = {
             + '<strong style="color:var(--text-primary);">' + selectedCount + '</strong> rule'
             + (selectedCount === 1 ? '' : 's') + ' → local cache.'
             + (skipped > 0
-                ? ' <span style="color:var(--text-secondary);">(' + skipped + ' not selected — skipped)</span>'
+                ? ' <span style="color:var(--text-secondary);">(' + skipped + ' not selected: skipped)</span>'
                 : '')
             + (state.replace_existing
                 ? '<br><strong style="color:#ef4444;">Replace mode:</strong> existing community rules will be cleared first.'
@@ -1805,7 +1805,7 @@ const RulesPage = {
             + '</li>'
             + '<li><strong>Keep Cloud Connect on.</strong> '
             +   'You get rule + policy sync and fleet governance. Prompt analysis stays on-device by default '
-            +   '(local-only) — only metadata leaves. Cloud ML analysis (Llama Guard-class scoring) is an opt-in '
+            +   '(local-only): only metadata leaves. Cloud ML analysis (Llama Guard-class scoring) is an opt-in '
             +   'that sends prompt/output text to scan.securevector.io; it is off by default and hard-locked off '
             +   'under EU residency.'
             + '</li>'
@@ -1876,7 +1876,7 @@ const RulesPage = {
                 const skipped = result.skipped_by_user || 0;
                 const base = saved + ' rule' + (saved === 1 ? '' : 's') + ' saved locally';
                 const tail = turnCloudOff
-                    ? ' · Cloud Connect is now off — running 100% local'
+                    ? ' · Cloud Connect is now off: running 100% local'
                     : ' · Cloud Connect still on for ML analysis';
                 const skippedMsg = skipped > 0 ? ' (' + skipped + ' skipped)' : '';
                 Toast.success(base + skippedMsg + tail);

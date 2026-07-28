@@ -23,27 +23,27 @@ const GovernancePage = {
     FRAMEWORKS: 'SecureVector’s recommended baseline is derived by mapping each control above to published guidance: '
               + 'OWASP Top 10 for LLM Applications (2025) · NIST AI Risk Management Framework (AI RMF 1.0, NIST AI 100-1) · '
               + 'EU AI Act (Regulation (EU) 2024/1689) Arts. 9, 10, 12, 14, 15 · SOC 2 Trust Services Criteria (Security & Confidentiality). '
-              + 'Each control cites the specific provision it maps to. Orientation only — not a certification or legal advice.',
+              + 'Each control cites the specific provision it maps to. Orientation only: not a certification or legal advice.',
 
     // evaluate(s, ctx) -> { state: 'on'|'native'|'partial'|'off', note }
     CONTROLS: [
         {
             key: 'block', label: 'Threat blocking (Block Mode)', required: false, nav: 'dashboard#protection',
             fw: 'EU AI Act Art. 15 · OWASP LLM01 · NIST MANAGE',
-            extra: 'Tool calls are blocked natively by hooks / SDKs / MCP — no Block Mode needed. Block Mode only matters for the OpenClaw proxy, the one integration that runs one.',
+            extra: 'Tool calls are blocked natively by hooks / SDKs / MCP: no Block Mode needed. Block Mode only matters for the OpenClaw proxy, the one integration that runs one.',
             evaluate: (s, c) => {
                 // "Action needed" applies ONLY to OpenClaw: it's the one integration
                 // whose threats are merely logged unless its block-mode proxy (or
                 // Block Mode) is on. Hook/SDK/MCP runtimes block tool calls natively.
                 if (c.openclawActive && !(c.proxyRunning || s.block_threats)) {
-                    return { state: 'off', gap: true, note: 'OpenClaw is active but its block-mode proxy is off (and Block Mode is off) — OpenClaw threats are logged, not blocked. Start the proxy or turn on Block Mode.' };
+                    return { state: 'off', gap: true, note: 'OpenClaw is active but its block-mode proxy is off (and Block Mode is off): OpenClaw threats are logged, not blocked. Start the proxy or turn on Block Mode.' };
                 }
-                if (s.block_threats) return { state: 'on', note: 'Block Mode is on — detected prompt-injection / data-leak threats are blocked on input and output.' };
+                if (s.block_threats) return { state: 'on', note: 'Block Mode is on: detected prompt-injection / data-leak threats are blocked on input and output.' };
                 if (c.toolCallsSeen) {
                     const who = (c.activeRuntimes && c.activeRuntimes.length) ? c.activeRuntimes.join(', ') : 'your connected runtime';
-                    return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (via your hook / SDK / MCP). Block Mode only matters for the OpenClaw proxy — not needed here.' };
+                    return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (via your hook / SDK / MCP). Block Mode only matters for the OpenClaw proxy: not needed here.' };
                 }
-                return { state: 'off', note: 'No agent connected yet — nothing to block. Block Mode applies only if you run the OpenClaw proxy.' };
+                return { state: 'off', note: 'No agent connected yet: nothing to block. Block Mode applies only if you run the OpenClaw proxy.' };
             },
         },
         {
@@ -55,20 +55,20 @@ const GovernancePage = {
                 // on the proxy path. Hook/SDK tool I/O is redacted on every /analyze
                 // regardless of the toggle, so a gap exists only for OpenClaw-off.
                 if (c.openclawActive && !s.scan_llm_responses) {
-                    return { state: 'off', gap: true, note: 'OpenClaw is active but Output Scan is off — LLM responses on the proxy are not scanned for data leakage (tool I/O is still redacted).' };
+                    return { state: 'off', gap: true, note: 'OpenClaw is active but Output Scan is off: LLM responses on the proxy are not scanned for data leakage (tool I/O is still redacted).' };
                 }
                 if (c.toolCallsSeen) {
-                    return { state: 'native', note: 'Tool input & output from your connected integrations is redacted for secrets/PII on every scan — always on, server-side.' + (c.openclawActive ? ' LLM responses are also scanned via the OpenClaw proxy.' : ' Scanning the LLM’s own response additionally needs the OpenClaw proxy.') };
+                    return { state: 'native', note: 'Tool input & output from your connected integrations is redacted for secrets/PII on every scan: always on, server-side.' + (c.openclawActive ? ' LLM responses are also scanned via the OpenClaw proxy.' : ' Scanning the LLM’s own response additionally needs the OpenClaw proxy.') };
                 }
-                return { state: 'off', note: 'No agent connected — nothing to scan yet.' };
+                return { state: 'off', note: 'No agent connected: nothing to scan yet.' };
             },
         },
         {
             key: 'guardian', label: 'Guardian ML detection', required: false, nav: 'guardian-ml',
             fw: 'OWASP LLM01/LLM09 · NIST MEASURE',
             evaluate: (s) => {
-                if (!s.guardian_ml_enabled) return { state: 'off', note: 'Guardian ML is disabled (optional — rules still run).' };
-                if (s.guardian_ml_available === false) return { state: 'partial', note: 'Enabled but the model is not installed — pip install securevector-guardian-model, then restart.' };
+                if (!s.guardian_ml_enabled) return { state: 'off', note: 'Guardian ML is disabled (optional: rules still run).' };
+                if (s.guardian_ml_available === false) return { state: 'partial', note: 'Enabled but the model is not installed: pip install securevector-guardian-model, then restart.' };
                 return { state: 'on', note: 'Local ML model is loaded and scoring alongside the rules.' };
             },
         },
@@ -76,10 +76,10 @@ const GovernancePage = {
             key: 'tools', label: 'Tool-permission governance', required: true, nav: 'tool-permissions',
             fw: 'EU AI Act Art. 14 (human oversight) · OWASP LLM06 (Excessive Agency) · SOC 2 CC6',
             evaluate: (s, c) => {
-                if (s.tool_permissions_enabled === false) return { state: 'off', gap: true, note: 'Tool/function calls are NOT checked against a permission policy — turn on Tool Permissions.' };
+                if (s.tool_permissions_enabled === false) return { state: 'off', gap: true, note: 'Tool/function calls are NOT checked against a permission policy: turn on Tool Permissions.' };
                 return c.enrolled
-                    ? { state: 'on', note: 'Enforced locally, and your org/cloud MCP policy is synced to this device — centralized, fleet-wide governance.' }
-                    : { state: 'on', note: 'Enforced locally by your hooks / SDK / MCP. A centralized org-wide MCP policy (one policy pushed to every device) is an optional add-on — available when you connect cloud. Not a gap.' };
+                    ? { state: 'on', note: 'Enforced locally, and your org/cloud MCP policy is synced to this device: centralized, fleet-wide governance.' }
+                    : { state: 'on', note: 'Enforced locally by your hooks / SDK / MCP. A centralized org-wide MCP policy (one policy pushed to every device) is an optional add-on: available when you connect cloud. Not a gap.' };
             },
         },
         {
@@ -88,7 +88,7 @@ const GovernancePage = {
             evaluate: (s, c) => {
                 if (c.integrityOk === true) return { state: 'on', note: 'Hash-chained audit log verified unbroken (' + (c.auditCount || 0) + ' events).' };
                 if (c.integrityOk === null) return { state: 'partial', note: 'Audit chain not yet verified this session.' };
-                return { state: 'off', gap: true, note: 'Audit chain verification FAILED — tamper detected.' };
+                return { state: 'off', gap: true, note: 'Audit chain verification FAILED: tamper detected.' };
             },
         },
         {
@@ -102,8 +102,8 @@ const GovernancePage = {
             key: 'residency', label: 'Prompts kept on this device', required: true, nav: 'settings',
             fw: 'EU AI Act Art. 10 (data governance) / GDPR · SOC 2 Confidentiality',
             evaluate: (s) => (s.local_only_analysis !== false)
-                ? { state: 'on', note: s.residency_locked ? 'Enforced by your org’s data-residency policy — prompt text cannot leave this device.' : 'Prompt text is analyzed on-device and not sent to the cloud.' }
-                : { state: 'off', gap: true, note: 'Cloud analysis is on — prompt text is sent to SecureVector Cloud.' },
+                ? { state: 'on', note: s.residency_locked ? 'Enforced by your org’s data-residency policy: prompt text cannot leave this device.' : 'Prompt text is analyzed on-device and not sent to the cloud.' }
+                : { state: 'off', gap: true, note: 'Cloud analysis is on: prompt text is sent to SecureVector Cloud.' },
         },
     ],
 
@@ -113,7 +113,7 @@ const GovernancePage = {
         // connected there is no telemetry to grade, so a green "Strong" would
         // overclaim (same principle as the Connect Wizard "Guard active" vs
         // "Protected" fix). Report "Not assessed" in neutral grey instead.
-        if (!sessionCount) return { name: 'Not assessed', color: 'var(--text-muted, #7d8590)', def: 'no connected agent has reported activity yet — there is nothing to assess', unassessed: true };
+        if (!sessionCount) return { name: 'Not assessed', color: 'var(--text-muted, #7d8590)', def: 'no connected agent has reported activity yet: there is nothing to assess', unassessed: true };
         // A "gap" is a required control off, or a meaningful partial/proxy gap.
         const gaps = rows.filter(r => r.gap || (r.required && r.state === 'partial'));
         const required = rows.filter(r => r.required);
@@ -298,16 +298,16 @@ const GovernancePage = {
         inHead.type = 'button';
         inHead.style.cssText = 'width:100%; display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer; padding:13px 18px; font:inherit; text-align:left; color:var(--text-secondary);';
         const inChev = document.createElement('span'); inChev.setAttribute('aria-hidden', 'true'); inChev.style.cssText = 'font-size:11px; transition:transform .15s; color:var(--text-muted);'; inChev.textContent = '▸';
-        const inHeadLbl = document.createElement('span'); inHeadLbl.style.cssText = 'font-family:var(--font-display); font-weight:600; font-size:13px; color:var(--text-primary);'; inHeadLbl.textContent = 'What this is — scope & how to read it';
+        const inHeadLbl = document.createElement('span'); inHeadLbl.style.cssText = 'font-family:var(--font-display); font-weight:600; font-size:13px; color:var(--text-primary);'; inHeadLbl.textContent = 'What this is: scope & how to read it';
         const inHeadHint = document.createElement('span'); inHeadHint.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-left:auto;'; inHeadHint.textContent = 'operational posture · not a compliance score';
         inHead.appendChild(inChev); inHead.appendChild(inHeadLbl); inHead.appendChild(inHeadHint);
         intro.appendChild(inHead);
         const inBodyWrap = document.createElement('div'); inBodyWrap.style.cssText = 'padding:0 18px 15px; border-top:1px solid var(--border-default);';
         const inBody = document.createElement('p'); inBody.style.cssText = 'margin: 12px 0 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.55;';
-        inBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your connected agent runtimes. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. Computed locally — nothing leaves your machine — it is an operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
+        inBody.textContent = 'A live, on-device summary of which protection controls are actually enforced for your connected agent runtimes. Each control is read from a real signal and shown as Enforced, Native (your hook / SDK / MCP enforces it itself), Partial, or a gap that needs action. Computed locally (nothing leaves your machine) it is an operational posture against SecureVector’s recommended controls, not a measure of legal or regulatory compliance.';
         inBodyWrap.appendChild(inBody);
         const inScope = document.createElement('p'); inScope.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
-        inScope.textContent = 'Scope: this covers ONLY agents/harnesses connected to SecureVector here (plugin · OpenClaw proxy · framework SDK · MCP). Agents you run WITHOUT a SecureVector integration — e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire — are invisible and NOT included. A “Strong” band means the controls are enforced for these connected integrations; it does not attest that every agent you run is governed.';
+        inScope.textContent = 'Scope: this covers ONLY agents/harnesses connected to SecureVector here (plugin · OpenClaw proxy · framework SDK · MCP). Agents you run WITHOUT a SecureVector integration: e.g. a LangChain app without the SDK, or a Claude Code session you didn’t wire: are invisible and NOT included. A “Strong” band means the controls are enforced for these connected integrations; it does not attest that every agent you run is governed.';
         inBodyWrap.appendChild(inScope);
         intro.appendChild(inBodyWrap);
         const applyIntro = () => {
@@ -405,7 +405,7 @@ const GovernancePage = {
                         : 'Since ' + prev.d + ': ' + (dE ? ((dE > 0 ? '+' : '') + dE + ' enforced') : '') +
                           (dE && dG ? ', ' : '') + (dG ? ((dG > 0 ? '+' : '−') + Math.abs(dG) + ' gap' + (Math.abs(dG) === 1 ? '' : 's')) : '');
                 } else {
-                    note.textContent = 'Posture history starts today — recorded daily on this device, never uploaded.';
+                    note.textContent = 'Posture history starts today: recorded daily on this device, never uploaded.';
                 }
                 bandCard.appendChild(note);
             }
@@ -447,7 +447,7 @@ const GovernancePage = {
             nextCard.style.setProperty('--next-color', 'var(--success, #10b981)');
             const body = document.createElement('div');
             body.innerHTML = '<div class="gov-next-eyebrow">Next action</div>' +
-                '<div class="gov-next-lab">No gaps — review what enforcement did</div>' +
+                '<div class="gov-next-lab">No gaps: review what enforcement did</div>' +
                 '<div class="gov-next-note">Every required control is enforced for your connected integrations. The evidence below links to the receipts.</div>';
             nextCard.appendChild(body);
             const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'gov-next-btn';
@@ -462,7 +462,7 @@ const GovernancePage = {
         // numbers; colour only where it encodes a security state.
         {
             const evi = card();
-            const eTitle = document.createElement('div'); eTitle.textContent = 'Evidence — last 7 days on this device';
+            const eTitle = document.createElement('div'); eTitle.textContent = 'Evidence: last 7 days on this device';
             eTitle.style.cssText = 'font-weight:700; font-size:14px; color:var(--text-primary);';
             evi.appendChild(eTitle);
             const eHint = document.createElement('div');
@@ -488,7 +488,7 @@ const GovernancePage = {
             if (!traceRows.length) {
                 const none = document.createElement('div');
                 none.style.cssText = 'font-size:11.5px; color:var(--text-muted); margin-top:8px;';
-                none.textContent = 'No agent traces in the window yet — these fill in as soon as a connected agent runs.';
+                none.textContent = 'No agent traces in the window yet: these fill in as soon as a connected agent runs.';
                 evi.appendChild(none);
             }
             wrap.appendChild(evi);
@@ -513,7 +513,7 @@ const GovernancePage = {
             const body = document.createElement('div'); body.className = 'gov-body';
             const labRow = document.createElement('div'); labRow.className = 'gov-labrow';
             const lab = document.createElement('span'); lab.className = 'gov-lab'; lab.textContent = r.label; labRow.appendChild(lab);
-            if (r.required) { const req = document.createElement('span'); req.className = 'gov-req'; req.textContent = 'required'; req.title = 'Required for the Strong band — an operational baseline, not a legal obligation.'; labRow.appendChild(req); }
+            if (r.required) { const req = document.createElement('span'); req.className = 'gov-req'; req.textContent = 'required'; req.title = 'Required for the Strong band: an operational baseline, not a legal obligation.'; labRow.appendChild(req); }
             body.appendChild(labRow);
             const dsc = document.createElement('div'); dsc.className = 'gov-note'; dsc.textContent = r.note; body.appendChild(dsc);
             if (r.extra) { const ex = document.createElement('div'); ex.className = 'gov-extra'; ex.textContent = r.extra; body.appendChild(ex); }
@@ -544,7 +544,7 @@ const GovernancePage = {
         const meta = card();
         const mTitle = document.createElement('div'); mTitle.textContent = 'How this is measured & which documents drive the baseline'; mTitle.style.cssText = 'font-weight: 700; font-size: 14px; color: var(--text-primary); margin-bottom: 6px;'; meta.appendChild(mTitle);
         const mBody = document.createElement('p'); mBody.style.cssText = 'margin: 0 0 10px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.55;';
-        mBody.textContent = 'Each control is assessed from a live signal and against what is currently active — e.g. threat blocking is “native” when your hook / SDK / MCP integration blocks tool calls itself.';
+        mBody.textContent = 'Each control is assessed from a live signal and against what is currently active: e.g. threat blocking is “native” when your hook / SDK / MCP integration blocks tool calls itself.';
         meta.appendChild(mBody);
         const fwBody = document.createElement('p'); fwBody.style.cssText = 'margin: 0 0 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.55;';
         fwBody.textContent = this.FRAMEWORKS;
@@ -555,13 +555,13 @@ const GovernancePage = {
         // frameworks themselves), not a SecureVector page — each is verifiable
         // orientation, not interpreted legal advice.
         const srcs = [
-            ['EU AI Act — official text (EUR-Lex) →', 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj'],
+            ['EU AI Act: official text (EUR-Lex) →', 'https://eur-lex.europa.eu/eli/reg/2024/1689/oj'],
             ['OWASP Top 10 for LLM Apps (2025) →', 'https://genai.owasp.org/resource/owasp-top-10-for-llm-applications-2025/'],
             ['NIST AI Risk Management Framework →', 'https://www.nist.gov/itl/ai-risk-management-framework'],
         ];
         srcs.forEach(function (pair) { const a = document.createElement('a'); a.href = pair[1]; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = pair[0]; a.style.cssText = 'color: var(--accent-primary); font-weight: 600; font-size: 13px; text-decoration: none;'; guideRow.appendChild(a); });
         meta.appendChild(guideRow);
-        const disclaimer = document.createElement('div'); disclaimer.textContent = 'Orientation only — not legal advice.'; disclaimer.style.cssText = 'margin-top: 8px; font-size: 11px; color: var(--text-muted, #7d8590);'; meta.appendChild(disclaimer);
+        const disclaimer = document.createElement('div'); disclaimer.textContent = 'Orientation only: not legal advice.'; disclaimer.style.cssText = 'margin-top: 8px; font-size: 11px; color: var(--text-muted, #7d8590);'; meta.appendChild(disclaimer);
         wrap.appendChild(meta);
 
         // Soft cloud CTA — pinned to the TOP of the page (per request).
@@ -572,7 +572,7 @@ const GovernancePage = {
             cta.appendChild(cLead);
             const cMicro = document.createElement('div');
             cMicro.textContent = (settings.local_only_analysis !== false && settings.residency_locked)
-                ? 'On-device analysis is enforced by your org’s residency policy — prompt text cannot be sent to the cloud.'
+                ? 'On-device analysis is enforced by your org’s residency policy: prompt text cannot be sent to the cloud.'
                 : 'Connecting syncs rules, policies, and fleet metadata (and enables org MCP policy). Your prompts stay on-device by default.';
             cMicro.style.cssText = 'margin-top: 4px; font-size: 11.5px; color: var(--text-muted, #7d8590);';
             cta.appendChild(cMicro);

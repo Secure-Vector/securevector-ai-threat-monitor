@@ -26,14 +26,14 @@ const Sidebar = {
             // the Observability parent; not "Agent Traces" — a trace is ONE
             // turn/request, i.e. the Traces tab; Sessions is the level above,
             // matching Langfuse/Phoenix vocabulary). Tooltip carries the def.
-            { id: 'agent-runs',     label: 'Traces', aliases: ['storylines', 'agent-map', 'agent-timeline'], tooltip: 'One trace per agent session. Open a trace to see its runs — each LLM call and tool call — with the enforcement verdict, tokens and cost on each. Replay it, or open the Map.' },
+            { id: 'agent-runs',     label: 'Traces', aliases: ['storylines', 'agent-map', 'agent-timeline'], tooltip: 'One trace per agent session. Open a trace to see its runs (each LLM call and tool call) with the enforcement verdict, tokens and cost on each. Replay it, or open the Map.' },
             // Activity log + inventory (SBOM) are two lenses on the same
             // tool_call_audit data — one destination, two tabs on the page.
             // 'bill-of-tools' stays as an alias so deep links keep this row lit.
             { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
             // The blocked-action ledger — what enforcement PREVENTED, by policy.
             // Sits beside Secret Detections as the other security-outcome ledger.
-            { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented — blocked tool calls grouped by the policy that fired' },
+            { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
             { id: 'redactions',     label: 'Secret Detections' },
             { id: 'costs',          label: 'Cost & Tokens' },
         ]},
@@ -66,8 +66,8 @@ const Sidebar = {
         // pushed to me, by whom) vs the operational surface.
         // Governance leads the Cloud section — always-visible local posture
         // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
-        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture — which SecureVector controls are on. Operational, not legal/compliance.' },
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules — one change, applied to every enrolled device.' },
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture: which SecureVector controls are on. Operational, not legal/compliance.' },
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules: one change, applied to every enrolled device.' },
         // Connect an agent — the QUICK path: pick an agent, copy a couple of
         // commands, done. It sits directly above Integrations, which is the
         // DETAILED per-agent reference (install/verify/uninstall, self-host,
@@ -80,8 +80,8 @@ const Sidebar = {
         // covered) AND offers the guided one-click setup (the old wizard flow)
         // as a CTA on the page. The 'connect-wizard' route still exists for
         // that guided flow and deep links; it's just reached from here now.
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Connect your agents and see coverage — which runtimes are detected, how many sessions are protected, and what is not yet covered. Guided one-click setup and manual commands both live here.' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference — install, verify, troubleshoot, self-host/auth — plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Connect your agents and see coverage: which runtimes are detected, how many sessions are protected, and what is not yet covered. Guided one-click setup and manual commands both live here.' },
+        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference (install, verify, troubleshoot, self-host/auth) plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
             // Grouped by integration mechanism so users pick the right install
             // path at a glance. "Plugins" = native host hooks (no proxy, no env
             // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
@@ -116,7 +116,7 @@ const Sidebar = {
         // Cloud Activity — full in/out visibility for the cloud↔device pipe.
         // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
         // installs (clicking lands on its enroll-CTA empty state).
-        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment — synced policies down, metadata-only audit up.' },
+        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment: synced policies down, metadata-only audit up.' },
         { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
             // "Connect Your Agents" is promoted to a top-level nav item (see
             // above) so it is always visible on every viewport; it is therefore
@@ -389,7 +389,7 @@ const Sidebar = {
             // A locked cloud row gets an explicit "needs a cloud account"
             // tooltip; otherwise fall back to the item's own tooltip.
             if (isCloudLocked) {
-                navItem.title = 'Requires a SecureVector cloud account — enroll this device to turn this on.';
+                navItem.title = 'Requires a SecureVector cloud account: enroll this device to turn this on.';
             } else if (item.tooltip) {
                 navItem.title = item.tooltip;
             }
@@ -1799,7 +1799,7 @@ const TryItChat = {
     _addWelcome(feed) {
         const welcome = document.createElement('div');
         welcome.className = 'tryit-msg tryit-msg-system';
-        welcome.textContent = 'Send any prompt — SecureVector will scan it for injection, jailbreaks, data leaks, and 300+ threat patterns.';
+        welcome.textContent = 'Send any prompt: SecureVector will scan it for injection, jailbreaks, data leaks, and 300+ threat patterns.';
         feed.appendChild(welcome);
     },
 

@@ -268,6 +268,15 @@ const API = {
         });
     },
 
+    // disposition: 'false_positive' to dismiss, null to undo. Keeps the
+    // record (evidence) — the non-destructive alternative to deleteThreat.
+    async setThreatDisposition(id, disposition) {
+        return this.request(`/api/threat-intel/${id}/disposition`, {
+            method: 'POST',
+            body: JSON.stringify({ disposition }),
+        });
+    },
+
     // ==================== Rules ====================
 
     async getRules() {
@@ -602,6 +611,18 @@ const API = {
         return this.request('/api/tool-permissions/custom', {
             method: 'POST',
             body: JSON.stringify(toolData),
+        });
+    },
+
+    /** Update a custom tool's label fields (name / description / risk).
+     *
+     * Separate from updateCustomToolPermission: renaming a tool must never be
+     * able to change what it is allowed to do. Partial body, so omitted
+     * fields keep their current values. */
+    async updateCustomTool(toolId, fields) {
+        return this.request(`/api/tool-permissions/custom/${encodeURIComponent(toolId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(fields),
         });
     },
 

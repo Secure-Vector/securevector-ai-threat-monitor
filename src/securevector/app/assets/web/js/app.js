@@ -257,7 +257,7 @@ const App = {
         // What is SecureVector — clear, readable intro
         const whatIs = document.createElement('div');
         whatIs.style.cssText = 'font-size: 14px; color: var(--text-primary); line-height: 1.7; margin-bottom: 20px;';
-        whatIs.textContent = 'SecureVector monitors, secures, and governs your AI agents — scanning every request, response, and tool call for threats, tracking cost, and enforcing your tool policy. Run the engine on this device, or in your own cloud.';
+        whatIs.textContent = 'SecureVector monitors, secures, and governs your AI agents: scanning every request, response, and tool call for threats, tracking cost, and enforcing your tool policy. Run the engine on this device, or in your own cloud.';
         content.appendChild(whatIs);
 
         // Proxy status bar with cyan border
@@ -303,7 +303,7 @@ const App = {
         connectHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
         const connectLabel = document.createElement('span');
         connectLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--accent-primary);';
-        connectLabel.textContent = 'Start here — connect your agents';
+        connectLabel.textContent = 'Start here: connect your agents';
         const connectRule = document.createElement('div');
         connectRule.style.cssText = 'flex:1;height:1px;background:var(--border-default);';
         connectHead.appendChild(connectLabel);
@@ -312,7 +312,7 @@ const App = {
 
         const connectSub = document.createElement('div');
         connectSub.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px;';
-        connectSub.textContent = 'Point your existing agents at SecureVector. Pick how you build them — the same steps whether SecureVector runs on this device or in your own cloud.';
+        connectSub.textContent = 'Point your existing agents at SecureVector. Pick how you build them: the same steps whether SecureVector runs on this device or in your own cloud.';
         connect.appendChild(connectSub);
 
         const connectGrid = document.createElement('div');
@@ -347,8 +347,8 @@ const App = {
             card.appendChild(link);
             return card;
         };
-        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI · Hermes — one SDK import secures every tool call.', 'route-frameworks'));
-        connectGrid.appendChild(makeRouteCard('Harnesses · plugin', 'I use a coding agent or harness', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw — native Guard plugin.', 'route-plugins'));
+        connectGrid.appendChild(makeRouteCard('Frameworks · SDK', 'I use a framework', 'LangChain · LangGraph · CrewAI · Hermes: one SDK import secures every tool call.', 'route-frameworks'));
+        connectGrid.appendChild(makeRouteCard('Harnesses · plugin', 'I use a coding agent or harness', 'Claude Code · Codex · Copilot CLI · Cursor · OpenClaw: native Guard plugin.', 'route-plugins'));
         connect.appendChild(connectGrid);
         content.appendChild(connect);
 
@@ -416,20 +416,20 @@ const App = {
         whatsNewList.appendChild(makeNewItem(
             'NEW',
             'Guardian ML',
-            'Local AI threat detection alongside the regex rules — fully offline, nothing leaves your device, every catch labelled Rule / ML.',
+            'Local AI threat detection alongside the regex rules: fully offline, nothing leaves your device, every catch labelled Rule / ML.',
             'guardian-ml'
         ));
         whatsNewList.appendChild(makeNewItem(
             'NEW',
             'GitHub Copilot CLI plugin',
-            'Copilot CLI joins the guarded harnesses — native hooks, tool-permission enforcement, tamper-evident audit.',
+            'Copilot CLI joins the guarded harnesses: native hooks, tool-permission enforcement, tamper-evident audit.',
             'proxy-copilot-cli',
             'integrations'
         ));
         whatsNewList.appendChild(makeNewItem(
             'PLUGINS',
             'Claude Code · Codex · OpenClaw',
-            'Native plugins for every major agent runtime — no proxy, no env vars, full audit trail.',
+            'Native plugins for every major agent runtime: no proxy, no env vars, full audit trail.',
             // Land on a concrete plugin page (and expand the Integrations
             // section). The card previously targeted the page id 'integrations',
             // which is a collapsible sidebar PARENT, not a route — so the click
@@ -440,7 +440,7 @@ const App = {
         whatsNewList.appendChild(makeNewItem(
             'OBSERVE',
             'Traces & Map',
-            'Every agent session is a trace — open it to see its runs (each LLM call and tool call) with the enforcement verdict on each, plus session replay, live device → agent → tool topology, tool inventory (SBOM), and mid-flight secret detection.',
+            'Every agent session is a trace: open it to see its runs (each LLM call and tool call) with the enforcement verdict on each, plus session replay, live device → agent → tool topology, tool inventory (SBOM), and mid-flight secret detection.',
             'agent-runs',
             'agent-activity'
         ));
@@ -511,7 +511,7 @@ const App = {
         scanCard.appendChild(scanTitle);
         const scanDesc = document.createElement('div');
         scanDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        scanDesc.textContent = 'Check any skill for risky patterns \u2014 network calls, shell commands, file writes \u2014 before adding it to your agent.';
+        scanDesc.textContent = 'Check any skill for risky patterns (network calls, shell commands, file writes) before adding it to your agent.';
         scanCard.appendChild(scanDesc);
         const scanLink = document.createElement('span');
         scanLink.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--accent-primary);';
@@ -558,12 +558,39 @@ const App = {
      * @param {string} page - Page name
      * @param {boolean} pushState - Whether to update browser history
      */
+    /** Call the outgoing page's destroy() hook, if it has one.
+     *
+     * Skipped when re-rendering the same page (a refresh, not a navigation)
+     * so a page that re-enters itself doesn't tear down state it is about to
+     * reuse. Never allowed to throw: a broken teardown must not strand the
+     * user on a half-rendered page. */
+    _destroyPage(fromPage, toPage) {
+        if (!fromPage || fromPage === toPage) return;
+        const prev = this.pages[fromPage];
+        if (!prev || typeof prev.destroy !== 'function') return;
+        try {
+            prev.destroy();
+        } catch (e) {
+            console.warn('Page teardown failed for', fromPage, e);
+        }
+    },
+
     async loadPage(page, pushState = true) {
         const pageHandler = this.pages[page];
         if (!pageHandler) {
             console.error('Unknown page:', page);
             return;
         }
+
+        // Tear the OUTGOING page down before switching. Pages that poll
+        // (dashboard, traces, costs, threats, proxy, instant-audit) start
+        // intervals in render(); without this hook nothing ever stopped them,
+        // so navigating away left the timer polling forever and coming back
+        // started another one. A few pages self-guard by checking
+        // App.currentPage inside the tick, but that is opt-in per page and
+        // easy to forget — this makes teardown the framework's job.
+        // destroy() is optional; pages without timers simply don't define it.
+        this._destroyPage(this.currentPage, page);
 
         this.currentPage = page;
 

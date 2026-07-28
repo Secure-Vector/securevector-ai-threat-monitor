@@ -189,7 +189,7 @@ const McpPoliciesPage = {
 
         const sub = document.createElement('p');
         sub.className = 'mcp-hero-sub';
-        sub.textContent = 'Cloud-pushed tool rules being enforced on this device. Read-only — authoring lives in the SecureVector cloud admin.';
+        sub.textContent = 'Cloud-pushed tool rules being enforced on this device. Read-only: authoring lives in the SecureVector cloud admin.';
         text.appendChild(sub);
 
         hero.appendChild(text);
@@ -365,7 +365,7 @@ const McpPoliciesPage = {
         head.appendChild(icon);
         const title = document.createElement('span');
         title.className = 'mcp-tamper-banner-title';
-        title.textContent = 'Synced rules suspended — bundle signature mismatch';
+        title.textContent = 'Synced rules suspended: bundle signature mismatch';
         head.appendChild(title);
         banner.appendChild(head);
 
@@ -1074,7 +1074,7 @@ const McpPoliciesPage = {
 
         const p = document.createElement('p');
         p.textContent =
-            "MCP Policies is how teams enforce tool rules across every connected device at once. This device isn't currently receiving any policies — either it isn't connected to a SecureVector cloud account, or no policies have been assigned to it yet.";
+            "MCP Policies is how teams enforce tool rules across every connected device at once. This device isn't currently receiving any policies: either it isn't connected to a SecureVector cloud account, or no policies have been assigned to it yet.";
         wrap.appendChild(p);
 
         // Same optional cloud-account signup linked elsewhere in the app — a
@@ -1256,3 +1256,5 @@ const McpPoliciesPage = {
         return min + 'm';
     },
 };
+
+window.McpPoliciesPage = McpPoliciesPage;

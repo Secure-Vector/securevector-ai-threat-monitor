@@ -141,7 +141,7 @@ const ConnectWizardPage = {
             }
             summary.textContent = txt;
         } else {
-            summary.textContent = 'No agent harnesses found on this device — use the SDK route below, or install a harness and re-run the wizard.';
+            summary.textContent = 'No agent harnesses found on this device: use the SDK route below, or install a harness and re-run the wizard.';
         }
         body.appendChild(summary);
 
@@ -176,7 +176,7 @@ const ConnectWizardPage = {
         footer.className = 'wiz-footer';
         const done = document.createElement('button');
         done.className = 'wiz-btn wiz-btn-primary';
-        done.textContent = protectedCount > 0 ? 'Done — open the Dashboard' : 'Skip for now — open the Dashboard';
+        done.textContent = protectedCount > 0 ? 'Done: open the Dashboard' : 'Skip for now: open the Dashboard';
         done.addEventListener('click', () => {
             localStorage.setItem('sv-wizard-done', '1');
             if (window.App) App.loadPage('dashboard');
@@ -184,7 +184,7 @@ const ConnectWizardPage = {
         footer.appendChild(done);
         const rerun = document.createElement('span');
         rerun.className = 'wiz-footer-note';
-        rerun.textContent = 'Re-run any time from the sidebar — Connect Wizard.';
+        rerun.textContent = 'Re-run any time from the sidebar: Connect Wizard.';
         footer.appendChild(rerun);
         body.appendChild(footer);
     },
@@ -227,18 +227,17 @@ const ConnectWizardPage = {
         sub.textContent = h.home || '';
         main.appendChild(sub);
 
-        // Guard coverage: even a "Protected" harness can have on-disk session
-        // transcripts that never went through Guard (older sessions, or sessions
-        // started before the plugin was installed). Surface that estimate so a
-        // green "Protected" chip doesn't imply full historical coverage.
-        if (h.sessions && h.sessions.supported && (h.unprotected_sessions || 0) > 0) {
+        // Guard coverage: warn only about the actionable gap — sessions active
+        // RIGHT NOW on a harness without Guard. Historical transcripts that
+        // predate Guard are not fixable and scared users ("755 of 798 not
+        // covered") on perfectly healthy setups.
+        if (h.sessions && h.sessions.supported && (h.unprotected_active || 0) > 0) {
             const cov = document.createElement('div');
             cov.className = 'wiz-card-coverage';
-            cov.title = 'Estimate: on-disk session transcripts minus the sessions seen in ' +
-                'SecureVector’s audit. Older sessions that predate Guard count here. ' +
-                'Connecting Guard covers new sessions going forward.';
-            cov.textContent = '≈ ' + h.unprotected_sessions + ' of ' +
-                (h.sessions.total || 0) + ' sessions not covered by Guard';
+            cov.title = 'Sessions running right now without Guard on this harness. ' +
+                'Connecting Guard covers them and every session after.';
+            cov.textContent = h.unprotected_active + ' active session' +
+                (h.unprotected_active === 1 ? '' : 's') + ' not covered by Guard';
             main.appendChild(cov);
         }
 
@@ -261,7 +260,7 @@ const ConnectWizardPage = {
             const hasUncovered = h.sessions && h.sessions.supported && (h.unprotected_sessions || 0) > 0;
             chip.innerHTML = `${live}${hasUncovered ? 'Guard active' : 'Protected'}`;
             if (hasUncovered) chip.title = 'Guard is enforcing on new calls for this runtime. ' +
-                'It cannot retroactively cover sessions that ran before it was connected — see the estimate below.';
+                'It cannot retroactively cover sessions that ran before it was connected: see the estimate below.';
             action.appendChild(chip);
             const stats = document.createElement('div');
             stats.className = 'wiz-card-stats';
@@ -290,7 +289,7 @@ const ConnectWizardPage = {
             if (st && st.phase === 'error') {
                 const err = document.createElement('div');
                 err.className = 'wiz-card-hint wiz-card-err';
-                err.textContent = st.error || 'Install failed — see the guide.';
+                err.textContent = st.error || 'Install failed: see the guide.';
                 action.appendChild(err);
             }
             const btn = document.createElement('button');
@@ -572,6 +571,17 @@ const ConnectWizardPage = {
 }
 `;
         document.head.appendChild(style);
+    },
+    /** Stop this page's timer when the user navigates away.
+     *
+     * Called by App._destroyPage(). Without it the connect-wizard detection poll
+     * kept running (and re-firing its API call) for the rest of the
+     * session, and returning to the page started a second one. */
+    destroy() {
+        if (this.pollTimer) {
+            clearInterval(this.pollTimer);
+            this.pollTimer = null;
+        }
     },
 };
 

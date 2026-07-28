@@ -30,37 +30,37 @@ const Tour = {
             {
                 nav: 'guide-connect-agents', go: 'guide-connect-agents',
                 badge: 'Set up', title: 'Connect your agents',
-                body: `Start here — <b>Connect Agents</b> is the front door. Pick your agent or harness ` +
+                body: `Start here: <b>Connect Agents</b> is the front door. Pick your agent or harness ` +
                     `(${this.PLUGIN_HARNESSES} ship a <b>native plugin</b>; ${this.SDK_FRAMEWORKS} use a ` +
-                    `<b>two-line SDK</b>), choose <b>where SecureVector runs</b> — this device or your cloud — and ` +
+                    `<b>two-line SDK</b>), choose <b>where SecureVector runs</b> (this device or your cloud) and ` +
                     `copy the commands. Not sure what you have? Let it <b>detect what's already on this device</b> ` +
                     `and jump straight to the right steps.`,
             },
             {
                 nav: 'integrations', go: 'proxy-claude-code', expand: 'integrations',
                 badge: 'Reference', title: 'Full per-agent reference',
-                body: `Need the detail? <b>Integrations</b> is the deep per-agent reference — install, verify, ` +
-                    `troubleshoot, and <b>self-host / auth</b> for a remote engine — plus <b>proxy-only</b> tools ` +
+                body: `Need the detail? <b>Integrations</b> is the deep per-agent reference: install, verify, ` +
+                    `troubleshoot, and <b>self-host / auth</b> for a remote engine, plus <b>proxy-only</b> tools ` +
                     `without a plugin or SDK (${this.PROXY_ONLY}). Connect Agents is the quick path; this is the manual.`,
             },
             {
                 nav: 'tool-permissions', go: 'tool-permissions',
                 badge: 'Configure', title: 'Set tool permissions',
                 body: `Decide what each agent may do: <b>allow</b>, <b>block</b>, or <b>log-only</b> per tool. ` +
-                    `By default every harness built-in tool is <b>allowed</b> — tighten the ones you don't want running.`,
+                    `By default every harness built-in tool is <b>allowed</b>: tighten the ones you don't want running.`,
             },
             {
                 nav: 'cost-settings', go: 'cost-settings',
                 badge: 'Configure', title: 'Cost settings',
                 body: `Set dollar <b>budgets and pricing</b> for <b>proxy-based</b> agents. Claude Code and Codex ` +
-                    `run on your own subscription, so there's no per-call dollar cost — they're still tracked, ` +
+                    `run on your own subscription, so there's no per-call dollar cost: they're still tracked, ` +
                     `but <b>Cost & Tokens shows token usage</b> for them instead of dollars.`,
             },
             {
                 nav: 'rules', go: 'rules',
                 badge: 'Configure', title: 'Rules',
                 body: `The local rule engine auto-blocks or alerts on matches. Want curated cloud rule packs? ` +
-                    `Create an account, turn on <b>Cloud Connect</b>, sync the rules you like — then switch Cloud mode ` +
+                    `Create an account, turn on <b>Cloud Connect</b>, sync the rules you like: then switch Cloud mode ` +
                     `<b>back off</b> if you want all analysis to stay fully local.`,
             },
             {
@@ -72,19 +72,19 @@ const Tour = {
             {
                 nav: 'siem-export', go: 'siem-export',
                 badge: 'Connect', title: 'SIEM Forwarder',
-                body: `Forward <b>tool runs, threats, and metadata</b> to the SIEM of your choice — Splunk, Datadog, ` +
+                body: `Forward <b>tool runs, threats, and metadata</b> to the SIEM of your choice: Splunk, Datadog, ` +
                     `Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook.`,
             },
             {
                 nav: 'skill-scanner', go: 'skill-scanner',
                 badge: 'Optional', title: 'Skill Scanner',
-                body: `Optional <b>static analysis</b> of agent skills — no code is executed. It flags risky ` +
+                body: `Optional <b>static analysis</b> of agent skills: no code is executed. It flags risky ` +
                     `network / file / exec patterns before you trust a skill.`,
             },
             {
                 nav: 'agent-activity', go: 'agent-runs', expand: 'agent-activity',
                 badge: 'Operate', title: 'Watch your agents',
-                body: `Head to <b>Traces</b> — one trace per agent session. Open a trace to see its ` +
+                body: `Head to <b>Traces</b>: one trace per agent session. Open a trace to see its ` +
                     `<b>runs</b> (each LLM call and tool call) and the enforcement verdict on each, with <b>replay</b> and the ` +
                     `<b>Agent Map</b> (Tree · Radial · Mesh · Sankey) one tab away. Keep an eye on ` +
                     `<b>Blocked Actions</b>, <b>Secret Detections</b> and <b>Cost & Tokens</b>.`,
@@ -95,7 +95,7 @@ const Tour = {
                     'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-1px"><path d="M20 6 9 17l-5-5"/></svg>',
                 badge: 'All set', title: 'Open the Guide any time',
                 body: `That's the whole flow. The <b>Guide</b> has step-by-step docs for every harness plugin and ` +
-                    `feature — open it from here whenever you need the detail.`,
+                    `feature: open it from here whenever you need the detail.`,
             },
         ];
     },
@@ -347,7 +347,7 @@ const Tour = {
         this._backdrop = this._ring = this._card = null;
         if (completed) {
             try { localStorage.setItem(this.DONE_KEY, '1'); } catch (_) {}
-            if (window.Toast) Toast.success("You're set up — explore Observability any time.");
+            if (window.Toast) Toast.success("You're set up: explore Observability any time.");
         }
     },
 };

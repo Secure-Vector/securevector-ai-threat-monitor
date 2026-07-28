@@ -41,11 +41,38 @@ SECRET_PATTERNS = [
     (r'(auth[_-]?token[:\s]*[\'"]?)[a-zA-Z0-9_\-]{20,}', r'\1[REDACTED]', ('generic-auth-token', 'Generic auth_token kv')),
     (r'(bearer[:\s]+)[a-zA-Z0-9_\-\.]{20,}', r'\1[REDACTED]', ('bearer', 'Bearer token')),
     # Passwords with literal keyword prefix — high signal. Requires the
-    # actual word "password" / "passwd" / "pwd" followed by `:` or `=` and
+    # actual word "password" / "passwd" / "pwd" followed by a separator and
     # a non-whitespace value of plausible length.
+    #
     (r'(password[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
     (r'(passwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
     (r'(pwd[:=]\s*)[^\s]{8,50}', r'\1[REDACTED]', ('password-kv', 'Password kv')),
+    # Column-delimited variant. Credentials are routinely pasted as aligned
+    # table rows rather than `key: value` (CLI output, docs, admin consoles):
+    #   │ Temp password │ Hunter2!Hunter2 │
+    #   Temp password     Hunter2!Hunter2
+    # A `:`/`=`-only rule silently misses every one of those — a real leak
+    # path seen in live usage. Separator here is an ASCII/box-drawing pipe,
+    # a tab, or 2+ spaces.
+    #
+    # Because those separators are far weaker evidence than `:`/`=`, the VALUE
+    # must additionally look like a credential: 8-50 chars containing at least
+    # one digit or punctuation mark. That keeps markdown table headers
+    # (`| password | description |`) and prose out, while still catching real
+    # passwords, which effectively always carry a digit or symbol. Still
+    # keyword-anchored, so it does not reintroduce the shape-match false
+    # positive flood described below.
+    # The pipe must be SPACED (` | `, ` │ `). An unspaced pipe is regex
+    # alternation, not a table delimiter: measuring this pattern over 54k
+    # lines of real agent transcripts produced exactly one match, and it was
+    # `Password|dismissSave` inside a regex literal. Requiring the spaces
+    # takes that to zero without losing a single real table row.
+    (r'(password(?:\s+[|│]\s+|\t+\s*|\s{2,}))'
+     r'(?=[^\s|│]*[0-9!@#$%^&*()_+\-=\[\]{};\'":,.<>/?~`])[^\s|│]{8,50}',
+     r'\1[REDACTED]', ('password-column', 'Password in table/column')),
+    (r'(passwd(?:\s+[|│]\s+|\t+\s*|\s{2,}))'
+     r'(?=[^\s|│]*[0-9!@#$%^&*()_+\-=\[\]{};\'":,.<>/?~`])[^\s|│]{8,50}',
+     r'\1[REDACTED]', ('password-column', 'Password in table/column')),
     # NOTE: Heuristic "password-backtick", "passphrase-backtick",
     # "password-bulleted", and "password-inline" patterns were removed —
     # they matched any CamelCase token or alphanumeric string in backticks,

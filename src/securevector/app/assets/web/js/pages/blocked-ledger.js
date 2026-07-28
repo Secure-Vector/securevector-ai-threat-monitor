@@ -29,7 +29,7 @@ const BlockedLedgerPage = {
         const win = document.createElement('div');
         win.className = 'bl-winbar';
         win.innerHTML = '<span class="bl-winlabel">Window</span>';
-        [1, 7, 30].forEach(d => {
+        [1, 7, 30, 90].forEach(d => {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'bl-winbtn' + (this._state.windowDays === d ? ' on' : '');
@@ -69,14 +69,40 @@ const BlockedLedgerPage = {
         const total = s.blocked_total || 0;
 
         if (!total) {
+            // An empty window is not a broken page — prove the pipeline is
+            // alive (audited volume) and, when blocks exist outside the
+            // window, point at the window that has them.
+            const audited = s.audited_total || 0;
+            const allBlocked = s.all_time_blocked || 0;
             const empty = document.createElement('div');
             empty.className = 'bl-empty bl-empty-clear';
             empty.innerHTML =
                 `<div class="bl-empty-icon">${this._BAN('var(--text-muted,#7d8590)', 34)}</div>` +
-                `<div class="bl-empty-title">Nothing blocked in this window</div>` +
-                `<div class="bl-empty-sub">No tool call hit a deny policy or a blocking threat rule in the last ` +
-                `${this._winLabel()}. When enforcement stops an agent, every prevented action lands here with the ` +
-                `reason that fired — your record of what SecureVector kept from running.</div>`;
+                `<div class="bl-empty-title">Nothing blocked in the last ${this._winLabel()}</div>` +
+                `<div class="bl-empty-sub">` +
+                (audited
+                    ? `${Number(audited).toLocaleString()} tool call${audited === 1 ? ' was' : 's were'} audited in this window and none needed blocking. `
+                    : '') +
+                `When enforcement stops an agent, every prevented action lands here with the ` +
+                `reason that fired: your record of what SecureVector kept from running.</div>`;
+            if (allBlocked) {
+                const days = this._daysAgo(s.all_time_last_at);
+                const target = [1, 7, 30, 90].find(w => days != null && days <= w);
+                const note = document.createElement('div');
+                note.className = 'bl-empty-older';
+                note.append(`${Number(allBlocked).toLocaleString()} blocked action${allBlocked === 1 ? '' : 's'} on record, most recent ${this._rel(s.all_time_last_at)}.`);
+                if (target && target > this._state.windowDays) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'bl-empty-widen';
+                    btn.textContent = `Show last ${target === 1 ? '24h' : target + ' days'}`;
+                    btn.addEventListener('click', () => { this._state.windowDays = target; this.load(); });
+                    note.append(' ', btn);
+                } else if (!target) {
+                    note.append(' That is older than the 90 day view.');
+                }
+                empty.appendChild(note);
+            }
             body.appendChild(empty);
             return;
         }
@@ -219,12 +245,21 @@ const BlockedLedgerPage = {
         const s = (this._state.data && this._state.data.summary) || {};
         const sub = `${s.blocked_total || 0} actions prevented · ${s.tools_blocked || 0} tools · ` +
             `${s.agents_affected || 0} agents · last ${this._winLabel()}`;
-        ObsTabs.printDoc('SecureVector — Blocked-Action Ledger',
+        ObsTabs.printDoc('SecureVector: Blocked-Action Ledger',
             `<h1>Blocked-Action Ledger</h1><div class="sub">${sub}</div>` +
             ObsTabs.tableHTML(this._exportCols(), rows));
     },
 
     _winLabel() { return this._state.windowDays === 1 ? '24 hours' : this._state.windowDays + ' days'; },
+
+    /** Whole days since a UTC "YYYY-MM-DD HH:MM:SS" timestamp; null if unparseable. */
+    _daysAgo(iso) {
+        if (!iso) return null;
+        const t = String(iso).replace(' ', 'T') + (String(iso).endsWith('Z') ? '' : 'Z');
+        const d = new Date(t);
+        if (isNaN(d)) return null;
+        return Math.ceil((Date.now() - d.getTime()) / 86400000);
+    },
 
     _rel(iso) {
         if (!iso) return '—';
@@ -268,6 +303,12 @@ const BlockedLedgerPage = {
             .bl-empty-icon { margin-bottom:14px; opacity:.6; }
             .bl-empty-title { font:700 17px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-primary,#e6edf3); margin-bottom:8px; }
             .bl-empty-sub { font-size:13px; line-height:1.6; color:var(--text-secondary,#b1bac4); }
+            .bl-empty-older { margin-top:14px; font-size:12.5px; color:var(--text-muted,#7d8590); }
+            .bl-empty-widen { border:1px solid color-mix(in srgb,var(--accent-primary,#5eadb8) 55%,transparent);
+                background:color-mix(in srgb,var(--accent-primary,#5eadb8) 12%,transparent);
+                color:var(--accent-primary,#5eadb8); font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif;
+                padding:3px 10px; border-radius:8px; cursor:pointer; }
+            .bl-empty-widen:hover { background:color-mix(in srgb,var(--accent-primary,#5eadb8) 20%,transparent); }
 
             .bl-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:26px; }
             .bl-stat { padding:16px 18px; border-radius:12px; background:var(--bg-card,#161b22);

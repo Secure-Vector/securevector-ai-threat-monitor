@@ -69,6 +69,14 @@ class DatabaseConnection:
                 await self._connection.execute("PRAGMA foreign_keys = ON")
                 # Enable WAL mode for better concurrency
                 await self._connection.execute("PRAGMA journal_mode = WAL")
+                # Wait up to 5s for a competing writer instead of failing
+                # instantly. WAL allows concurrent readers but still only one
+                # writer, and this app writes from several places at once
+                # (hook ingest, the UI, background pruning). Without a busy
+                # timeout SQLite raises "database is locked" the moment two
+                # writes overlap, which surfaces as a dropped audit row — the
+                # one thing an enforcement log must never do.
+                await self._connection.execute("PRAGMA busy_timeout = 5000")
                 # Row factory for dict-like access
                 self._connection.row_factory = aiosqlite.Row
                 logger.info("Database connection established")
@@ -200,7 +208,7 @@ class DatabaseConnection:
                 "record_count": record_count,
                 "path": str(self.db_path),
             }
-        except Exception as e:
+        except Exception:
             logger.error("Database health check failed", exc_info=True)
             return {
                 "connected": False,

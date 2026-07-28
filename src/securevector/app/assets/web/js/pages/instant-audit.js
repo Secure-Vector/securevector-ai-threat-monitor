@@ -14,7 +14,7 @@
  */
 
 const InstantAuditPage = {
-    _state: { windowDays: 90, polling: null },
+    _state: { windowDays: 90, polling: null, rep: null, sort: {} },
 
     async render(container) {
         container.textContent = '';
@@ -127,6 +127,7 @@ const InstantAuditPage = {
     // ---------------- state 3: report ----------------
 
     _renderReport(body, rep) {
+        this._state.rep = rep;
         const s = rep.secrets || {}; const r = rep.risky || {};
         const mcp = rep.mcp || {}; const sp = rep.spend || {};
         const scanned = rep.scanned || {};
@@ -163,6 +164,8 @@ const InstantAuditPage = {
                 <button type="button" class="ia-go" id="ia-connect">Connect agents →</button>
             </div>
             <div class="ia-foot">
+                <button type="button" class="ia-lite" id="ia-export-pdf">Export PDF</button>
+                <button type="button" class="ia-lite" id="ia-export-csv">Findings CSV</button>
                 <button type="button" class="ia-lite" id="ia-export">Export JSON</button>
                 <button type="button" class="ia-lite" id="ia-rescan">Rescan</button>
                 <button type="button" class="ia-lite danger" id="ia-delete">Delete report</button>
@@ -197,22 +200,9 @@ const InstantAuditPage = {
             a.remove();
             setTimeout(() => URL.revokeObjectURL(a.href), 5000);
         });
-        // Session links in the destructive table: resolve session -> trace via
-        // the Traces API; sessions that predate enforcement have no trace.
-        body.addEventListener('click', async (e) => {
-            const link = e.target && e.target.closest ? e.target.closest('.ia-sess') : null;
-            if (!link) return;
-            e.preventDefault();
-            const sid = link.dataset.sid;
-            const res = await API.getTraces({ window_days: 365, limit: 500 });
-            const run = (res.runs || []).find(x => x.session_id === sid);
-            if (run && window.AgentRunsPage) {
-                AgentRunsPage._pendingTrace = run.trace_id;
-                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
-            } else if (window.Toast) {
-                Toast.info('No trace for this session: it ran before SecureVector enforcement was connected.');
-            }
-        });
+        body.querySelector('#ia-export-pdf').addEventListener('click', () => this._exportPDF());
+        body.querySelector('#ia-export-csv').addEventListener('click', () => this._exportFindingsCSV());
+        this._bindDelegates(body);
         body.querySelector('#ia-rescan').addEventListener('click', async () => {
             const res = await API.runInstantAudit({ consent: true, window_days: this._state.windowDays });
             if (res && !res.error) this.refresh();
@@ -224,6 +214,182 @@ const InstantAuditPage = {
         });
     },
 
+    // One delegated listener per page mount handles session links + sort
+    // headers, so section re-renders (sorting) never stack handlers.
+    _bindDelegates(body) {
+        if (body._iaDelegated) return;
+        body._iaDelegated = true;
+        body.addEventListener('click', async (e) => {
+            const th = e.target && e.target.closest ? e.target.closest('.ia-th-sort') : null;
+            if (th) { this._onSort(body, th.dataset.sec, th.dataset.key, th.dataset.dir0); return; }
+            // Session links in the destructive table: resolve session -> trace via
+            // the Traces API; sessions that predate enforcement have no trace.
+            const link = e.target && e.target.closest ? e.target.closest('.ia-sess') : null;
+            if (!link) return;
+            e.preventDefault();
+            const sid = link.dataset.sid;
+            // Traces route caps window_days at 90 (le=90); 365 returns a 422
+            // and silently drops every link to the "no trace" toast.
+            const res = await API.getTraces({ window_days: 90, limit: 500 });
+            const run = ((res && res.runs) || []).find(x => x.session_id === sid);
+            if (run && window.AgentRunsPage) {
+                AgentRunsPage._pendingTrace = run.trace_id;
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
+            } else if (window.Toast) {
+                Toast.info('No trace for this session: it ran before SecureVector enforcement was connected.');
+            }
+        });
+    },
+
+    // ---------------- column sorting ----------------
+
+    _SEV_RANK: { critical: 4, high: 3, medium: 2, low: 1 },
+
+    /** Column specs per sortable table. dir0 = direction on first click. */
+    _cols(sec) {
+        if (sec === 'risky') return [
+            { key: 'severity', label: 'Severity', dir0: 'desc', val: i => this._SEV_RANK[i.severity] || 0 },
+            { key: 'finding', label: 'Finding', dir0: 'asc', val: i => i.label || i.rule_id || i.threat_type || '' },
+            { key: 'tool', label: 'Tool', dir0: 'asc', val: i => i.tool || '' },
+            { key: 'preview', label: 'Command (redacted)', dir0: 'asc', val: i => i.preview || '' },
+            { key: 'session', label: 'Session', dir0: 'asc', val: i => i.session_id || '' },
+            { key: 'when', label: 'When', dir0: 'desc', val: i => i.called_at || '' },
+        ];
+        if (sec === 'mcp') return [
+            { key: 'name', label: 'Server', dir0: 'asc', val: s => s.name || '' },
+            { key: 'calls', label: 'Calls', dir0: 'desc', val: s => s.calls || 0 },
+            { key: 'sessions', label: 'Sessions', dir0: 'desc', val: s => s.sessions || 0 },
+        ];
+        return [ // spend
+            { key: 'model', label: 'Model', dir0: 'asc', val: m => m.model || '' },
+            { key: 'runs', label: 'Runs', dir0: 'desc', val: m => m.runs || 0 },
+            { key: 'usd', label: 'Est. value', dir0: 'desc', val: m => m.usd || 0 },
+        ];
+    },
+
+    _applySort(sec, rows) {
+        const st = this._state.sort[sec];
+        if (!st) return rows;
+        const col = this._cols(sec).find(c => c.key === st.key);
+        if (!col) return rows;
+        const mul = st.dir === 'asc' ? 1 : -1;
+        return rows.slice().sort((a, b) => {
+            const va = col.val(a), vb = col.val(b);
+            if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul;
+            return String(va).localeCompare(String(vb)) * mul;
+        });
+    },
+
+    _thead(sec) {
+        const st = this._state.sort[sec];
+        return '<tr>' + this._cols(sec).map(c => {
+            const on = st && st.key === c.key;
+            const ind = on ? (st.dir === 'asc' ? ' ▴' : ' ▾') : '';
+            return `<th class="ia-th-sort${on ? ' on' : ''}" data-sec="${sec}" data-key="${c.key}" data-dir0="${c.dir0}"
+                title="Sort by ${this._esc(c.label)}">${this._esc(c.label)}${ind}</th>`;
+        }).join('') + '</tr>';
+    },
+
+    _onSort(body, sec, key, dir0) {
+        const cur = this._state.sort[sec];
+        this._state.sort[sec] = (cur && cur.key === key)
+            ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
+            : { key, dir: dir0 || 'asc' };
+        const rep = this._state.rep;
+        const el = body.querySelector(`.ia-sec[data-sec="${sec}"]`);
+        if (!rep || !el) return;
+        const html = sec === 'risky' ? this._riskySection(rep.risky || {})
+            : sec === 'mcp' ? this._mcpSection(rep.mcp || {})
+            : this._spendSection(rep.spend || {});
+        el.outerHTML = html;
+    },
+
+    // ---------------- export (PDF / CSV / JSON) ----------------
+
+    /** Print-ready full report via the shared ObsTabs.printDoc — the user
+     *  picks "Save as PDF". Same rail every other export in the app rides. */
+    _exportPDF() {
+        const rep = this._state.rep;
+        if (!rep || !window.ObsTabs) return;
+        const s = rep.secrets || {}; const r = rep.risky || {};
+        const mcp = rep.mcp || {}; const sp = rep.spend || {};
+        const scanned = rep.scanned || {};
+        const sessions = scanned.sessions || {};
+        const sesSummary = Object.entries(sessions).map(([k, n]) => `${n} ${k}`).join(' · ')
+            || `${scanned.sessions_total || 0} sessions`;
+        const period = rep.period || {};
+        const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const usd = (v) => '$' + (v || 0).toFixed(2);
+        const riskyTbl = (r.items || []).length
+            ? ObsTabs.tableHTML([
+                { label: 'severity', get: i => i.severity },
+                { label: 'finding', get: i => i.label || i.rule_id || i.threat_type || '' },
+                { label: 'tool', get: i => i.tool || '' },
+                { label: 'command (redacted)', get: i => i.preview || '' },
+                { label: 'session', get: i => i.session_id || '' },
+                { label: 'harness', get: i => i.harness || '' },
+                { label: 'when', get: i => (i.called_at || '').slice(0, 10) },
+            ], this._applySort('risky', r.items || []))
+            : '<p style="color:#666;font-size:12px;">No destructive commands in the scanned window.</p>';
+        const secretsTbl = (s.by_type || []).length
+            ? ObsTabs.tableHTML([
+                { label: 'secret type', get: t => t.type },
+                { label: 'occurrences', get: t => t.count },
+            ], s.by_type)
+            : '<p style="color:#666;font-size:12px;">No plaintext secrets detected in the scanned window.</p>';
+        const mcpTbl = (mcp.servers || []).length
+            ? ObsTabs.tableHTML([
+                { label: 'server', get: v => v.name },
+                { label: 'calls', get: v => v.calls },
+                { label: 'sessions', get: v => v.sessions },
+            ], this._applySort('mcp', mcp.servers || []))
+            : '<p style="color:#666;font-size:12px;">No MCP tool calls found in the scanned window.</p>';
+        const spendTbl = (sp.by_model || []).length
+            ? ObsTabs.tableHTML([
+                { label: 'model', get: m => m.model },
+                { label: 'runs', get: m => m.runs },
+                { label: 'est. value (USD)', get: m => usd(m.usd) },
+            ], this._applySort('spend', sp.by_model || []))
+            : '<p style="color:#666;font-size:12px;">No priced LLM runs found.</p>';
+        const capNote = scanned.truncated
+            ? `<p style="font-size:12px;color:#333;">Coverage note: scan caps were reached; the numbers above are a floor, not a ceiling.</p>` : '';
+        ObsTabs.printDoc('SecureVector: Instant Agent Audit',
+            `<h1>Instant Agent Audit</h1>` +
+            `<div class="sub">${sesSummary} · ${fmtD(period.first)} → ${fmtD(period.last)} · last ${rep.window_days || 90} days · generated ${(rep.generated_at || '').slice(0, 19).replace('T', ' ')} · local only</div>` +
+            `<h2>Summary</h2>` + ObsTabs.tableHTML([
+                { label: 'destructive commands ran', get: x => x.a },
+                { label: 'secrets in plaintext', get: x => x.b },
+                { label: 'external MCP servers', get: x => x.c },
+                { label: 'LLM usage (est., list price)', get: x => x.d },
+            ], [{ a: r.total || 0, b: s.total || 0, c: (mcp.servers || []).length, d: '≈' + usd(sp.total_usd) }]) +
+            `<h2>Destructive commands that actually ran</h2>${riskyTbl}` +
+            `<h2>Secrets that appeared in plaintext</h2>${secretsTbl}` +
+            `<p style="font-size:11px;color:#666;">Matches are counted by type only. The secrets themselves are never stored by this audit.</p>` +
+            `<h2>External MCP servers</h2>${mcpTbl}` +
+            `<h2>LLM usage over the audit window</h2>${spendTbl}` +
+            capNote +
+            `<h2>Methodology &amp; data posture</h2><p style="font-size:12px;line-height:1.6;color:#333;">Generated locally by scanning the agent transcripts already on this machine (read-only). Destructive-command findings come from a deterministic checklist, no heuristics, no ML. Command previews are redacted. Nothing was uploaded; this report exists only on this device.</p>`);
+    },
+
+    /** Row-level findings (destructive commands) as CSV. */
+    _exportFindingsCSV() {
+        const rep = this._state.rep;
+        if (!rep || !window.ObsTabs) return;
+        const items = ((rep.risky || {}).items) || [];
+        if (!items.length) { if (window.Toast) Toast.info('No destructive-command findings to export.'); return; }
+        const stamp = (rep.generated_at || '').slice(0, 10).replace(/-/g, '') || 'report';
+        ObsTabs.download(`securevector-instant-audit-findings-${stamp}.csv`,
+            ObsTabs.toCSV([
+                { label: 'severity', get: i => i.severity },
+                { label: 'finding', get: i => i.label || i.rule_id || i.threat_type || '' },
+                { label: 'tool', get: i => i.tool || '' },
+                { label: 'command_redacted', get: i => i.preview || '' },
+                { label: 'session_id', get: i => i.session_id || '' },
+                { label: 'harness', get: i => i.harness || '' },
+                { label: 'called_at', get: i => i.called_at || '' },
+            ], this._applySort('risky', items)), 'text/csv');
+    },
+
     _riskySection(r) {
         // v2 reports come from a deterministic checklist (no rules engine, no
         // ML — heuristics FP too much for a first-touch report). Old v1 items
@@ -231,11 +397,11 @@ const InstantAuditPage = {
         // renders until the user rescans.
         const method = `Deterministic checklist${r.patterns ? ` of ${r.patterns} destructive patterns` : ''}, no heuristics, no ML. Only commands executed by shell tools are checked; file contents are never flagged.`;
         if (!r.total) {
-            return `<div class="ia-sec"><div class="ia-sec-h">Destructive commands</div>
+            return `<div class="ia-sec" data-sec="risky"><div class="ia-sec-h">Destructive commands</div>
                 <div class="ia-ok">No destructive commands in the scanned window.</div>
                 <div class="ia-note">${method}</div></div>`;
         }
-        const rows = (r.items || []).map(i => `
+        const rows = this._applySort('risky', r.items || []).map(i => `
             <tr><td><span class="ia-sev ia-sev-${this._esc(i.severity)}"></span>${this._esc(i.severity)}</td>
                 <td>${this._esc(i.label || i.rule_id || i.threat_type || 'finding')}</td>
                 <td class="ia-mono">${this._esc(i.tool || '')}</td>
@@ -243,11 +409,9 @@ const InstantAuditPage = {
                 <td>${i.session_id ? `<a href="#" class="ia-sess ia-mono" data-sid="${this._esc(i.session_id)}" title="session ${this._esc(i.session_id)} (${this._esc(i.harness || '')}). Opens its trace if this session was enforced.">${this._esc(String(i.session_id).slice(0, 8))}</a>` : ''}</td>
                 <td class="ia-when">${this._esc((i.called_at || '').slice(0, 10))}</td></tr>`).join('');
         const capped = r.total > (r.items || []).length
-            ? `<div class="ia-note">${(r.items || []).length} shown of ${r.total}, most severe first.</div>` : '';
-        return `<div class="ia-sec"><div class="ia-sec-h" style="color:#ef4444">Destructive commands that actually ran</div>
-            <div class="ia-tblwrap"><table class="ia-tbl"><thead><tr>
-            <th>Severity</th><th>Finding</th><th>Tool</th><th>Command (redacted)</th><th>Session</th><th>When</th>
-            </tr></thead><tbody>${rows}</tbody></table></div>${capped}
+            ? `<div class="ia-note">${(r.items || []).length} shown of ${r.total} (the most severe made the cut).</div>` : '';
+        return `<div class="ia-sec" data-sec="risky"><div class="ia-sec-h" style="color:#ef4444">Destructive commands that actually ran</div>
+            <div class="ia-tblwrap"><table class="ia-tbl"><thead>${this._thead('risky')}</thead><tbody>${rows}</tbody></table></div>${capped}
             <div class="ia-note">${method}</div></div>`;
     },
 
@@ -269,11 +433,11 @@ const InstantAuditPage = {
             return `<div class="ia-sec"><div class="ia-sec-h">External MCP servers</div>
                 <div class="ia-ok">No MCP tool calls found in the scanned window.</div></div>`;
         }
-        const rows = servers.map(sv => `
+        const rows = this._applySort('mcp', servers).map(sv => `
             <tr><td class="ia-mono">${this._esc(sv.name)}</td>
                 <td class="ia-num">${sv.calls}</td><td class="ia-num">${sv.sessions}</td></tr>`).join('');
-        return `<div class="ia-sec"><div class="ia-sec-h">External MCP servers your sessions talked to</div>
-            <div class="ia-tblwrap"><table class="ia-tbl"><thead><tr><th>Server</th><th>Calls</th><th>Sessions</th></tr></thead>
+        return `<div class="ia-sec" data-sec="mcp"><div class="ia-sec-h">External MCP servers your sessions talked to</div>
+            <div class="ia-tblwrap"><table class="ia-tbl"><thead>${this._thead('mcp')}</thead>
             <tbody>${rows}</tbody></table></div></div>`;
     },
 
@@ -283,14 +447,14 @@ const InstantAuditPage = {
             return `<div class="ia-sec"><div class="ia-sec-h">LLM usage</div>
                 <div class="ia-ok">No priced LLM runs found${(sp.unpriced_models || []).length ? ' (unpriced models: ' + sp.unpriced_models.map(m => this._esc(m)).join(', ') + ')' : ''}.</div></div>`;
         }
-        const rows = models.map(m => `
+        const rows = this._applySort('spend', models).map(m => `
             <tr><td class="ia-mono">${this._esc(m.model)}</td>
                 <td class="ia-num">${m.runs}</td><td class="ia-num">$${m.usd.toFixed(2)}</td></tr>`).join('');
         const unpriced = (sp.unpriced_models || []).length
             ? `<div class="ia-note">Models without a price entry (excluded): ${sp.unpriced_models.map(m => this._esc(m)).join(', ')}.</div>` : '';
-        return `<div class="ia-sec"><div class="ia-sec-h">LLM usage over the audit window, list-price equivalent</div>
+        return `<div class="ia-sec" data-sec="spend"><div class="ia-sec-h">LLM usage over the audit window, list-price equivalent</div>
             <div class="ia-note" style="margin:0 0 8px">An estimate of what this usage would cost at API list prices. On a subscription, this is not billed spend. The Dashboard's spend figure uses the same pricing, windowed to today.</div>
-            <div class="ia-tblwrap"><table class="ia-tbl"><thead><tr><th>Model</th><th>Runs</th><th>Est. value</th></tr></thead>
+            <div class="ia-tblwrap"><table class="ia-tbl"><thead>${this._thead('spend')}</thead>
             <tbody>${rows}</tbody></table></div>${unpriced}</div>`;
     },
 
@@ -360,6 +524,9 @@ const InstantAuditPage = {
             .ia-tbl { width:100%; border-collapse:collapse; font-size:12px; }
             .ia-tbl th { text-align:left; font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.8px;
                 text-transform:uppercase; color:var(--text-muted,#7d8590); padding:4px 10px 6px 0; border-bottom:1px solid var(--border-default,#30363d); }
+            .ia-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+            .ia-th-sort:hover { color:var(--text-primary,#e6edf3); }
+            .ia-th-sort.on { color:var(--accent-primary,#5eadb8); }
             .ia-tbl td { padding:6px 10px 6px 0; border-bottom:1px solid color-mix(in srgb, var(--border-default,#30363d) 55%, transparent);
                 color:var(--text-secondary,#b1bac4); vertical-align:top; }
             .ia-mono { font:500 11.5px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3); }
@@ -386,9 +553,9 @@ const InstantAuditPage = {
             .ia-cta .ia-go { margin-left:auto; flex:0 0 auto; }
             .ia-cta .ia-after { display:block; margin-top:6px; font-size:12.5px; color:var(--text-secondary,#b1bac4); }
             .ia-cta .ia-after b { display:inline; font-size:12.5px; margin:0; }
-            .ia-cta .ia-after a { color:var(--accent,#2dd4bf); text-decoration:none; }
+            .ia-cta .ia-after a { color:var(--accent-primary,#5eadb8); text-decoration:none; }
             .ia-cta .ia-after a:hover { text-decoration:underline; }
-            .ia-sess { color:var(--accent,#2dd4bf); text-decoration:none; font-size:11.5px; }
+            .ia-sess { color:var(--accent-primary,#5eadb8); text-decoration:none; font-size:11.5px; }
             .ia-sess:hover { text-decoration:underline; }
             .ia-foot { display:flex; gap:10px; margin-bottom:24px; }
             .ia-lite { cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:8px; padding:6px 14px;
@@ -397,6 +564,17 @@ const InstantAuditPage = {
             .ia-lite.danger:hover { border-color:#ef4444; color:#ef4444; }
         `;
         document.head.appendChild(st);
+    },
+    /** Stop the scan-progress poll on navigate-away.
+     *
+     * Called by App._destroyPage(). The tick already self-guards on
+     * App.currentPage, but that only stops it one tick LATE and relies on
+     * every future edit remembering the guard. Clearing here is exact. */
+    destroy() {
+        if (this._state && this._state.polling) {
+            clearInterval(this._state.polling);
+            this._state.polling = null;
+        }
     },
 };
 

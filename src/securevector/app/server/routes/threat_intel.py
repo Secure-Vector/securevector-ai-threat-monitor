@@ -220,6 +220,37 @@ async def delete_threat_intel(record_id: str) -> DeleteResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DispositionRequest(BaseModel):
+    # "false_positive" to dismiss, null/None to undo. Constrained so the
+    # metadata blob can't be used as a free-text store from the API.
+    disposition: Optional[str] = None
+
+
+@router.post("/threat-intel/{record_id}/disposition")
+async def set_threat_disposition(record_id: str, request: DispositionRequest) -> dict:
+    """
+    Set or clear an analyst disposition on a record (dismiss as false
+    positive). Unlike delete, this keeps the evidence: the record stays in
+    the ledger with a visible "Dismissed FP" marker. Note: v5.0.0 marks the
+    record only — aggregate counts (stat strips, trace risk rings) do not yet
+    exclude dismissed records; that filter is a tracked follow-up.
+    """
+    if request.disposition not in (None, "false_positive"):
+        raise HTTPException(status_code=422, detail="disposition must be 'false_positive' or null")
+    try:
+        db = get_database()
+        repo = ThreatIntelRepository(db)
+        updated = await repo.set_disposition(record_id, request.disposition)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Record not found")
+        return {"id": record_id, "disposition": request.disposition}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set disposition: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/threat-intel/{record_id}", response_model=ThreatIntelResponse)
 async def get_threat_intel(record_id: str) -> ThreatIntelResponse:
     """

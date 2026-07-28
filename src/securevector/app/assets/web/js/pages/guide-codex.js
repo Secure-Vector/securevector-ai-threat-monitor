@@ -27,7 +27,7 @@ const GuideCodexPage = {
         header.appendChild(h1);
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0;';
-        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, and prompt-injection / secret scanning for the OpenAI Codex CLI — all on loopback, no LLM proxy in the request path. Audit rows are tagged runtime_kind=codex.';
+        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, and prompt-injection / secret scanning for the OpenAI Codex CLI: all on loopback, no LLM proxy in the request path. Audit rows are tagged runtime_kind=codex.';
         header.appendChild(lede);
         root.appendChild(header);
 
@@ -57,7 +57,7 @@ const GuideCodexPage = {
         root.appendChild(p('Five hooks register against Codex events (schema confirmed 1:1 with Claude Code against codex-cli 0.133.0). The enforcement and scanning logic is the same engine the Claude Code plugin uses.'));
         root.appendChild(table(['Hook', 'Mode', 'Description'], [
             ['PreToolUse', 'blocking; 100&nbsp;ms fail-open', 'Enforces cloud-synced and local tool-permission rules. Returns allow / deny / ask with a reason that propagates to the audit row.'],
-            ['PostToolUse', 'fire-and-forget', 'Writes the call to the SHA-256 hash-chained audit log tagged runtime_kind=codex. Scans tool responses — including Bash / PowerShell stdout+stderr — via /analyze for injection, credential and PII leaks (direction=incoming).'],
+            ['PostToolUse', 'fire-and-forget', 'Writes the call to the SHA-256 hash-chained audit log tagged runtime_kind=codex. Scans tool responses (including Bash / PowerShell stdout+stderr) via /analyze for injection, credential and PII leaks (direction=incoming).'],
             ['UserPromptSubmit', 'fire-and-forget', 'Forwards every prompt to /analyze for jailbreak / injection detection (direction=outgoing). Secrets are redacted before the POST.'],
             ['SessionStart', 'fire-and-forget', 'Records a session-boundary marker so the dashboard can bound each run.'],
             ['Stop', 'fire-and-forget', 'Records the session-end boundary marker.'],
@@ -66,14 +66,14 @@ const GuideCodexPage = {
 
         // --- Install ---
         root.appendChild(h2('Install'));
-        root.appendChild(p('First install and start the SecureVector local app — both install paths depend on it:'));
+        root.appendChild(p('First install and start the SecureVector local app: both install paths depend on it:'));
         root.appendChild(code(`pip install 'securevector-ai-monitor[app]'   # Apache 2.0, no signup\nsecurevector-app --web                       # binds 127.0.0.1:8741`));
 
-        root.appendChild(h3('Option A — via the app UI'));
+        root.appendChild(h3('Option A: via the app UI'));
         root.appendChild(p('Open http://127.0.0.1:8741, click Integrations → Codex, then click Install Plugin.'));
 
-        root.appendChild(h3('Option B — via CLI'));
-        root.appendChild(p('Same operation the UI button performs — runs the install handler in-process; the web server need not be running.'));
+        root.appendChild(h3('Option B: via CLI'));
+        root.appendChild(p('Same operation the UI button performs: runs the install handler in-process; the web server need not be running.'));
         root.appendChild(code('securevector-app --install-plugin codex'));
 
         const installNote = document.createElement('p');
@@ -92,7 +92,7 @@ const GuideCodexPage = {
         root.appendChild(installNote);
 
         // --- Activate / trust ---
-        root.appendChild(h2('Activate — review the hooks'));
+        root.appendChild(h2('Activate: review the hooks'));
         const trust = document.createElement('div');
         trust.style.cssText = 'margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
         const tP = document.createElement('p');
@@ -104,7 +104,7 @@ const GuideCodexPage = {
         tP.appendChild(document.createTextNode(' once you accept the trust prompt. Start a '));
         const tStrong = document.createElement('strong'); tStrong.style.color = 'var(--text-primary)'; tStrong.textContent = 'fresh Codex session';
         tP.appendChild(tStrong);
-        tP.appendChild(document.createTextNode(' — the TUI shows a "Review hooks" prompt automatically — and choose '));
+        tP.appendChild(document.createTextNode(' — the TUI shows a "Review hooks" prompt automatically: and choose '));
         const tStrong2 = document.createElement('strong'); tStrong2.style.color = 'var(--text-primary)'; tStrong2.textContent = '"Trust all and continue."';
         tP.appendChild(tStrong2);
         tP.appendChild(document.createTextNode(' Until you do, newly-registered hooks are marked "Modified" and silently skipped. This is expected Codex security behaviour, not a SecureVector bug.'));
@@ -114,15 +114,15 @@ const GuideCodexPage = {
         // --- Verify ---
         // --- Remote engine (Terraform / self-host) ---
         root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
-        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL: no local app needed.'));
         root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
 securevector-app --install-plugin codex
 
 # point the hooks at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
-        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
-        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
-        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis: your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential: the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token: enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token: it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional: public gated endpoint only`));
 
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
@@ -146,7 +146,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
             ['Plugin target URL', 'SECUREVECTOR_ENGINE_ENDPOINT env var', 'http://127.0.0.1:8741', 'Override for non-default app deployments'],
             ['Tool permission rules', 'Tool Permissions page in the app', 'Default-allow + last-resort denies', 'Per-tool allow / deny / ask, cloud-syncable, local overrides'],
         ]));
-        const noSl = p('There is no statusline emitter for Codex — its statusline selects from built-in items only and exposes no plugin hook for rendering. The equivalent live findings appear on the local SecureVector dashboard instead.');
+        const noSl = p('There is no statusline emitter for Codex: its statusline selects from built-in items only and exposes no plugin hook for rendering. The equivalent live findings appear on the local SecureVector dashboard instead.');
         root.appendChild(noSl);
 
         // --- Uninstall ---
@@ -157,10 +157,10 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
 
         // --- Possible issues ---
         root.appendChild(h2('Possible issues'));
-        root.appendChild(note('Hooks show as "Modified" and never fire', 'start a fresh Codex session and choose "Trust all and continue" at the Review hooks prompt — Codex skips hooks whose hash isn\'t in its trust state.'));
-        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK). When the app is down every decision is allow and no audit row is written — the plugin never breaks the session.'));
-        root.appendChild(note('No statusline in Codex', 'expected — Codex has no plugin hook for statusline rendering. Use the dashboard for live counts.'));
-        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'check GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t paired with cloud yet — pair via Settings → Cloud.'));
+        root.appendChild(note('Hooks show as "Modified" and never fire', 'start a fresh Codex session and choose "Trust all and continue" at the Review hooks prompt: Codex skips hooks whose hash isn\'t in its trust state.'));
+        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK). When the app is down every decision is allow and no audit row is written: the plugin never breaks the session.'));
+        root.appendChild(note('No statusline in Codex', 'expected: Codex has no plugin hook for statusline rendering. Use the dashboard for live counts.'));
+        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'check GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t paired with cloud yet, pair via Settings → Cloud.'));
 
         // --- Privacy ---
         root.appendChild(h2('Privacy posture'));
@@ -176,3 +176,5 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         container.appendChild(root);
     },
 };
+
+window.GuideCodexPage = GuideCodexPage;

@@ -259,7 +259,7 @@ const SiemExportPage = {
                 'Click <strong>Advanced Editor</strong>.',
                 'Paste the JSON below, click <strong>Apply</strong> → <strong>Save</strong>.',
                 'Set the <code>TableName</code> parameter to match your DCR custom table (default: <code>Custom-SecureVector_CL</code>).',
-                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+                '<em>Starter template: verify in your stack before relying for production detections.</em>',
             ],
         },
         splunk: {
@@ -271,8 +271,8 @@ const SiemExportPage = {
                 'Open Splunk Web → <strong>Dashboards</strong> → <strong>Create a new dashboard</strong>.',
                 'Click <strong>Source</strong> (top-right of the editor).',
                 'Paste the XML below, Save.',
-                'Assumes sourcetype <code>securevector:ocsf</code> on the HEC ingest — adjust if your HEC ingest uses a different sourcetype.',
-                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+                'Assumes sourcetype <code>securevector:ocsf</code> on the HEC ingest, adjust if your HEC ingest uses a different sourcetype.',
+                '<em>Starter template: verify in your stack before relying for production detections.</em>',
             ],
         },
         grafana: {
@@ -286,7 +286,7 @@ const SiemExportPage = {
                 'Grafana → <strong>Dashboards</strong> → <strong>New → Import</strong>.',
                 'Paste the JSON below, click <strong>Load</strong>, then pick your Loki datasource and <strong>Import</strong>.',
                 'Adjust the <code>$job</code> variable if your Promtail pipeline uses a different label.',
-                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+                '<em>Starter template: verify in your stack before relying for production detections.</em>',
             ],
         },
         datadog: {
@@ -299,7 +299,7 @@ const SiemExportPage = {
                 'In Datadog, go to <strong>Logs → Configuration → Facets</strong> and create facets for the OCSF attributes used here: <code>@severity</code>, <code>@class_uid</code>, <code>@unmapped.action</code>, <code>@actor.user.name</code>, <code>@finding.techniques</code>, <code>@device.uid</code>.',
                 'Datadog → <strong>Dashboards</strong> → <strong>New Dashboard</strong> → top-right menu → <strong>Import Dashboard JSON</strong>.',
                 'Paste the JSON below, save.',
-                '<em>Starter template — verify in your stack before relying for production detections.</em>',
+                '<em>Starter template: verify in your stack before relying for production detections.</em>',
             ],
         },
     },
@@ -376,7 +376,7 @@ const SiemExportPage = {
                             await navigator.clipboard.writeText(templateText);
                             if (window.Toast) Toast.success(`${tpl.title} copied to clipboard`);
                         } catch (_) {
-                            if (window.Toast) Toast.error('Clipboard write failed — try Download instead');
+                            if (window.Toast) Toast.error('Clipboard write failed: try Download instead');
                         }
                     },
                 },
@@ -399,7 +399,7 @@ const SiemExportPage = {
         summary.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-primary);flex-shrink:0;transition:transform 0.15s;"><polyline points="9 18 15 12 9 6"/></svg>
             <span>What each redaction tier forwards</span>
-            <span style="font-size:11.5px;font-weight:500;color:var(--text-muted);">— pick one per destination when you add it</span>
+            <span style="font-size:11.5px;font-weight:500;color:var(--text-muted);">Pick one per destination when you add it.</span>
         `;
         details.appendChild(summary);
         // Rotate chevron on open — keeps the interaction readable
@@ -413,7 +413,7 @@ const SiemExportPage = {
 
         const intro = document.createElement('div');
         intro.style.cssText = 'font-size:12.5px;color:var(--text-secondary);line-height:1.55;margin:10px 0 12px;';
-        intro.innerHTML = 'The forwarder strips fields at <em>enqueue time</em> — a <code>standard</code> destination never has prompt text in its outbox rows even momentarily. Full tier requires explicit confirmation, and is <strong>blocked under EU data-residency policy</strong> (it carries raw prompt/output text).';
+        intro.innerHTML = 'The forwarder strips fields at <em>enqueue time</em>: a <code>standard</code> destination never has prompt text in its outbox rows even momentarily. Full tier requires explicit confirmation, and is <strong>blocked under EU data-residency policy</strong> (it carries raw prompt/output text).';
         body.appendChild(intro);
 
         const grid = document.createElement('div');
@@ -486,7 +486,7 @@ const SiemExportPage = {
                 '<strong>Each field capped at 8KB</strong> (truncation marker appended)',
             ],
             strips: [
-                '(nothing — forensic tier)',
+                '(nothing: forensic tier)',
             ],
         }));
 

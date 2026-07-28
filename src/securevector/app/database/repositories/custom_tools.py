@@ -258,6 +258,40 @@ class CustomToolsRepository:
         logger.info(f"Updated custom tool permission: {tool_id} -> {default_permission}")
         return await self.get_custom_tool(tool_id)
 
+    async def update_custom_tool_metadata(
+        self,
+        tool_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        risk: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Update a custom tool's descriptive fields.
+
+        Deliberately separate from update_custom_tool_permission: permission is
+        the enforcement decision, this is only labelling. Keeping them apart
+        means an edit to a tool's description can never quietly change what it
+        is allowed to do.
+
+        Only the fields passed are written, so a caller sending just a name
+        cannot blank out the description. Returns the updated tool, or None if
+        the tool does not exist.
+        """
+        sets, params = [], []
+        for column, value in (("name", name), ("description", description), ("risk", risk)):
+            if value is not None:
+                sets.append(f"{column} = ?")
+                params.append(value)
+        if not sets:
+            return await self.get_custom_tool(tool_id)
+
+        params.append(tool_id)
+        await self.db.execute(
+            f"UPDATE custom_tools SET {', '.join(sets)} WHERE tool_id = ?",  # noqa: S608 — columns are literals above
+            tuple(params),
+        )
+        logger.info(f"Updated custom tool metadata: {tool_id} ({', '.join(s.split(' =')[0] for s in sets)})")
+        return await self.get_custom_tool(tool_id)
+
     async def update_custom_tool_rate_limit(
         self,
         tool_id: str,
@@ -777,6 +811,23 @@ class CustomToolsRepository:
             (cutoff,),
         )
 
+        # Context for the empty state: how much WAS audited in the window
+        # (zero blocks over zero traffic reads very differently from zero
+        # blocks over a thousand calls), and whether blocks exist at all
+        # outside the window — so "empty" can point at the right window
+        # instead of looking broken.
+        activity = await self.db.fetch_one(
+            """
+            SELECT
+                COUNT(*) AS audited_total,
+                (SELECT COUNT(*)      FROM tool_call_audit WHERE action = 'block') AS all_time_blocked,
+                (SELECT MAX(called_at) FROM tool_call_audit WHERE action = 'block') AS all_time_last_at
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?)
+            """,
+            (cutoff,),
+        )
+
         by_reason = await self.db.fetch_all(
             """
             SELECT
@@ -814,12 +865,17 @@ class CustomToolsRepository:
             (cutoff, limit),
         )
 
+        summary_out = dict(summary) if summary else {
+            "blocked_total": 0, "tools_blocked": 0,
+            "agents_affected": 0, "last_at": None,
+        }
+        act = dict(activity) if activity else {}
+        summary_out["audited_total"] = act.get("audited_total") or 0
+        summary_out["all_time_blocked"] = act.get("all_time_blocked") or 0
+        summary_out["all_time_last_at"] = act.get("all_time_last_at")
         return {
             "window_days": window_days,
-            "summary": dict(summary) if summary else {
-                "blocked_total": 0, "tools_blocked": 0,
-                "agents_affected": 0, "last_at": None,
-            },
+            "summary": summary_out,
             "by_reason": [dict(r) for r in by_reason] if by_reason else [],
             "by_tool": [dict(r) for r in by_tool] if by_tool else [],
         }

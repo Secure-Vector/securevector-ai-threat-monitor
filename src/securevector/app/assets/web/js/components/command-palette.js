@@ -48,9 +48,9 @@ const CommandPalette = {
             });
         });
         // A few high-value aliases people will actually type.
-        push('agent-runs', 'Traces — trace + run waterfall');
-        push('agent-timeline', 'Traces — Live feed');
-        push('storylines', 'Traces — grouped by agent');
+        push('agent-runs', 'Traces: trace + run waterfall');
+        push('agent-timeline', 'Traces: Live feed');
+        push('storylines', 'Traces: grouped by agent');
         push('bill-of-tools', 'Tool Inventory (SBOM)');
         push('settings', 'Settings');
         // De-dup by id, first-seen wins (nav entries beat aliases).

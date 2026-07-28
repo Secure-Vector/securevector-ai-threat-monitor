@@ -58,7 +58,7 @@ const StorylinesPage = {
         this._injectStyles();
         if (window.Header) Header.setPageInfo(
             'Sessions',
-            'The overview — every agent’s sessions over time, with the security verdict at a glance. Open one to walk it step-by-step in Traces.'
+            'The overview: every agent’s sessions over time, with the security verdict at a glance. Open one to walk it step-by-step in Traces.'
         );
 
         container.textContent = '';
@@ -223,7 +223,7 @@ const StorylinesPage = {
             `blocking threat rule stopped. Session and trace identifiers are the runtime's own session ids.</p>`;
 
         const generatedAt = new Date().toLocaleString();
-        ObsTabs.printDoc('SecureVector — Agent Session Audit Report',
+        ObsTabs.printDoc('SecureVector: Agent Session Audit Report',
             `<h1>Agent Session Audit Report</h1>${summary}` +
             `<div class="sub">Generated ${this._esc(generatedAt)}</div>` +
             `<h2>By agent</h2>${agentTable}` +
@@ -280,7 +280,7 @@ const StorylinesPage = {
             empty.className = 'story-empty';
             empty.innerHTML =
                 '<div class="story-empty-title">No agent sessions in this window yet</div>' +
-                '<div class="story-empty-sub">Protect a runtime with the Connect Wizard — its sessions will appear here, grouped per agent.</div>';
+                '<div class="story-empty-sub">Protect a runtime with the Connect Wizard: its sessions will appear here, grouped per agent.</div>';
             const cta = document.createElement('button');
             cta.className = 'story-btn story-btn-primary';
             cta.textContent = 'Open the Connect Wizard →';
@@ -639,7 +639,7 @@ const StorylinesPage = {
         tag.className = 'story-llm-tag';
         tag.textContent = isMcp ? 'MCP' : 'TOOL';
         tag.title = isMcp
-            ? 'External MCP tool — served by an MCP server, not the agent harness'
+            ? 'External MCP tool: served by an MCP server, not the agent harness'
             : 'Built-in harness tool';
         row.appendChild(tag);
 
@@ -710,7 +710,7 @@ const StorylinesPage = {
                 const cap = document.createElement('div');
                 cap.className = 'story-wf-note';
                 cap.style.marginTop = '5px';
-                cap.textContent = 'Preview only — first 200 characters, secrets redacted. SecureVector never stores the full command.';
+                cap.textContent = 'Preview only: first 200 characters, secrets redacted. SecureVector never stores the full command.';
                 sec.appendChild(cap);
             }
         } else {
@@ -759,7 +759,7 @@ const StorylinesPage = {
     _renderScanRecords(box, items) {
         box.textContent = '';
         if (!items.length) {
-            box.textContent = 'No scanned excerpt stored for this call. SecureVector keeps only what it scanned — never full prompt/response bodies — and only when "Store text content" is on in Settings.';
+            box.textContent = 'No scanned excerpt stored for this call. SecureVector keeps only what it scanned (never full prompt/response bodies) and only when "Store text content" is on in Settings.';
             return;
         }
         items.forEach(rec => {
@@ -875,7 +875,7 @@ const StorylinesPage = {
         // The scanned text — as much of the exchange as SecureVector kept.
         const pre = document.createElement('pre');
         pre.className = 'story-wf-pre';
-        pre.textContent = rec.text_content || rec.text_preview || '(content not stored — enable "Store text content" in Settings to keep scanned excerpts)';
+        pre.textContent = rec.text_content || rec.text_preview || '(content not stored: enable "Store text content" in Settings to keep scanned excerpts)';
         this._anatomySection(panel, dir.section, pre);
 
         // Verdict — what the engine concluded about this exchange.
@@ -933,7 +933,7 @@ const StorylinesPage = {
         const tag = document.createElement('span');
         tag.className = 'story-llm-tag';
         tag.textContent = 'LLM';
-        tag.title = 'LLM turn — a model generation reconstructed from the session transcript';
+        tag.title = 'LLM turn: a model generation reconstructed from the session transcript';
         row.appendChild(tag);
 
         const fn = document.createElement('span');
@@ -977,7 +977,7 @@ const StorylinesPage = {
             const pre = document.createElement('pre');
             pre.className = 'story-wf-pre';
             if (preview == null) {
-                pre.textContent = 'Text preview off — enable “Store text content” in Settings to capture a redacted excerpt. Tokens and cost are always recorded.';
+                pre.textContent = 'Text preview off: enable “Store text content” in Settings to capture a redacted excerpt. Tokens and cost are always recorded.';
                 pre.classList.add('story-wf-note');
             } else if (!preview) {
                 pre.textContent = isTool ? 'Turn driven by a tool result (no prompt text).' : 'No text in this turn (tool call / reasoning only).';
@@ -987,8 +987,8 @@ const StorylinesPage = {
             }
             this._anatomySection(panel, label, pre);
         };
-        ioBox('LLM input — prompt (redacted preview)', sp.input_preview, sp.input_truncated, sp.input_is_tool_result);
-        ioBox('LLM output — response (redacted preview)', sp.output_preview, sp.output_truncated, false);
+        ioBox('LLM input: prompt (redacted preview)', sp.input_preview, sp.input_truncated, sp.input_is_tool_result);
+        ioBox('LLM output: response (redacted preview)', sp.output_preview, sp.output_truncated, false);
 
         // Metadata line — model, tokens, cost, stop reason.
         const meta = document.createElement('div');
@@ -1006,7 +1006,7 @@ const StorylinesPage = {
         const priv = document.createElement('div');
         priv.className = 'story-wf-note';
         priv.style.marginTop = '5px';
-        priv.textContent = 'Preview only — first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.';
+        priv.textContent = 'Preview only: first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.';
         panel.appendChild(priv);
     },
 
@@ -1121,7 +1121,7 @@ const StorylinesPage = {
     color: var(--text-muted); margin-bottom: 4px; }
 /* Content boxes (tool input, scanned LLM prompt/response) sit INSIDE the
    bg-tertiary panel. On the v5 deeper palette bg-card was too close to the
-   panel and the faded border vanished — the boxes blended together. Use the
+   panel and the faded border vanished: the boxes blended together. Use the
    darkest surface + a clear light border so each box reads as its own framed
    block, distinct from the panel and from each other. */
 .story-wf-pre { margin: 0; font: 11.5px var(--font-mono, ui-monospace), Menlo, monospace; color: var(--text-primary);
