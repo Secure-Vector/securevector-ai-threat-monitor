@@ -1479,6 +1479,20 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: none;
 }
 
+/* Sub-items had NO rule of their own — they only ever picked up a 12px
+   font-size from an inline style on the wrapper div, so an expandable parent
+   ("Agent Observability") and its child ("Traces") rendered at 12.5px vs 12px
+   at identical weight and colour. Half a pixel is not a hierarchy.
+
+   Children recede rather than parents shouting: the rail already has a loud
+   tier in the uppercase 700 section labels, and a second bold tier would
+   compete with it. Size step plus a weight step plus the existing guide line
+   is enough to read as subordinate. */
+.nav-item.nav-sub-item span {
+    font-size: 11.5px;
+    font-weight: 400;
+}
+
 .nav-section-divider {
     height: 1px;
     background: var(--border-default);
