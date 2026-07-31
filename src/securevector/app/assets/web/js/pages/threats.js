@@ -99,7 +99,6 @@ const ThreatsPage = {
         container.textContent = '';
 
         const bar = document.createElement('div');
-        bar.className = 'tab-bar';
         bar.id = 'tm-facets';
         container.appendChild(bar);
 
@@ -111,29 +110,51 @@ const ThreatsPage = {
         await this._renderActiveFacet();
     },
 
+    // Uses the same segmented control as the Agent Observability tabs
+    // (ObsTabs' .sv-obs-tabs / .sv-obs-tab), so the two "one feature, several
+    // lenses" surfaces read identically. The generic .tab-bar was too quiet
+    // to signal that these are peer views rather than page furniture.
+    _FACETS: [
+        { id: 'threats', label: 'Threats',           icon: 'M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z' },
+        { id: 'blocked', label: 'Blocked Actions',   icon: 'M5 5l14 14M12 3a9 9 0 100 18 9 9 0 000-18z' },
+        { id: 'secrets', label: 'Secret Detections', icon: 'M7 11V7a5 5 0 0110 0v4M5 11h14v10H5z' },
+    ],
+
     _renderFacetBar() {
         const bar = document.getElementById('tm-facets');
         if (!bar) return;
+        if (window.ObsTabs && ObsTabs._injectStyle) ObsTabs._injectStyle();
         bar.textContent = '';
-        [
-            { id: 'threats', label: 'Threats' },
-            { id: 'blocked', label: 'Blocked Actions' },
-            { id: 'secrets', label: 'Secret Detections' },
-        ].forEach(({ id, label }) => {
+
+        const wrap = document.createElement('div');
+        wrap.className = 'sv-obs-tabs';
+        wrap.setAttribute('role', 'tablist');
+
+        this._FACETS.forEach(({ id, label, icon }) => {
             const btn = document.createElement('button');
-            btn.className = `tab-btn${this.activeFacet === id ? ' active' : ''}`;
-            btn.textContent = label;
+            btn.type = 'button';
+            btn.className = 'sv-obs-tab' + (this.activeFacet === id ? ' on' : '');
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('aria-selected', this.activeFacet === id ? 'true' : 'false');
+            btn.innerHTML =
+                `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" ` +
+                `stroke-linejoin="round"><path d="${icon}"/></svg><span>${label}</span>`;
             btn.addEventListener('click', async () => {
                 if (this.activeFacet === id) return;
                 // Leaving the threats facet: stop its auto-refresh timer so it
                 // does not keep polling behind an inactive facet.
                 if (this.activeFacet === 'threats') this.destroy();
                 this.activeFacet = id;
+                // Keep the rail in step — the facets are nav children now, so
+                // the highlighted row must follow the active facet.
+                const navId = { threats: 'threats', blocked: 'blocked-ledger', secrets: 'redactions' }[id];
+                if (window.Sidebar) { Sidebar.currentPage = navId; Sidebar.render && Sidebar.render(); }
                 this._renderFacetBar();
                 await this._renderActiveFacet();
             });
-            bar.appendChild(btn);
+            wrap.appendChild(btn);
         });
+        bar.appendChild(wrap);
     },
 
     async _renderActiveFacet() {

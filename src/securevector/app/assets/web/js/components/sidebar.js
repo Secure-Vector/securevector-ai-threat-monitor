@@ -11,9 +11,17 @@ const Sidebar = {
         // one question ("what did SecureVector catch or stop?") was the main
         // source of "where do I look?". Old ids stay aliases so deep links and
         // bookmarks keep this row highlighted.
-        { id: 'threats', label: 'Threat Monitor', icon: 'shield',
-          aliases: ['blocked-ledger', 'redactions'],
-          tooltip: 'Threats, blocked actions and secret detections — one triage surface' },
+        // One triage surface, three lenses — same shape as Agent Observability
+        // below. The facets stay visible in the rail so they remain scannable;
+        // hiding them behind the page made them undiscoverable to anyone who
+        // never clicked in. Clicking a child opens that facet directly.
+        { id: 'threats', label: 'Threat Monitor', icon: 'shield', collapsible: true,
+          defaultExpanded: true, navigable: true,
+          tooltip: 'Threats, blocked actions and secret detections — one triage surface',
+          subItems: [
+              { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
+              { id: 'redactions',     label: 'Secret Detections' },
+          ]},
         // conversion-ux — the download hook: opt-in retroactive scan of the
         // agent history already on disk. Sits beside Threat Monitor: past vs live.
         { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
