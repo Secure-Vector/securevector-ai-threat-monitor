@@ -263,7 +263,7 @@ const Sidebar = {
         // variables so it respects light/dark switches automatically.
         const tagline = document.createElement('span');
         tagline.className = 'sidebar-tagline';
-        tagline.textContent = 'AI Agent Runtime Control';
+        tagline.textContent = 'Security & Observability for AI Agents';
         logoTextCol.appendChild(tagline);
 
         logoLink.appendChild(logoTextCol);

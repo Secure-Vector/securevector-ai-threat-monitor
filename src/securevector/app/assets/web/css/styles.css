@@ -324,21 +324,30 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     flex-direction: column;
     line-height: 1.1;
     gap: 2px;
+    /* Flex items default to min-width:auto and refuse to shrink below their
+       content, so the rail could not squeeze this column and the tagline
+       spilled past the rail edge at narrow widths. */
+    min-width: 0;
 }
 
 /* Tagline under the SecureVector wordmark. Theme-aware — uses
-   --text-muted so it tracks whatever palette is active. Kept on a
-   single line: nowrap + tightened tracking so it fits the header
-   width under the wordmark without wrapping. */
+   --text-muted so it tracks whatever palette is active. Wraps to two
+   lines: the positioning line does not fit one row at a legible size. */
 .sidebar-tagline {
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* The positioning line is 38 characters and does not fit the rail on one
+       row at any legible size (measured 226px of text into a 240px rail, and
+       the rail resizes down to 180px). It was clipping mid-word without even
+       an ellipsis, because the element is not width-constrained by its parent
+       so text-overflow never triggered. Wrap to two lines instead: the full
+       line stays intact rather than being truncated or abbreviated. */
+    white-space: normal;
+    line-height: 1.25;
+    max-width: 100%;
 }
 
 /* Collapsed sidebar: hide tagline alongside the wordmark. */
@@ -905,6 +914,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
 }
 
 .sidebar-collapse-btn {
