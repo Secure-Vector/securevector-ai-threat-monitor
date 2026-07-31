@@ -259,12 +259,12 @@ const Sidebar = {
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
 
-        // Tagline — product positioning in small caps. Uses theme
-        // variables so it respects light/dark switches automatically.
-        const tagline = document.createElement('span');
-        tagline.className = 'sidebar-tagline';
-        tagline.textContent = 'Security & Observability for AI Agents';
-        logoTextCol.appendChild(tagline);
+        // No tagline in the rail. A marketing positioning line belongs on the
+        // surfaces where someone is still deciding — login, README, docs — not
+        // in authenticated chrome, where the user has already adopted the
+        // product. Observability and security tools conventionally leave this
+        // slot for orientation (workspace, environment, tier, version); here
+        // the `v5` chip beside the wordmark already fills that role.
 
         logoLink.appendChild(logoTextCol);
 
