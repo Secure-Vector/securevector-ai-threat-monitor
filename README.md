@@ -55,19 +55,14 @@
 
 <br>
 
-> **What's new in v4.9.1**
-> - **SecureVector Guard for Hermes (NousResearch `hermes-agent`)** — a fourth framework SDK, [`securevector-sdk-hermes`](https://github.com/Secure-Vector/securevector-sdk-hermes) (`pip install securevector-sdk-hermes`), brings the local monitor's three controls — tool-call permissions, secret/data-leak detection, and threat detection — to every Hermes tool call with **zero code changes**. The package auto-registers a Hermes plugin via the `hermes_agent.plugins` entry point in every mode (interactive CLI, gateway, ACP): a blocked tool is short-circuited with a `SecureVector Guard:` branded reason, results are scanned for secrets/threats, and MCP tools (`mcp_<server>_<tool>`) resolve against both the raw name and each `<server>:<tool>` split. Hermes tool calls stream onto the **Agent Map**, **Runs**, and **Timeline** under `runtime_kind=hermes`, get their own **Hermes** Tool-Permissions category (the built-in inventory as governable rows), and feed the token chart from `~/.hermes/state.db`. `observe` mode (default) logs an advisory verdict and always runs the tool; `enforce` mode blocks.
+> **What's new in v5.0.0**
+> - **Runtime Connect Wizard** — a guided detect → protect → verify flow. It scans this device for agent runtimes (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw, frameworks), installs Guard with one click per runtime, and verifies the first protected call live. The manual per-agent command sets remain under Connect Agents / Integrations.
+> - **JIT (just-in-time) tool access requests** — an agent that hits a *requestable* deny can file a time-boxed access request for a human to approve on the Tool Permissions page. Grants are 15 minutes, 1 hour, or the requesting session only; there is deliberately no "until I revoke". Org hard denies never queue. Revoke-now is one click, and the whole request/grant lifecycle is its own audit trail.
+> - **LLM I/O visibility in Agent Runs** — expanding a scanned step lazy-loads the exact content excerpt SecureVector inspected for that call, with action / threat-type / risk context. The privacy posture is unchanged: the app never records full prompt or response bodies, only what was scanned, and only while "Store text content" is on.
+> - **One-click cloud trial from the local app** *(Settings → Cloud)* — an OAuth-style device flow requests a code, opens the browser, polls for completion and stores the returned key itself, so there is no key to copy. Falls back to the manual paste path when the cloud endpoint is unavailable. Metadata-only, same consent gates as a manual connect.
+> - **v5 experience revamp** — navigation regrouped into **Observe / Govern / Connect** (page ids and deep links unchanged), a **Cmd+K** command palette, a three-tier protection hero on the dashboard, and threat details that now lead with one plain-language sentence ("Blocked: this traffic contained an attempt to modify a protected system file.") with the technical breakdown below. The motion layer disables fully under `prefers-reduced-motion`.
 >
-> **What's new in v4.9.0**
-> - **Unified `SECUREVECTOR_ENGINE_ENDPOINT`** — one variable points the SDKs *and* every native plugin at your engine, whether that's the local app or a self-hosted [Terraform](#deploy-to-your-own-cloud-self-host) deployment. Lightweight installs (SDK `--no-deps`; plugins point-and-go) for remote/self-host setups, with optional inbound auth for publicly-exposed endpoints. Legacy `SECUREVECTOR_SDK_APP_URL` / `SV_BASE_URL` still work.
-> - **Connect Agents — one-page setup** — pick your agent or harness, choose where SecureVector runs (this device or your cloud), copy the commands. Optional on-device detection finds what you're already running, and the page auto-adapts its install steps when the app runs as a self-hosted endpoint.
->
-> **What's new in v4.8.0**
-> - **Framework SDKs for LangChain, LangGraph, and CrewAI** — pip-installable middleware/tool wrappers that secure tool calls and stream them onto the Agent Map by `runtime_kind` (see the "Works with every agent" table above).
->
-> **What's new in v4.7.0**
-> - **Fleet management** *(cloud accounts, optional)* — fleet-wide Agent Maps + Agent Runs for devices enrolled via a mint token (SVET); opt-in and metadata-only. Non-enrolled (local-only) installs forward nothing.
-> - **SecureVector Guard for Cursor** — native plugin + hooks for the Cursor agent (see the plugins table above).
+> **Previously:** v4.9.1 added SecureVector Guard for Hermes, a fourth framework SDK. v4.9.0 unified `SECUREVECTOR_ENGINE_ENDPOINT` across SDKs and plugins and shipped the one-page Connect Agents setup. v4.8.0 introduced the LangChain / LangGraph / CrewAI framework SDKs. v4.7.0 added optional cloud fleet management and SecureVector Guard for Cursor.
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
 
@@ -94,7 +89,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-v4.9.1-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector_4.9.1_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector-4.9.1-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-macOS.dmg)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-v5.0.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-5.0.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/securevector_5.0.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/securevector-5.0.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-5.0.0-macOS.dmg)
 
 **Step 2 — Open the app**
 
@@ -469,17 +464,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v4.9.1-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-v4.9.1-Windows-Setup.exe) |
-| macOS | [SecureVector-4.9.1-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-4.9.1-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SecureVector-4.9.1-x86_64.AppImage) |
-| Linux (DEB) | [securevector_4.9.1_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector_4.9.1_amd64.deb) |
-| Linux (RPM) | [securevector-4.9.1-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/securevector-4.9.1-1.x86_64.rpm) |
+| Windows | [SecureVector-v5.0.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-v5.0.0-Windows-Setup.exe) |
+| macOS | [SecureVector-5.0.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-5.0.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-5.0.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SecureVector-5.0.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_5.0.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/securevector_5.0.0_amd64.deb) |
+| Linux (RPM) | [securevector-5.0.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/securevector-5.0.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v4.9.1/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.0.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
