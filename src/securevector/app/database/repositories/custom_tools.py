@@ -258,6 +258,40 @@ class CustomToolsRepository:
         logger.info(f"Updated custom tool permission: {tool_id} -> {default_permission}")
         return await self.get_custom_tool(tool_id)
 
+    async def update_custom_tool_metadata(
+        self,
+        tool_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        risk: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Update a custom tool's descriptive fields.
+
+        Deliberately separate from update_custom_tool_permission: permission is
+        the enforcement decision, this is only labelling. Keeping them apart
+        means an edit to a tool's description can never quietly change what it
+        is allowed to do.
+
+        Only the fields passed are written, so a caller sending just a name
+        cannot blank out the description. Returns the updated tool, or None if
+        the tool does not exist.
+        """
+        sets, params = [], []
+        for column, value in (("name", name), ("description", description), ("risk", risk)):
+            if value is not None:
+                sets.append(f"{column} = ?")
+                params.append(value)
+        if not sets:
+            return await self.get_custom_tool(tool_id)
+
+        params.append(tool_id)
+        await self.db.execute(
+            f"UPDATE custom_tools SET {', '.join(sets)} WHERE tool_id = ?",  # noqa: S608 — columns are literals above
+            tuple(params),
+        )
+        logger.info(f"Updated custom tool metadata: {tool_id} ({', '.join(s.split(' =')[0] for s in sets)})")
+        return await self.get_custom_tool(tool_id)
+
     async def update_custom_tool_rate_limit(
         self,
         tool_id: str,
@@ -749,6 +783,103 @@ class CustomToolsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    async def get_blocked_ledger(self, window_days: int = 7, limit: int = 100) -> dict:
+        """The blocked-action ledger: what enforcement PREVENTED, grouped by why.
+
+        The defining security-console view (agent-observability §3.2): pure
+        observability tools log what happened; we log what we *stopped* and
+        which policy fired. Aggregates ``action='block'`` audit rows in the
+        window into (a) a summary, (b) per-reason hit counts with the tools and
+        agents each reason blocked, and (c) a per-tool breakdown. Read-only
+        over tool_call_audit; the ``reason`` column carries the enforcement
+        rationale (a tool-permission deny, a threat rule, a risk gate).
+        """
+        window_days = max(1, min(int(window_days), 90))
+        limit = max(1, min(int(limit), 500))
+        cutoff = f"-{window_days} days"
+
+        summary = await self.db.fetch_one(
+            """
+            SELECT
+                COUNT(*)                    AS blocked_total,
+                COUNT(DISTINCT tool_id)     AS tools_blocked,
+                COUNT(DISTINCT trace_id)    AS agents_affected,
+                MAX(called_at)              AS last_at
+            FROM tool_call_audit
+            WHERE action = 'block' AND called_at >= datetime('now', ?)
+            """,
+            (cutoff,),
+        )
+
+        # Context for the empty state: how much WAS audited in the window
+        # (zero blocks over zero traffic reads very differently from zero
+        # blocks over a thousand calls), and whether blocks exist at all
+        # outside the window — so "empty" can point at the right window
+        # instead of looking broken.
+        activity = await self.db.fetch_one(
+            """
+            SELECT
+                COUNT(*) AS audited_total,
+                (SELECT COUNT(*)      FROM tool_call_audit WHERE action = 'block') AS all_time_blocked,
+                (SELECT MAX(called_at) FROM tool_call_audit WHERE action = 'block') AS all_time_last_at
+            FROM tool_call_audit
+            WHERE called_at >= datetime('now', ?)
+            """,
+            (cutoff,),
+        )
+
+        by_reason = await self.db.fetch_all(
+            """
+            SELECT
+                COALESCE(NULLIF(TRIM(reason), ''), 'Policy block (no reason recorded)') AS reason,
+                COUNT(*)                                  AS count,
+                COUNT(DISTINCT tool_id)                   AS tools,
+                COUNT(DISTINCT trace_id)                  AS agents,
+                GROUP_CONCAT(DISTINCT function_name)      AS tool_names,
+                MAX(called_at)                            AS last_at,
+                MAX(CASE WHEN LOWER(COALESCE(risk,'')) IN ('delete','admin','write')
+                         THEN 1 ELSE 0 END)               AS high_risk
+            FROM tool_call_audit
+            WHERE action = 'block' AND called_at >= datetime('now', ?)
+            GROUP BY reason
+            ORDER BY count DESC, last_at DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        )
+
+        by_tool = await self.db.fetch_all(
+            """
+            SELECT
+                tool_id,
+                MAX(function_name)  AS function_name,
+                MAX(runtime_kind)   AS runtime_kind,
+                COUNT(*)            AS count,
+                MAX(called_at)      AS last_at
+            FROM tool_call_audit
+            WHERE action = 'block' AND called_at >= datetime('now', ?)
+            GROUP BY tool_id
+            ORDER BY count DESC, last_at DESC
+            LIMIT ?
+            """,
+            (cutoff, limit),
+        )
+
+        summary_out = dict(summary) if summary else {
+            "blocked_total": 0, "tools_blocked": 0,
+            "agents_affected": 0, "last_at": None,
+        }
+        act = dict(activity) if activity else {}
+        summary_out["audited_total"] = act.get("audited_total") or 0
+        summary_out["all_time_blocked"] = act.get("all_time_blocked") or 0
+        summary_out["all_time_last_at"] = act.get("all_time_last_at")
+        return {
+            "window_days": window_days,
+            "summary": summary_out,
+            "by_reason": [dict(r) for r in by_reason] if by_reason else [],
+            "by_tool": [dict(r) for r in by_tool] if by_tool else [],
+        }
+
     async def delete_audit_entries(self, ids: list[int]) -> int:
         """Delete audit log entries by their IDs.
 
@@ -1113,6 +1244,58 @@ class CustomToolsRepository:
         )
         return [dict(r) for r in rows] if rows else []
 
+    async def get_trace_detection_counts(self, window_days: int = 7) -> dict:
+        """Per-trace threat + secret detection counts for the Traces list cards.
+
+        Correlates each trace's tool-call audit rows back to the
+        ``threat_intel_records`` they produced (shared ``request_id``,
+        ``is_threat = 1``) and rolls them up per ``trace_id``: how many distinct
+        requests were flagged as threats, and how many of those were
+        secret/credential detections. This lets the trace list act as a triage
+        surface — "which sessions have threats?" — without opening each trace.
+
+        Returns ``{trace_id: {"detections": int, "secrets": int}}``.
+        """
+        from securevector.app.services.detection_source import (
+            classify_matched_rules,
+            is_secret_detection as _is_secret,
+        )
+
+        window_days = max(1, min(int(window_days), 90))
+        cutoff = f"-{window_days} days"
+        rows = await self.db.fetch_all(
+            """
+            SELECT
+                a.trace_id   AS trace_id,
+                a.request_id AS request_id,
+                t.matched_rules AS matched_rules,
+                t.threat_type   AS threat_type
+            FROM tool_call_audit a
+            JOIN threat_intel_records t
+              ON t.request_id = a.request_id AND t.is_threat = 1
+            WHERE a.called_at >= datetime('now', ?) AND a.trace_id IS NOT NULL
+            """,
+            (cutoff,),
+        )
+        out: dict = {}
+        seen: dict = {}  # trace_id -> set(request_id), so one flagged request
+        for r in rows or []:  # produced by many spans counts once
+            tid = r["trace_id"]
+            rid = r["request_id"]
+            bucket = out.setdefault(tid, {"detections": 0, "secrets": 0})
+            requests = seen.setdefault(tid, set())
+            if rid in requests:
+                continue
+            requests.add(rid)
+            bucket["detections"] += 1
+            # Secret sub-classification uses the parsed rule names (matching the
+            # Agent Map's edge roll-up), then the leak-flavoured threat type.
+            info = classify_matched_rules(r["matched_rules"])
+            rules = info.get("rules") if info else None
+            if _is_secret(r["threat_type"], rules):
+                bucket["secrets"] += 1
+        return out
+
     async def get_trace_spans(self, trace_id: str) -> list[dict]:
         """Return the ordered spans (tool-call audit rows) for one run.
 
@@ -1129,7 +1312,7 @@ class CustomToolsRepository:
             SELECT
                 seq, turn_index, tool_id, function_name, action,
                 risk, reason, called_at, runtime_kind, args_preview,
-                request_id
+                request_id, session_id
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC

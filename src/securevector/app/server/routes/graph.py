@@ -423,20 +423,29 @@ def build_graph_3layer(raw: list[dict], window_days: int, now: Optional[datetime
             harnesses[harness_id]["last_used"], last_used
         )
 
-    # Finalise sessions: idle/active + per-harness "agent #N" numbering.
+    # Finalise sessions: idle/active + a GLOBAL "agent #N" numbering. Numbering
+    # is global (not per-harness) so every session has a UNIQUE label: on the
+    # flat Traces list, per-harness numbering produced three "agent #1"s (one
+    # per harness) that were indistinguishable. Global, recency-ordered numbers
+    # (newest run = agent #1) stay unique and let the Map and the Traces list
+    # cross-reference the same "agent #N".
+    all_sessions = sorted(
+        sessions.values(), key=lambda s: (s["last_used"] or ""), reverse=True
+    )
+    for idx, s in enumerate(all_sessions, start=1):
+        dt = _parse_dt(s["last_used"])
+        idle_days = int((now - dt).total_seconds() // 86400) if dt else None
+        s["num"] = idx
+        s["label"] = f"agent #{idx}"
+        s["idle_days"] = idle_days
+        s["active"] = idle_days is not None and idle_days < _ACTIVE_WITHIN_DAYS
+
+    # Per-harness session counts + active flag (numbering is global now; these
+    # roll-ups stay per-harness).
     by_harness: dict[str, list[dict]] = {}
     for s in sessions.values():
         by_harness.setdefault(s["harness_id"], []).append(s)
     for harness_id, sess_list in by_harness.items():
-        # Newest run = agent #1 (stable, recency-ordered).
-        sess_list.sort(key=lambda s: (s["last_used"] or ""), reverse=True)
-        for idx, s in enumerate(sess_list, start=1):
-            dt = _parse_dt(s["last_used"])
-            idle_days = int((now - dt).total_seconds() // 86400) if dt else None
-            s["num"] = idx
-            s["label"] = f"agent #{idx}"
-            s["idle_days"] = idle_days
-            s["active"] = idle_days is not None and idle_days < _ACTIVE_WITHIN_DAYS
         harnesses[harness_id]["sessions"] = len(sess_list)
 
     # Harness active = any of its sessions active.

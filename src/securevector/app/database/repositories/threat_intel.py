@@ -504,6 +504,7 @@ class ThreatIntelRepository:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         request_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         sort: str = "created_at",
         order: str = "desc",
     ) -> ThreatIntelPage:
@@ -549,6 +550,10 @@ class ThreatIntelRepository:
         if request_id is not None:
             conditions.append("request_id = ?")
             params.append(request_id)
+
+        if session_id is not None:
+            conditions.append("session_id = ?")
+            params.append(session_id)
 
         if start_date is not None:
             conditions.append("created_at >= ?")
@@ -675,6 +680,45 @@ class ThreatIntelRepository:
         if deleted > 0:
             logger.info(f"Deleted {deleted} threat intel records")
         return deleted
+
+    async def set_disposition(self, record_id: str, disposition: Optional[str]) -> bool:
+        """Set or clear an analyst disposition on a record.
+
+        Stored inside the existing `metadata` JSON column (no migration):
+        `disposition` = "false_positive" plus `dispositioned_at` (UTC ISO).
+        Passing None removes both keys (undo). The record itself is never
+        mutated otherwise — dismissing preserves the evidence, unlike delete.
+
+        Returns:
+            True if the record exists and was updated.
+        """
+        row = await self.db.fetch_one(
+            "SELECT metadata FROM threat_intel_records WHERE id = ?",
+            (record_id,),
+        )
+        if row is None:
+            return False
+        try:
+            meta = json.loads(row["metadata"]) if row["metadata"] else {}
+        except (ValueError, TypeError):
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if disposition:
+            meta["disposition"] = disposition
+            meta["dispositioned_at"] = datetime.utcnow().isoformat() + "Z"
+        else:
+            meta.pop("disposition", None)
+            meta.pop("dispositioned_at", None)
+        await self.db.execute(
+            "UPDATE threat_intel_records SET metadata = ? WHERE id = ?",
+            (json.dumps(meta) if meta else None, record_id),
+        )
+        logger.info(
+            f"Threat intel record {record_id} disposition "
+            f"{'set to ' + disposition if disposition else 'cleared'}"
+        )
+        return True
 
     def _row_to_record(self, row) -> ThreatIntelRecord:
         """Convert database row to ThreatIntelRecord."""

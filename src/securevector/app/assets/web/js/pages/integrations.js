@@ -153,7 +153,7 @@ agent = create_agent(
     middleware=[secure_middleware(mode="enforce")],
 )
 
-# Note: langgraph.prebuilt.create_react_agent has no middleware arg — use
+# Note: langgraph.prebuilt.create_react_agent has no middleware arg: use
 # create_agent. For a raw StateGraph, gate tools with langgraph.types.interrupt()
 # (see the Guide).`
         },
@@ -166,7 +166,7 @@ agent = create_agent(
             sdkSnippet: `from crewai import Agent
 from securevector_sdk_crewai import secure_tools
 
-# Wrap your tools — observe logs every call; enforce raises before the
+# Wrap your tools: observe logs every call; enforce raises before the
 # tool runs. All three controls + tamper-evident audit, runtime_kind=crewai.
 agent = Agent(
     role="Researcher",
@@ -176,12 +176,12 @@ agent = Agent(
         },
         'proxy-hermes': {
             name: 'Hermes',
-            description: 'NousResearch hermes-agent — CLI, gateway & ACP',
+            description: 'NousResearch hermes-agent: CLI, gateway & ACP',
             defaultProvider: 'openai',
             runtimeKind: 'hermes',
             sdkPackage: 'securevector-sdk-hermes',
             sdkSnippet: `# Zero-config: the package registers a Hermes plugin
-# (hermes_agent.plugins entry point) — auto-attached on startup in the
+# (hermes_agent.plugins entry point): auto-attached on startup in the
 # hermes CLI, gateway and ACP modes. Every tool call gets all three
 # controls + tamper-evident audit, runtime_kind=hermes. Just run hermes:
 hermes                                  # observe (log-only)
@@ -254,25 +254,25 @@ def chat_with_protection(user_input):
         },
         'proxy-claude-code': {
             name: 'Claude Code',
-            description: 'Anthropic CLI host — real-time policy enforcement + tamper-evident audit for MCP tool calls',
+            description: 'Anthropic CLI host, real-time policy enforcement + tamper-evident audit for MCP tool calls',
             isClaudeCode: true,
             defaultProvider: 'anthropic'
         },
         'proxy-codex': {
             name: 'Codex',
-            description: 'OpenAI Codex CLI host — real-time policy enforcement + tamper-evident audit for MCP tool calls',
+            description: 'OpenAI Codex CLI host, real-time policy enforcement + tamper-evident audit for MCP tool calls',
             isCodex: true,
             defaultProvider: 'openai'
         },
         'proxy-copilot-cli': {
             name: 'GitHub Copilot CLI',
-            description: 'GitHub Copilot CLI host — real-time policy enforcement + tamper-evident audit for tool calls',
+            description: 'GitHub Copilot CLI host, real-time policy enforcement + tamper-evident audit for tool calls',
             isCopilotCli: true,
             defaultProvider: 'openai'
         },
         'proxy-cursor': {
             name: 'Cursor',
-            description: 'Cursor IDE agent — real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
+            description: 'Cursor IDE agent, real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
             isCursor: true,
             defaultProvider: 'openai'
         }
@@ -295,7 +295,7 @@ def chat_with_protection(user_input):
         // signpost that relationship and offer a way back.
         const refNote = document.createElement('div');
         refNote.style.cssText = 'display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-card);';
-        refNote.appendChild(document.createTextNode('Detailed reference for ' + (integration.name || 'this integration') + ' — install, verify, self-host & troubleshooting.'));
+        refNote.appendChild(document.createTextNode('Detailed reference for ' + (integration.name || 'this integration') + ': install, verify, self-host & troubleshooting.'));
         const backLink = document.createElement('button');
         backLink.type = 'button';
         backLink.style.cssText = 'background: none; border: none; color: var(--accent-primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px;';
@@ -374,7 +374,7 @@ def chat_with_protection(user_input):
                         } else {
                             statusBar.style.background = 'var(--bg-tertiary)';
                             statusBar.style.color = 'var(--text-secondary)';
-                            statusBar.textContent = 'Proxy not running — monitoring via plugin only';
+                            statusBar.textContent = 'Proxy not running: monitoring via plugin only';
                         }
                     } catch {}
                 })();
@@ -413,7 +413,7 @@ def chat_with_protection(user_input):
             // On plugin/proxy pages, label the local card as "Option 1 · This
             // device" so it pairs visibly with the "Option 2 · Your cloud" remote
             // section below (SDK pages already show both options inside the card).
-            if (!remoteAdded) container.appendChild(this._optionLabel('1', 'This device (local app)', null, '#06b6d4'));
+            if (!remoteAdded) container.appendChild(this._optionLabel('1', 'This device (local app)', null, '#5eadb8'));
             container.appendChild(localWrap);
             if (remoteSection) container.appendChild(remoteSection);
         }
@@ -444,8 +444,8 @@ def chat_with_protection(user_input):
         const t = document.createElement('div');
         t.style.cssText = 'font-size: 14px; font-weight: 800; margin-bottom: 4px;';
         t.textContent = (env && env.in_container)
-            ? 'Self-hosted engine (container) — point ' + (integration.name || 'this agent') + ' here'
-            : 'Self-hosted engine — point ' + (integration.name || 'this agent') + ' here';
+            ? 'Self-hosted engine (container): point ' + (integration.name || 'this agent') + ' here'
+            : 'Self-hosted engine, point ' + (integration.name || 'this agent') + ' here';
         wrap.appendChild(t);
         const sub = document.createElement('div');
         sub.style.cssText = 'font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.5;';
@@ -568,12 +568,12 @@ def chat_with_protection(user_input):
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'Works with all providers — no wrong proxy configuration';
+        subtitleText.textContent = 'Works with all providers: no wrong proxy configuration';
         titleDiv.appendChild(subtitleText);
         header.appendChild(titleDiv);
 
         const badge = document.createElement('span');
-        badge.style.cssText = 'background: #f97316; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px; animation: pulse-badge 1.5s ease-in-out infinite;';
+        badge.style.cssText = 'background: var(--gradient-end, #2d6a74); color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.5px;';
         badge.textContent = 'RECOMMENDED';
         header.appendChild(badge);
 
@@ -594,7 +594,7 @@ def chat_with_protection(user_input):
         // Description
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 13px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.5; font-weight: 600;';
-        desc.textContent = 'Use this if you work with multiple LLM providers. All 12 providers are available instantly \u2014 no configuration needed.';
+        desc.textContent = 'Use this if you work with multiple LLM providers. All 12 providers are available instantly: no configuration needed.';
         content.appendChild(desc);
 
         // Step 1
@@ -1039,7 +1039,7 @@ def chat_with_protection(user_input):
 
         const slFootnote = document.createElement('div');
         slFootnote.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 8px; line-height: 1.45;';
-        slFootnote.textContent = 'Already have a custom statusLine? Keep it — call statusline.js from your own script and append its output instead (see the Claude Code guide). Skipping this changes nothing about enforcement or audit; the status line is display-only.';
+        slFootnote.textContent = 'Already have a custom statusLine? Keep it: call statusline.js from your own script and append its output instead (see the Claude Code guide). Skipping this changes nothing about enforcement or audit; the status line is display-only.';
         slBody.appendChild(slFootnote);
 
         slBlock.appendChild(slBody);
@@ -1346,19 +1346,19 @@ def chat_with_protection(user_input):
         guideBody.appendChild(gSection('Install'));
         guideBody.appendChild(gPara('Click "Install Plugin" above. Then in your Claude Code session:'));
         guideBody.appendChild(gCode('/reload-plugins'));
-        guideBody.appendChild(gPara('Run any Bash command and check Tool Activity in the sidebar — every call lands as an audit row tagged runtime_kind=claude-code.'));
+        guideBody.appendChild(gPara('Run any Bash command and check Tool Activity in the sidebar: every call lands as an audit row tagged runtime_kind=claude-code.'));
 
         guideBody.appendChild(gSection('Statusline (optional)'));
-        guideBody.appendChild(gPara('Wire hooks/statusline.js into ~/.claude/settings.json — it surfaces threats / tool-call balance / 7-day token totals in one line. Compose with an existing statusline by shelling out from your script and appending its stdout. Set NO_COLOR=1 to disable the cyan/red palette.'));
+        guideBody.appendChild(gPara('Wire hooks/statusline.js into ~/.claude/settings.json: it surfaces threats / tool-call balance / 7-day token totals in one line. Compose with an existing statusline by shelling out from your script and appending its stdout. Set NO_COLOR=1 to disable the cyan/red palette.'));
 
         guideBody.appendChild(gSection('Uninstall'));
-        guideBody.appendChild(gPara('Click "Uninstall" above (recommended — strips the settings.json entries automatically). Then in Claude Code: /reload-plugins.'));
+        guideBody.appendChild(gPara('Click "Uninstall" above (recommended: strips the settings.json entries automatically). Then in Claude Code: /reload-plugins.'));
 
         guideBody.appendChild(gSection('Troubleshooting'));
         guideBody.appendChild(gItem("Hooks don't fire after install", 'run /reload-plugins, or restart Claude Code.'));
         guideBody.appendChild(gItem('Every call shows action=allow even with a synced rule', 'open Settings → Cloud and confirm the device is paired; check /api/tool-permissions/synced-overrides returns non-empty.'));
         guideBody.appendChild(gItem('No 7d tokens in the statusline', 'first render after install can take ≤ 5 s to populate the token cache; subsequent renders pick it up.'));
-        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently — restart with securevector-app --web on 127.0.0.1:8741.'));
+        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently: restart with securevector-app --web on 127.0.0.1:8741.'));
 
         guideBody.appendChild(gSection('Full documentation'));
         const inAppLink = document.createElement('a');
@@ -1443,7 +1443,7 @@ def chat_with_protection(user_input):
         commandsWrap.style.cssText = 'display: none; margin-bottom: 16px;';
         const commandsHeading = document.createElement('div');
         commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px;';
-        commandsHeading.textContent = 'Install command — run in your terminal';
+        commandsHeading.textContent = 'Install command: run in your terminal';
         commandsWrap.appendChild(commandsHeading);
         const commandsSubhead = document.createElement('div');
         commandsSubhead.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
@@ -2175,8 +2175,8 @@ def chat_with_protection(user_input):
         };
 
         guideBody.appendChild(gSection('Install'));
-        guideBody.appendChild(gPara('Click "Install Plugin" above. Then restart your Codex session — Codex will prompt you to trust SecureVector Guard hooks the first time the plugin loads. Accept the trust prompt and the plugin starts auditing tool calls.'));
-        guideBody.appendChild(gPara('Run any MCP tool from Codex and check Tool Activity in the sidebar — every call lands as an audit row tagged runtime_kind=codex.'));
+        guideBody.appendChild(gPara('Click "Install Plugin" above. Then restart your Codex session: Codex will prompt you to trust SecureVector Guard hooks the first time the plugin loads. Accept the trust prompt and the plugin starts auditing tool calls.'));
+        guideBody.appendChild(gPara('Run any MCP tool from Codex and check Tool Activity in the sidebar: every call lands as an audit row tagged runtime_kind=codex.'));
 
         guideBody.appendChild(gSection('Verify'));
         guideBody.appendChild(gCode('curl -fsS http://127.0.0.1:8741/health'));
@@ -2184,15 +2184,15 @@ def chat_with_protection(user_input):
         guideBody.appendChild(gPara('Should report securevector-guard@securevector-local · installed, enabled.'));
 
         guideBody.appendChild(gSection('Uninstall'));
-        guideBody.appendChild(gPara('Click "Uninstall" above (recommended — strips the ~/.codex/config.toml sections automatically). Then restart your Codex session.'));
+        guideBody.appendChild(gPara('Click "Uninstall" above (recommended: strips the ~/.codex/config.toml sections automatically). Then restart your Codex session.'));
 
         guideBody.appendChild(gSection('Troubleshooting'));
-        guideBody.appendChild(gItem("Hooks don't fire after install", 'restart your Codex session — Codex loads plugins at session start, not live.'));
-        guideBody.appendChild(gItem('First-run "Trust hooks?" prompt every session', 'confirm the trust dialog was accepted (Codex caches the trust hash in ~/.codex/config.toml — declined trust replays the prompt).'));
+        guideBody.appendChild(gItem("Hooks don't fire after install", 'restart your Codex session: Codex loads plugins at session start, not live.'));
+        guideBody.appendChild(gItem('First-run "Trust hooks?" prompt every session', 'confirm the trust dialog was accepted (Codex caches the trust hash in ~/.codex/config.toml: declined trust replays the prompt).'));
         guideBody.appendChild(gItem('Status pill says "Installed, not enabled"', 'open ~/.codex/config.toml and confirm this block is present:'));
         guideBody.appendChild(gCode('[plugins."securevector-guard@securevector-local"]\nenabled = true'));
         guideBody.appendChild(gItem('Every call shows action=allow even with a synced rule', 'open Settings → Cloud and confirm the device is paired; check /api/tool-permissions/synced-overrides returns non-empty.'));
-        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently — restart with securevector-app --web on 127.0.0.1:8741.'));
+        guideBody.appendChild(gItem('App unreachable', 'every hook fails-open silently: restart with securevector-app --web on 127.0.0.1:8741.'));
 
         guide.appendChild(guideBody);
         content.appendChild(guide);
@@ -2318,7 +2318,7 @@ def chat_with_protection(user_input):
                     alreadyLabel.style.color = 'var(--warning)';
                     alreadyLabel.textContent = 'Already installed';
                     resultArea.appendChild(alreadyLabel);
-                    resultArea.appendChild(document.createTextNode(' \u2014 click "Reinstall Plugin" to update.'));
+                    resultArea.appendChild(document.createTextNode(': click "Reinstall Plugin" to update.'));
                     installBtn.textContent = 'Reinstall Plugin';
                 } else {
                     resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
@@ -2391,7 +2391,7 @@ def chat_with_protection(user_input):
 
         const features = [
             { name: 'Threat Monitoring', desc: 'Scans prompts & responses', always: true },
-            { name: 'Cost Tracking', desc: 'Token usage & spend', always: true },
+            { name: 'Cost & Tokens', desc: 'Token usage & spend', always: true },
             { name: 'Tool Permissions', desc: 'Block dangerous tools', always: true },
             { name: 'Security Injection', desc: 'Prompt-level protection', always: true },
         ];
@@ -2693,7 +2693,7 @@ def chat_with_protection(user_input):
                 const data = await res.json();
                 if (data.status === 'started' || data.status === 'already_running') {
                     blockingStatus.style.color = 'var(--success)';
-                    blockingStatus.textContent = 'Block mode active \u2014 multi-provider proxy is intercepting and scanning all LLM traffic.';
+                    blockingStatus.textContent = 'Block mode active: multi-provider proxy is intercepting and scanning all LLM traffic.';
                     await refreshProxyStatus();
                 } else {
                     proxyStatusLabel.textContent = '';
@@ -2813,7 +2813,7 @@ def chat_with_protection(user_input):
                         </div>
                     `;
                     Modal.show({
-                        title: 'Block Mode Disabled \u2014 Restart OpenClaw',
+                        title: 'Block Mode Disabled: Restart OpenClaw',
                         content: modalContent,
                         size: 'medium',
                         actions: [{ label: 'Got it', primary: true }]
@@ -2858,7 +2858,7 @@ def chat_with_protection(user_input):
                 if (blockEnabled) {
                     content.style.display = 'block';
                     blockingStatus.style.color = 'var(--success)';
-                    blockingStatus.textContent = 'Block mode active \u2014 multi-provider proxy is intercepting and scanning all LLM traffic.';
+                    blockingStatus.textContent = 'Block mode active: multi-provider proxy is intercepting and scanning all LLM traffic.';
                     await refreshProxyStatus();
                 } else {
                     blockingStatus.textContent = '';
@@ -2889,7 +2889,7 @@ def chat_with_protection(user_input):
 
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
-        subtitleText.textContent = 'Full threat blocking with proxy interception — auto-patches pi-ai';
+        subtitleText.textContent = 'Full threat blocking with proxy interception: auto-patches pi-ai';
         titleDiv.appendChild(subtitleText);
         header.appendChild(titleDiv);
 
@@ -3252,7 +3252,7 @@ def chat_with_protection(user_input):
         titleText.textContent = 'SecureVector SDK';
         const subtitleText = document.createElement('div');
         subtitleText.style.cssText = 'font-size: 13px; color: var(--accent-primary); font-weight: 500;';
-        subtitleText.textContent = 'Recommended — secures tool calls, not just LLM traffic';
+        subtitleText.textContent = 'Recommended: secures tool calls, not just LLM traffic';
         titleDiv.appendChild(titleText);
         titleDiv.appendChild(subtitleText);
         const badge = document.createElement('span');
@@ -3279,12 +3279,12 @@ def chat_with_protection(user_input):
         // the recommended one; the local option is de-emphasised.
         const s2 = document.createElement('div');
         s2.style.cssText = 'font-weight: 700; font-size: 13px; margin: 18px 0 10px;';
-        s2.textContent = 'Then install — where does the engine run?';
+        s2.textContent = 'Then install: where does the engine run?';
         content.appendChild(s2);
 
         // A self-contained option panel: numbered pill + title + tag, note, code.
         // `recommended` gives an accent-tinted border + "RECOMMENDED" chip.
-        const CYAN = '#06b6d4', RED = '#ef4444';
+        const CYAN = '#5eadb8', RED = '#ef4444';
         const optionPanel = (num, dot, title, tag, note, codeText, recommended) => {
             const p = document.createElement('div');
             p.style.cssText = 'border: 1.5px solid ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 55%, var(--border-default))' : 'var(--border-default)') + '; border-radius: 10px; padding: 13px 14px; margin: 0 0 12px; background: ' + (recommended ? 'color-mix(in srgb, var(--accent-primary) 5%, var(--bg-card))' : 'var(--bg-card)') + ';';
@@ -3306,7 +3306,7 @@ def chat_with_protection(user_input):
         };
 
         const localPanel = optionPanel(1, CYAN, 'This device (local app)', null,
-            'The app is already running (it’s serving this page), so install the adapter only — it points at the local engine by default:',
+            'The app is already running (it’s serving this page), so install the adapter only: it points at the local engine by default:',
             'pip install ' + integration.sdkPackage + ' --no-deps', !endpointMode);
         const cloudPanel = optionPanel(2, RED, 'Your cloud (self-hosted endpoint)', endpointMode ? 'Recommended here' : null,
             'Deploy the engine to your cloud with the SecureVector Terraform modules, then point the SDK at its endpoint:',
@@ -3347,7 +3347,7 @@ def chat_with_protection(user_input):
             el.style.borderColor = 'var(--border-default)';
             el.style.color = 'var(--text-secondary)';
             el.textContent = '⏳ Waiting for the first ' + integration.name +
-                ' tool call — run your agent with the SDK installed and this turns live automatically (no manual pairing).';
+                ' tool call: run your agent with the SDK installed and this turns live automatically (no manual pairing).';
             return;
         }
 
@@ -3378,7 +3378,7 @@ def chat_with_protection(user_input):
 
         const compliance = document.createElement('div');
         compliance.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;';
-        compliance.textContent = 'Tool-call-level, attributed, tamper-evident audit — supports your EU AI Act Art. 12 / 15 record-keeping.';
+        compliance.textContent = 'Tool-call-level, attributed, tamper-evident audit: supports your EU AI Act Art. 12 / 15 record-keeping.';
         el.appendChild(compliance);
 
         const actions = document.createElement('div');
@@ -3435,34 +3435,34 @@ def chat_with_protection(user_input):
         summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid ' + accentBorder + '; border-radius: 8px; font-size: 13px; font-weight: 600; color: ' + (defaultOpen ? 'var(--text-primary)' : 'var(--text-secondary)') + '; user-select: none;';
         summary.textContent = defaultOpen
             ? 'Point ' + (integration.name || 'this agent') + ' at your remote engine endpoint'
-            : 'Option 2 · Your cloud (self-hosted endpoint) — point at your remote engine';
+            : 'Option 2 · Your cloud (self-hosted endpoint): point at your remote engine';
         details.appendChild(summary);
 
         const body = document.createElement('div');
         body.style.cssText = 'padding: 12px 4px 0;';
         const note = (text) => { const d = document.createElement('div'); d.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin: 10px 0 8px; line-height: 1.55;'; d.textContent = text; return d; };
 
-        body.appendChild(note('Everything above assumes the engine is the local app on 127.0.0.1. If you deployed the engine to your own cloud with the SecureVector Terraform modules, keep this exact integration — just point it at your deployment’s endpoint (the URL from `terraform output`) instead of localhost.'));
+        body.appendChild(note('Everything above assumes the engine is the local app on 127.0.0.1. If you deployed the engine to your own cloud with the SecureVector Terraform modules, keep this exact integration: just point it at your deployment’s endpoint (the URL from `terraform output`) instead of localhost.'));
 
         if (isSdk) {
             body.appendChild(note('Your environment already has the framework and the engine lives elsewhere, so install the adapter only (--no-deps) and set the endpoint:'));
             body.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + ep));
         } else if (isPlugin) {
-            body.appendChild(note('The plugin runs on the machine where your coding-agent harness runs, and talks to the remote engine over HTTP. Install the CLI there to add the plugin hooks, point it at your deployment, then install — this installs the CLI + plugin hooks only; your engine stays remote:'));
+            body.appendChild(note('The plugin runs on the machine where your coding-agent harness runs, and talks to the remote engine over HTTP. Install the CLI there to add the plugin hooks, point it at your deployment, then install: this installs the CLI + plugin hooks only; your engine stays remote:'));
             body.appendChild(this.createCodeBlock("pip install 'securevector-ai-monitor[app]'\nexport SECUREVECTOR_ENGINE_ENDPOINT=" + ep + "\nsecurevector-app --install-plugin " + slug));
         } else {
-            body.appendChild(note('Replace the localhost endpoint URL shown above with your deployment’s URL — e.g. https://<your-engine-endpoint>/analyze. Nothing else changes.'));
+            body.appendChild(note('Replace the localhost endpoint URL shown above with your deployment’s URL: e.g. https://<your-engine-endpoint>/analyze. Nothing else changes.'));
         }
 
         const calloutBox = document.createElement('div');
         calloutBox.style.cssText = 'margin: 10px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary); font-size: 12px; color: var(--text-primary); line-height: 1.55;';
         const cStrong = document.createElement('strong'); cStrong.textContent = 'Engine, not cloud. ';
         calloutBox.appendChild(cStrong);
-        calloutBox.appendChild(document.createTextNode('SECUREVECTOR_ENGINE_ENDPOINT is where calls go for analysis — your local app OR your Terraform/self-host engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
+        calloutBox.appendChild(document.createTextNode('SECUREVECTOR_ENGINE_ENDPOINT is where calls go for analysis: your local app OR your Terraform/self-host engine. It is NOT the SecureVector cloud (scan.securevector.io). The legacy SECUREVECTOR_SDK_APP_URL still works as a fallback.'));
         body.appendChild(calloutBox);
 
-        body.appendChild(note('Auth is optional. A private (in-VPC) endpoint needs no credential — the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key — a free SecureVector account key or an SVET token; it gates inbound access only and forwards no data:'));
-        body.appendChild(this.createCodeBlock('export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only'));
+        body.appendChild(note('Auth is optional. A private (in-VPC) endpoint needs no credential: the default, and the least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token: enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key: a free SecureVector account key or an SVET token; it gates inbound access only and forwards no data:'));
+        body.appendChild(this.createCodeBlock('export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional: public gated endpoint only'));
 
         details.appendChild(body);
         return details;
@@ -3473,7 +3473,7 @@ def chat_with_protection(user_input):
         details.style.cssText = 'margin-bottom: 16px;';
         const summary = document.createElement('summary');
         summary.style.cssText = 'cursor: pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); user-select: none;';
-        summary.textContent = 'Optional — legacy LLM proxy (advanced)';
+        summary.textContent = 'Optional: legacy LLM proxy (advanced)';
         details.appendChild(summary);
         const body = document.createElement('div');
         body.style.cssText = 'padding-top: 12px;';

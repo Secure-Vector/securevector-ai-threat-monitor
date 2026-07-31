@@ -5,6 +5,19 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-07-15
+
+### Added
+- **Runtime Connect Wizard** — guided detect → protect → verify flow: scans this device for agent runtimes (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw, frameworks), installs Guard with one click per runtime, and verifies the first protected call live. New left-nav Connect entry; the manual per-agent command sets remain under Connect Agents / Integrations.
+- **One-click cloud trial from the local app** *(Settings → Cloud)* — a "Start a free 30-day cloud trial" CTA that runs an OAuth-style device flow: the app requests a device code, opens the browser to the signup page, polls for completion, and stores the returned `svpk_` key itself — no key to copy. Falls back gracefully to the manual paste path when the cloud endpoint isn't available (`trial_unavailable`). Metadata-only; same consent gates as a manual connect.
+- **JIT (just-in-time) tool access requests** — an agent that hits a *requestable* deny can file a time-boxed access request; a human approves or denies it on the Tool Permissions page. Org hard denies never queue (requests against them are rejected at creation and cannot be overridden locally). Approval mints a grant of 15 minutes, 1 hour, or the requesting session only — there is deliberately no "until I revoke". Grants surface to the Guard hooks as high-priority allows scoped per runtime (and per session for session grants); revoke-now is one click; request/grant lifecycle rows are their own audit trail. Schema v43: `jit_access_requests` + `jit_access_grants` + a `requestable` flag on synced rules (cloud policies mark which denies may be requested; local Blocks are implicitly requestable). All four Guard plugins (Claude Code, Codex, Copilot CLI, Cursor) file requests on requestable denies and honor session-scoped grants.
+- **LLM I/O visibility in Agent Runs** — expanding a scanned step now lazy-loads the exact content excerpt SecureVector inspected for that call (from the correlated threat-intel record), with action / threat-type / risk context. Privacy posture unchanged: the app never records full prompt/response bodies — only what was scanned, and only while "Store text content" is on.
+
+### Changed
+- **v5 experience revamp** — the release's headline. Navigation regrouped into **Observe / Govern / Connect** (all page ids and deep links unchanged); **Cmd+K command palette** for keyboard navigation with recents; dashboard recomposed into a three-tier protection hero; threat details now lead with **one plain-language sentence** ("Blocked: this traffic contained an attempt to modify a protected system file.") with the technical breakdown below; a quiet motion layer (page-entrance transition, card hover lift, Agent Map flow animation) that fully disables under `prefers-reduced-motion`.
+- **Observability simplified to three tabs** — Map / Runs / **Sessions** (renamed from Storylines; the industry-standard term). The old Timeline page is now the "Live feed" view toggle inside Runs. Sessions' "Open this run in Agent Runs" deep-links to that exact run's waterfall.
+- **Cost Tracking, Tool Activity & Tool Inventory restyled** — runtime-colored identity dots replace the alert-looking panel borders (colors now match the observability pages), compact stat chips replace oversized stat cards, friendly empty states for the token trend chart and proxy cost summary, audit-chain re-verify joins the toolbar, and the Inventory column glossary collapses behind a toggle.
+
 ## [4.9.1] - 2026-07-02
 
 ### Added

@@ -118,11 +118,11 @@ const CloudActivityPage = {
         if (!this._heroSub) return;
         if (enrolled) {
             this._heroSub.textContent =
-                'Exactly what flows in and out of this device since it enrolled — synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+                'Exactly what flows in and out of this device since it enrolled: synced policies coming down, metadata-only audit going up. Read-only. The terminal equivalent is `sv inspect-uplink`.';
             this._heroPill.style.display = '';
         } else {
             this._heroSub.textContent =
-                'What will flow in and out of this device once it connects to a SecureVector cloud account — policies syncing down, metadata-only audit going up. Nothing flows until then. Read-only. The terminal equivalent is `sv inspect-uplink`.';
+                'What will flow in and out of this device once it connects to a SecureVector cloud account: policies syncing down, metadata-only audit going up. Nothing flows until then. Read-only. The terminal equivalent is `sv inspect-uplink`.';
             this._heroPill.style.display = 'none';
         }
     },
@@ -172,14 +172,14 @@ const CloudActivityPage = {
         // ('hard-locked under EU residency') renders as a highlighted pill —
         // it's the phrase a privacy/compliance buyer scans for.
         [
-            'Until then it runs fully local — nothing synced down, nothing forwarded up.',
+            'Until then it runs fully local: nothing synced down, nothing forwarded up.',
             {
-                pre: 'Your prompt and output text never leaves this device, connected or not (',
+                pre: 'Your prompt and output text stays on this device, connected or not, unless you separately opt in to cloud ML analysis (',
                 hi: 'hard-locked under EU residency',
-                post: ').',
+                post: ', where that opt-in stays off).',
             },
             {
-                text: 'Enrolling sends only this device\u2019s identity — device id, hostname, OS, app version — to bind it to your org.',
+                text: 'Enrolling sends only this device\u2019s identity (device id, hostname, OS, app version) to bind it to your org.',
                 eu: 'This identity metadata is the only data that crosses to our cloud (today hosted outside the EU); no prompt or output content is ever included.',
             },
             'After that, forwarding is operational metadata only (agent/session identifiers, activity counts, posture flags; never prompt or output text) for fleet-wide governance posture.',
@@ -441,7 +441,7 @@ const CloudActivityPage = {
         promise.innerHTML =
             '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
         const ptxt = document.createElement('span');
-        ptxt.textContent = 'Metadata only. Tool ids, decisions, device + app version, timestamps. Never prompt text, model output, or tool arguments — the OCSF raw_data slot always leaves as null.';
+        ptxt.textContent = 'Metadata only. Tool ids, decisions, device + app version, timestamps. Never prompt text, model output, or tool arguments: the OCSF raw_data slot always leaves as null.';
         promise.appendChild(ptxt);
         card.appendChild(promise);
 
@@ -561,7 +561,7 @@ const CloudActivityPage = {
         sub.className = 'ca-fwd-toggle-sub';
         sub.textContent = out.forwarding_enabled
             ? 'Forwarding metadata to your org’s managed destinations. Turn off to stop anything leaving this device for the cloud fleet.'
-            : 'Off — nothing is sent to the cloud fleet from this device. Your admin’s opt-in stays recorded; flip back on anytime.';
+            : 'Off: nothing is sent to the cloud fleet from this device. Your admin’s opt-in stays recorded; flip back on anytime.';
         textCol.appendChild(sub);
         row.appendChild(textCol);
 
@@ -610,7 +610,7 @@ const CloudActivityPage = {
                 title: 'Enable cloud forwarding?',
                 message:
                     'Fleet sync forwards operational metadata (agent/session ' +
-                    'identifiers, activity counts, posture flags — never prompt or ' +
+                    'identifiers, activity counts, posture flags: never prompt or ' +
                     'output text) to SecureVector\u2019s cloud, currently hosted ' +
                     'outside the EU. Content stays on this device. You can pause ' +
                     'forwarding again anytime from this page.',

@@ -28,7 +28,7 @@ const GuideCursorPage = {
         header.appendChild(h1);
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0;';
-        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, and prompt-injection / secret scanning for the Cursor agent — all on loopback, no LLM proxy in the request path. Audit rows are tagged runtime_kind=cursor.';
+        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, and prompt-injection / secret scanning for the Cursor agent: all on loopback, no LLM proxy in the request path. Audit rows are tagged runtime_kind=cursor.';
         header.appendChild(lede);
         root.appendChild(header);
 
@@ -60,9 +60,9 @@ const GuideCursorPage = {
             ['beforeShellExecution', 'blocking; fail-open', 'Enforces rules on the agent’s terminal commands (tool id shell). Returns allow / deny / ask with a SecureVector Guard reason shown to you AND sent back to the agent.'],
             ['beforeMCPExecution', 'blocking; fail-open', 'Same enforcement for MCP tools. Rules can target the exact tool, the &lt;server&gt;:&lt;tool&gt; form, or the whole server (slug derived from the server’s url/command).'],
             ['afterShellExecution', 'fire-and-forget', 'Audit row tagged runtime_kind=cursor. Command output is scanned via /analyze only when it carries a credential shape (marker-gated, keeps FP rate down).'],
-            ['afterMCPExecution', 'fire-and-forget', 'Audit row + unconditional /analyze scan of the MCP result — third-party data is the canonical indirect-prompt-injection surface.'],
+            ['afterMCPExecution', 'fire-and-forget', 'Audit row + unconditional /analyze scan of the MCP result: third-party data is the canonical indirect-prompt-injection surface.'],
             ['afterFileEdit', 'fire-and-forget', 'Audit row (tool id edit, path + edit count). Newly written content is scanned when credential-shaped (agents writing secrets into files).'],
-            ['beforeSubmitPrompt', 'fire-and-forget', 'Forwards every prompt to /analyze for jailbreak / injection detection. Observe-only — always continue:true; never blocks your prompt.'],
+            ['beforeSubmitPrompt', 'fire-and-forget', 'Forwards every prompt to /analyze for jailbreak / injection detection. Observe-only: always continue:true; never blocks your prompt.'],
             ['beforeReadFile', 'fire-and-forget', 'Cursor-only surface: file content is visible BEFORE the model sees it. Credential-shaped content is recorded as a secret exposure; the read is always allowed in v1.'],
             ['sessionStart / stop', 'fire-and-forget', 'Session-boundary markers (__session_start__ / __session_end__) so the Agent Map and Runs bound each session; stderr “Guard inactive” notice when the app is down.'],
         ]));
@@ -76,7 +76,7 @@ const GuideCursorPage = {
         fP.appendChild(fStrong);
         fP.appendChild(document.createTextNode('Cursor’s hooks fail open by default (an exit code other than 0/2 lets the action proceed), and every hook in this plugin additionally catches all errors and emits an explicit '));
         fP.appendChild(inline('{"permission":"allow"}'));
-        fP.appendChild(document.createTextNode('. When the local app is down, Cursor keeps working — exactly like every other SecureVector harness. All HTTP targets the local app on loopback at '));
+        fP.appendChild(document.createTextNode('. When the local app is down, Cursor keeps working: exactly like every other SecureVector harness. All HTTP targets the local app on loopback at '));
         fP.appendChild(inline('http://127.0.0.1:8741'));
         fP.appendChild(document.createTextNode(' (override with '));
         fP.appendChild(inline('SECUREVECTOR_ENGINE_ENDPOINT'));
@@ -86,21 +86,21 @@ const GuideCursorPage = {
 
         // --- Install ---
         root.appendChild(h2('Install'));
-        root.appendChild(p('First install and start the SecureVector local app — both install paths depend on it:'));
+        root.appendChild(p('First install and start the SecureVector local app: both install paths depend on it:'));
         root.appendChild(code(`pip install 'securevector-ai-monitor[app]'   # Apache 2.0, no signup\nsecurevector-app --web                       # binds 127.0.0.1:8741`));
 
-        root.appendChild(h3('Option A — via the app UI'));
+        root.appendChild(h3('Option A: via the app UI'));
         root.appendChild(p('Open http://127.0.0.1:8741, click Integrations → Cursor, then click Install Plugin.'));
 
-        root.appendChild(h3('Option B — via CLI'));
-        root.appendChild(p('Same operation the UI button performs — runs the install handler in-process; the web server need not be running.'));
+        root.appendChild(h3('Option B: via CLI'));
+        root.appendChild(p('Same operation the UI button performs: runs the install handler in-process; the web server need not be running.'));
         root.appendChild(code('securevector-app --install-plugin cursor'));
 
         const installNote = document.createElement('p');
         installNote.style.cssText = 'margin: 12px 0 4px 0; color: var(--text-secondary); font-size: 13px;';
         installNote.appendChild(document.createTextNode('Install stages the plugin tree under '));
         installNote.appendChild(inline('~/.securevector/staging/cursor-plugin/'));
-        installNote.appendChild(document.createTextNode(', then copies it (a real directory — Cursor doesn’t load symlinked local plugins) to '));
+        installNote.appendChild(document.createTextNode(', then copies it (a real directory: Cursor doesn’t load symlinked local plugins) to '));
         installNote.appendChild(inline('~/.cursor/plugins/local/securevector-guard/'));
         installNote.appendChild(document.createTextNode(', the location Cursor scans for local plugins. The plugin bundles its nine hooks (the '));
         installNote.appendChild(inline('.cursor-plugin/plugin.json'));
@@ -114,7 +114,7 @@ const GuideCursorPage = {
         root.appendChild(installNote);
 
         // --- Activate ---
-        root.appendChild(h2('Activate — reload Cursor'));
+        root.appendChild(h2('Activate: reload Cursor'));
         const act = document.createElement('div');
         act.style.cssText = 'margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
         const aP = document.createElement('p');
@@ -129,15 +129,15 @@ const GuideCursorPage = {
         // --- Verify ---
         // --- Remote engine (Terraform / self-host) ---
         root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
-        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL: no local app needed.'));
         root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
 securevector-app --install-plugin cursor
 
 # point the hooks at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
-        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
-        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
-        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis: your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential: the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token: enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token: it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional: public gated endpoint only`));
 
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
@@ -154,15 +154,15 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(expectP);
         root.appendChild(p('2. Ask the Cursor agent to run any terminal command, then read the most recent audit row:'));
         root.appendChild(code(`curl -s 'http://127.0.0.1:8741/api/tool-permissions/call-audit?limit=1' | python3 -m json.tool\n# Expect runtime_kind="cursor" on the entry.`));
-        root.appendChild(p('3. Visit http://127.0.0.1:8741 → Agent Activity. Your Cursor session appears on the Agent Map, in Runs, and on the Timeline.'));
+        root.appendChild(p('3. Visit http://127.0.0.1:8741 → Observability. Your Cursor session appears on the Agent Map, in Runs, and on the Timeline.'));
 
         // --- Governable tools ---
         root.appendChild(h2('What you can govern'));
         root.appendChild(p('Cursor’s enforcement points are event-typed, so the governable built-in surface maps to a small set of synthesized tool ids:'));
         root.appendChild(table(['Tool', 'Risk', 'What it governs'], [
             ['shell', 'admin', 'Every terminal command the agent runs (beforeShellExecution). Block this to cut shell execution entirely.'],
-            ['edit', 'write', 'Agent file edits (afterFileEdit — observe/audit only; Cursor exposes no pre-edit block).'],
-            ['read', 'read', 'Agent file reads (beforeReadFile — observe/audit only in v1).'],
+            ['edit', 'write', 'Agent file edits (afterFileEdit: observe/audit only; Cursor exposes no pre-edit block).'],
+            ['read', 'read', 'Agent file reads (beforeReadFile: observe/audit only in v1).'],
             ['write, grep, delete, task', 'write / read / admin', 'Documented Cursor agent tools, governable when surfaced via the unified preToolUse event set.'],
         ]));
         const mcpP = document.createElement('p');
@@ -179,7 +179,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
             ['Plugin target URL', 'SECUREVECTOR_ENGINE_ENDPOINT env var', 'http://127.0.0.1:8741', 'Override for non-default app deployments'],
             ['Tool permission rules', 'Tool Permissions page in the app', 'Default-allow + last-resort denies', 'Per-tool allow / deny / ask, cloud-syncable, local overrides'],
         ]));
-        root.appendChild(p('There is no statusline emitter for Cursor — the equivalent live findings appear on the local SecureVector dashboard (and in the SecureVector editor extension, if installed).'));
+        root.appendChild(p('There is no statusline emitter for Cursor: the equivalent live findings appear on the local SecureVector dashboard (and in the SecureVector editor extension, if installed).'));
 
         // --- Uninstall ---
         root.appendChild(h2('Uninstall'));
@@ -189,11 +189,11 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
 
         // --- Possible issues ---
         root.appendChild(h2('Possible issues'));
-        root.appendChild(note('Plugin / hooks don’t appear after install', 'reload Cursor — local plugins and hooks are read at startup. Confirm the plugin dir exists with ls ~/.cursor/plugins/local/securevector-guard/.cursor-plugin/plugin.json, check Settings → Plugins (securevector-guard) and Settings → Hooks, and that Cursor is recent enough (Plugins landed in Cursor 2.5; Hooks are beta from 1.7).'));
-        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK). When the app is down every decision is allow and no audit row is written — the plugin never breaks the session.'));
+        root.appendChild(note('Plugin / hooks don’t appear after install', 'reload Cursor: local plugins and hooks are read at startup. Confirm the plugin dir exists with ls ~/.cursor/plugins/local/securevector-guard/.cursor-plugin/plugin.json, check Settings → Plugins (securevector-guard) and Settings → Hooks, and that Cursor is recent enough (Plugins landed in Cursor 2.5; Hooks are beta from 1.7).'));
+        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK). When the app is down every decision is allow and no audit row is written: the plugin never breaks the session.'));
         root.appendChild(note('A deny doesn’t block in some Cursor builds', 'Cursor Hooks are beta; community reports exist of ask being ignored or deny not applying in sandboxed-shell paths on specific builds. Verify enforcement with a test deny rule on shell after Cursor updates.'),);
         root.appendChild(note('An MCP tool isn’t blocked by a local override', 'MCP tools are governed by cloud-synced rules (target the tool, <server>:<tool>, or the server slug). Local UI overrides apply to the built-in tool ids; pair with cloud via Settings → Cloud to push MCP rules.'));
-        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'check GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t paired with cloud yet — pair via Settings → Cloud.'));
+        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'check GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t paired with cloud yet, pair via Settings → Cloud.'));
 
         // --- Privacy ---
         root.appendChild(h2('Privacy posture'));
@@ -209,3 +209,5 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         container.appendChild(root);
     },
 };
+
+window.GuideCursorPage = GuideCursorPage;

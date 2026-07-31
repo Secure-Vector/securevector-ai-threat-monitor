@@ -129,31 +129,31 @@ test('hooks.json: PostToolUse matcher admits MCP tools AND every governable buil
 });
 
 
-test('hooks.json: declares PreToolUse + PostToolUse + Stop + UserPromptSubmit', () => {
-  // v4.2.x scope. `Stop` is a temporary diagnostic probe for cost
-  // tracking. `UserPromptSubmit` scans incoming chat messages for
-  // prompt-injection — without it, the plugin only sees tool inputs,
+test('hooks.json: declares PreToolUse + PostToolUse + SessionStart + UserPromptSubmit', () => {
+  // Current scope: the temporary `Stop` diagnostic probe was retired and
+  // `SessionStart` took its slot (session bootstrap — registers the run
+  // with the local app). `UserPromptSubmit` scans incoming chat messages
+  // for prompt-injection — without it, the plugin only sees tool inputs,
   // so direct injection in chat ("ignore previous instructions and …")
   // never reaches the rule engine.
   const h = readJson('hooks/hooks.json');
   const events = Object.keys(h.hooks);
   assert.deepEqual(events.sort(), [
-    'PostToolUse', 'PreToolUse', 'Stop', 'UserPromptSubmit',
+    'PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit',
   ]);
 });
 
 
-test('hooks.json: Stop hook points at the diagnostic stop-hook-probe.js', () => {
-  // The Stop hook is a probe — the file must exist + the command must
-  // reference it by name. Guards against the probe getting renamed
-  // without updating hooks.json (silent no-op).
+test('hooks.json: SessionStart hook points at session-start.js', () => {
+  // Guards against the hook file getting renamed without updating
+  // hooks.json (silent no-op).
   const h = readJson('hooks/hooks.json');
-  const stop = h.hooks.Stop;
-  assert.ok(Array.isArray(stop) && stop.length === 1);
-  assert.equal(stop[0].hooks[0].type, 'command');
-  assert.match(stop[0].hooks[0].command, /stop-hook-probe\.js/);
-  const probePath = path.resolve(PLUGIN_DIR, 'hooks', 'stop-hook-probe.js');
-  assert.ok(fs.existsSync(probePath), `stop-hook-probe.js missing at ${probePath}`);
+  const ss = h.hooks.SessionStart;
+  assert.ok(Array.isArray(ss) && ss.length === 1);
+  assert.equal(ss[0].hooks[0].type, 'command');
+  assert.match(ss[0].hooks[0].command, /session-start\.js/);
+  const hookPath = path.resolve(PLUGIN_DIR, 'hooks', 'session-start.js');
+  assert.ok(fs.existsSync(hookPath), `session-start.js missing at ${hookPath}`);
 });
 
 

@@ -21,8 +21,8 @@
 
 const { normalize } = require('../lib/normalize.js');
 const {
-  decideForCandidates, toCursorOutput, auditDecision, sessionIdFrom,
-  readAllStdin, DEFAULT_BASE_URL,
+  decideForCandidates, maybeFileJitRequest, toCursorOutput, auditDecision,
+  sessionIdFrom, readAllStdin, DEFAULT_BASE_URL,
 } = require('../lib/decide.js');
 
 /**
@@ -70,17 +70,19 @@ async function main() {
     }
     const toolName = (event && (event.tool_name || event.toolName)) || '';
     const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
+    const sessionId = sessionIdFrom(event);
     let decision = { decision: 'allow' };
     try {
       const candidates = normalize(toolName, {
         fromMcpEvent: true,
         serverSlug: serverSlugFrom(event),
       });
-      decision = await decideForCandidates(candidates, baseUrl);
+      decision = await decideForCandidates(candidates, baseUrl, sessionId);
     } catch {
       decision = { decision: 'allow' };
     }
-    auditDecision(baseUrl, toolName, event && event.tool_input, decision, sessionIdFrom(event));
+    auditDecision(baseUrl, toolName, event && event.tool_input, decision, sessionId);
+    decision = maybeFileJitRequest(baseUrl, toolName, decision, sessionId);
     out = toCursorOutput(decision);
   } catch {
     out = { permission: 'allow' };

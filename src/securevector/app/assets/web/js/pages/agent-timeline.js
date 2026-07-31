@@ -1,9 +1,10 @@
 /**
  * Agent Timeline — active-agent-observability (the chronological lens)
  *
- * The third view alongside Agent Map (topology) and Agent Runs (per-session
- * trace): a single newest-first stream of EVERY enforced tool call across all
- * runs, on one time axis. "What happened, in order, fleet-wide?" — each event
+ * The "Live feed" sub-view of Traces, alongside Agent Map (topology) and the
+ * per-session trace list: a single newest-first stream of EVERY enforced tool
+ * call across all traces, on one time axis. "What happened, in order,
+ * fleet-wide?" — each event
  * carries its runtime, whether the tool was a built-in or an external MCP, its
  * enforcement verdict, and (for blocked calls) why.
  *
@@ -12,11 +13,12 @@
  */
 
 // Keep in sync with agent-map.js HARNESS_FIXED / agent-runs.js RUNTIME_COLOR
-// so a harness reads the same colour across Map, Runs and Timeline.
+// so a harness reads the same colour across Map, Traces and the Live feed.
 const TL_RUNTIME_COLOR = {
-    'claude-code': '#fba35a', codex: '#3b82f6', openclaw: '#ef4444',
-    langchain: '#06b6d4', langgraph: '#0ea5e9', crewai: '#0d9488',
-    hermes: '#f59e0b',
+    // v5: runtimes are labels, not statuses — one neutral dot for all.
+    'claude-code': '#8b949e', codex: '#8b949e', openclaw: '#8b949e',
+    langchain: '#8b949e', langgraph: '#8b949e', crewai: '#8b949e',
+    hermes: '#8b949e',
 };
 const TL_OUTCOME = {
     block: { color: '#ef4444', label: 'BLOCKED' },
@@ -37,7 +39,7 @@ const AgentTimelinePage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
-            Header.setPageInfo('Timeline', 'Every enforced tool call, newest first — built-in vs external MCP, with the tool permission applied');
+            Header.setPageInfo('Traces: Live feed', 'Every enforced tool call across all traces, newest first.');
         }
         this._injectStyle();
 
@@ -241,7 +243,7 @@ const AgentTimelinePage = {
             feed.innerHTML = '<div class="tl-empty"><div class="t1">' +
                 (noKind ? 'No tool kind selected.' : 'No matching tool calls in this window.') + '</div>' +
                 '<div class="t2">' + (noKind ? 'Tick Built-in or External MCP to show calls.'
-                    : 'Adjust the Show / Tool filters, or run an agent — every tool call lands here in order.') + '</div></div>';
+                    : 'Adjust the Show / Tool filters, or run an agent: every tool call lands here in order.') + '</div></div>';
             return;
         }
         feed.textContent = '';
@@ -290,7 +292,7 @@ const AgentTimelinePage = {
             note.className = 'tl-trunc';
             note.textContent =
                 `Showing the latest ${this.entries.length} of ${this.total} enforced calls in this window. ` +
-                `Older calls aren't listed here — the chart above counts all of them.`;
+                `Older calls aren't listed here: the chart above counts all of them.`;
             feed.appendChild(note);
         }
     },
@@ -385,7 +387,9 @@ const AgentTimelinePage = {
             const mid = startMs + bucket * (i + 0.5);
             const t = document.createElementNS(TL_SVG_NS, 'text');
             t.setAttribute('x', xAt(i)); t.setAttribute('y', H - 6);
-            t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', '9.5');
+            // The right-most label would center past the viewBox edge and get
+            // clipped ("Jul 17" → "Jul 1") — anchor it to end instead.
+            t.setAttribute('text-anchor', i === N - 1 ? 'end' : 'middle'); t.setAttribute('font-size', '9.5');
             t.setAttribute('fill', 'var(--text-muted,#7d8590)');
             t.setAttribute('font-family', 'ui-monospace,Menlo,monospace');
             t.textContent = xfmt(new Date(mid)); svg.appendChild(t);
@@ -455,7 +459,7 @@ const AgentTimelinePage = {
         const rows = this._exportRows();
         if (!rows.length) return;
         const shown = this.action ? this.action : 'all';
-        ObsTabs.printDoc('SecureVector — Timeline',
+        ObsTabs.printDoc('SecureVector: Timeline',
             `<h1>Timeline</h1><div class="sub">${rows.length} events · last ${this.windowDays} day(s) · show: ${shown}</div>` +
             ObsTabs.tableHTML(this._exportCols(), rows));
     },

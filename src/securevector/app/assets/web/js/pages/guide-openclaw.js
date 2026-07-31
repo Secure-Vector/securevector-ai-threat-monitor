@@ -26,7 +26,7 @@ const GuideOpenclawPage = {
         header.appendChild(h1);
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0;';
-        lede.textContent = 'The SecureVector Guard plugin runs natively inside OpenClaw — scanning prompts, auditing tool calls with full arguments, tracking cost, and logging threats. OpenClaw gets the richest audit because the plugin captures MCP tools (read / exec / write) the proxy never sees. Audit rows are tagged runtime_kind=openclaw.';
+        lede.textContent = 'The SecureVector Guard plugin runs natively inside OpenClaw: scanning prompts, auditing tool calls with full arguments, tracking cost, and logging threats. OpenClaw gets the richest audit because the plugin captures MCP tools (read / exec / write) the proxy never sees. Audit rows are tagged runtime_kind=openclaw.';
         header.appendChild(lede);
         root.appendChild(header);
 
@@ -53,7 +53,7 @@ const GuideOpenclawPage = {
 
         // --- Two modes ---
         root.appendChild(h2('Two modes'));
-        root.appendChild(p('Monitor Mode is the default and adds zero latency on the LLM request path — the plugin observes via OpenClaw\'s hook API and never intercepts traffic. Block Mode layers a proxy on top so threats and unauthorized tool calls can be stopped before they reach the LLM.'));
+        root.appendChild(p('Monitor Mode is the default and adds zero latency on the LLM request path: the plugin observes via OpenClaw\'s hook API and never intercepts traffic. Block Mode layers a proxy on top so threats and unauthorized tool calls can be stopped before they reach the LLM.'));
 
         // --- What the plugin does ---
         root.appendChild(h2('What the plugin does (Monitor Mode)'));
@@ -67,8 +67,8 @@ const GuideOpenclawPage = {
 
         // --- Install (Monitor) ---
         root.appendChild(h2('Install (Monitor Mode)'));
-        root.appendChild(p('Start the local app, install the plugin, then restart the OpenClaw gateway — it loads the plugin automatically.'));
-        root.appendChild(code(`# 1. Start SecureVector\nsecurevector-app --web                 # binds 127.0.0.1:8741\n\n# 2. Install the plugin (or use Integrations → OpenClaw → Install in the UI)\ncurl -X POST http://localhost:8741/api/hooks/install\n\n# 3. Restart OpenClaw — the plugin loads automatically\nopenclaw gateway`));
+        root.appendChild(p('Start the local app, install the plugin, then restart the OpenClaw gateway: it loads the plugin automatically.'));
+        root.appendChild(code(`# 1. Start SecureVector\nsecurevector-app --web                 # binds 127.0.0.1:8741\n\n# 2. Install the plugin (or use Integrations → OpenClaw → Install in the UI)\ncurl -X POST http://localhost:8741/api/hooks/install\n\n# 3. Restart OpenClaw: the plugin loads automatically\nopenclaw gateway`));
 
         // --- Block mode ---
         root.appendChild(h2('Block Mode (optional)'));
@@ -81,20 +81,20 @@ const GuideOpenclawPage = {
         // --- Verify ---
         // --- Remote engine (Terraform / self-host) ---
         root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
-        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL: no local app needed.'));
         root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
 curl -X POST https://<your-engine-endpoint>/api/hooks/install
 
 # point the hooks at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
-        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
-        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
-        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis: your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential: the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token: enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token: it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional: public gated endpoint only`));
 
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
         root.appendChild(code('curl -s http://localhost:8741/api/hooks/status | python3 -m json.tool'));
-        root.appendChild(p('2. Send a message through your OpenClaw gateway, then check Agent Activity → Tool Activity in the app. Every tool call (read, write, exec, web_search, …) appears as allow, block, or log_only, tagged runtime_kind=openclaw.'));
+        root.appendChild(p('2. Send a message through your OpenClaw gateway, then check Observability → Tool Activity in the app. Every tool call (read, write, exec, web_search, …) appears as allow, block, or log_only, tagged runtime_kind=openclaw.'));
 
         // --- Plugin API ---
         root.appendChild(h2('Plugin API'));
@@ -106,7 +106,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         root.appendChild(code(`# Linux / macOS\nmkdir -p ~/.openclaw/plugins/securevector-guard\n\n# Windows (PowerShell)\nNew-Item -ItemType Directory -Force -Path "$env:APPDATA\\openclaw\\plugins\\securevector-guard"`));
         const fileList = document.createElement('ul');
         fileList.style.cssText = 'margin: 8px 0 8px 18px; color: var(--text-secondary); padding-left: 8px;';
-        [['openclaw.plugin.json', 'plugin manifest'], ['package.json', 'plugin metadata'], ['index.ts', 'main entry — runtime guards, fetch-to-SecureVector'], ['config.ts', 'config resolver (env vars + svconfig.yml reads)']].forEach(([f, d]) => {
+        [['openclaw.plugin.json', 'plugin manifest'], ['package.json', 'plugin metadata'], ['index.ts', 'main entry: runtime guards, fetch-to-SecureVector'], ['config.ts', 'config resolver (env vars + svconfig.yml reads)']].forEach(([f, d]) => {
             const li = document.createElement('li'); li.style.cssText = 'margin: 4px 0;';
             li.appendChild(inline(f)); li.appendChild(document.createTextNode(' — ' + d)); fileList.appendChild(li);
         });
@@ -122,7 +122,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
 
         // --- Possible issues ---
         root.appendChild(h2('Possible issues'));
-        root.appendChild(note('Plugin not loaded after install', 'restart the OpenClaw gateway — the plugin is loaded at gateway start. Confirm it appears in openclaw plugins list.'));
+        root.appendChild(note('Plugin not loaded after install', 'restart the OpenClaw gateway: the plugin is loaded at gateway start. Confirm it appears in openclaw plugins list.'));
         root.appendChild(note('No tool activity showing', 'check curl http://localhost:8741/api/hooks/status returns installed: true, and that the gateway was restarted after install.'));
         root.appendChild(note('Block Mode not blocking', 'confirm OPENAI_BASE_URL points at the proxy (port 8742) and the gateway was restarted with the env var set. The toggle/​svconfig must have block_mode enabled for the proxy to start.'));
 
@@ -140,3 +140,5 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         container.appendChild(root);
     },
 };
+
+window.GuideOpenclawPage = GuideOpenclawPage;

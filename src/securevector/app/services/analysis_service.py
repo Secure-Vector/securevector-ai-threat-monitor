@@ -100,15 +100,23 @@ _VALID_DIRECTIONS = {"incoming", "outgoing", "both"}
 def resolve_direction(rule_id, category=None, authored=None) -> str:
     """Resolve a rule's evaluation direction.
 
-    An explicit, valid `metadata.direction` wins. Otherwise rules whose id
-    marks them an evasion technique (`_evasion_`) default to `outgoing` —
-    reproducing the route's historical `"_evasion_" in id` incoming-suppression
-    so this refactor preserves behavior. Everything else is `both`.
+    An explicit, valid `metadata.direction` wins. Legacy `input` (authored
+    before the direction vocabulary existed) means "user prompt" and maps to
+    `outgoing` — normalizing it to `both` let user-request-shaped rules
+    (bulk-exfil asks, SQL injection phrasing, jailbreak personas) fire on
+    every file/doc an agent Reads as incoming context (2026-07 FP flood).
+    Legacy `output` stays `both`: those rules match secret VALUES, which are
+    worth catching in tool output too. Otherwise rules whose id marks them an
+    evasion technique (`_evasion_`) default to `outgoing` — reproducing the
+    route's historical `"_evasion_" in id` incoming-suppression. Everything
+    else is `both`.
     """
     if isinstance(authored, str):
         a = authored.strip().lower()
         if a in _VALID_DIRECTIONS:
             return a
+        if a == "input":
+            return "outgoing"
     if rule_id and "_evasion_" in rule_id:
         return "outgoing"
     return "both"
@@ -172,11 +180,15 @@ class AnalysisService:
         if self._rules_loaded:
             return
 
-        # Check if community rules are cached
-        counts = await self.repo.get_rule_counts()
-        if counts["community"] == 0:
-            # First run - load community rules from YAML
-            await self._load_community_rules_from_yaml()
+        # Re-import the bundled YAML pack on every process start (upsert by
+        # rule id). Previously this ran only when the cache was EMPTY, so
+        # shipped rule-pack updates — new patterns, severity changes,
+        # metadata.direction tags — never reached an existing install's DB.
+        # Safe to run unconditionally: community-rule enable/disable state
+        # lives in the overrides table (untouched here), and rows a cloud
+        # sync wrote are skipped inside so a newer synced version is never
+        # rolled back to the bundled one.
+        await self._load_community_rules_from_yaml()
 
         # Compile all enabled rules
         await self._compile_rules()
@@ -199,24 +211,39 @@ class AnalysisService:
             logger.warning(f"Community rules directory not found: {rules_dir}")
             return 0
 
+        # Rows that came through Sync-from-Cloud are newer than the bundled
+        # pack — never overwrite them with the bundled version.
+        try:
+            skip_ids = {
+                r.id
+                for r in await self.repo.list_community_rules()
+                if (r.metadata or {}).get("source") == "cloud_sync"
+            }
+        except Exception:  # noqa: BLE001 — refresh must never break startup
+            skip_ids = set()
+
         count = 0
         for yaml_file in rules_dir.glob("**/*.yaml"):
             try:
-                count += await self._load_yaml_file(yaml_file)
+                count += await self._load_yaml_file(yaml_file, skip_ids=skip_ids)
             except Exception as e:
                 logger.error(f"Failed to load {yaml_file}: {e}")
 
         for yaml_file in rules_dir.glob("**/*.yml"):
             try:
-                count += await self._load_yaml_file(yaml_file)
+                count += await self._load_yaml_file(yaml_file, skip_ids=skip_ids)
             except Exception as e:
                 logger.error(f"Failed to load {yaml_file}: {e}")
 
         logger.info(f"Loaded {count} community rules from YAML files")
         return count
 
-    async def _load_yaml_file(self, yaml_file: Path) -> int:
-        """Load rules from a single YAML file."""
+    async def _load_yaml_file(self, yaml_file: Path, skip_ids=None) -> int:
+        """Load rules from a single YAML file.
+
+        `skip_ids`: rule ids to leave untouched in the DB (cloud-synced rows
+        that are newer than the bundled pack).
+        """
         with open(yaml_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
@@ -229,6 +256,8 @@ class AnalysisService:
         if "rules" in data:
             for rule_entry in data["rules"]:
                 rule_id = rule_entry.get("id", f"{yaml_file.stem}_{count}")
+                if skip_ids and rule_id in skip_ids:
+                    continue
                 name = rule_entry.get("name", rule_id)
                 category = rule_entry.get("category", yaml_file.stem)
                 description = rule_entry.get("description", "")
@@ -275,6 +304,8 @@ class AnalysisService:
             # Old format - single rule per file
             for i, pattern_info in enumerate(data["patterns"]):
                 rule_id = f"{yaml_file.stem}_{i}"
+                if skip_ids and rule_id in skip_ids:
+                    continue
                 await self.repo.cache_community_rule(
                     rule_id=rule_id,
                     name=pattern_info.get("description", rule_id),

@@ -9,6 +9,8 @@ review flagged on PR #94.
 
 from __future__ import annotations
 
+import pytest
+
 from securevector.app.utils.redaction import redact_secrets
 
 
@@ -186,3 +188,63 @@ def test_existing_secret_patterns_still_fire_on_outgoing():
     out, n = redact_secrets(text, direction="outgoing")
     assert n >= 1
     assert "aBcDeFgHiJkLmNoPqRsT1234567890XYZA" not in out
+
+
+# ---------------------------------------------------------------- column form
+# Credentials pasted as an aligned table row (CLI output, docs, admin
+# consoles) are a real leak path: a `key: value`-only rule misses every one.
+# Observed live 2026-07-27 — a temp password in a box-drawing table row went
+# entirely undetected. These lock in the column-separator variant AND the
+# complexity guard that keeps markdown table headers out.
+
+@pytest.mark.parametrize("text", [
+    "│ Temp password   │ FakePass!2026xZ  use this for testing",
+    "| password | FakePass!2026xZ |",
+    "Temp password    FakePass!2026xZ",
+    "password\tFakePass!2026xZ",
+    "passwd  |  FakePass!2026xZ",
+])
+def test_password_in_column_layout_is_redacted(text):
+    out = redact_secrets(text)
+    body = out[0] if isinstance(out, tuple) else out
+    assert "[REDACTED]" in body
+    assert "FakePass!2026xZ" not in body
+
+
+@pytest.mark.parametrize("text", [
+    "| password | description |",          # markdown table header
+    "| Password | Notes |",
+    "password     required string value",  # docs two-column layout
+    "The password field is required before you continue here.",
+    'const passwordValidator = require("./passwordValidator");',
+    "password  abc",                       # too short to be a credential
+])
+def test_column_form_does_not_fire_on_prose_or_headers(text):
+    """The column separator is weak evidence, so the value must look like a
+    credential (a digit or symbol). Without that guard every docs table and
+    every `| password | description |` header would redact."""
+    out = redact_secrets(text)
+    body = out[0] if isinstance(out, tuple) else out
+    assert "[REDACTED]" not in body
+
+
+@pytest.mark.parametrize("text", [
+    # An UNSPACED pipe is regex alternation, not a table delimiter. Measured
+    # against 54k lines of real agent transcripts, this exact shape was the
+    # only false positive the column pattern produced.
+    r'const re = /(Password|dismissSave)\"/;',
+    "match(/password|secret/i)",
+    "type Field = 'password'|'email';",
+])
+def test_column_form_ignores_unspaced_pipe(text):
+    out = redact_secrets(text)
+    body = out[0] if isinstance(out, tuple) else out
+    assert "[REDACTED]" not in body
+
+
+def test_column_form_still_catches_spaced_table_pipe():
+    """The spaced form is the real table row and must still redact."""
+    out = redact_secrets("| password | FakePass!2026xZ |")
+    body = out[0] if isinstance(out, tuple) else out
+    assert "[REDACTED]" in body
+    assert "FakePass!2026xZ" not in body

@@ -29,7 +29,7 @@ const GuideClaudeCodePage = {
         header.appendChild(h1);
         const lede = document.createElement('p');
         lede.style.cssText = 'color: var(--text-secondary); margin: 0;';
-        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, prompt-injection scanning, token-usage telemetry, and an optional one-line statusline emitter — all on loopback, no LLM proxy in the request path.';
+        lede.textContent = 'Real-time tool-permission enforcement, tamper-evident audit, prompt-injection scanning, token-usage telemetry, and an optional one-line statusline emitter: all on loopback, no LLM proxy in the request path.';
         header.appendChild(lede);
         root.appendChild(header);
 
@@ -116,7 +116,7 @@ const GuideClaudeCodePage = {
         latencyCallout.style.cssText = 'margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary); border-radius: 6px; background: var(--bg-tertiary);';
         const latencyP1 = document.createElement('p');
         latencyP1.style.cssText = 'margin: 0 0 6px 0; color: var(--text-primary); font-size: 13px; line-height: 1.5;';
-        latencyP1.textContent = 'Policy enforcement (PreToolUse) is synchronous — every tool call waits on a loopback HTTP request to the local app before it proceeds. Threat detection (UserPromptSubmit and the PostToolUse → /analyze leg) is fire-and-forget and adds no user-visible latency, but is also not preventive: by the time a threat is flagged, the prompt has already gone to the model or the tool has already returned.';
+        latencyP1.textContent = 'Policy enforcement (PreToolUse) is synchronous: every tool call waits on a loopback HTTP request to the local app before it proceeds. Threat detection (UserPromptSubmit and the PostToolUse → /analyze leg) is fire-and-forget and adds no user-visible latency, but is also not preventive: by the time a threat is flagged, the prompt has already gone to the model or the tool has already returned.';
         latencyCallout.appendChild(latencyP1);
         const latencyP2 = document.createElement('p');
         latencyP2.style.cssText = 'margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5;';
@@ -124,20 +124,20 @@ const GuideClaudeCodePage = {
         latencyStrong.style.color = 'var(--text-primary)';
         latencyStrong.textContent = 'Hard ceiling: 100 ms.';
         latencyP2.appendChild(latencyStrong);
-        latencyP2.appendChild(document.createTextNode(' That is the fail-open timeout in lib/client.js. If the local app is unreachable or slow, the hook returns allow at 100 ms and the tool call proceeds — so a misbehaving local app cannot stall Claude Code beyond 100 ms per tool call.'));
+        latencyP2.appendChild(document.createTextNode(' That is the fail-open timeout in lib/client.js. If the local app is unreachable or slow, the hook returns allow at 100 ms and the tool call proceeds: so a misbehaving local app cannot stall Claude Code beyond 100 ms per tool call.'));
         latencyCallout.appendChild(latencyP2);
         root.appendChild(latencyCallout);
 
         // --- Install ---
         root.appendChild(h2('Install'));
-        root.appendChild(p('First, install and start the SecureVector local app — both install paths below depend on it running on loopback:'));
+        root.appendChild(p('First, install and start the SecureVector local app: both install paths below depend on it running on loopback:'));
         root.appendChild(code(`pip install 'securevector-ai-monitor[app]'   # Apache 2.0, no signup\nsecurevector-app --web                       # binds 127.0.0.1:8741`));
 
-        root.appendChild(h3('Option A — via the app UI'));
+        root.appendChild(h3('Option A: via the app UI'));
         root.appendChild(p('Open http://127.0.0.1:8741, click Integrations → Claude Code, then click Install Plugin.'));
 
-        root.appendChild(h3('Option B — via CLI'));
-        root.appendChild(p('Same operation the UI button performs. Runs the install handler in-process — the web server does not need to be running.'));
+        root.appendChild(h3('Option B: via CLI'));
+        root.appendChild(p('Same operation the UI button performs. Runs the install handler in-process: the web server does not need to be running.'));
         root.appendChild(code('securevector-app --install-plugin claude-code'));
         const respLabel = document.createElement('p');
         respLabel.style.cssText = 'margin: 8px 0 4px 0; color: var(--text-secondary); font-size: 13px;';
@@ -183,15 +183,15 @@ const GuideClaudeCodePage = {
         // --- Verify it works ---
         // --- Remote engine (Terraform / self-host) ---
         root.appendChild(h2('Pointing at a remote engine (Terraform / your own cloud)'));
-        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL — no local app needed.'));
+        root.appendChild(p('Running the engine in your own cloud (the SecureVector Terraform modules) instead of locally? Install the plugin the same way, then point its hooks at your deployment’s endpoint URL: no local app needed.'));
         root.appendChild(code(`# install the plugin (hooks only; the engine runs remotely)
 securevector-app --install-plugin claude-code
 
 # point the hooks at your engine endpoint (the URL from \`terraform output\`)
 export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
-        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis — your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
-        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential — the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token — enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token — it gates inbound access only and forwards no data:'));
-        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional — public gated endpoint only`));
+        root.appendChild(note('Engine, not cloud.', 'SECUREVECTOR_ENGINE_ENDPOINT is the engine the hooks call for analysis: your local app OR your self-host / Terraform engine. It is NOT the SecureVector cloud (scan.securevector.io). Legacy SV_BASE_URL / SECUREVECTOR_URL still work as fallbacks.'));
+        root.appendChild(p('Auth is optional. A private (in-VPC) endpoint needs no credential: the default and least friction. Only if you expose the endpoint publicly and gate it (Terraform ingress_token: enforced by a v4.9.0+ engine; older images set but ignore it) do you set a key; use a free SecureVector account key or an SVET token: it gates inbound access only and forwards no data:'));
+        root.appendChild(code(`export SECUREVECTOR_API_KEY=<SecureVector account key or SVET token>   # optional: public gated endpoint only`));
 
         root.appendChild(h2('Verify it works'));
         root.appendChild(p('1. Plugin status from the local app:'));
@@ -221,7 +221,7 @@ export SECUREVECTOR_ENGINE_ENDPOINT=https://<your-engine-endpoint>`));
         slP1.appendChild(document.createTextNode(' slot:'));
         root.appendChild(slP1);
         root.appendChild(code('SecureVector Guard · 2 threats detected · 5 tool calls (3 allow / 2 block) · 7d 1.4M tok'));
-        root.appendChild(p('Warm renders return in ~50 ms. Token usage (the slow leg, ~2–8 s server-side) is fetched in a detached background process and served from a 5-minute on-disk cache, so first-ever render shows everything except tokens — the next 1–2 statusline refreshes pick them up.'));
+        root.appendChild(p('Warm renders return in ~50 ms. Token usage (the slow leg, ~2–8 s server-side) is fetched in a detached background process and served from a 5-minute on-disk cache, so first-ever render shows everything except tokens: the next 1–2 statusline refreshes pick them up.'));
 
         root.appendChild(h3('Compose with an existing statusline (recommended)'));
         root.appendChild(p('Shell out from your existing statusline script and append the SV line. Example for Python:'));
@@ -285,13 +285,13 @@ rm -rf ~/.securevector/cost-probes`));
         // --- Possible issues ---
         root.appendChild(h2('Possible issues'));
         root.appendChild(note("Hooks don't fire after install", 'run /reload-plugins in your Claude Code session, or restart Claude Code (the plugin manifest is loaded at session start).'));
-        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK expected). The plugin never breaks a Claude Code session — when the app is down every decision is allow and no audit row is written.'));
-        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'confirm the rule is reaching the local app: GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t enrolled with cloud yet — pair via Settings → Cloud.'));
+        root.appendChild(note('"App unreachable" / fail-open silently', 'confirm the local app is running with curl http://127.0.0.1:8741/health (200 OK expected). The plugin never breaks a Claude Code session: when the app is down every decision is allow and no audit row is written.'));
+        root.appendChild(note('Audit rows show action=allow even with a synced cloud rule', 'confirm the rule is reaching the local app: GET /api/tool-permissions/synced-overrides. Total: 0 means the device isn\'t enrolled with cloud yet, pair via Settings → Cloud.'));
         root.appendChild(note('Tokens missing from the statusline after install', 'the token-usage endpoint scans Claude Code session transcripts on disk and takes 2–8 s the first time. The statusline caches the result for 5 min and refreshes in the background. First render shows everything except tokens; the next 1–2 statusline refreshes pick up the freshly-cached value.'));
         root.appendChild(note('Statusline not visible at all', 'Claude Code\'s statusLine.command is set in ~/.claude/settings.json. If you already have a custom statusline (e.g. context-window usage), it overrides the SV emitter unless you compose them (see "Statusline integration").'));
-        root.appendChild(note('Bash calls are scanned but my custom MCP tool isn\'t', '/analyze only runs on tools whose tool_input is natural-language prose (WebFetch, Skill, Task, Agent prompts). Shell-syntax-shaped inputs (Bash, PowerShell, Write, Edit, MultiEdit, NotebookEdit) are audited to the hash chain but NOT fed to the rule pack — that scope mismatch produced high-volume false positives.'));
+        root.appendChild(note('Bash calls are scanned but my custom MCP tool isn\'t', '/analyze only runs on tools whose tool_input is natural-language prose (WebFetch, Skill, Task, Agent prompts). Shell-syntax-shaped inputs (Bash, PowerShell, Write, Edit, MultiEdit, NotebookEdit) are audited to the hash chain but NOT fed to the rule pack: that scope mismatch produced high-volume false positives.'));
         root.appendChild(note('macOS Gatekeeper blocks the app', 'install via pip rather than the .dmg. If you must use the .dmg, only download from the official GitHub releases page, verify SHA256SUMS.txt, then xattr -cr /Applications/SecureVector.app in Terminal.'));
-        root.appendChild(note('Plugin not in Claude Code\'s plugin list', 'auto-install writes to three config files (settings.json, known_marketplaces.json, installed_plugins.json) — check each contains the securevector-local / securevector-guard entries. If they\'re absent, auto-install returned auto_installed: false; run the two paste-in commands shown on the Integrations page from inside your Claude Code session.'));
+        root.appendChild(note('Plugin not in Claude Code\'s plugin list', 'auto-install writes to three config files (settings.json, known_marketplaces.json, installed_plugins.json): check each contains the securevector-local / securevector-guard entries. If they\'re absent, auto-install returned auto_installed: false; run the two paste-in commands shown on the Integrations page from inside your Claude Code session.'));
 
         // --- Privacy posture ---
         root.appendChild(h2('Privacy posture'));
@@ -322,9 +322,9 @@ rm -rf ~/.securevector/cost-probes`));
         root.appendChild(h2("What's NOT in the plugin"));
         const notList = document.createElement('ul');
         notList.style.cssText = 'margin: 8px 0 8px 18px; color: var(--text-secondary); padding-left: 8px;';
-        ['LLM request interception or rewriting — the plugin observes via hooks; it does not sit in the LLM request path.',
-         'Caching, retries, or buffering of audit posts — PostToolUse is fire-and-forget by design.',
-         'A Windows-native installer for the plugin tree — the pip path works on Windows but binary builds are best-effort.'].forEach(t => {
+        ['LLM request interception or rewriting: the plugin observes via hooks; it does not sit in the LLM request path.',
+         'Caching, retries, or buffering of audit posts: PostToolUse is fire-and-forget by design.',
+         'A Windows-native installer for the plugin tree: the pip path works on Windows but binary builds are best-effort.'].forEach(t => {
             const li = document.createElement('li');
             li.style.cssText = 'margin: 4px 0;';
             li.textContent = t;

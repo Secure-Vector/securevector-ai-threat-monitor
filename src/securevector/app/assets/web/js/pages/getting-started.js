@@ -23,12 +23,12 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Reading Agent Runs', 'How to read a per-run trace, the filters, and what each part tells you',
+            'Reading Traces', 'How to read a per-session trace, the filters, and what each part tells you',
             'section-read-runs', () => this.buildReadRunsContent()
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Getting Started', 'No code changes — just set an environment variable',
+            'Getting Started', 'No code changes: just set an environment variable',
             'section-getting-started', () => this.buildProxyContent()
         ));
 
@@ -54,7 +54,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Cost Tracking', 'Track LLM token spend and set daily budget limits',
+            'Cost & Tokens', 'Track LLM token spend and set daily budget limits',
             'section-costs', () => this.buildCostIntelligenceContent(), true
         ));
 
@@ -69,7 +69,7 @@ const GettingStartedPage = {
         ));
 
         container.appendChild(this.createCollapsibleCard(
-            'Secret Detections', 'Redactions audit log — credentials and PII scrubbed from agent traffic, hash-only storage',
+            'Secret Detections', 'Redactions audit log: credentials and PII scrubbed from agent traffic, hash-only storage',
             'section-secret-detections', () => this.buildSecretDetectionsContent()
         ));
 
@@ -141,7 +141,7 @@ const GettingStartedPage = {
 
         const featureList = document.createElement('div');
         featureList.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px;';
-        ['Threat Detection', 'Cost Tracking', 'Tool Monitoring'].forEach(f => {
+        ['Threat Detection', 'Cost & Tokens', 'Tool Monitoring'].forEach(f => {
             const tag = document.createElement('span');
             tag.style.cssText = 'font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px;';
             const check = document.createElement('span');
@@ -176,7 +176,7 @@ const GettingStartedPage = {
         ocText.appendChild(ocTitle);
         const ocDesc = document.createElement('div');
         ocDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
-        ocDesc.textContent = 'Install the native SecureVector Guard plugin \u2014 zero latency, no env vars, no proxy restart. Monitoring starts the moment OpenClaw reloads.';
+        ocDesc.textContent = 'Install the native SecureVector Guard plugin: zero latency, no env vars, no proxy restart. Monitoring starts the moment OpenClaw reloads.';
         ocText.appendChild(ocDesc);
         ocBanner.appendChild(ocText);
 
@@ -218,7 +218,7 @@ const GettingStartedPage = {
         siemText.appendChild(siemTitle);
         const siemDesc = document.createElement('div');
         siemDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
-        siemDesc.textContent = 'OCSF 1.3.0 events to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP — or a local NDJSON file. Metadata-only by default; raw data opt-in per destination.';
+        siemDesc.textContent = 'OCSF 1.3.0 events to Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP: or a local NDJSON file. Metadata-only by default; raw data opt-in per destination.';
         siemText.appendChild(siemDesc);
         siemBanner.appendChild(siemText);
 
@@ -250,7 +250,7 @@ const GettingStartedPage = {
 
         const setupDesc = document.createElement('div');
         setupDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        setupDesc.textContent = 'Two routes \u2014 framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI \u00b7 Hermes) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
+        setupDesc.textContent = 'Two routes: framework SDKs (LangChain \u00b7 LangGraph \u00b7 CrewAI \u00b7 Hermes) or coding-agent plugins (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw). Works the same on the local app or a self-host / Terraform engine.';
         setupBox.appendChild(setupDesc);
 
         const setupLink = document.createElement('span');
@@ -272,7 +272,7 @@ const GettingStartedPage = {
 
         const scanDesc = document.createElement('div');
         scanDesc.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;';
-        scanDesc.textContent = 'Check any skill for risky patterns \u2014 network calls, shell commands, file writes \u2014 before adding it to your agent.';
+        scanDesc.textContent = 'Check any skill for risky patterns (network calls, shell commands, file writes) before adding it to your agent.';
         scanBox.appendChild(scanDesc);
 
         const scanLink = document.createElement('span');
@@ -479,7 +479,7 @@ const GettingStartedPage = {
 
         frag.appendChild(this.createExampleBox(
             'Ollama + Open WebUI',
-            'You run Ollama locally and chat through Open WebUI. Point Open WebUI at the SecureVector proxy instead of Ollama directly \u2014 every chat message is scanned before reaching your model.',
+            'You run Ollama locally and chat through Open WebUI. Point Open WebUI at the SecureVector proxy instead of Ollama directly: every chat message is scanned before reaching your model.',
             [
                 'Go to Integrations \u2192 Ollama in the sidebar',
                 'Select Ollama as the provider',
@@ -516,7 +516,7 @@ const GettingStartedPage = {
         scanGrid.appendChild(inputCol);
 
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--border-light);';
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
         outputTitle.textContent = 'Output Scanning (LLM \u2192 User)';
@@ -530,7 +530,7 @@ const GettingStartedPage = {
         modesGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;';
 
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--danger, #ef4444);';
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
         blockTitle.textContent = 'Block Mode (Default)';
@@ -594,7 +594,7 @@ const GettingStartedPage = {
 
         // Output column
         const outputCol = document.createElement('div');
-        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--accent-secondary, #c0655e);';
+        outputCol.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-top: 3px solid var(--border-light);';
 
         const outputTitle = document.createElement('div');
         outputTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 8px;';
@@ -627,7 +627,7 @@ const GettingStartedPage = {
 
         // Block mode (default)
         const blockBox = document.createElement('div');
-        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-secondary, #c0655e);';
+        blockBox.style.cssText = 'padding: 14px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--danger, #ef4444);';
 
         const blockTitle = document.createElement('div');
         blockTitle.style.cssText = 'font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 4px;';
@@ -692,7 +692,7 @@ const GettingStartedPage = {
         aiTitle.textContent = 'Stage 2: AI Analysis';
         aiBox.appendChild(aiTitle);
 
-        aiBox.appendChild(this.createBulletList(['Optional \u2014 enable in the header', 'Uses a secondary LLM for semantic analysis', 'Runs on input scans only', 'Adds 1-3s latency (depends on model)', 'Reduces false positives']));
+        aiBox.appendChild(this.createBulletList(['Optional: enable in the header', 'Uses a secondary LLM for semantic analysis', 'Runs on input scans only', 'Adds 1-3s latency (depends on model)', 'Reduces false positives']));
         grid.appendChild(aiBox);
 
         frag.appendChild(grid);
@@ -706,7 +706,7 @@ const GettingStartedPage = {
         whenTitle.textContent = 'When to enable AI Analysis:';
         whenBox.appendChild(whenTitle);
 
-        whenBox.appendChild(document.createTextNode('Enable it when you need to reduce false positives and can tolerate additional latency (1-3s per scan). Use pattern matching alone when you need maximum throughput with minimal latency. AI Analysis only runs on input scans \u2014 output scanning always uses fast regex rules.'));
+        whenBox.appendChild(document.createTextNode('Enable it when you need to reduce false positives and can tolerate additional latency (1-3s per scan). Use pattern matching alone when you need maximum throughput with minimal latency. AI Analysis only runs on input scans: output scanning always uses fast regex rules.'));
         frag.appendChild(whenBox);
 
         // How to enable steps
@@ -821,7 +821,7 @@ const GettingStartedPage = {
         cloudOnly.appendChild(cloudOnlyTitle);
         const cloudOnlyBody = document.createElement('p');
         cloudOnlyBody.style.cssText = 'margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;';
-        cloudOnlyBody.textContent = 'Personal-mode installs (no enrollment) bypass this entirely. Policy Sync only activates after a successful svet_* token redeem \u2014 the cloud admin issues the token, the user runs `securevector-app enroll <token>` once, and from there the local app long-polls /policy/sync for signed bundles. Without enrollment, the page renders an empty-state and no cloud rules are enforced.';
+        cloudOnlyBody.textContent = 'Personal-mode installs (no enrollment) bypass this entirely. Policy Sync only activates after a successful svet_* token redeem: the cloud admin issues the token, the user runs `securevector-app enroll <token>` once, and from there the local app long-polls /policy/sync for signed bundles. Without enrollment, the page renders an empty-state and no cloud rules are enforced.';
         cloudOnly.appendChild(cloudOnlyBody);
         frag.appendChild(cloudOnly);
 
@@ -833,7 +833,7 @@ const GettingStartedPage = {
 
         const precDesc = document.createElement('p');
         precDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 8px 0; font-size: 12px; line-height: 1.5;';
-        precDesc.textContent = 'When a tool call comes in, the proxy walks this list top to bottom and uses the first matching rule. Synced rules win over local \u2014 that\u2019s why locked rows on Tool Permissions can\u2019t be edited.';
+        precDesc.textContent = 'When a tool call comes in, the proxy walks this list top to bottom and uses the first matching rule. Synced rules win over local: that\u2019s why locked rows on Tool Permissions can\u2019t be edited.';
         frag.appendChild(precDesc);
 
         frag.appendChild(this.createMiniStep('1', 'Last-resort rules', 'Compiled-in safety blocks. Cannot be overridden, even by cloud policy.'));
@@ -849,7 +849,7 @@ const GettingStartedPage = {
 
         frag.appendChild(this.createMiniStep('1', 'Admin mints a token', 'In the SecureVector cloud admin (app.securevector.io), an org admin opens Enroll Devices and clicks Invite User. The cloud generates a single-use svet_* token.'));
         frag.appendChild(this.createMiniStep('2', 'User redeems it locally', 'Run `securevector-app enroll <svet_*>` once. The local app POSTs /api/v1/devices/enroll, gets back org binding + signing key + auth credentials, and persists them to the credentials file.'));
-        frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth — it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
+        frag.appendChild(this.createMiniStep('3', 'Set SECUREVECTOR_API_KEY (recommended)', 'Export a long-lived sk-* API key from the cloud admin so /policy/sync uses the X-Api-Key header. This is the canonical sync auth: it bypasses the short-lived JWT refresh path which can leave sync broken if the refresh token goes stale. JWT-only mode still works as a fallback.'));
         frag.appendChild(this.createMiniStep('4', 'Cloud Sync starts', 'On the next launch, the local app polls for updates from your SecureVector account. Each update is verified (signed, fresh, monotonic version) before it\'s applied. The MCP Policies page reflects what\'s currently in force.'));
 
         // Sync auth (recommended setup)
@@ -860,7 +860,7 @@ const GettingStartedPage = {
 
         const authDesc = document.createElement('p');
         authDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 10px 0; font-size: 12px; line-height: 1.55;';
-        authDesc.textContent = 'The local app accepts two auth methods on /policy/sync. The API key path is canonical — it eliminates the short-lived-JWT refresh fragility that can otherwise leave a device unable to sync if the refresh token goes stale.';
+        authDesc.textContent = 'The local app accepts two auth methods on /policy/sync. The API key path is canonical: it eliminates the short-lived-JWT refresh fragility that can otherwise leave a device unable to sync if the refresh token goes stale.';
         frag.appendChild(authDesc);
 
         const apiKeyCode = document.createElement('pre');
@@ -887,7 +887,7 @@ const GettingStartedPage = {
 
         const tbody = document.createElement('tbody');
         const rows = [
-            ['API key (recommended)', 'X-Api-Key: sk-...', 'SECUREVECTOR_API_KEY env, then creds.api_key', 'Long-lived', 'Robust — no refresh path needed'],
+            ['API key (recommended)', 'X-Api-Key: sk-...', 'SECUREVECTOR_API_KEY env, then creds.api_key', 'Long-lived', 'Robust: no refresh path needed'],
             ['JWT (fallback)', 'Authorization: Bearer ...', 'Stored from enrollment', '~1h, auto-refresh on 401/403', 'Breaks if refresh token expires; requires re-enrollment to recover'],
         ];
         rows.forEach((cells, idx) => {
@@ -914,7 +914,7 @@ const GettingStartedPage = {
 
         const defaultsNote = document.createElement('p');
         defaultsNote.style.cssText = 'color: var(--text-secondary); margin: 14px 0 4px 0; font-size: 12px; line-height: 1.55;';
-        defaultsNote.textContent = 'No further setup needed for the standard SecureVector cloud — the local app defaults to the production endpoints. Override env vars (SECUREVECTOR_AUTH_URL, SECUREVECTOR_LSE_URL) exist only for self-hosted / on-prem deployments.';
+        defaultsNote.textContent = 'No further setup needed for the standard SecureVector cloud: the local app defaults to the production endpoints. Override env vars (SECUREVECTOR_AUTH_URL, SECUREVECTOR_LSE_URL) exist only for self-hosted / on-prem deployments.';
         frag.appendChild(defaultsNote);
 
         // Reading the MCP Policies page
@@ -923,10 +923,10 @@ const GettingStartedPage = {
         readTitle.textContent = 'Reading the MCP Policies page';
         frag.appendChild(readTitle);
         frag.appendChild(this.createBulletList([
-            'Verification status grid \u2014 Policy Sync MATCH / DEGRADED / EXPIRED. Click "Verify signing chain" for the audit panel (last poll, signing key fingerprint, mismatch counter, freshness countdown).',
-            'Policy table \u2014 one row per active policy. Click a row to open a side drawer with the full rule list, bundle id, and provenance footer.',
-            'Sync Now button (top-right of the hero) \u2014 forces an immediate /policy/sync iteration. Disabled when not enrolled or no API key/JWT available; the tooltip surfaces the exact reason.',
-            'Status column \u2014 mirrors the overall verification status until per-policy state is engine-tracked.',
+            'Verification status grid: Policy Sync MATCH / DEGRADED / EXPIRED. Click "Verify signing chain" for the audit panel (last poll, signing key fingerprint, mismatch counter, freshness countdown).',
+            'Policy table: one row per active policy. Click a row to open a side drawer with the full rule list, bundle id, and provenance footer.',
+            'Sync Now button (top-right of the hero): forces an immediate /policy/sync iteration. Disabled when not enrolled or no API key/JWT available; the tooltip surfaces the exact reason.',
+            'Status column: mirrors the overall verification status until per-policy state is engine-tracked.',
         ]));
 
         const mcpBtn = document.createElement('button');
@@ -945,7 +945,7 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 16px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'Tool Permissions lets you control exactly which tools (function calls) your AI agents are allowed to invoke. Set allow or deny rules per tool, per agent \u2014 so agents can only call what they need.';
+        desc.textContent = 'Tool Permissions lets you control exactly which tools (function calls) your AI agents are allowed to invoke. Set allow or deny rules per tool, per agent: so agents can only call what they need.';
         frag.appendChild(desc);
 
         const grid = document.createElement('div');
@@ -988,7 +988,7 @@ const GettingStartedPage = {
 
         frag.appendChild(this.createMiniStep('1', 'Open Tool Permissions', 'Navigate to Tool Permissions in the sidebar.'));
         frag.appendChild(this.createMiniStep('2', 'Add rules', 'Click "\u002b Add Rule" and enter the tool name (e.g. run_python, search_web). Set the action to Allow or Deny.'));
-        frag.appendChild(this.createMiniStep('3', 'Set default', 'Choose the default action for tools not in your list \u2014 "Allow all" or "Block all".'));
+        frag.appendChild(this.createMiniStep('3', 'Set default', 'Choose the default action for tools not in your list — "Allow all" or "Block all".'));
 
         const tpBtn = document.createElement('button');
         tpBtn.className = 'btn btn-primary';
@@ -1031,7 +1031,7 @@ const GettingStartedPage = {
         const rows = [
             ['allow',     'either',       'allow',    'Tool call runs. Logged as allowed.'],
             ['block',     'ON',           'block',    'Proxy rejects the tool call before the LLM sees a result. Gateway log: TOOL BLOCKED.'],
-            ['block',     'OFF',          'log_only', 'Tool call still runs. Logged with note "(audit only \u2014 enable proxy to block)".'],
+            ['block',     'OFF',          'log_only', 'Tool call still runs. Logged with note "(audit only: enable proxy to block)".'],
             ['log_only',  'either',       'log_only', 'Tool call runs. Always logged for audit trail.'],
         ];
         const colorMap = { allow: '#10b981', block: '#ef4444', log_only: '#f59e0b' };
@@ -1064,8 +1064,8 @@ const GettingStartedPage = {
         const qgUl = document.createElement('ul');
         qgUl.style.cssText = 'margin: 6px 0 0 18px; padding: 0;';
         [
-            'Want a passive audit trail without changing agent behavior? Keep block mode OFF \u2014 everything gets captured as log_only or allow.',
-            'Want hard enforcement? Turn block mode ON and start the proxy \u2014 block policies start rejecting tool calls at the proxy layer.',
+            'Want a passive audit trail without changing agent behavior? Keep block mode OFF: everything gets captured as log_only or allow.',
+            'Want hard enforcement? Turn block mode ON and start the proxy: block policies start rejecting tool calls at the proxy layer.',
             'SecureVector ships 66 essential tool definitions (54 default to block). Custom tools can be added per project on the Tool Permissions page.',
         ].forEach(t => {
             const li = document.createElement('li');
@@ -1084,7 +1084,7 @@ const GettingStartedPage = {
 
         const whichDesc = document.createElement('p');
         whichDesc.style.cssText = 'color: var(--text-secondary); margin: 0 0 12px 0; font-size: 12px; line-height: 1.5;';
-        whichDesc.textContent = 'The allow / block / log_only decision is universal \u2014 it\u2019s SecureVector\u2019s policy engine. Whether a tool call actually lands in the Tool Activity log depends on the path it takes.';
+        whichDesc.textContent = 'The allow / block / log_only decision is universal: it\u2019s SecureVector\u2019s policy engine. Whether a tool call actually lands in the Tool Activity log depends on the path it takes.';
         activityAnchor.appendChild(whichDesc);
 
         const whichTable = document.createElement('table');
@@ -1102,10 +1102,10 @@ const GettingStartedPage = {
 
         const whTbody = document.createElement('tbody');
         const whichRows = [
-            ['OpenClaw / ClawdBot with plugin installed',                          'yes',     'Plugin \u2014 captures MCP tools (read, exec, write) and LLM tool calls'],
-            ['LangChain / LangGraph / CrewAI / n8n / direct SDK via proxy',        'yes',     'Proxy \u2014 captures LLM function calls (requires OPENAI_BASE_URL or equivalent pointing at localhost:8742)'],
-            ['Direct SDK to provider (no proxy, no plugin)',                       'no',      '\u2014'],
-            ['Ollama local calls that bypass both',                                'no',      '\u2014'],
+            ['OpenClaw / ClawdBot with plugin installed',                          'yes',     'Plugin: captures MCP tools (read, exec, write) and LLM tool calls'],
+            ['LangChain / LangGraph / CrewAI / n8n / direct SDK via proxy',        'yes',     'Proxy: captures LLM function calls (requires OPENAI_BASE_URL or equivalent pointing at localhost:8742)'],
+            ['Direct SDK to provider (no proxy, no plugin)',                       'no',      '—'],
+            ['Ollama local calls that bypass both',                                'no',      '—'],
             ['Custom integration',                                                 'optional','POST to /api/tool-permissions/call-audit from your own callback'],
         ];
         whichRows.forEach(row => {
@@ -1143,14 +1143,14 @@ const GettingStartedPage = {
 
         const desc = document.createElement('p');
         desc.style.cssText = 'color: var(--text-secondary); margin: 0 0 14px 0; font-size: 13px; line-height: 1.5;';
-        desc.textContent = 'Cost Tracking records every token your agents spend \u2014 automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
+        desc.textContent = 'Cost & Tokens records every token your agents spend: automatically, for every provider. See per-request costs, set daily budget limits, and get warned or blocked before bills spiral.';
         frag.appendChild(desc);
 
         const featureGrid = document.createElement('div');
         featureGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px;';
 
         [
-            { title: 'Cost Summary', body: 'Total spend, per-provider breakdown, and cost trend across all agents \u2014 updated per request.' },
+            { title: 'Cost Summary', body: 'Total spend, per-provider breakdown, and cost trend across all agents: updated per request.' },
             { title: 'Request History', body: 'Per-request log: model, input/output tokens, cached token savings, and exact USD cost.' },
             { title: 'Budget Limits', body: 'Set a daily wallet cap (all agents combined) or per-agent limits. Action: warn or block the request.' },
             { title: 'Pricing Reference', body: 'Live pricing for all supported providers and models, with input/output rates per million tokens.' },
@@ -1176,11 +1176,11 @@ const GettingStartedPage = {
         frag.appendChild(providersTitle);
 
         frag.appendChild(this.createBulletList([
-            'OpenAI (GPT-4o, o1, o3, GPT-3.5 \u2014 Chat & Responses API)',
+            'OpenAI (GPT-4o, o1, o3, GPT-3.5: Chat & Responses API)',
             'Anthropic (Claude 3.5/4, Haiku, Sonnet, Opus)',
             'Google (Gemini 1.5/2.0 Flash, Pro, Ultra)',
             'Groq, Mistral, xAI (Grok), DeepSeek, Cerebras',
-            'Ollama (local models \u2014 free, $0.00 cost tracked)',
+            'Ollama (local models: free, $0.00 cost tracked)',
         ]));
 
         const budgetNote = document.createElement('div');
@@ -1189,13 +1189,13 @@ const GettingStartedPage = {
         noteLabel.style.cssText = 'color: var(--text-primary);';
         noteLabel.textContent = 'Budget check timing: ';
         budgetNote.appendChild(noteLabel);
-        budgetNote.appendChild(document.createTextNode('The proxy checks your daily budget before each request using today\u2019s recorded spend (UTC day). The \u201cTotal Cost\u201d card includes all historical costs \u2014 your daily budget limit is compared against today\u2019s spend only.'));
+        budgetNote.appendChild(document.createTextNode('The proxy checks your daily budget before each request using today\u2019s recorded spend (UTC day). The \u201cTotal Cost\u201d card includes all historical costs: your daily budget limit is compared against today\u2019s spend only.'));
         frag.appendChild(budgetNote);
 
         const costsBtn = document.createElement('button');
         costsBtn.className = 'btn btn-primary';
         costsBtn.style.cssText = 'font-size: 12px; margin: 14px 0 0 0; padding: 6px 14px;';
-        costsBtn.textContent = 'Open Cost Tracking';
+        costsBtn.textContent = 'Open Cost & Tokens';
         costsBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('costs'); });
         frag.appendChild(costsBtn);
 
@@ -1372,7 +1372,7 @@ const GettingStartedPage = {
         frag.appendChild(sectionHead('Overview'));
         frag.appendChild(p(`
             The SIEM Forwarder forwards every threat scan and tool-call audit
-            from this machine to a destination of your choice — Splunk,
+            from this machine to a destination of your choice: Splunk,
             Datadog, Sentinel, Chronicle, QRadar, an OpenTelemetry
             collector, or any generic HTTPS webhook. Events use the
             <strong>OCSF 1.3.0</strong> schema so your SOC dashboards
@@ -1392,7 +1392,7 @@ const GettingStartedPage = {
             <span aria-hidden="true" style="color:var(--accent-primary);font-weight:800;flex-shrink:0;">!</span>
             <span>
                 <strong style="color:var(--text-primary);">Shared machine?</strong>
-                The local API on <code>127.0.0.1</code> has no per-user access control — anyone on that loopback can add, edit, or delete a SIEM destination. That's fine for a personal laptop, not for a shared dev or jump host. If multiple people share this host and you need RBAC, use the
+                The local API on <code>127.0.0.1</code> has no per-user access control: anyone on that loopback can add, edit, or delete a SIEM destination. That's fine for a personal laptop, not for a shared dev or jump host. If multiple people share this host and you need RBAC, use the
                 <a href="https://app.securevector.io" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">SecureVector Cloud app</a>
                 — teams, roles, and an audit trail of who changed what.
             </span>
@@ -1434,10 +1434,10 @@ const GettingStartedPage = {
                     <li><strong>Deploy.</strong> Install SecureVector on every host that runs an agent (laptops, CI runners, prod servers, containers). Company-managed via MDM or config-mgmt (Ansible / Salt / Intune).</li>
                     <li><strong>Configure once, centrally.</strong> Point every instance at the same enterprise SIEM destination via the Add Destination flow, or pre-seed the config alongside the binary in your deployment pipeline.</li>
                     <li><strong>Observe.</strong> Splunk / Sentinel / Chronicle / QRadar receives events from N devices. Filter by <code>device.uid</code> for per-host; filter by <code>actor.user.name</code> for per-user; cluster on <code>finding.related_events_uid</code> for attack campaigns.</li>
-                    <li><strong>Correlate.</strong> AI events sit alongside EDR / SSO / network signals in the same SIEM — one pane of glass, one on-call rotation, one runbook.</li>
-                    <li><strong>Comply.</strong> OCSF + MITRE ATT&CK + tamper-evident tool audit chain satisfy AI governance controls for SOC 2 / HIPAA / FINRA / EU AI Act audits.</li>
+                    <li><strong>Correlate.</strong> AI events sit alongside EDR / SSO / network signals in the same SIEM: one pane of glass, one on-call rotation, one runbook.</li>
+                    <li><strong>Comply.</strong> OCSF + MITRE ATT&CK + tamper-evident tool audit chain give you evidence to support AI governance controls in SOC 2 / HIPAA / FINRA / EU AI Act audits.</li>
                 </ul>
-                <p style="margin:0;">For fleet-wide RBAC, teams, and a shared audit trail of who changed what across many devices, pair this with the <a href="https://app.securevector.io" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">SecureVector Cloud app</a> — local agents keep scanning and forwarding; the cloud federates policy and access control across the fleet.</p>
+                <p style="margin:0;">For fleet-wide RBAC, teams, and a shared audit trail of who changed what across many devices, pair this with the <a href="https://app.securevector.io" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:underline;">SecureVector Cloud app</a>, local agents keep scanning and forwarding; the cloud federates policy and access control across the fleet.</p>
             `,
             { open: true },
         ));
@@ -1449,7 +1449,7 @@ const GettingStartedPage = {
         frag.appendChild(faqCard(
             'How and when does a SOC use this?',
             `
-                <p style="margin:10px 0 8px;">AI agents are a new attack surface — one your existing EDR, CASB, DLP, and network IDS don't see. Adopting agents without visibility means:</p>
+                <p style="margin:10px 0 8px;">AI agents are a new attack surface, one your existing EDR, CASB, DLP, and network IDS don't see. Adopting agents without visibility means:</p>
                 <ul style="margin:0 0 10px;padding-left:18px;line-height:1.7;">
                     <li><strong>Prompt injection attempts</strong> go unlogged until damage is visible downstream.</li>
                     <li><strong>Sensitive tool calls</strong> (Gmail.send, ShellExec, DB.query) aren't gated by the same policy engine that governs human actions.</li>
@@ -1457,7 +1457,7 @@ const GettingStartedPage = {
                 </ul>
                 <p style="margin:0 0 8px;">Typical use cases:</p>
                 <ul style="margin:0;padding-left:18px;line-height:1.7;">
-                    <li><strong>Triage & IR:</strong> prompt injection blocks and jailbreak attempts show up in the same queue as phishing and endpoint alerts — the analyst doesn't learn a second tool.</li>
+                    <li><strong>Triage & IR:</strong> prompt injection blocks and jailbreak attempts show up in the same queue as phishing and endpoint alerts, the analyst doesn't learn a second tool.</li>
                     <li><strong>Correlation:</strong> "Okta login from new geo → SecureVector PII block on the same user within 10 min" becomes a single detection rule instead of two disconnected signals.</li>
                     <li><strong>Audit & compliance:</strong> SOC 2 / HIPAA / FINRA / EU AI Act increasingly require evidence of AI guardrails and tamper-evident tool-call logs. The SIEM is where auditors look.</li>
                     <li><strong>Fleet visibility:</strong> each event carries <code>device.uid</code>, so one dashboard covers every laptop or container running SecureVector.</li>
@@ -1470,11 +1470,11 @@ const GettingStartedPage = {
             `
                 <ul style="margin:10px 0 0;padding-left:18px;line-height:1.7;">
                     <li><strong>One pane of glass.</strong> AI security events live in Splunk / Sentinel / Chronicle alongside every other detection. No new dashboard, no new on-call rotation.</li>
-                    <li><strong>MITRE ATT&CK coverage</strong> — events carry <code>finding.techniques</code> (T1659 Content Injection, T1567 Exfiltration over Web Service, etc.) so AI detections slot into existing ATT&CK dashboards and coverage reports.</li>
+                    <li><strong>MITRE ATT&CK coverage</strong>: events carry <code>finding.techniques</code> (T1659 Content Injection, T1567 Exfiltration over Web Service, etc.) so AI detections slot into existing ATT&CK dashboards and coverage reports.</li>
                     <li><strong>Actor attribution.</strong> <code>actor.user</code> + <code>actor.process</code> on every event means pivoting to IAM/EDR context works the same as for any other alert.</li>
-                    <li><strong>Tamper-evident audit chain</strong> for tool calls — the SOC can re-verify the SHA-256 hash chain off-host, so a compromised endpoint can't rewrite history without detection.</li>
-                    <li><strong>Alert-fatigue defense</strong> — per-destination severity floor drops low-confidence noise before it hits the feed; burst guard collapses loops into a single <code>suppressed_count</code> event.</li>
-                    <li><strong>Finding clustering</strong> via <code>finding.related_events_uid</code> — ten attempts of the same attack from the same user become one triage finding, not ten.</li>
+                    <li><strong>Tamper-evident audit chain</strong> for tool calls: the SOC can re-verify the SHA-256 hash chain off-host, so a compromised endpoint can't rewrite history without detection.</li>
+                    <li><strong>Alert-fatigue defense</strong>: per-destination severity floor drops low-confidence noise before it hits the feed; burst guard collapses loops into a single <code>suppressed_count</code> event.</li>
+                    <li><strong>Finding clustering</strong> via <code>finding.related_events_uid</code>: ten attempts of the same attack from the same user become one triage finding, not ten.</li>
                 </ul>
             `,
         ));
@@ -1484,13 +1484,13 @@ const GettingStartedPage = {
             `
                 <p style="margin:10px 0 8px;">Short version: yes, when the SOC is the workflow home for IR, audit, and correlation. Long version:</p>
                 <ul style="margin:0 0 10px;padding-left:18px;line-height:1.7;">
-                    <li><strong>Correlation with non-AI signals.</strong> SecureVector alone can't tell you the compromised agent shares an identity with a just-failed SSO login. The SIEM can — once both signals arrive there.</li>
+                    <li><strong>Correlation with non-AI signals.</strong> SecureVector alone can't tell you the compromised agent shares an identity with a just-failed SSO login. The SIEM can: once both signals arrive there.</li>
                     <li><strong>Historical search.</strong> "Has this exact prompt-injection pattern been tried before?" is a 30-second Splunk query, not a custom tool.</li>
                     <li><strong>Existing paging & ticketing.</strong> Your PagerDuty / ServiceNow / Jira bridges already consume SIEM alerts. Forwarding plugs AI events into the runbook you already have.</li>
                     <li><strong>Long-term retention.</strong> SecureVector keeps scans locally with fixed retention; your SIEM is the system of record for compliance-grade retention (usually 12+ months).</li>
-                    <li><strong>Reporting.</strong> "We blocked N prompt injections this quarter, clustered into M campaigns" — that report comes out of the SIEM, not a vendor dashboard.</li>
+                    <li><strong>Reporting.</strong> "We blocked N prompt injections this quarter, clustered into M campaigns": that report comes out of the SIEM, not a vendor dashboard.</li>
                 </ul>
-                <p style="margin:0;">When NOT to forward: indie operators running on a personal laptop with no SOC. That's what the <strong>Local NDJSON file</strong> destination is for — every benefit of forwarding (append-only log, tamper-evidence on tool calls, searchability with <code>jq</code>) without the overhead.</p>
+                <p style="margin:0;">When NOT to forward: indie operators running on a personal laptop with no SOC. That's what the <strong>Local NDJSON file</strong> destination is for: every benefit of forwarding (append-only log, tamper-evidence on tool calls, searchability with <code>jq</code>) without the overhead.</p>
             `,
         ));
 
@@ -1582,12 +1582,12 @@ const GettingStartedPage = {
                 '<code>unmapped.llm_output</code> (8&nbsp;KB cap)',
                 'Matched pattern strings (1&nbsp;KB each)',
                 'Tool-call args + full policy reason (8&nbsp;KB cap)',
-                '<strong>Truncation marker appended</strong> when a field is capped — no silent loss.',
+                '<strong>Truncation marker appended</strong> when a field is capped: no silent loss.',
             ],
             strips: [
-                '(nothing — this is the forensic tier)',
+                '(nothing: this is the forensic tier)',
             ],
-            useCase: 'Regulated environments with an explicit data-handling plan (GDPR / HIPAA / SOC 2 reviewed). Size caps keep per-event overhead bounded, but high volume still costs — check ingest budget.',
+            useCase: 'Regulated environments with an explicit data-handling plan (GDPR / HIPAA / SOC 2 reviewed). Size caps keep per-event overhead bounded, but high volume still costs: check ingest budget.',
         }));
 
         tierSectionBody.appendChild(tierGrid);
@@ -1605,7 +1605,7 @@ const GettingStartedPage = {
         // ── OCSF schema + timestamps ─────────────────────────────────
         const schemaBody = collapsibleSection('OCSF schema');
         schemaBody.appendChild(p(`
-            <strong>OCSF 1.3.0</strong> — the Open Cybersecurity Schema
+            <strong>OCSF 1.3.0</strong>: the Open Cybersecurity Schema
             Framework adopted by AWS Security Lake, Splunk, Palo Alto, and
             CrowdStrike. Two event classes cover everything:
         `));
@@ -1641,13 +1641,13 @@ const GettingStartedPage = {
         tzNote.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.55;margin-bottom:14px;';
         tzNote.innerHTML = `
             <strong style="color:var(--text-primary);">Timestamps</strong> are UTC (<code>time</code> = Unix epoch milliseconds). Your SIEM dashboard renders in the viewer's local zone; raw events do not.<br>
-            <strong style="color:var(--text-primary);">Schema revision</strong> is carried in <code>metadata.extension.version</code> — currently <code>securevector:4.0</code>. Bumped on any breaking shape change so downstream parsers can branch.
+            <strong style="color:var(--text-primary);">Schema revision</strong> is carried in <code>metadata.extension.version</code>: currently <code>securevector:4.0</code>. Bumped on any breaking shape change so downstream parsers can branch.
         `;
         schemaBody.appendChild(tzNote);
 
         // ── Example payloads ─────────────────────────────────────────
         const exBody = collapsibleSection('Example payloads');
-        exBody.appendChild(p('Concrete OCSF events — one scan, one tool-call audit. Copy/paste into your SIEM search to sanity-check field paths.'));
+        exBody.appendChild(p('Concrete OCSF events: one scan, one tool-call audit. Copy/paste into your SIEM search to sanity-check field paths.'));
 
         const exGrid = document.createElement('div');
         exGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-bottom:16px;';
@@ -1757,12 +1757,12 @@ const GettingStartedPage = {
         };
 
         exGrid.appendChild(eventCard(
-            'Scan finding — class 2001',
+            'Scan finding: class 2001',
             'Emitted whenever /analyze produces a verdict that clears the destination\'s min_severity filter.',
             scanExample,
         ));
         exGrid.appendChild(eventCard(
-            'Tool-call audit — class 1007',
+            'Tool-call audit: class 1007',
             'Emitted on every tool-call audit row. Hash-chain witness in unmapped lets the SIEM re-verify integrity off-host.',
             auditExample,
         ));
@@ -1832,7 +1832,7 @@ const GettingStartedPage = {
 
         destBody.appendChild(p(`
             <strong>"Via webhook"</strong> vendors accept JSON over HTTPS
-            with a bearer-style auth header — the same shape the Generic
+            with a bearer-style auth header: the same shape the Generic
             Webhook destination sends. Choose <em>Webhook</em> as the kind,
             paste the endpoint URL, provide the token. Native one-click
             adapters are on the roadmap.
@@ -1864,7 +1864,7 @@ const GettingStartedPage = {
         credGrid.appendChild(credCard('Access control', [
             'File permissions: <code>0600</code> (owner read/write only)',
             'Parent directory: <code>0700</code>',
-            'Created with restricted perms from the start — no race window',
+            'Created with restricted perms from the start: no race window',
             'Plaintext inside the file (rely on OS perms + disk encryption at rest)',
         ]));
         credBody.appendChild(credGrid);
@@ -1873,18 +1873,18 @@ const GettingStartedPage = {
             <strong>Lifecycle:</strong> deleting a destination deletes its
             secret from this file. Updating the secret removes the old
             entry and writes a fresh one. Rotating credentials in your
-            SIEM? Edit the destination, paste the new token, save — the
+            SIEM? Edit the destination, paste the new token, save: the
             old ref is purged.
         `));
 
         const credThreat = document.createElement('div');
         credThreat.style.cssText = 'padding:10px 12px;margin-bottom:16px;border-radius:6px;font-size:12px;line-height:1.55;background:var(--bg-tertiary);border:1px solid var(--border-default);color:var(--text-secondary);';
         credThreat.innerHTML = `
-            <strong style="color:var(--text-primary);">Threat model — what this protects against:</strong>
+            <strong style="color:var(--text-primary);">Threat model, what this protects against:</strong>
             <ul style="margin:6px 0 0;padding-left:16px;line-height:1.7;">
                 <li><strong>SQLite exfil alone</strong> → attacker gets URLs and names, no tokens.</li>
                 <li><strong>Secrets file exfil alone</strong> → attacker gets tokens but no URLs / context to use them.</li>
-                <li><strong>Both</strong> → equivalent to running code as the user account — outside this layer's scope (use FileVault / LUKS / BitLocker + a supervised login).</li>
+                <li><strong>Both</strong> → equivalent to running code as the user account: outside this layer's scope (use FileVault / LUKS / BitLocker + a supervised login).</li>
             </ul>
         `;
         credBody.appendChild(credThreat);
@@ -1929,13 +1929,13 @@ const GettingStartedPage = {
         dashGrid.appendChild(dashCard(
             'Microsoft Sentinel',
             'sentinel',
-            'KQL workbook for <code>Custom-SecureVector_CL</code> — severity tiles, MITRE top-N, actor breakdown, finding clusters, burst suppression.',
+            'KQL workbook for <code>Custom-SecureVector_CL</code>: severity tiles, MITRE top-N, actor breakdown, finding clusters, burst suppression.',
         ));
 
         dashGrid.appendChild(dashCard(
             'Splunk',
             'splunk',
-            '10-panel dashboard for <code>sourcetype=securevector:ocsf</code> — same tile set as the Sentinel workbook, plus hash-chain integrity check.',
+            '10-panel dashboard for <code>sourcetype=securevector:ocsf</code>, same tile set as the Sentinel workbook, plus hash-chain integrity check.',
         ));
 
         dashGrid.appendChild(dashCard(
@@ -1982,11 +1982,11 @@ const GettingStartedPage = {
                         ['<code>actor.user.name</code>', 'scanner', 'OS login of the user who triggered the scan'],
                         ['<code>actor.process.name</code>', 'scanner', 'The <code>source</code> identifier from /analyze'],
                         ['<code>finding.techniques[].uid</code>', 'rule metadata', 'MITRE ATT&CK technique IDs'],
-                        ['<code>finding.related_events_uid[]</code>', 'scanner', '<code>finding_group_id</code> — clusters repeat attacks'],
+                        ['<code>finding.related_events_uid[]</code>', 'scanner', '<code>finding_group_id</code>: clusters repeat attacks'],
                         ['<code>confidence</code> / <code>confidence_score</code>', 'scanner', '0–100 int + 0.0–1.0 float'],
                         ['<code>unmapped.matched_rule_ids[]</code>', 'scanner', 'IDs of every rule that fired'],
                         ['<code>unmapped.worst_rule_severity</code>', 'scanner', 'Highest per-rule severity among matches'],
-                        ['<code>unmapped.seq</code> / <code>prev_hash</code> / <code>row_hash</code>', 'tool-call audit', 'SHA-256 hash chain — verify off-host'],
+                        ['<code>unmapped.seq</code> / <code>prev_hash</code> / <code>row_hash</code>', 'tool-call audit', 'SHA-256 hash chain: verify off-host'],
                         ['<code>suppressed_count</code>', 'forwarder burst guard', 'Events dropped by per-destination rate limit'],
                         ['<code>metadata.extension.version</code>', 'encoder', 'Vendor schema revision (<code>securevector:4.0</code>)'],
                     ].map(([path, src, why]) => `
@@ -2047,26 +2047,26 @@ const GettingStartedPage = {
 
         frag.appendChild(sectionHead('What it shows'));
         frag.appendChild(bulletList([
-            '<strong>MCP server / Tool</strong> — every distinct (server, tool) called in the trailing window. Built-in tools (Bash, Read, etc.) show as <code>built-in</code> with the harness name underneath.',
-            '<strong>Source</strong> — coloured pill: <span style="color:var(--accent-primary);">cloud-policy</span> (org-pushed), <span style="color:var(--accent-secondary);">local-custom</span> (you registered it), <span style="color:var(--success);">mcp</span> (discovered third-party MCP), grey <code>built-in</code> (harness baseline).',
-            '<strong>Auth scope</strong> — SecureVector\'s classification (read / write / delete / admin), <em>not</em> the MCP server\'s self-declared capability.',
-            '<strong>Touched secrets</strong> — does any call in the window correlate with a credential/PII rule hit? Catches rule-fired matches; does not catch unflagged exfil through a tool that legitimately accepts secrets.',
-            '<strong>Policy</strong> — which org-pushed policy currently governs this tool (name + org). Empty means no cloud policy attached.',
+            '<strong>MCP server / Tool</strong>: every distinct (server, tool) called in the trailing window. Built-in tools (Bash, Read, etc.) show as <code>built-in</code> with the harness name underneath.',
+            '<strong>Source</strong>: coloured pill: <span style="color:var(--accent-primary);">cloud-policy</span> (org-pushed), <span style="color:var(--accent-secondary);">local-custom</span> (you registered it), <span style="color:var(--success);">mcp</span> (discovered third-party MCP), grey <code>built-in</code> (harness baseline).',
+            '<strong>Auth scope</strong>: SecureVector\'s classification (read / write / delete / admin), <em>not</em> the MCP server\'s self-declared capability.',
+            '<strong>Touched secrets</strong>: does any call in the window correlate with a credential/PII rule hit? Catches rule-fired matches; does not catch unflagged exfil through a tool that legitimately accepts secrets.',
+            '<strong>Policy</strong>: which org-pushed policy currently governs this tool (name + org). Empty means no cloud policy attached.',
         ]));
 
         frag.appendChild(sectionHead('How to use it'));
         frag.appendChild(bulletList([
-            '<strong>Audit before incident</strong> — once a week, scan for <code>mcp</code>-sourced tools you don\'t recognise. New third-party MCP servers are the highest-blast-radius supply-chain risk.',
-            '<strong>Filter by source or MCP server</strong> — narrow to just the cloud-policy-covered tools to verify your org policy is taking effect, or filter to one MCP server to see exactly what it touched.',
-            '<strong>Spot privilege drift</strong> — sort by <code>auth_scope=admin</code> or <code>calls</code> descending to see which high-privilege tools are getting the most traffic.',
-            '<strong>Export for compliance</strong> — Export CSV (the raw rows) or Export PDF (a print-ready inventory document with logo + methodology footer) for SOC 2 / ISO 27001 evidence.',
+            '<strong>Audit before incident</strong>: once a week, scan for <code>mcp</code>-sourced tools you don\'t recognise. New third-party MCP servers are the highest-blast-radius supply-chain risk.',
+            '<strong>Filter by source or MCP server</strong>: narrow to just the cloud-policy-covered tools to verify your org policy is taking effect, or filter to one MCP server to see exactly what it touched.',
+            '<strong>Spot privilege drift</strong>: sort by <code>auth_scope=admin</code> or <code>calls</code> descending to see which high-privilege tools are getting the most traffic.',
+            '<strong>Export for compliance</strong>: Export CSV (the raw rows) or Export PDF (a print-ready inventory document with logo + methodology footer) for SOC 2 / ISO 27001 evidence.',
         ]));
 
         frag.appendChild(sectionHead('Who benefits'));
         frag.appendChild(bulletList([
-            '<strong>Security leads</strong> — weekly governance review: "what new tools showed up since last week?".',
-            '<strong>Auditors</strong> — point-in-time evidence of what the agent surface looked like during an audit window.',
-            '<strong>SOCs investigating an incident</strong> — quick rollup of which tools were touched in the lead-up.',
+            '<strong>Security leads</strong>: weekly governance review: "what new tools showed up since last week?".',
+            '<strong>Auditors</strong>: point-in-time evidence of what the agent surface looked like during an audit window.',
+            '<strong>SOCs investigating an incident</strong>: quick rollup of which tools were touched in the lead-up.',
         ]));
 
         return frag;
@@ -2087,39 +2087,39 @@ const GettingStartedPage = {
         const { para, head, list, callout } = this._gsHelpers();
 
         frag.appendChild(para(
-            'The <strong style="color:var(--text-primary);">Agent Map</strong> (Agent Activity → Map) is a live topology of what your agents actually did. ' +
+            'The <strong style="color:var(--text-primary);">Agent Map</strong> (Observability → Map) is a live topology of what your agents actually did. ' +
             'It reads the tool-call audit log and draws four layers: <strong>this device</strong> → each <strong>harness</strong> ' +
-            '(the runtime — Claude Code, Codex, OpenClaw) → each <strong>agent</strong> (one run/session) → the <strong>tools</strong> that agent called.'
+            '(the runtime: Claude Code, Codex, OpenClaw) → each <strong>agent</strong> (one run/session) → the <strong>tools</strong> that agent called.'
         ));
 
         frag.appendChild(head('The four layers'));
         frag.appendChild(list([
-            '<strong>Device</strong> — the root; your local machine.',
-            '<strong>Harness</strong> — one node per runtime. Node colour is the harness: Claude Code orange, Codex blue, OpenClaw red.',
-            '<strong>Agent</strong> — one node per run, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the run into Runs and the Timeline.',
-            '<strong>Tool</strong> — each tool the agent called (Bash, Read, an MCP tool, …).',
+            '<strong>Device</strong>: the root; your local machine.',
+            '<strong>Harness</strong>: one node per runtime. Node colour is the harness: Claude Code orange, Codex blue, OpenClaw red.',
+            '<strong>Agent</strong>: one node per session, labelled "agent #N" (newest = #1 per harness). Click the pencil on its card to rename it; the name follows the session into Traces and the Live feed.',
+            '<strong>Tool</strong>: each tool the agent called (Bash, Read, an MCP tool, …).',
         ]));
 
         frag.appendChild(head('Topologies'));
         frag.appendChild(list([
-            '<strong>Tree</strong> (default) — top-down hierarchy; best for reading parent→child structure.',
-            '<strong>Radial</strong> — the same hierarchy bent into a dendrogram; compact for many agents.',
-            '<strong>Mesh</strong> — deduplicates shared tools so you can see which tools several agents have in common.',
-            '<strong>Sankey</strong> — flow bands sized by call volume; best for "where does most activity go".',
+            '<strong>Tree</strong> (default): top-down hierarchy; best for reading parent→child structure.',
+            '<strong>Radial</strong>: the same hierarchy bent into a dendrogram; compact for many agents.',
+            '<strong>Mesh</strong>: deduplicates shared tools so you can see which tools several agents have in common.',
+            '<strong>Sankey</strong>: flow bands sized by call volume; best for "where does most activity go".',
         ]));
 
         frag.appendChild(head('Reading the signals'));
         frag.appendChild(list([
             'A <strong>red halo / ring</strong> on a node means a blocked call sits under it.',
             'A <strong>lock badge + "secret detected"</strong> marks an agent whose tools touched a credential or PII.',
-            'Greyed, dimmed nodes are <strong>inactive</strong> (no activity in the last 24h) — toggle "Show inactive" to include them.',
+            'Greyed, dimmed nodes are <strong>inactive</strong> (no activity in the last 24h): toggle "Show inactive" to include them.',
             'Click any node for a detail card; click again to focus its blast radius. The <strong>Outcome</strong> filter (allowed / blocked / log-only / threats) dims everything that doesn\'t match.',
             'The stats line up top totals harnesses, active agents, total agents, blocked calls, and secret-touching tools for the window.',
         ]));
 
         frag.appendChild(callout(
-            '<strong style="color:var(--text-primary);">Useful for:</strong> spotting which agent or tool is generating blocks, seeing a credential-touching run at a glance, ' +
-            'and drilling from a suspicious node straight into its exact run. Click an agent or tool node to jump to that run in <strong>Agent Runs</strong>.'
+            '<strong style="color:var(--text-primary);">Useful for:</strong> spotting which agent or tool is generating blocks, seeing a credential-touching session at a glance, ' +
+            'and drilling from a suspicious node straight into its exact trace. Click an agent or tool node to jump to that trace in <strong>Traces</strong>.'
         ));
         return frag;
     },
@@ -2130,23 +2130,24 @@ const GettingStartedPage = {
         const { para, head, list, callout } = this._gsHelpers();
 
         frag.appendChild(para(
-            '<strong style="color:var(--text-primary);">Agent Runs</strong> (Agent Activity → Runs) is the per-run trace: the run list on the left, ' +
-            'and on the right a turn-by-turn waterfall of every tool call in the selected run, each with the tool permission that was applied.'
+            '<strong style="color:var(--text-primary);">Traces</strong> (Observability → Traces) is the per-session trace: the trace list on the left, ' +
+            'and on the right a turn-by-turn waterfall of every span (tool call) in the selected trace, each with the tool permission that was applied. ' +
+            'One trace = one agent session; the spans are the steps inside it (Session → Trace → Span, the standard observability hierarchy).'
         ));
 
-        frag.appendChild(head('The run list'));
+        frag.appendChild(head('The trace list'));
         frag.appendChild(list([
-            'Each card leads with the agent label — its custom name or <strong>"agent #N"</strong> (the same number as on the Map) — with the harness as a small tag beside it.',
-            'The left rail and dot are coloured by harness; the right dot is the run\'s risk.',
+            'Each card leads with the agent label: its custom name or <strong>"agent #N"</strong> (the same number as on the Map): with the harness as a small tag beside it.',
+            'The left rail and dot are coloured by harness; the right dot is the trace\'s risk.',
             'Meta shows span count, blocked count, and the end time.',
         ]));
 
         frag.appendChild(head('Filters'));
         frag.appendChild(list([
-            '<strong>Window</strong> — 24h / 7d / 30d.',
-            '<strong>Harness</strong> — narrow to one runtime (claude-code / codex / openclaw / …). A Map drill-down pre-sets this.',
-            '<strong>Tool</strong> — show built-in, external MCP, or both.',
-            '<strong>Outcome</strong> — allowed / blocked / log-only / threats / secret-touching, matching the Map\'s Outcome filter.',
+            '<strong>Window</strong>: 24h / 7d / 30d.',
+            '<strong>Harness</strong>: narrow to one runtime (claude-code / codex / openclaw / …). A Map drill-down pre-sets this.',
+            '<strong>Tool</strong>: show built-in, external MCP, or both.',
+            '<strong>Outcome</strong>: allowed / blocked / log-only / threats / secret-touching, matching the Map\'s Outcome filter.',
         ]));
 
         frag.appendChild(head('The waterfall'));
@@ -2158,7 +2159,7 @@ const GettingStartedPage = {
 
         frag.appendChild(callout(
             '<strong style="color:var(--text-primary);">Useful for:</strong> auditing exactly what a single agent did, in order; confirming a block fired where you expected; ' +
-            'and exporting one run\'s trace (CSV / PDF) for a ticket or review. Arriving from a Map tool-node click scopes the waterfall to that one tool.'
+            'and exporting one trace (CSV / PDF) for a ticket or review. Arriving from a Map tool-node click scopes the waterfall to that one tool.'
         ));
         return frag;
     },
@@ -2193,7 +2194,7 @@ const GettingStartedPage = {
         };
 
         frag.appendChild(para(
-            '<strong style="color:var(--text-primary);">Secret Detections</strong> is the redactions audit log. Every credential or PII pattern caught by <code>redact_secrets()</code> in the /analyze pipeline is recorded here — with a SHA-256 hash, never the raw value. ' +
+            '<strong style="color:var(--text-primary);">Secret Detections</strong> is the redactions audit log. Every credential or PII pattern caught by <code>redact_secrets()</code> in the /analyze pipeline is recorded here: with a SHA-256 hash, never the raw value. ' +
             'A SIEM-safe trail of "what secret slipped, where it came from, and which agent caught it" without ever persisting the secret itself.'
         ));
 
@@ -2204,33 +2205,33 @@ const GettingStartedPage = {
 
         frag.appendChild(sectionHead('What it shows'));
         frag.appendChild(bulletList([
-            '<strong>Detected</strong> tile — total redaction events in the window.',
-            '<strong>Distinct tools</strong> tile — how many distinct (server, tool) pairs leaked at least once.',
-            '<strong>From tool responses</strong> tile — count of incoming-direction catches (the credential made it across the LLM boundary inside a tool reply — usually the highest-blast-radius case).',
-            '<strong>By direction / By secret type / By harness</strong> — breakdown cards summarising the same event set along three orthogonal axes.',
-            '<strong>Event log</strong> — every redaction row: time, direction, harness, pattern_id, secret_type, source tool, request id, and the SHA-256 hash.',
+            '<strong>Detected</strong> tile: total redaction events in the window.',
+            '<strong>Distinct tools</strong> tile: how many distinct (server, tool) pairs leaked at least once.',
+            '<strong>From tool responses</strong> tile: count of incoming-direction catches (the credential made it across the LLM boundary inside a tool reply: usually the highest-blast-radius case).',
+            '<strong>By direction / By secret type / By harness</strong>: breakdown cards summarising the same event set along three orthogonal axes.',
+            '<strong>Event log</strong>: every redaction row: time, direction, harness, pattern_id, secret_type, source tool, request id, and the SHA-256 hash.',
         ]));
 
         frag.appendChild(sectionHead('Direction-awareness'));
         frag.appendChild(bulletList([
-            '<strong>outgoing</strong> — user → LLM. PEM-key / OpenSSH binary carriers <em>do not fire</em> on outgoing (a user pasting their own key into a prompt is not a leak).',
-            '<strong>incoming</strong> — tool response → LLM. <em>All patterns fire</em>, including PEM and OpenSSH — a third-party tool handing you a private key is always a leak.',
-            '<strong>llm_response</strong> — LLM → user. Catches secrets the model surfaced from its training data or context.',
+            '<strong>outgoing</strong>: user → LLM. PEM-key / OpenSSH binary carriers <em>do not fire</em> on outgoing (a user pasting their own key into a prompt is not a leak).',
+            '<strong>incoming</strong>: tool response → LLM. <em>All patterns fire</em>, including PEM and OpenSSH: a third-party tool handing you a private key is always a leak.',
+            '<strong>llm_response</strong>: LLM → user. Catches secrets the model surfaced from its training data or context.',
         ]));
 
         frag.appendChild(sectionHead('How to use it'));
         frag.appendChild(bulletList([
-            '<strong>Spot the leak surface</strong> — sort by Source tool to find which integration is the chronic leaker.',
-            '<strong>Filter by harness</strong> — Claude Code vs. OpenClaw vs. proxy traffic. Useful when one runtime is misbehaving.',
-            '<strong>Hash-only exports</strong> — CSV + PDF carry SHA-256 only. You can forward these to your SOC or auditor without sensitive data risk.',
-            '<strong>Verify a specific match</strong> — auditors can confirm a specific secret was caught by re-hashing the known value and matching it against the hash column.',
+            '<strong>Spot the leak surface</strong>: sort by Source tool to find which integration is the chronic leaker.',
+            '<strong>Filter by harness</strong>: Claude Code vs. OpenClaw vs. proxy traffic. Useful when one runtime is misbehaving.',
+            '<strong>Hash-only exports</strong>: CSV + PDF carry SHA-256 only. You can forward these to your SOC or auditor without sensitive data risk.',
+            '<strong>Verify a specific match</strong>: auditors can confirm a specific secret was caught by re-hashing the known value and matching it against the hash column.',
         ]));
 
         frag.appendChild(sectionHead('Who benefits'));
         frag.appendChild(bulletList([
-            '<strong>Security leads</strong> — proof that the agent perimeter is catching credential leaks before they hit the LLM.',
-            '<strong>Compliance / privacy</strong> — evidence trail that PII redaction is enforced consistently, without ever logging the PII itself.',
-            '<strong>Devs debugging an integration</strong> — see exactly which patterns fire on a tool\'s output, so you can fix the data flow upstream.',
+            '<strong>Security leads</strong>: proof that the agent perimeter is catching credential leaks before they hit the LLM.',
+            '<strong>Compliance / privacy</strong>: evidence trail that PII redaction is enforced consistently, without ever logging the PII itself.',
+            '<strong>Devs debugging an integration</strong>: see exactly which patterns fire on a tool\'s output, so you can fix the data flow upstream.',
         ]));
 
         return frag;
@@ -2287,7 +2288,7 @@ const GettingStartedPage = {
 
         const categories = [
             { name: 'Network call',       id: 'network_domain',   severity: 'HIGH',    color: '#ef4444', desc: 'HTTP/HTTPS calls to domains not in the manifest.' },
-            { name: 'Dynamic code',       id: 'code_exec',        severity: 'HIGH',    color: '#ef4444', desc: 'Dynamic code execution \u2014 arbitrary runtime code.' },
+            { name: 'Dynamic code',       id: 'code_exec',        severity: 'HIGH',    color: '#ef4444', desc: 'Dynamic code execution: arbitrary runtime code.' },
             { name: 'Obfuscated import',  id: 'dynamic_import',   severity: 'HIGH',    color: '#ef4444', desc: '__import__(), importlib, or getattr() hiding module loads.' },
             { name: 'Shell command',      id: 'shell_exec',       severity: 'HIGH/LOW', color: '#ef4444', desc: 'HIGH if dynamic args or unknown command, LOW if known safe tool (claude, git, npm, python).' },
             { name: 'File write',         id: 'file_write',       severity: 'HIGH/LOW', color: '#ef4444', desc: 'HIGH for absolute paths or executables, LOW for relative paths with safe extensions (.json, .html, .log).' },
@@ -2295,7 +2296,7 @@ const GettingStartedPage = {
             { name: 'Base64 obfuscation', id: 'base64_literal',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Base64 encode/decode or large embedded strings (40+ chars).' },
             { name: 'Compiled binary',    id: 'compiled_code',    severity: 'MEDIUM',  color: '#f59e0b', desc: 'Pre-compiled files that cannot be statically analysed.' },
             { name: 'Symlink escape',     id: 'symlink_escape',   severity: 'MEDIUM',  color: '#f59e0b', desc: 'Symlink resolves outside the skill directory.' },
-            { name: 'Missing manifest',   id: 'missing_manifest', severity: 'INFO',    color: '#3b82f6', desc: 'No permissions.yml found. Informational \u2014 does not affect risk level.' },
+            { name: 'Missing manifest',   id: 'missing_manifest', severity: 'INFO',    color: '#64748b', desc: 'No permissions.yml found. Informational: does not affect risk level.' },
         ];
 
         const catGrid = document.createElement('div');
@@ -2392,12 +2393,12 @@ const GettingStartedPage = {
         // ── Skill Permissions ─────────────────────────────────────────────
         frag.appendChild(sectionHead('Your Permission Rules'));
         frag.appendChild(para('Permission rules classify scan findings as Safe (+0), Review (+2), or Dangerous (+5). The total score determines the policy decision: ALLOW (\u22643), WARN (4\u20136), or BLOCK (7+). Rules use glob patterns organized by category: Network, Env Vars, File Paths, and Shell Commands. 218 defaults are pre-loaded.'));
-        frag.appendChild(para('Manage rules from the Skill Permissions page \u2014 add custom rules, toggle them, export/import as JSON, or reset to defaults.'));
+        frag.appendChild(para('Manage rules from the Skill Permissions page: add custom rules, toggle them, export/import as JSON, or reset to defaults.'));
 
         // ── How to scan ───────────────────────────────────────────────────
         frag.appendChild(sectionHead('How to scan'));
         frag.appendChild(para('Skills installed in standard locations (~/.openclaw/skills, ~/.mcp/skills, ~/.claude/skills) are auto-detected and shown on the Scanner tab. Select any and click Scan Selected or Scan All. On WSL, Windows-side skill directories are also searched.'));
-        frag.appendChild(para('For other sources, use the unified scan input \u2014 paste a local path or a URL (GitHub repo, npm package, .zip/.tar.gz archive) and click Scan. URL skills are downloaded to a temp directory, scanned, and can be installed to ~/.openclaw/skills/ if the policy allows. Results show inline with policy badges. Click any result for the detail drawer. The History tab shows past scans.'));
+        frag.appendChild(para('For other sources, use the unified scan input: paste a local path or a URL (GitHub repo, npm package, .zip/.tar.gz archive) and click Scan. URL skills are downloaded to a temp directory, scanned, and can be installed to ~/.openclaw/skills/ if the policy allows. Results show inline with policy badges. Click any result for the detail drawer. The History tab shows past scans.'));
 
         frag.appendChild(this.createCodeBlock(
             '# CLI usage\nsecurevector-app scan-skill ~/.openclaw/skills/my-skill\nsecurevector-app scan-skill ./my-skill --output json\nsecurevector-app scan-skill ./my-skill --fail-on medium'
@@ -2438,11 +2439,11 @@ const GettingStartedPage = {
         frag.appendChild(this.createCodeBlock(
             '# <skill-dir>/permissions.yml\npermissions:\n  networks:\n    - api.openai.com\n  files:\n    - ./output/\n  env_vars:\n    - OPENAI_API_KEY'
         ));
-        frag.appendChild(note('Note: ', 'A missing manifest produces an INFO finding only \u2014 it does not affect risk level. You don\'t create this file \u2014 it comes with the skill. Without a manifest, all behavior is classified by your permission rules.', 'var(--accent-primary)'));
+        frag.appendChild(note('Note: ', 'A missing manifest produces an INFO finding only (it does not affect risk level. You don\'t create this file) it comes with the skill. Without a manifest, all behavior is classified by your permission rules.', 'var(--accent-primary)'));
 
         // ── AI Analysis section ──────────────────────────────────────────
         frag.appendChild(sectionHead('AI-Powered False-Positive Reduction'));
-        frag.appendChild(para('Static analysis is fast but context-blind \u2014 it flags patterns like subprocess.Popen or os.environ without understanding intent. Enable AI Analysis to have an LLM review each finding and mark false positives automatically.'));
+        frag.appendChild(para('Static analysis is fast but context-blind: it flags patterns like subprocess.Popen or os.environ without understanding intent. Enable AI Analysis to have an LLM review each finding and mark false positives automatically.'));
 
         const aiSteps = document.createElement('ol');
         aiSteps.style.cssText = 'margin: 8px 0 8px 20px; font-size: 13px; color: var(--text-primary); line-height: 1.8;';
@@ -2450,7 +2451,7 @@ const GettingStartedPage = {
             ['Go to ', 'Settings \u2192 AI / LLM', ' and enable AI analysis'],
             ['Choose a provider: Ollama (free, local), OpenAI, Anthropic, Azure, or Bedrock'],
             ['Configure the model and API key (Ollama needs no key)'],
-            ['Scan a skill \u2014 AI review runs automatically on every scan'],
+            ['Scan a skill: AI review runs automatically on every scan'],
         ];
         stepTexts.forEach(parts => {
             const li = document.createElement('li');
@@ -2499,7 +2500,7 @@ const GettingStartedPage = {
                 note: 'OpenClaw users: use ANTHROPIC_BASE_URL=http://localhost:8742/anthropic when starting the gateway.',
             },
             {
-                title: 'Google Gemini API key — 401 Unauthorized error',
+                title: 'Google Gemini API key: 401 Unauthorized error',
                 cause: 'The Google API key must be available in the environment where SecureVector is running, not just where your agent runs.',
                 fix: [
                     'Stop SecureVector.',
@@ -2515,7 +2516,7 @@ const GettingStartedPage = {
                 title: 'Dashboard shows no data / Threat Monitor is empty',
                 cause: 'The proxy may not be running, or your agent is still pointing at the provider directly.',
                 fix: [
-                    'Check the sidebar bottom — you should see a coloured "proxy running" banner.',
+                    'Check the sidebar bottom: you should see a coloured "proxy running" banner.',
                     'If not, go to Integrations in the sidebar and start the proxy for your framework.',
                     'Verify your agent\'s base URL points to localhost:8742 (not the provider\'s URL).',
                     'Send a test request from your agent and refresh the dashboard.',
@@ -2523,20 +2524,20 @@ const GettingStartedPage = {
             },
             {
                 title: 'Threats are detected but not being blocked',
-                cause: 'Block Mode may be toggled off — in Log Mode, threats are recorded but not stopped.',
+                cause: 'Block Mode may be toggled off: in Log Mode, threats are recorded but not stopped.',
                 fix: [
-                    'Look at the header bar — the "Block" toggle should show red/active.',
+                    'Look at the header bar: the "Block" toggle should show red/active.',
                     'Click the toggle to switch from Log Mode to Block Mode.',
                     'Block Mode is the default; it gets reset to Log Mode only if you toggled it manually.',
                 ],
             },
             {
-                title: 'Cost Tracking shows $0.00 for all requests',
+                title: 'Cost & Tokens shows $0.00 for all requests',
                 cause: 'The model name returned by the provider does not match a known pricing entry, or token counts were not included in the response.',
                 fix: [
-                    'Go to Cost Tracking → Pricing Reference and check if your model is listed.',
-                    'Some providers return snapshot model names (e.g. gpt-4o-2024-08-06) instead of aliases — both are matched.',
-                    'For Ollama, $0.00 is correct — local models have no API cost.',
+                    'Go to Cost & Tokens → Pricing Reference and check if your model is listed.',
+                    'Some providers return snapshot model names (e.g. gpt-4o-2024-08-06) instead of aliases: both are matched.',
+                    'For Ollama, $0.00 is correct: local models have no API cost.',
                     'If a model is missing, open an issue on GitHub with the model name and provider.',
                 ],
             },
@@ -2547,7 +2548,7 @@ const GettingStartedPage = {
                     'Go to Settings and check that "Tool Enforcement" is enabled.',
                     'Tool permissions work by intercepting tool calls forwarded through the SecureVector proxy.',
                     'If your agent calls tools directly (not via the LLM proxy response), they bypass the proxy and cannot be intercepted.',
-                    'For MCP tools, use the MCP Server integration — see Guide → API Reference for the MCP setup.',
+                    'For MCP tools, use the MCP Server integration: see Guide → API Reference for the MCP setup.',
                 ],
             },
             {
@@ -2556,7 +2557,7 @@ const GettingStartedPage = {
                 fix: [
                     'Find and stop the conflicting process:',
                     { code: 'lsof -i :8741\nlsof -i :8742' },
-                    'Or start SecureVector on a custom port — the proxy starts automatically on app port + 1:',
+                    'Or start SecureVector on a custom port: the proxy starts automatically on app port + 1:',
                     { code: 'securevector-app --web --port 8800\n# App runs on 8800, proxy runs automatically on 8801' },
                     'To override the proxy port explicitly, use --proxy-port:',
                     { code: 'securevector-app --web --port 8800 --proxy-port 8900\n# App on 8800, proxy on 8900' },
@@ -2713,7 +2714,7 @@ const GettingStartedPage = {
 
         const docsDesc = document.createElement('div');
         docsDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;';
-        docsDesc.textContent = 'Browse and test every REST endpoint directly in your browser. No extra tools needed — authentication, request bodies, and live responses all in one place.';
+        docsDesc.textContent = 'Browse and test every REST endpoint directly in your browser. No extra tools needed: authentication, request bodies, and live responses all in one place.';
         docsCard.appendChild(docsDesc);
 
         const docsBtn = document.createElement('button');

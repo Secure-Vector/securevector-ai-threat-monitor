@@ -48,7 +48,7 @@ const SettingsPage = {
         // default, so the disable flag must be the easiest thing to find.
         const guardianSection = this.createSection(
             'Guardian ML Detection',
-            'On by default. A local ML model that runs alongside the regex rules and catches obfuscated, paraphrased, and encoded attacks they miss — fully offline, sub-millisecond, nothing leaves your machine.',
+            'On by default. A local ML model that runs alongside the regex rules and catches obfuscated, paraphrased, and encoded attacks they miss: fully offline, sub-millisecond, nothing leaves your machine.',
             'New',
         );
         guardianSection.id = 'settings-guardian-section';
@@ -88,7 +88,7 @@ const SettingsPage = {
         // Cloud Connect Section
         const cloudSection = this.createSection(
             'Cloud Connect',
-            'Optional. Connect to fetch the latest rule bundle and route analyze calls through SecureVector Cloud — metadata-only.',
+            'Optional. Connect to fetch the latest rule bundle and route analyze calls through SecureVector Cloud: metadata-only.',
         );
         const cloudCard = Card.create({ gradient: true });
         const cloudBody = cloudCard.querySelector('.card-body');
@@ -101,8 +101,8 @@ const SettingsPage = {
         const cloudModeActive = this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled;
         const llmDesc = cloudModeActive
             ? 'Disabled - Cloud ML analysis is active'
-            : 'Optional. Uses an LLM to review flagged inputs and reduce false positives in threat detection. Not required for tool permissions or cost tracking — those work without any API key.';
-        const llmSection = this.createSection('AI Analysis — Optional', llmDesc);
+            : 'Optional. Uses an LLM to review flagged inputs and reduce false positives in threat detection. Not required for tool permissions or cost tracking: those work without any API key.';
+        const llmSection = this.createSection('AI Analysis: Optional', llmDesc);
         const llmCard = Card.create({ gradient: true });
         const llmBody = llmCard.querySelector('.card-body');
         this.renderLLMSettings(llmBody, cloudModeActive);
@@ -232,7 +232,7 @@ const SettingsPage = {
                 if (window.Toast) {
                     Toast.success(enabled
                         ? 'Guardian ML detection enabled'
-                        : 'Guardian ML detection disabled — regex rules still active');
+                        : 'Guardian ML detection disabled: regex rules still active');
                 }
             } catch (error) {
                 checkbox.checked = !enabled;
@@ -333,14 +333,14 @@ const SettingsPage = {
             ? [
                 "Enforced by your organization's EU data-residency policy.",
                 'Prompt input and output are analyzed on-device and never leave this machine.',
-                'Local-only analysis is hard-locked on and cannot be disabled here — prompt text can never be sent to the cloud.',
+                'Local-only analysis is hard-locked on and cannot be disabled here: prompt text can never be sent to the cloud.',
                 'Rule sync, policy sync, fleet metadata, and governance keep working (metadata only).',
               ]
             : [
-                'On by default — prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
+                'On by default: prompt input and output are analyzed on-device and are never sent to SecureVector Cloud.',
                 'Rule sync, policy sync, fleet metadata, and governance keep working.',
-                'Turn off only if you want cloud ML analysis — that sends your prompt text to scan.securevector.io.',
-                'EU data-residency: when your organization enforces EU residency, this is hard-locked on — local-only analysis cannot be disabled and prompt text can never be sent to the cloud.',
+                'Turn off only if you want cloud ML analysis: that sends your prompt text to scan.securevector.io.',
+                'EU data-residency: when your organization enforces EU residency, this is hard-locked on, local-only analysis cannot be disabled and prompt text can never be sent to the cloud.',
               ];
         bullets.forEach(t => {
             const li = document.createElement('li');
@@ -365,8 +365,8 @@ const SettingsPage = {
                 setBadge(enabled);
                 if (window.Toast) {
                     Toast.success(enabled
-                        ? 'Local-only analysis on — prompts stay on this device'
-                        : 'Cloud analysis enabled — prompt text will be sent to SecureVector Cloud');
+                        ? 'Local-only analysis on: prompts stay on this device'
+                        : 'Cloud analysis enabled: prompt text will be sent to SecureVector Cloud');
                 }
             } catch (error) {
                 checkbox.checked = !enabled;
@@ -409,7 +409,7 @@ const SettingsPage = {
         const content = document.createElement('div');
         const lead = document.createElement('p');
         lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
-        lead.textContent = 'Turning this off lets SecureVector Cloud run ML-grade analysis on your traffic — but to do that, your prompt input and the LLM output are sent off this device:';
+        lead.textContent = 'Turning this off lets SecureVector Cloud run ML-grade analysis on your traffic, but to do that, your prompt input and the LLM output are sent off this device:';
         content.appendChild(lead);
 
         const list = document.createElement('ul');
@@ -417,7 +417,7 @@ const SettingsPage = {
         [
             'Raw prompt text and LLM output are POSTed to scan.securevector.io for analysis.',
             'Use only where sending that text to the cloud is acceptable for your data-residency obligations.',
-            'Rule sync, fleet metadata, and governance do NOT require this — they already work with prompts kept local.',
+            'Rule sync, fleet metadata, and governance do NOT require this: they already work with prompts kept local.',
         ].forEach(t => {
             const li = document.createElement('li');
             li.textContent = t;
@@ -451,15 +451,15 @@ const SettingsPage = {
 
         const lead = document.createElement('p');
         lead.style.cssText = 'margin: 0 0 12px; line-height: 1.5;';
-        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call — catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
+        lead.textContent = 'Guardian adds a local ML model that runs alongside the regex rules on every analyze call, catching obfuscated, paraphrased, and base64/hex-encoded attacks the rules miss.';
         content.appendChild(lead);
 
         const list = document.createElement('ul');
         list.style.cssText = 'margin: 0 0 12px; padding-left: 18px; line-height: 1.6; color: var(--text-secondary);';
         [
-            'Fully offline — nothing leaves your machine, no API key.',
-            'Fast — sub-millisecond on a typical prompt or tool call.',
-            'Additive only — it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
+            'Fully offline: nothing leaves your machine, no API key.',
+            'Fast: sub-millisecond on a typical prompt or tool call.',
+            'Additive only: it strengthens a verdict, never silences a rule: blocks on its own at high confidence, corroborates a firing rule at a lower bar.',
         ].forEach(t => {
             const li = document.createElement('li');
             li.textContent = t;
@@ -1142,7 +1142,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         // turned off). Users kept asking whether scans still run with
         // Cloud Connect off; this panel answers that inline.
         const primer = document.createElement('div');
-        primer.style.cssText = 'margin-bottom:16px;padding:14px 16px;background:var(--bg-secondary,#f5f7fa);border-left:3px solid var(--accent,#2563eb);border-radius:6px;font-size:13px;line-height:1.55;';
+        primer.style.cssText = 'margin-bottom:16px;padding:14px 16px;background:var(--bg-secondary,#f5f7fa);border-left:3px solid var(--accent-primary,#5eadb8);border-radius:6px;font-size:13px;line-height:1.55;';
 
         const primerHeading = document.createElement('div');
         primerHeading.style.cssText = 'font-weight:600;margin-bottom:6px;';
@@ -1152,8 +1152,8 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const primerBody = document.createElement('div');
         primerBody.style.color = 'var(--text-secondary)';
         primerBody.innerHTML =
-            '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect ON:</strong> you can sync the latest rule bundle from SecureVector Cloud, and every <code>/analyze</code> request is routed to the cloud for ML-powered scoring. We persist <strong>metadata only</strong> — scan verdicts, threat scores, rule IDs. Prompts, LLM outputs, matched patterns, and reasoning text are never transmitted or stored on our side.</p>'
-            + '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect OFF:</strong> everything keeps running locally — threat detection, tool-call audits, cost tracking, skill scanner. Rules you have already synced stay on this machine and continue to work.</p>'
+            '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect ON:</strong> you can sync the latest rule bundle from SecureVector Cloud, and <code>/analyze</code> requests can be scored by cloud ML. To score a request, the prompt text is transmitted to the cloud, analyzed, and discarded. We persist <strong>metadata only</strong>: scan verdicts, threat scores, rule IDs. Prompt text, LLM outputs, and reasoning are never stored on our side.</p>'
+            + '<p style="margin:0 0 8px;"><strong style="color:var(--text-primary);">With Cloud Connect OFF:</strong> everything keeps running locally, threat detection, tool-call audits, cost tracking, skill scanner. Rules you have already synced stay on this machine and continue to work.</p>'
             + '<p style="margin:0;"><strong style="color:var(--text-primary);">Typical flow:</strong> turn ON → click <em>Sync from Cloud</em> on the Rules page → turn OFF → keep running fully local with the freshest ruleset.</p>';
         primer.appendChild(primerBody);
 
@@ -1162,7 +1162,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         // Cloud Connect ON indicator (simple version - details in header tooltip)
         if (this.cloudSettings.credentials_configured && this.cloudSettings.cloud_mode_enabled) {
             const indicator = document.createElement('div');
-            indicator.style.cssText = 'margin-bottom: 16px; padding: 12px 16px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px; display: flex; align-items: center; gap: 10px;';
+            indicator.style.cssText = 'margin-bottom: 16px; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-left: 3px solid var(--accent-primary, #5eadb8); border-radius: 8px; display: flex; align-items: center; gap: 10px;';
 
             const icon = document.createElement('span');
             icon.textContent = '☁️';
@@ -1170,11 +1170,18 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             indicator.appendChild(icon);
 
             const text = document.createElement('span');
-            text.style.cssText = 'color: white; font-weight: 600;';
-            text.textContent = 'CLOUD MODE ON';
+            text.style.cssText = 'color: var(--text-primary); font-weight: 600;';
+            text.textContent = 'Cloud Connect is on';
             indicator.appendChild(text);
 
             container.appendChild(indicator);
+        }
+
+        // One-click trial CTA — the primary path when not connected. The
+        // manual paste-a-key flow below stays as the fallback (and the only
+        // path for org svet_ enrollment tokens).
+        if (!this.cloudSettings.credentials_configured) {
+            this.renderTrialCta(container);
         }
 
         // Instructions if not connected
@@ -1195,7 +1202,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             const link = document.createElement('a');
             link.href = 'https://app.securevector.io';
             link.target = '_blank';
-            link.style.color = 'var(--accent)';
+            link.style.color = 'var(--accent-primary)';
             link.textContent = 'app.securevector.io';
             step1.appendChild(link);
             steps.appendChild(step1);
@@ -1239,7 +1246,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         keyInput.type = 'password';
         keyInput.className = 'form-input';
         keyInput.id = 'cloud-api-key';
-        keyInput.placeholder = 'sk_... or sv_...';
+        keyInput.placeholder = 'svpk_...';
         keyInput.style.width = '250px';
         keyRow.appendChild(keyInput);
 
@@ -1309,6 +1316,200 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
             container.appendChild(disconnectRow);
         }
+    },
+
+    // ---- One-click cloud trial (device flow) ----
+
+    renderTrialCta(container) {
+        const panel = document.createElement('div');
+        panel.id = 'cloud-trial-panel';
+        panel.style.cssText =
+            'margin-bottom:16px;padding:16px;border:1px solid var(--border-color,#2a3441);'
+            + 'border-radius:10px;background:var(--bg-secondary,#0f1720);';
+
+        const head = document.createElement('div');
+        head.style.cssText = 'font-weight:600;font-size:14px;margin-bottom:4px;';
+        head.textContent = 'Start a free 30-day cloud trial';
+        panel.appendChild(head);
+
+        const sub = document.createElement('div');
+        sub.style.cssText = 'font-size:13px;color:var(--text-secondary);margin-bottom:12px;';
+        sub.textContent =
+            'One click: sign up in your browser and this device connects itself, '
+            + 'no key to copy. Metadata-only, same consent gates as manual connect. '
+            + 'No card required: when the 30 days end you drop to the free tier '
+            + 'automatically, nothing is charged, and this app keeps working fully local.';
+        panel.appendChild(sub);
+
+        const body = document.createElement('div');
+        body.id = 'cloud-trial-body';
+        panel.appendChild(body);
+
+        const startBtn = document.createElement('button');
+        startBtn.id = 'cloud-trial-start';
+        startBtn.className = 'btn btn-primary';
+        startBtn.textContent = 'Start free cloud trial';
+        startBtn.addEventListener('click', () => this.startCloudTrial());
+        body.appendChild(startBtn);
+
+        container.appendChild(panel);
+
+        // Deep-link from the header's Cloud Connect guide: its "Start free
+        // cloud trial" button lands here and kicks the flow off directly.
+        // Deferred a frame: at this point the settings tree may not be
+        // attached to the document yet, and startCloudTrial() finds its
+        // panel via getElementById.
+        if (this._autoStartTrial) {
+            this._autoStartTrial = false;
+            requestAnimationFrame(() => {
+                panel.scrollIntoView({ block: 'center' });
+                this.startCloudTrial();
+            });
+        }
+    },
+
+    async startCloudTrial() {
+        const body = document.getElementById('cloud-trial-body');
+        if (!body) return;
+
+        // Phase 1 — request a device code.
+        body.textContent = '';
+        const wait = document.createElement('div');
+        wait.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        wait.textContent = 'Contacting SecureVector Cloud…';
+        body.appendChild(wait);
+
+        let grant;
+        try {
+            grant = await API.startCloudTrial();
+        } catch (error) {
+            body.textContent = '';
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+            if (error.code === 'trial_unavailable' || error.code === 'network_error') {
+                note.textContent =
+                    'One-click signup isn’t reachable right now. Use the manual '
+                    + 'steps below (app.securevector.io → create a key → paste it here).';
+            } else if (error.code === 'rate_limited') {
+                note.textContent = 'Too many attempts from this device. Try again in a bit.';
+            } else {
+                note.textContent = 'Could not start the trial: ' + error.message;
+            }
+            body.appendChild(note);
+            const retry = document.createElement('button');
+            retry.className = 'btn btn-secondary btn-small';
+            retry.style.marginTop = '8px';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', () => this.startCloudTrial());
+            body.appendChild(retry);
+            return;
+        }
+
+        // Phase 2 — send the user to the browser and poll for completion.
+        window.open(grant.verification_uri_complete, '_blank', 'noopener');
+
+        body.textContent = '';
+        const status = document.createElement('div');
+        status.style.cssText = 'font-size:13px;line-height:1.6;';
+        const line1 = document.createElement('div');
+        // The link is rendered clickably on purpose: if the popup above was
+        // blocked, this line is the only way forward.
+        line1.append('Finish signup in the browser tab that just opened. Nothing opened? ');
+        const openLink = document.createElement('a');
+        openLink.href = grant.verification_uri_complete;
+        openLink.target = '_blank';
+        openLink.rel = 'noopener';
+        openLink.style.color = 'var(--accent-primary)';
+        openLink.textContent = 'Open the signup page';
+        line1.appendChild(openLink);
+        status.appendChild(line1);
+        const codeLine = document.createElement('div');
+        codeLine.style.cssText = 'color:var(--text-secondary);';
+        codeLine.append('If asked for a code, enter ');
+        const code = document.createElement('code');
+        code.style.cssText = 'font-weight:700;letter-spacing:1px;';
+        code.textContent = grant.user_code;
+        codeLine.appendChild(code);
+        status.appendChild(codeLine);
+        const spin = document.createElement('div');
+        spin.style.cssText = 'margin-top:8px;color:var(--text-secondary);';
+        spin.textContent = 'Waiting for you to finish…';
+        status.appendChild(spin);
+        body.appendChild(status);
+
+        const cancel = document.createElement('button');
+        cancel.className = 'btn btn-secondary btn-small';
+        cancel.style.marginTop = '10px';
+        cancel.textContent = 'Cancel';
+        body.appendChild(cancel);
+
+        let cancelled = false;
+        cancel.addEventListener('click', () => {
+            cancelled = true;
+            body.textContent = '';
+            this._rebuildTrialStart(body);
+        });
+
+        let intervalMs = Math.max(3, grant.interval || 5) * 1000;
+        const deadline = Date.now() + Math.min(grant.expires_in || 900, 1800) * 1000;
+
+        while (!cancelled && Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            if (cancelled || !body.isConnected) return;
+            let result;
+            try {
+                result = await API.pollCloudTrial(grant.device_code);
+            } catch (error) {
+                body.textContent = '';
+                const note = document.createElement('div');
+                note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+                note.textContent = error.code === 'expired_token'
+                    ? 'The signup window expired. Start again when ready.'
+                    : error.code === 'access_denied'
+                        ? 'Signup was cancelled in the browser.'
+                        : 'Trial signup failed: ' + error.message;
+                body.appendChild(note);
+                this._rebuildTrialStart(body, 'Start again');
+                return;
+            }
+            if (result.status === 'complete') {
+                Toast.success(result.message || 'Connected: your cloud trial is live.');
+                body.textContent = '';
+                const done = document.createElement('div');
+                done.style.cssText = 'font-size:13px;';
+                done.textContent = 'Connected'
+                    + (result.user_email ? ' as ' + result.user_email : '')
+                    + '. Opening your Governance view…';
+                body.appendChild(done);
+                const gov = document.createElement('a');
+                gov.href = 'https://app.securevector.io/governance';
+                gov.target = '_blank';
+                gov.rel = 'noopener';
+                gov.style.cssText = 'display:inline-block;margin-top:6px;color:var(--accent-primary);font-size:13px;';
+                gov.textContent = 'app.securevector.io/governance →';
+                body.appendChild(gov);
+                setTimeout(() => window.location.reload(), 2500);
+                return;
+            }
+            if (result.status === 'slow_down') intervalMs += 5000;
+        }
+        if (!cancelled && body.isConnected) {
+            body.textContent = '';
+            const note = document.createElement('div');
+            note.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+            note.textContent = 'The signup window expired. Start again when ready.';
+            body.appendChild(note);
+            this._rebuildTrialStart(body, 'Start again');
+        }
+    },
+
+    _rebuildTrialStart(body, label) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary';
+        btn.style.marginTop = '8px';
+        btn.textContent = label || 'Start free cloud trial';
+        btn.addEventListener('click', () => this.startCloudTrial());
+        body.appendChild(btn);
     },
 
     async saveCloudApiKey() {
@@ -1445,7 +1646,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
 
         select.addEventListener('change', (e) => {
             localStorage.setItem('sv-poll-interval', e.target.value);
-            Toast.success('Polling interval updated — takes effect on next page visit');
+            Toast.success('Polling interval updated: takes effect on next page visit');
         });
 
         row.appendChild(select);
@@ -2000,7 +2201,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             retryBtn.textContent = 'Resetting\u2026';
             try {
                 await API.resetSiemForwarderBreaker(row.id);
-                if (window.Toast) Toast.success('Breaker reset — next dispatcher tick will retry');
+                if (window.Toast) Toast.success('Breaker reset: next dispatcher tick will retry');
                 overlay.remove();
                 await this._refreshSiemForwardersTable();
             } catch {
@@ -2048,16 +2249,16 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                     const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
                     let msg;
                     if (v === 'indexed') {
-                        msg = `Indexed ✓ (${latency}) — Splunk confirmed the event`;
+                        msg = `Indexed ✓ (${latency}): Splunk confirmed the event`;
                     } else if (v === 'pending') {
-                        msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s, check your HEC channel`;
+                        msg = `Accepted · pending ACK (${latency}): Splunk didn't confirm in 3s, check your HEC channel`;
                     } else if (v === 'written') {
-                        msg = `Written to disk (${res.latency_ms}ms) — ${res.response_preview || 'file destination OK'}`;
+                        msg = `Written to disk (${res.latency_ms}ms): ${res.response_preview || 'file destination OK'}`;
                     } else if (v === 'accepted_with_ack') {
                         const ack = res.ack_id ? ` · ackId ${String(res.ack_id).slice(0, 12)}` : '';
-                        msg = `Accepted (${latency}) — ACK poll unreachable${ack}`;
+                        msg = `Accepted (${latency}): ACK poll unreachable${ack}`;
                     } else {
-                        msg = `Accepted (${latency}) — indexing not verified`;
+                        msg = `Accepted (${latency}): indexing not verified`;
                     }
                     Toast.success(msg);
                 }
@@ -2111,7 +2312,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const nativeGroup = document.createElement('optgroup');
         nativeGroup.label = 'Native (dedicated translator)';
         [
-            ['file',       'Local NDJSON file (zero infra — append to disk)'],
+            ['file',       'Local NDJSON file (zero infra: append to disk)'],
             ['splunk_hec', 'Splunk HTTP Event Collector'],
             ['datadog',    'Datadog Logs'],
             ['otlp_http',  'OpenTelemetry Collector (OTLP/HTTP)'],
@@ -2169,7 +2370,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
             const v = kindSelect.value;
             if (v === 'file') {
                 urlLabel.textContent = 'File path (leave blank for default)';
-                urlInput.placeholder = '~/.securevector/siem-events.jsonl — or any absolute path';
+                urlInput.placeholder = '~/.securevector/siem-events.jsonl, or any absolute path';
             } else {
                 urlLabel.textContent = 'URL';
                 urlInput.placeholder = 'https://…';
@@ -2207,7 +2408,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         secretHint.style.cssText = 'margin-top:-6px;padding:6px 10px;font-size:11.5px;color:var(--text-muted);line-height:1.5;background:var(--bg-tertiary);border:1px solid var(--border-default);border-radius:6px;';
         secretHint.innerHTML = `
             <strong style="color:var(--text-secondary);">Where is this stored?</strong>
-            In a separate file with <code>0600</code> permissions (owner-only) inside your app data directory — <strong>never in SQLite</strong>. The database row carries only an opaque reference. Deleted when you delete this destination.
+            In a separate file with <code>0600</code> permissions (owner-only) inside your app data directory: <strong>never in SQLite</strong>. The database row carries only an opaque reference. Deleted when you delete this destination.
             <a href="#" data-sv-goto-guide="section-siem-forwarder" style="color:var(--accent-primary);text-decoration:underline;">Details →</a>
         `;
         secretHint.querySelector('[data-sv-goto-guide]')?.addEventListener('click', (e) => {
@@ -2227,7 +2428,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const filterSelect = document.createElement('select');
         filterSelect.className = 'filter-select';
         [
-            ['threats_only', 'Threats + tool-call audits — default, recommended'],
+            ['threats_only', 'Threats + tool-call audits: default, recommended'],
             ['all',          'Everything (includes ALLOW scans)'],
             ['audits_only',  'Tool-call audits only'],
         ].forEach(([v, label]) => {
@@ -2256,7 +2457,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const redactionSelect = document.createElement('select');
         redactionSelect.className = 'filter-select';
         [
-            ['minimal', 'Minimal — verdict, risk_level, counts, device.uid, actor, MITRE (default · safest)'],
+            ['minimal', 'Minimal: verdict, risk_level, counts, device.uid, actor, MITRE (default · safest)'],
             ['standard', 'Standard — + threat_score, rule metadata, hash-chain witness'],
             ['full', 'Full — + raw prompt text, LLM output, matched patterns'],
         ].forEach(([v, label]) => {
@@ -2275,7 +2476,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         const sevSelect = document.createElement('select');
         sevSelect.className = 'filter-select';
         [
-            ['block',  'Block only — events this scanner actively stopped'],
+            ['block',  'Block only: events this scanner actively stopped'],
             ['review', 'Review+ — detections worth triaging (recommended default)'],
             ['warn',   'Warn+ — everything the scanner flagged, including low confidence'],
         ].forEach(([v, label]) => {
@@ -2313,13 +2514,13 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                 hint.style.background = 'rgba(239,68,68,0.12)';
                 hint.style.color = '#fca5a5';
                 hint.style.border = '1px solid rgba(239,68,68,0.4)';
-                hint.innerHTML = '<strong>⚠ Full tier — raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Each raw field is capped at <strong>8&nbsp;KB</strong> with an explicit truncation marker — enough to triage, bounded against runaway SIEM ingest. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
+                hint.innerHTML = '<strong>⚠ Full tier: raw data forwarding.</strong> This destination will receive <strong>prompt text, LLM output, and matched patterns</strong> in every event. Each raw field is capped at <strong>8&nbsp;KB</strong> with an explicit truncation marker: enough to triage, bounded against runaway SIEM ingest. Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.) before enabling. You will be asked to confirm on save.';
             } else if (lvl === 'minimal') {
                 hint.style.background = 'var(--bg-tertiary)';
                 hint.style.color = 'var(--text-secondary)';
                 hint.style.border = '1px solid var(--border-default)';
                 hint.innerHTML = `
-                    <strong style="color:var(--text-primary);">Minimal</strong> — lowest-volume ops dashboards.
+                    <strong style="color:var(--text-primary);">Minimal</strong>, lowest-volume ops dashboards.
                     <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
                         <li>Forwards: scan_id, timestamp, verdict, risk_level, detected count, <code>device.uid</code></li>
                         <li>Strips: threat scores, rule IDs, conversation/model IDs</li>
@@ -2331,7 +2532,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                 hint.style.color = 'var(--text-secondary)';
                 hint.style.border = '1px solid var(--border-default)';
                 hint.innerHTML = `
-                    <strong style="color:var(--text-primary);">Standard</strong> — default, most production feeds.
+                    <strong style="color:var(--text-primary);">Standard</strong>, default, most production feeds.
                     <ul style="margin:6px 0 0;padding-left:18px;line-height:1.7;">
                         <li>threat_score, confidence_score, rule metadata</li>
                         <li>conversation_id, model_id, scan duration, ML status</li>
@@ -2380,7 +2581,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                         if (secretRaw && secretRaw !== '-') {
                             testPayload.secret = secretRaw;
                         } else if (isEdit && existing?.has_secret && !secretRaw) {
-                            if (window.Toast) Toast.info('Paste the secret into the Secret field to test — stored tokens aren\'t resolved by test-config.');
+                            if (window.Toast) Toast.info('Paste the secret into the Secret field to test: stored tokens aren\'t resolved by test-config.');
                             return;
                         }
                         try {
@@ -2390,11 +2591,11 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                                     const v = res.verified || 'accepted';
                                     const latency = `${res.status_code ? `HTTP ${res.status_code}, ` : ''}${res.latency_ms}ms`;
                                     let msg;
-                                    if (v === 'indexed') msg = `Indexed ✓ (${latency}) — Splunk confirmed`;
-                                    else if (v === 'pending') msg = `Accepted · pending ACK (${latency}) — Splunk didn't confirm in 3s`;
+                                    if (v === 'indexed') msg = `Indexed ✓ (${latency}): Splunk confirmed`;
+                                    else if (v === 'pending') msg = `Accepted · pending ACK (${latency}): Splunk didn't confirm in 3s`;
                                     else if (v === 'written') msg = `Written to disk (${res.latency_ms}ms)`;
-                                    else if (v === 'accepted_with_ack') msg = `Accepted (${latency}) — ACK poll unreachable`;
-                                    else msg = `Accepted (${latency}) — indexing not verified`;
+                                    else if (v === 'accepted_with_ack') msg = `Accepted (${latency}): ACK poll unreachable`;
+                                    else msg = `Accepted (${latency}): indexing not verified`;
                                     Toast.success(msg);
                                 } else {
                                     Toast.error(`Test failed: ${res.error || 'HTTP ' + res.status_code} — ${res.response_preview || ''}`.slice(0, 180));
@@ -2442,7 +2643,7 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
                             const ok = window.confirm(
                                 'Enabling FULL redaction tier\n\n' +
                                 'This destination will receive the full PROMPT TEXT, LLM OUTPUT, and MATCHED PATTERNS in every forwarded event.\n\n' +
-                                'Each raw field is capped at 8 KB with a truncation marker — enough for triage, bounded against runaway ingest.\n\n' +
+                                'Each raw field is capped at 8 KB with a truncation marker: enough for triage, bounded against runaway ingest.\n\n' +
                                 'Verify your SIEM meets your organization\'s data-handling requirements (GDPR, HIPAA, SOC 2, etc.).\n\n' +
                                 'Continue?'
                             );

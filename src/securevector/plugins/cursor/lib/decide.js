@@ -40,7 +40,7 @@ const EFFECT_TO_DECISION = Object.freeze({
  * Case-insensitive index, first-seen-wins per lowercased tool_id; candidate
  * order (most-specific-first) decides precedence.
  */
-function decideFromOverrides(candidates, overrides) {
+function decideFromOverrides(candidates, overrides, sessionId = null) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ALLOW;
   if (!overrides || !Array.isArray(overrides.synced) || overrides.synced.length === 0) {
     return ALLOW;
@@ -48,6 +48,12 @@ function decideFromOverrides(candidates, overrides) {
   const byToolId = new Map();
   for (const row of overrides.synced) {
     if (row && typeof row.tool_id === 'string') {
+      // A session-scoped JIT grant only applies inside the session it was
+      // approved for. Skip at index time: grants are emitted first, so an
+      // unskipped non-matching grant would win first-seen-wins and shadow
+      // the deny it overrides — silently allowing other sessions.
+      if (row.source === 'jit_grant' && row.session_id
+          && row.session_id !== sessionId) continue;
       const key = row.tool_id.toLowerCase();
       if (!byToolId.has(key)) byToolId.set(key, row);
     }
@@ -64,16 +70,43 @@ function decideFromOverrides(candidates, overrides) {
         ? match.reason
         : `Tool ${cand} matched policy with effect ${match.effect}`,
       toolId: cand,
+      // Policy-marked requestable deny → the hook files a JIT access
+      // request and tells the agent a human can approve it.
+      requestable: match.requestable === true,
     };
   }
   return ALLOW;
 }
 
 /** Async decision for a candidate list. fetchSyncedOverrides fails open. */
-async function decideForCandidates(candidates, baseUrl) {
+async function decideForCandidates(candidates, baseUrl, sessionId = null) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ALLOW;
   const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
-  return decideFromOverrides(candidates, overrides);
+  return decideFromOverrides(candidates, overrides, sessionId);
+}
+
+/**
+ * On a requestable deny: file a JIT access request (fire-and-forget; the
+ * server dedupes per tool+runtime+session and caps the queue) and return the
+ * decision with the "you can request access" hint appended. The deny stands —
+ * access only opens after a human approves a time-boxed grant in the local
+ * web UI, which surfaces in the overrides this plugin reads on later calls.
+ */
+function maybeFileJitRequest(baseUrl, toolName, d, sessionId) {
+  if (d.decision !== 'deny' || !d.requestable || !d.toolId) return d;
+  try {
+    postJsonAndForget(`${baseUrl}/api/jit/requests`, {
+      tool_id: d.toolId,
+      function_name: toolName,
+      runtime_kind: RUNTIME_KIND,
+      session_id: sessionId || null,
+    });
+  } catch { /* best-effort */ }
+  return {
+    ...d,
+    reason: `${d.reason} — an access request was filed; a human can approve ` +
+      'time-boxed access in SecureVector → Tool Permissions.',
+  };
 }
 
 function _brand(reason) {
@@ -165,6 +198,7 @@ async function readAllStdin() {
 module.exports = {
   decideFromOverrides,
   decideForCandidates,
+  maybeFileJitRequest,
   toCursorOutput,
   decisionToAuditAction,
   buildAuditBody,

@@ -95,3 +95,94 @@ async def test_get_audit_log_filters_keep_runtime_kind(tmp_path):
     assert entries[0]["runtime_kind"] == "openclaw"
 
     await repo.db.disconnect()
+
+
+# --- Custom-tool metadata edit --------------------------------------------
+#
+# The UI's "Save Changes" button called API.updateCustomTool(), which existed
+# on neither the client nor the server: the only PUT on that path sets
+# default_permission. Editing a tool's name always failed. These cover the
+# repository half plus the request model's guarantees.
+
+
+async def _tools_repo(tmp_path) -> CustomToolsRepository:
+    db = DatabaseConnection(tmp_path / "tools.db")
+    await run_migrations(db)
+    return CustomToolsRepository(db)
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_changes_only_supplied_fields(tmp_path):
+    repo = await _tools_repo(tmp_path)
+    await repo.create_custom_tool(
+        tool_id="srv:t1", name="Original", risk="read",
+        default_permission="block", description="before",
+    )
+
+    tool = await repo.update_custom_tool_metadata("srv:t1", name="Renamed", risk="admin")
+
+    assert tool["name"] == "Renamed"
+    assert tool["risk"] == "admin"
+    # Untouched fields survive a partial edit.
+    assert tool["description"] == "before"
+    assert tool["default_permission"] == "block"
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_never_touches_permission(tmp_path):
+    """Renaming a tool must not be able to change what it may do."""
+    repo = await _tools_repo(tmp_path)
+    await repo.create_custom_tool(
+        tool_id="srv:t2", name="T2", risk="read",
+        default_permission="block", description="",
+    )
+
+    await repo.update_custom_tool_metadata(
+        "srv:t2", name="Harmless Rename", description="x", risk="admin"
+    )
+
+    tool = await repo.get_custom_tool("srv:t2")
+    assert tool["default_permission"] == "block"
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_with_no_fields_is_a_noop(tmp_path):
+    repo = await _tools_repo(tmp_path)
+    await repo.create_custom_tool(
+        tool_id="srv:t3", name="T3", risk="write",
+        default_permission="allow", description="d",
+    )
+
+    tool = await repo.update_custom_tool_metadata("srv:t3")
+
+    assert tool["name"] == "T3"
+    assert tool["risk"] == "write"
+    assert tool["description"] == "d"
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_on_missing_tool_returns_none(tmp_path):
+    repo = await _tools_repo(tmp_path)
+    assert await repo.update_custom_tool_metadata("nope", name="x") is None
+
+
+def test_update_request_rejects_bad_risk_and_empty_name():
+    from pydantic import ValidationError
+    from securevector.app.server.routes.tool_permissions import UpdateCustomToolRequest
+
+    with pytest.raises(ValidationError):
+        UpdateCustomToolRequest(risk="superuser")
+    with pytest.raises(ValidationError):
+        UpdateCustomToolRequest(name="")
+
+    # All fields optional: a rename-only edit is valid.
+    req = UpdateCustomToolRequest(name="Just A Rename")
+    assert req.description is None and req.risk is None
+
+
+def test_update_request_has_no_permission_field():
+    """Structural guard: if someone adds default_permission here, a label edit
+    silently becomes an enforcement change."""
+    from securevector.app.server.routes.tool_permissions import UpdateCustomToolRequest
+
+    assert "default_permission" not in UpdateCustomToolRequest.model_fields

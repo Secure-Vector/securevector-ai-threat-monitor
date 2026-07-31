@@ -909,7 +909,17 @@ async def uninstall_plugin():
 # ``~/.claude/projects/<slug>/<session-id>.jsonl`` — that's the same
 # source `/cost` reads. So we read it directly. Local file, no IPC.
 
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+# Honor the CLAUDE_HOME override (same as detection.py's _harness_dir) so the
+# token/cost walker reads the SAME Claude Code home the rest of the app detects
+# against. Without this, a dev/sandbox run with HOME pointed elsewhere but
+# CLAUDE_HOME pointed at the real ~/.claude showed detection finding sessions
+# while Cost & Tokens read an empty dir and reported all zeros.
+_CLAUDE_HOME = (
+    Path(os.environ["CLAUDE_HOME"]).expanduser()
+    if os.environ.get("CLAUDE_HOME")
+    else Path.home() / ".claude"
+)
+CLAUDE_PROJECTS_DIR = _CLAUDE_HOME / "projects"
 
 
 def _parse_iso(ts: str) -> datetime | None:
@@ -987,6 +997,11 @@ def _aggregate_session_usage(
                 msg = rec.get("message") or {}
                 u = msg.get("usage")
                 if not isinstance(u, dict):
+                    continue
+                # Claude Code system-injected turns carry model "<synthetic>"
+                # and zero usage — not real API calls. Same filter as the
+                # Traces LLM-run capture (transcript_generations).
+                if msg.get("model") == "<synthetic>":
                     continue
                 turns += 1
                 t_in = int(u.get("input_tokens") or 0)

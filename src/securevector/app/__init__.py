@@ -15,7 +15,7 @@ Usage:
     securevector-app [--port PORT] [--host HOST] [--debug] [--no-tray]
 """
 
-__version__ = "4.9.1"
+__version__ = "5.0.0"
 __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app

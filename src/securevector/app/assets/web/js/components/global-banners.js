@@ -56,6 +56,18 @@ const GlobalBanners = {
         }
         slot.textContent = '';
 
+        // v5 banner policy — ONE banner, ONE place. App-level notices live
+        // on the Dashboard only (the home page every session starts from or
+        // returns to), and never render underneath an open modal; the
+        // welcome flow re-renders this slot when its modal closes. The
+        // if/else chain below already guarantees a single banner at a time.
+        const onDashboard = !window.App || App.currentPage === 'dashboard';
+        const modalOpen = !!document.querySelector('.modal-overlay');
+        if (!onDashboard || modalOpen) {
+            slot.style.display = 'none';
+            return;
+        }
+
         // Fetch settings + enrollment state in parallel. Each fetch fails-open
         // to null so a transient API issue never breaks the dashboard (the
         // dependent banner just doesn't render that pass).
@@ -63,6 +75,14 @@ const GlobalBanners = {
             fetch('/api/settings').then(r => r.ok ? r.json() : null).catch(() => null),
             fetch('/api/v1/policy-sync/status').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
+
+        // Re-check the modal AFTER the awaits — the welcome modal opens a
+        // beat after the page load that kicked this render off, and it wins
+        // the surface (the dismiss handler re-renders us when it closes).
+        if (document.querySelector('.modal-overlay')) {
+            slot.style.display = 'none';
+            return;
+        }
 
         const whatsNewAcked = localStorage.getItem(this.KEY_WHATS_NEW) === this.WHATS_NEW_VERSION;
         const guardianAcked = localStorage.getItem(this.KEY_GUARDIAN_NOTICE) === '1';
@@ -127,7 +147,7 @@ const GlobalBanners = {
         titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-        title.textContent = 'Guardian ML is active — local AI threat detection';
+        title.textContent = 'Guardian ML is active: local AI threat detection';
         titleRow.appendChild(title);
         const pill = document.createElement('span');
         pill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
@@ -136,7 +156,7 @@ const GlobalBanners = {
         textCol.appendChild(titleRow);
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'A small ML model now scans alongside the regex rules and labels everything it catches (Rule / ML) so you can audit its calls. Fully offline — nothing leaves your device. You\u2019re in control: keep it on, or switch it off anytime.';
+        desc.textContent = 'A small ML model now scans alongside the regex rules and labels everything it catches (Rule / ML) so you can audit its calls. Fully offline: nothing leaves your device. You\u2019re in control: keep it on, or switch it off anytime.';
         textCol.appendChild(desc);
         banner.appendChild(textCol);
 
@@ -167,7 +187,7 @@ const GlobalBanners = {
             } catch (_) {
                 // API hiccup: don't pretend it worked — send them to the
                 // Settings toggle instead of silently acking.
-                offBtn.textContent = 'Failed \u2014 use Settings';
+                offBtn.textContent = 'Failed: use Settings';
             }
             setTimeout(ack, 900);
         });
@@ -249,7 +269,7 @@ const GlobalBanners = {
         explore.addEventListener('click', () => {
             localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
             // Lands on the Agent Map (the hero topology view) \u2014 navigate()
-            // expands the Agent Activity section automatically.
+            // expands the Observability section automatically.
             if (window.Sidebar) Sidebar.navigate('agent-map');
             this.render();
         });
@@ -310,7 +330,7 @@ const GlobalBanners = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = "Cloud Connect is on. Managed policies sync down and metadata-only audit flows up — here's exactly what's flowing in and out.";
+        desc.textContent = "Cloud Connect is on. Managed policies sync down and metadata-only audit flows up: here's exactly what's flowing in and out.";
         textCol.appendChild(desc);
         card.appendChild(textCol);
 

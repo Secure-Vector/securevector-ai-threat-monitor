@@ -169,6 +169,9 @@ rules:
   metadata:
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
+    # Extraction-attempt + secret-shape patterns FP on source files and test
+    # fixtures read as incoming context (2026-07 flood); model-side only.
+    direction: outgoing
     mitre_attack_ids:
     - T1552
     source: securevector_community

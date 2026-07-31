@@ -91,7 +91,9 @@ STAGING_DIR = SECUREVECTOR_DIR / "staging" / "codex-plugin"
 # Codex per-user config + plugin cache locations. Discovered empirically
 # against codex-cli 0.133.0 — these paths and the TOML section names are
 # stable across the public 0.133.x releases.
-CODEX_HOME = Path.home() / ".codex"
+# Honor the CODEX_HOME override (matches detection.py + Copilot's COPILOT_HOME)
+# so the token/cost walker reads the same Codex home the app detects against.
+CODEX_HOME = Path(os.environ["CODEX_HOME"]).expanduser() if os.environ.get("CODEX_HOME") else Path.home() / ".codex"
 CODEX_CONFIG_TOML = CODEX_HOME / "config.toml"
 CODEX_PLUGIN_CACHE_ROOT = CODEX_HOME / "plugins" / "cache"
 # Codex persists every session as a JSONL rollout at

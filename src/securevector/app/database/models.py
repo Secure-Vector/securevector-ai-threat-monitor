@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 42
+CURRENT_SCHEMA_VERSION = 43
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -318,7 +318,10 @@ SCHEMA_DESCRIPTION = (
     "v40: provenance `source` column on external_forwarders — 'user' (default, hand-added) vs "
     "'enrollment' (admin-supplied destination registered at enrollment time; the UI badges these "
     "as managed). Generic managed-device pattern — destination URL is never hardcoded, it always "
-    "comes from the cloud enrollment response at runtime"
+    "comes from the cloud enrollment response at runtime; "
+    "v43: JIT tool access — jit_access_requests + jit_access_grants lifecycle tables and a "
+    "`requestable` flag on synced_tool_rules (policy-marked soft denies an agent may request "
+    "time-boxed access to; hard denies stay non-requestable and instant-fail)"
 )
 
 # Migration SQL for v34 — redaction_events table.

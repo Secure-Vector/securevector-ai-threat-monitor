@@ -216,6 +216,18 @@ class ExternalForwarderService:
             return
 
         redaction = fwd.get("redaction_level") or "standard"
+        if redaction == "full" and kind != "file" and await _residency_locked():
+            # Residency lock promises "prompt text never leaves this device".
+            # That must hold for a destination configured as `full` BEFORE the
+            # lock landed — and for outbox rows enqueued before it, which may
+            # still carry full-tier fields. Capping the encoder tier keeps raw
+            # prompts / untruncated args out of the wire payload; everything
+            # else ships unchanged.
+            redaction = "standard"
+            logger.info(
+                f"external_forwarder: residency lock active — full-redaction "
+                f"destination id={fid} capped to standard"
+            )
         events = siem_ocsf.encode_batch(batch, redaction=redaction)
 
         # `file` is a local NDJSON append — no HTTP, no translator, no
@@ -372,6 +384,26 @@ class ExternalForwarderService:
             f"external_forwarder: id={forwarder_id} breaker tripped — "
             f"backing off {int(backoff)}s (consecutive={consecutive})"
         )
+
+
+async def _residency_locked() -> bool:
+    """True when the org's residency policy hard-locks local-only analysis.
+
+    Read per delivery (one cheap SQLite row) so a lock that arrives
+    mid-session applies to the very next batch — including outbox rows
+    enqueued before the lock, which may still carry full-tier fields.
+    Fails CLOSED: if the posture can't be read, treat it as locked —
+    degrading a full destination to standard is recoverable; shipping
+    prompt text off-device under a residency lock is not.
+    """
+    try:
+        from securevector.app.database.repositories.settings import SettingsRepository
+
+        s = await SettingsRepository(get_database()).get()
+        return bool(getattr(s, "residency_locked", False))
+    except Exception as e:
+        logger.warning(f"external_forwarder: residency posture unreadable ({e!s}); assuming locked")
+        return True
 
 
 def _build_auth_headers(

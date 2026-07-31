@@ -671,12 +671,71 @@ async def get_synced_overrides(runtime: Optional[str] = None):
         synced_repo = SyncedRulesRepository(db)
         rows = await synced_repo.list_all()
 
+        # requestable flags (v43) — which synced denies an agent may file a
+        # JIT request against. Read raw (the repo dataclass predates the
+        # column); a failure degrades to "nothing requestable", never a 500.
+        requestable_ids: set = set()
+        try:
+            flag_rows = await db.fetch_all(
+                "SELECT tool_id FROM synced_tool_rules WHERE requestable = 1"
+            )
+            requestable_ids = {r["tool_id"] for r in (flag_rows or [])}
+        except Exception:
+            pass
+
+        merged: list = []
+
+        # JIT grants first — a time-boxed allow a human approved in the local
+        # UI against a *requestable* deny. Emitted ahead of synced rows so the
+        # hooks' first-seen-wins scan picks the grant over the deny it
+        # overrides (grants only ever exist for requestable denies — the
+        # create endpoint instant-fails requests against hard denies, so this
+        # can never outrank an org hard deny). Fail-quiet like the local
+        # block below: a JIT read error degrades to "no grants", never a 500.
+        #
+        # Grants are ONLY emitted to callers that identify their runtime via
+        # ?runtime=. A runtime-less fetch (the UI listing rules, or a consumer
+        # that predates grants, e.g. the OpenClaw plugin) must never receive
+        # another runtime's grant as a plain allow row.
+        jit_runtime = (runtime or "").strip() or None
+        try:
+            from securevector.app.database.repositories.jit_access import (
+                JitAccessRepository,
+            )
+            jit_repo = JitAccessRepository(db)
+            grants = (
+                await jit_repo.active_grants(runtime_kind=jit_runtime)
+                if jit_runtime else []
+            )
+            for g in grants:
+                grant_base = {
+                    "effect": "allow",
+                    "priority": 150,  # above synced (100) — see note above
+                    "policy_id": "_jit",
+                    "policy_name": "JIT grant",
+                    "policy_version": 0,
+                    "org_name": "Local",
+                    "reason": f"JIT grant {g['id']} ({g['duration']})",
+                    "source": "jit_grant",
+                    "expires_at": g.get("expires_at"),
+                    # session-scoped grants only apply inside the requesting
+                    # session; hooks that pass their session honour this.
+                    "session_id": g.get("session_id") if g.get("duration") == "session" else None,
+                }
+                merged.append({"tool_id": g["tool_id"], **grant_base})
+                if ':' in g["tool_id"]:
+                    merged.append({"tool_id": g["tool_id"].split(':', 1)[1], **grant_base})
+        except Exception as e:
+            logger.warning(
+                "JIT grants fetch failed in /synced-overrides; "
+                "continuing without grants: %s", e,
+            )
+
         # Emit each synced rule under its full tool_id AND, when the cloud
         # composed `<server>:<tool>`, under the bare suffix as an alias. The
         # proxy's _load_synced_overrides keys by tool_id directly, so without
         # aliasing here a synced rule on `github-mcp-server:delete_file`
         # would never match the LLM call's bare `delete_file` function name.
-        merged: list = []
         for r in rows:
             base = {
                 "effect": r.effect,
@@ -687,6 +746,10 @@ async def get_synced_overrides(runtime: Optional[str] = None):
                 "org_name": r.org_name,
                 "reason": r.reason,
                 "source": "synced",
+                # Hooks tell the agent it may file a JIT request when a
+                # policy-marked (requestable) deny fires. Hard denies stay
+                # requestable=False and the create endpoint enforces it too.
+                "requestable": r.effect == "deny" and r.tool_id in requestable_ids,
             }
             merged.append({"tool_id": r.tool_id, **base})
             if ':' in r.tool_id:
@@ -740,6 +803,9 @@ async def get_synced_overrides(runtime: Optional[str] = None):
                 "reason": "User-set local override",
                 "source": "local",
                 "runtime_kind": rule_runtime,  # None = all runtimes
+                # Local blocks are always requestable — the human approving
+                # the JIT request is the same human who authored the rule.
+                "requestable": effect == "deny",
             })
         return {"synced": merged, "total": len(merged)}
 
@@ -821,6 +887,23 @@ class UpdateCustomToolPermissionRequest(BaseModel):
     """Request to update a custom tool's permission."""
 
     default_permission: str = Field(..., pattern="^(block|allow)$")
+
+
+class UpdateCustomToolRequest(BaseModel):
+    """Request to update a custom tool's descriptive fields.
+
+    Every field is optional so a caller can rename without having to resend
+    the description. Notably this does NOT carry default_permission: editing
+    a label must never be able to change what a tool is allowed to do. That
+    stays on its own endpoint.
+
+    Same constraints as CreateCustomToolRequest, so a tool cannot be edited
+    into a state it could not have been created in.
+    """
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    risk: Optional[str] = Field(default=None, pattern="^(read|write|delete|admin)$")
+    description: Optional[str] = Field(default=None, max_length=200)
 
 
 @router.get("/tool-permissions/custom")
@@ -909,6 +992,40 @@ async def update_custom_tool_permission(
         raise
     except Exception as e:
         logger.error(f"Failed to update custom tool: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/tool-permissions/custom/{tool_id}")
+async def update_custom_tool(tool_id: str, request: UpdateCustomToolRequest):
+    """Update a custom tool's name / description / risk.
+
+    PATCH rather than PUT because the body is a partial update; PUT on this
+    path already means "set the permission" and must keep that meaning.
+    """
+    try:
+        db = get_database()
+        repo = CustomToolsRepository(db)
+
+        existing = await repo.get_custom_tool(tool_id)
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Custom tool '{tool_id}' not found",
+            )
+
+        tool = await repo.update_custom_tool_metadata(
+            tool_id,
+            name=request.name,
+            description=request.description,
+            risk=request.risk,
+        )
+        tool["risk_score"] = get_risk_score(tool.get("risk"))
+        return tool
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update custom tool metadata: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

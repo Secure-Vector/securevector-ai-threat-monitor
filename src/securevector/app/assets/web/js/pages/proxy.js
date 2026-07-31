@@ -133,7 +133,7 @@ async function showOpenClawProxyStopModal() {
     modalContent.appendChild(codeBlock);
 
     Modal.show({
-        title: 'Block Mode Disabled — Restart OpenClaw',
+        title: 'Block Mode Disabled: Restart OpenClaw',
         content: modalContent,
         size: 'medium',
         actions: [{ label: 'Got it', primary: true }]
@@ -538,7 +538,7 @@ const ProxyPage = {
             const geminiNote = document.createElement('strong');
             geminiNote.textContent = 'Google Gemini';
             step2Note.appendChild(geminiNote);
-            step2Note.appendChild(document.createTextNode(' requires additional config \u2014 select "Google Gemini" above for instructions.'));
+            step2Note.appendChild(document.createTextNode(' requires additional config: select "Google Gemini" above for instructions.'));
             step2.appendChild(step2Note);
         }
 
@@ -638,7 +638,7 @@ const ProxyPage = {
         const revertDescBold = document.createElement('strong');
         revertDescBold.textContent = 'Optional but recommended';
         revertDesc.appendChild(revertDescBold);
-        revertDesc.appendChild(document.createTextNode(' \u2014 removes SecureVector traces from pi-ai files.'));
+        revertDesc.appendChild(document.createTextNode(' — removes SecureVector traces from pi-ai files.'));
         revertDesc.appendChild(document.createElement('br'));
         revertDesc.appendChild(document.createTextNode('Restart '));
         const revertCode = document.createElement('code');
@@ -667,10 +667,10 @@ const ProxyPage = {
         cliNote.textContent = 'Or run from terminal:';
         revertCard.appendChild(cliNote);
 
-        const revertCode = document.createElement('code');
-        revertCode.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 12px;';
-        revertCode.textContent = 'securevector-app --revert-proxy';
-        revertCard.appendChild(revertCode);
+        const revertCliCode = document.createElement('code');
+        revertCliCode.style.cssText = 'display: block; background: var(--bg-secondary); padding: 10px 12px; border-radius: 4px; font-size: 12px; font-family: monospace; margin-bottom: 12px;';
+        revertCliCode.textContent = 'securevector-app --revert-proxy';
+        revertCard.appendChild(revertCliCode);
 
         const revertDetails = document.createElement('div');
         revertDetails.style.cssText = 'font-size: 11px; color: var(--text-secondary); line-height: 1.6;';
@@ -819,7 +819,7 @@ const ProxyPage = {
                 btn.style.background = 'var(--bg-tertiary)';
                 btn.style.color = 'var(--text-secondary)';
                 btn.style.border = '1px solid var(--border-default)';
-                btn.textContent = '🟢 Running (CLI — use Ctrl+C to stop)';
+                btn.textContent = '🟢 Running (CLI: use Ctrl+C to stop)';
                 btn.disabled = true;
                 btn.title = 'Started via --proxy --web CLI flag. Stop the whole app with Ctrl+C.';
             } else {
@@ -1067,6 +1067,17 @@ const ProxyPage = {
         card.appendChild(body);
 
         return card;
+    },
+    /** Stop this page's timer when the user navigates away.
+     *
+     * Called by App._destroyPage(). Without it the proxy status poll
+     * kept running (and re-firing its API call) for the rest of the
+     * session, and returning to the page started a second one. */
+    destroy() {
+        if (this.statusCheckInterval) {
+            clearInterval(this.statusCheckInterval);
+            this.statusCheckInterval = null;
+        }
     },
 };
 

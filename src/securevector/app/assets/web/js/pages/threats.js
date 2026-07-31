@@ -27,9 +27,64 @@ const ThreatsPage = {
     // ("view details →"). Filters the table to that one record's request_id.
     pendingRequestId: null,
 
+    /** v5 look — masthead stat strip + toolbar pills. Shared export-menu CSS
+     *  (`sv-export-*`) lives in ObsTabs' stylesheet, injected explicitly
+     *  because this page doesn't render the obs tab strip. */
+    _injectStyle() {
+        if (window.ObsTabs) ObsTabs._injectStyle();
+        if (document.getElementById('threats-style')) return;
+        const st = document.createElement('style');
+        st.id = 'threats-style';
+        st.textContent = `
+            .tm-masthead { display:flex; align-items:stretch; gap:0; margin:0 0 14px;
+                border:1px solid var(--border-default,#30363d); border-radius:10px;
+                background:var(--bg-card,#161b22); overflow:hidden; }
+            .tm-stat { flex:1 1 0; padding:14px 18px 12px; border-left:1px solid var(--border-default,#30363d); }
+            .tm-stat:first-child { border-left:none; }
+            .tm-stat-v { font:700 22px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-primary,#e6edf3); letter-spacing:.3px; }
+            .tm-stat-l { font:700 10.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.8px;
+                text-transform:uppercase; color:var(--text-secondary,#b1bac4); margin-top:3px; }
+            .tm-stat-d { font:500 11px 'Avenir Next',Avenir,system-ui,sans-serif;
+                color:var(--text-muted,#7d8590); margin-top:2px; }
+            .tm-stat.danger { background:rgba(239,68,68,0.07); }
+            .tm-stat.danger .tm-stat-v, .tm-stat.danger .tm-stat-l { color:#ef4444; }
+            /* Auto-refresh pill — teal = activity accent when armed. */
+            .tm-auto { display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+                border:1px solid var(--border-default,#30363d); border-radius:999px; padding:6px 13px;
+                background:var(--bg-tertiary,#21262d); color:var(--text-secondary,#b1bac4);
+                font:600 12px 'Avenir Next',Avenir,system-ui,sans-serif; white-space:nowrap;
+                transition:border-color .14s,color .14s,background .14s; }
+            .tm-auto:hover { border-color:var(--accent-primary,#5eadb8); color:var(--text-primary,#e6edf3); }
+            .tm-auto .tm-auto-dot { width:7px; height:7px; border-radius:50%;
+                background:var(--text-muted,#7d8590); flex:0 0 auto; }
+            .tm-auto.on { border-color:var(--accent-primary,#5eadb8); color:var(--accent-primary,#5eadb8);
+                background:color-mix(in srgb, var(--accent-primary,#5eadb8) 10%, var(--bg-tertiary,#21262d)); }
+            .tm-auto.on .tm-auto-dot { background:var(--accent-primary,#5eadb8);
+                animation:tmAutoPulse 1.6s ease-in-out infinite; }
+            @keyframes tmAutoPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+            @media (prefers-reduced-motion: reduce) { .tm-auto.on .tm-auto-dot { animation:none; } }
+            /* Content preview — mono, quiet; JSON payloads get a small tag so
+               a raw envelope reads as intentional, not broken. */
+            /* Cap the Content column so Time + Action never get pushed off
+               the right edge: the full text lives in the tooltip + details. */
+            .tm-preview { display:inline-flex; align-items:center; gap:7px; max-width:340px; }
+            .tm-preview code { min-width:0; }
+            .tm-payload-tag { font:700 9px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px;
+                text-transform:uppercase; color:var(--text-muted,#7d8590);
+                border:1px solid var(--border-default,#30363d); border-radius:4px;
+                padding:1px 5px; flex:0 0 auto; }
+            .tm-preview code { font:12px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-secondary,#b1bac4); overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; background:none; padding:0; }
+        `;
+        document.head.appendChild(st);
+    },
+
     async render(container) {
         container.textContent = '';
         this.selectedIds.clear();
+        this._injectStyle();
 
         if (window.Header) Header.setPageInfo('Threat Monitor', 'All LLM requests analyzed for threats');
 
@@ -46,7 +101,7 @@ const ThreatsPage = {
         if (this.filters.request_id) {
             const banner = document.createElement('div');
             banner.className = 'deep-link-banner';
-            banner.innerHTML = `<span>Showing the detection from Agent Runs (<code>${String(this.filters.request_id).replace(/[<>&"]/g, '')}</code>).</span>`;
+            banner.innerHTML = `<span>Showing the detection from Traces (<code>${String(this.filters.request_id).replace(/[<>&"]/g, '')}</code>).</span>`;
             const clear = document.createElement('button');
             clear.textContent = '✕ show all threats';
             clear.className = 'deep-link-clear';
@@ -211,33 +266,24 @@ const ThreatsPage = {
         };
         bar.appendChild(deleteBtn);
 
-        // Auto-refresh toggle — compact toolbar style so it reads as a
-        // utility action, not a page-level primary button.
+        // Auto-refresh pill — teal + pulsing dot while armed (activity accent,
+        // matching the LIVE treatment on Traces).
         const refreshBtn = document.createElement('button');
-        refreshBtn.className = 'btn btn-secondary btn-compact auto-refresh-btn' + (this.autoRefreshEnabled ? ' active' : '');
-        refreshBtn.textContent = '↻ Auto Refresh';
-        refreshBtn.title = 'Auto refresh every 30 seconds';
+        refreshBtn.type = 'button';
+        refreshBtn.className = 'tm-auto' + (this.autoRefreshEnabled ? ' on' : '');
+        refreshBtn.innerHTML = '<span class="tm-auto-dot"></span>Auto-refresh';
+        refreshBtn.title = 'Refresh the table every 30 seconds';
         refreshBtn.addEventListener('click', () => {
             this.toggleAutoRefresh();
-            refreshBtn.classList.toggle('active', this.autoRefreshEnabled);
+            refreshBtn.classList.toggle('on', this.autoRefreshEnabled);
         });
         bar.appendChild(refreshBtn);
 
-        // Export buttons — matched compact size. The CSV icon comes first
-        // because it's the more common action on this page.
-        const exportCsvBtn = document.createElement('button');
-        exportCsvBtn.className = 'btn btn-secondary btn-compact';
-        exportCsvBtn.textContent = 'Export CSV';
-        exportCsvBtn.title = 'Download threats as CSV';
-        exportCsvBtn.addEventListener('click', () => this.exportToCSV());
-        bar.appendChild(exportCsvBtn);
-
-        const exportPdfBtn = document.createElement('button');
-        exportPdfBtn.className = 'btn btn-secondary btn-compact';
-        exportPdfBtn.textContent = 'Export PDF';
-        exportPdfBtn.title = 'Download threat report as PDF';
-        exportPdfBtn.addEventListener('click', () => this.exportToPDF());
-        bar.appendChild(exportPdfBtn);
+        // One Export dropdown — same component as Traces / Blocked Actions.
+        bar.appendChild(ObsTabs.exportMenu([
+            { label: 'CSV', onClick: () => this.exportToCSV() },
+            { label: 'PDF report', onClick: () => this.exportToPDF() },
+        ]));
     },
 
     async exportToCSV() {
@@ -512,60 +558,52 @@ const ThreatsPage = {
             return;
         }
 
-        // Summary stats bar
-        const statsBar = document.createElement('div');
-        statsBar.className = 'threats-stats-bar';
-        statsBar.style.cssText = 'display:flex;gap:24px;padding:12px 16px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:8px;margin-bottom:16px;font-size:13px;';
-
-        // Total records
-        const recordsStat = document.createElement('div');
-        recordsStat.innerHTML = '<span style="color:var(--text-secondary)">Records:</span> <strong>' + (this.data.total || threats.length) + '</strong>';
-        statsBar.appendChild(recordsStat);
-
-        // Total AI Analysis reviewed
+        // Masthead stat strip — same treatment as the Traces detail masthead.
+        // Reviewed/token/high-risk counts come from the loaded page of rows,
+        // so they say "on this page" whenever pagination truncates the view.
+        const paged = (this.data.total_pages || 1) > 1;
+        const pageNote = paged ? 'on this page · ' : '';
         const llmReviewed = threats.filter(t => t.llm_reviewed).length;
-        const llmStat = document.createElement('div');
-        const llmLabel = document.createElement('span');
-        llmLabel.style.color = 'var(--text-secondary)';
-        llmLabel.textContent = 'AI Analysis Reviewed:';
-        llmStat.appendChild(llmLabel);
-        const llmVal = document.createElement('strong');
-        llmVal.textContent = ' ' + llmReviewed;
-        llmStat.appendChild(llmVal);
-        statsBar.appendChild(llmStat);
-
-        // Total AI Analysis tokens used
         const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
-        const tokensStat = document.createElement('div');
-        const tokLabel = document.createElement('span');
-        tokLabel.style.color = 'var(--text-secondary)';
-        tokLabel.textContent = 'AI Analysis Tokens:';
-        tokensStat.appendChild(tokLabel);
-        const tokVal = document.createElement('strong');
-        tokVal.style.color = 'var(--accent-primary)';
-        tokVal.textContent = ' ' + totalTokens.toLocaleString();
-        tokensStat.appendChild(tokVal);
-        statsBar.appendChild(tokensStat);
-
-        // High risk count
         const highRisk = threats.filter(t => t.risk_score >= 60).length;
-        const riskStat = document.createElement('div');
-        riskStat.innerHTML = '<span style="color:var(--text-secondary)">High Risk:</span> <strong style="color:var(--danger)">' + highRisk + '</strong>';
-        statsBar.appendChild(riskStat);
-
-        container.appendChild(statsBar);
+        const stat = (v, label, det, cls) =>
+            `<div class="tm-stat${cls ? ' ' + cls : ''}"><div class="tm-stat-v">${v}</div>` +
+            `<div class="tm-stat-l">${label}</div>` + (det ? `<div class="tm-stat-d">${det}</div>` : '') + `</div>`;
+        const mast = document.createElement('div');
+        mast.className = 'tm-masthead';
+        mast.innerHTML =
+            stat((this.data.total || threats.length).toLocaleString(), 'analyzed requests',
+                (this.filters.threat_type || this.filters.source || this.filters.min_risk || this.filters.request_id)
+                    ? 'matching your filters' : 'everything scanned') +
+            stat(highRisk.toLocaleString(), 'high risk',
+                pageNote + 'risk ≥ 60%: review these first', highRisk ? 'danger' : '') +
+            stat(llmReviewed.toLocaleString(), 'AI-reviewed',
+                pageNote + (llmReviewed ? totalTokens.toLocaleString() + ' analysis tokens' : 'AI Analysis adds a second opinion'));
+        container.appendChild(mast);
 
         // Threats table
         const self = this;
         const threatsDt = new DataTable({
             columns: [
                 { key: 'indicator', label: 'Content', sortable: true, render: (_, threat) => {
-                    const code = document.createElement('code');
-                    code.className = 'indicator';
+                    // JSON envelopes (tool payloads) get a small "payload" tag
+                    // so a raw `{"type":"text"…` preview reads as intentional.
+                    // The full (redacted) text stays in the tooltip either way.
                     const text = threat.indicator || threat.name || threat.text_preview || threat.text || 'Unknown';
+                    const wrap = document.createElement('span');
+                    wrap.className = 'tm-preview';
+                    wrap.title = text;
+                    if (/^[\[{]/.test(text.trim())) {
+                        const tag = document.createElement('span');
+                        tag.className = 'tm-payload-tag';
+                        tag.textContent = 'payload';
+                        tag.title = 'The analyzed content was a structured tool payload. This is its raw (redacted) preview';
+                        wrap.appendChild(tag);
+                    }
+                    const code = document.createElement('code');
                     code.textContent = text.length > 60 ? text.substring(0, 60) + '...' : text;
-                    code.title = text;
-                    return code;
+                    wrap.appendChild(code);
+                    return wrap;
                 }},
                 { key: 'threat_type', label: 'Type', sortable: true, render: (_, threat) => {
                     const wrap = document.createDocumentFragment();
@@ -579,7 +617,22 @@ const ThreatsPage = {
                     const badge = document.createElement('span');
                     badge.className = 'type-badge' + (isOutput ? ' output-scan' : '');
                     badge.textContent = isOutput ? threatType.replace('output_', '') : threatType;
+                    const phrase = self._TYPE_PHRASE[threatType.replace('output_', '')];
+                    if (phrase) {
+                        badge.title = 'In plain terms: ' + phrase
+                            + (isOutput ? ' — found in a tool/LLM response, not the prompt.' : '.');
+                    }
                     wrap.appendChild(badge);
+                    // Analyst disposition chip — a dismissed FP must read as
+                    // resolved at a glance, without leaving the ledger.
+                    if (((threat.metadata || {}).disposition) === 'false_positive') {
+                        const fp = document.createElement('span');
+                        fp.className = 'type-badge';
+                        fp.style.cssText = 'margin-left:6px;opacity:.7;';
+                        fp.textContent = 'Dismissed FP';
+                        fp.title = 'An analyst dismissed this as a false positive. The record is kept for audit.';
+                        wrap.appendChild(fp);
+                    }
                     return wrap;
                 }},
                 { key: 'detected_by', label: 'Detected by', sortable: false, render: (_, threat) => {
@@ -594,6 +647,7 @@ const ThreatsPage = {
                     const badge = document.createElement('span');
                     badge.className = 'risk-badge risk-' + self.getRiskLevel(threat.risk_score);
                     badge.textContent = (threat.risk_score || 0) + '%';
+                    badge.title = 'Rule-driven risk score: 70%+ reads high (red), 40–69% medium (amber), under 40 low (green).';
                     row.appendChild(badge);
                     const pct = Math.min(threat.risk_score || 0, 100);
                     const barColor = pct >= 70 ? '#ef4444' : pct >= 40 ? '#f59e0b' : '#10b981';
@@ -628,6 +682,7 @@ const ThreatsPage = {
                     const ab = document.createElement('span');
                     ab.className = 'action-badge action-' + action;
                     ab.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+                    if (self._ACTION_HELP[action]) ab.title = self._ACTION_HELP[action];
                     return ab;
                 }},
             ],
@@ -744,12 +799,84 @@ const ThreatsPage = {
         if (!agree && score !== null) {
             agree = (score < 0.20) ? 'ml_disagrees' : (score >= 0.60 ? 'corroborated' : 'ml_uncertain');
         }
-        return (agree || score !== null) ? { agree, score } : null;
+        // "Corroborated" only means something when a detector OTHER than the
+        // model flagged the content. If the guardian model is the sole entry
+        // in matched_rules, a corroborate badge would be the model agreeing
+        // with itself — exactly the records most likely to be FPs.
+        const rules = Array.isArray(threat.matched_rules) ? threat.matched_rules : [];
+        const modelOnly = rules.length > 0 && rules.every(
+            r => r.source === 'model' || r.rule_id === 'sv_guardian_model'
+        );
+        return (agree || score !== null) ? { agree, score, modelOnly } : null;
+    },
+
+    // Plain-language phrase per threat type — used for the drawer's verdict
+    // sentence AND as hover help on the table's Type badges, so both surfaces
+    // explain a row in the same words.
+    _TYPE_PHRASE: {
+        prompt_injection: 'what looks like a prompt-injection attempt',
+        jailbreak: 'what looks like a jailbreak attempt',
+        data_exfiltration: 'signs of data being exfiltrated',
+        data_leakage: 'signs of internal data being leaked',
+        sensitive_data_exposure: 'sensitive data being exposed',
+        model_extraction: 'an attempt to extract or clone the model’s behavior',
+        credential_leak: 'what looks like a credential or secret',
+        credentials: 'what looks like a credential or secret',
+        pii: 'personal information (PII)',
+        sensitive_info: 'sensitive information',
+        system_file_tamper: 'an attempt to modify a protected system file',
+        code_injection: 'what looks like injected code',
+        malicious_url: 'a link to a known-risky destination',
+    },
+
+    // Plain-language meaning of each Action value — hover help on the table's
+    // Action badges. Copy only; the stored action is unchanged.
+    _ACTION_HELP: {
+        blocked: 'SecureVector stopped this content: it never went through.',
+        redacted: 'Sensitive parts were scrubbed out; the rest went through.',
+        logged: 'Recorded for review only: nothing was stopped.',
+        flagged: 'Marked for attention: the content still went through.',
+        allowed: 'Analyzed and allowed through.',
+    },
+
+    /** One human sentence summarizing the verdict — shown FIRST in the
+     *  drawer (v5 plain-language presentation). Copy only: composed from the
+     *  stored action / threat_type / matched rules; the data is unchanged and
+     *  the technical breakdown still follows below. */
+    _plainVerdict(threat) {
+        const TYPE_PHRASE = this._TYPE_PHRASE;
+        if (!threat.is_threat) {
+            return 'Scanned and clean: no security rule or model flagged this content.';
+        }
+        const action = threat.action_taken === 'blocked' ? 'Blocked'
+            : threat.action_taken === 'redacted' ? 'Redacted'
+            : 'Detected (logged, not stopped)';
+        const rules = threat.matched_rules || [];
+        const firstRule = rules[0] && (rules[0].rule_name || rules[0].name || rules[0].rule_id);
+        const what = TYPE_PHRASE[threat.threat_type]
+            || (firstRule ? `content matching the “${firstRule}” rule`
+                          : 'content matching a security rule');
+        return `${action}: this ${threat.source_identifier ? 'traffic' : 'content'} contained ${what}.`;
     },
 
     showThreatDetails(threat) {
         const content = document.createElement('div');
         content.className = 'threat-details';
+
+        // v5: lead with one human sentence; rule ids / scores / direction
+        // keep their place below for the analyst.
+        {
+            const isBlocked = threat.action_taken === 'blocked' || threat.action_taken === 'redacted';
+            const accent = !threat.is_threat ? 'var(--success, #10b981)'
+                : isBlocked ? 'var(--error, #ef4444)' : 'var(--warning, #f59e0b)';
+            const plain = document.createElement('div');
+            plain.style.cssText = 'font-size: 14px; font-weight: 600; line-height: 1.55; color: var(--text-primary); '
+                + 'padding: 12px 14px; margin-bottom: 14px; border-radius: 10px; '
+                + 'border: 1px solid color-mix(in srgb, ' + accent + ' 40%, transparent); '
+                + 'background: color-mix(in srgb, ' + accent + ' 8%, transparent);';
+            plain.textContent = this._plainVerdict(threat);
+            content.appendChild(plain);
+        }
 
         // Risk header: rule-driven risk score on top, with the Guardian ML
         // signal shown alongside (an "ML-adjusted" chip) and below (the
@@ -774,7 +901,7 @@ const ThreatsPage = {
             const mlAdj = document.createElement('span');
             mlAdj.className = 'risk-badge ml-adjusted';
             mlAdj.textContent = 'ML-adjusted ' + mlPct + '%';
-            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context — it does not change the stored verdict.';
+            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context. It does not change the stored verdict.';
             riskMain.appendChild(mlAdj);
         }
 
@@ -783,6 +910,15 @@ const ThreatsPage = {
         typeBadge.textContent = threat.threat_type || 'No Threat Detected';
         riskMain.appendChild(typeBadge);
 
+        if (((threat.metadata || {}).disposition) === 'false_positive') {
+            const fpChip = document.createElement('span');
+            fpChip.className = 'type-badge';
+            fpChip.style.opacity = '.7';
+            fpChip.textContent = 'Dismissed FP';
+            fpChip.title = 'An analyst dismissed this as a false positive. The record is kept for audit.';
+            riskMain.appendChild(fpChip);
+        }
+
         riskHeader.appendChild(riskMain);
 
         // ML corroborate / likely-false-positive badge, promoted to the top
@@ -790,10 +926,16 @@ const ThreatsPage = {
         if (ml && ml.agree) {
             const TIER = {
                 corroborated: { cls: 'mlassess-ok',   icon: '✓', text: 'ML corroborated this detection' },
-                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain — worth a review' },
-                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive — ML disagrees' },
+                ml_uncertain: { cls: 'mlassess-warn', icon: '⚠', text: 'ML uncertain, worth a review' },
+                ml_disagrees: { cls: 'mlassess-fp',   icon: '⚠', text: 'Likely false positive: ML disagrees' },
             };
-            const t = TIER[ml.agree];
+            let t = TIER[ml.agree];
+            // A model-only detection cannot corroborate itself: swap the green
+            // check for an honest caution so the analyst knows no independent
+            // rule fired on this content.
+            if (ml.agree === 'corroborated' && ml.modelOnly) {
+                t = { cls: 'mlassess-warn', icon: '⚠', text: 'ML model is the only detector, no independent rule matched' };
+            }
             if (t) {
                 const assess = document.createElement('div');
                 assess.className = 'ml-assessment ' + t.cls + ' threat-detail-ml-badge';
@@ -1119,7 +1261,7 @@ const ThreatsPage = {
                 origin.className = 'matched-rule-origin ' + (isMl ? 'origin-ml' : 'origin-rule');
                 if (isMl && typeof rule.confidence === 'number') {
                     origin.textContent = 'ML · ' + rule.confidence.toFixed(2);
-                    origin.title = 'Detected by Guardian ML — score ' + rule.confidence.toFixed(2);
+                    origin.title = 'Detected by Guardian ML, score ' + rule.confidence.toFixed(2);
                 } else {
                     origin.textContent = isMl ? 'ML' : 'Rule';
                     origin.title = isMl ? 'Detected by Guardian ML' : 'Detected by a regex rule';
@@ -1143,6 +1285,45 @@ const ThreatsPage = {
             // drawer — see showThreatDetails() above — so it isn't duplicated.)
 
             content.appendChild(rulesSection);
+        }
+
+        // Disposition: the non-destructive middle ground between "leave it
+        // screaming" and "delete the evidence". Dismissing marks the record a
+        // false positive (stored in metadata, undoable); it stays in the
+        // ledger for audit.
+        if (threat.is_threat) {
+            const dismissed = ((threat.metadata || {}).disposition) === 'false_positive';
+            const dispRow = document.createElement('div');
+            dispRow.className = 'threat-detail-section';
+            dispRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+            const dispBtn = document.createElement('button');
+            dispBtn.className = 'btn btn-sm btn-secondary';
+            dispBtn.textContent = dismissed ? 'Restore threat' : 'Dismiss as false positive';
+            dispBtn.onclick = async () => {
+                dispBtn.disabled = true;
+                try {
+                    await API.setThreatDisposition(threat.id, dismissed ? null : 'false_positive');
+                    if (window.Toast) Toast.success(dismissed
+                        ? 'Threat restored'
+                        : 'Dismissed as false positive. The record stays in the ledger.');
+                    SideDrawer.close();
+                    await this.loadData();
+                } catch (e) {
+                    dispBtn.disabled = false;
+                    if (window.Toast) Toast.error('Failed to update disposition: ' + e.message);
+                }
+            };
+            dispRow.appendChild(dispBtn);
+
+            const dispHint = document.createElement('span');
+            dispHint.style.cssText = 'font-size:12px;color:var(--text-muted);';
+            dispHint.textContent = dismissed
+                ? 'Marked false positive' + ((threat.metadata || {}).dispositioned_at ? ' on ' + this.formatDate((threat.metadata || {}).dispositioned_at) : '')
+                : 'Keeps the record for audit, unlike Delete.';
+            dispRow.appendChild(dispHint);
+
+            content.appendChild(dispRow);
         }
 
         // Use side drawer instead of modal
@@ -1259,6 +1440,17 @@ const ThreatsPage = {
         errorDiv.appendChild(retry);
 
         container.appendChild(errorDiv);
+    },
+    /** Stop this page's timer when the user navigates away.
+     *
+     * Called by App._destroyPage(). Without it the threat table auto-refresh
+     * kept running (and re-firing its API call) for the rest of the
+     * session, and returning to the page started a second one. */
+    destroy() {
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+            this.autoRefreshInterval = null;
+        }
     },
 };
 

@@ -18,15 +18,12 @@ from dataclasses import dataclass
 from typing import (
     Any,
     AsyncGenerator,
-    AsyncIterator,
     Callable,
     Dict,
     Generator,
-    Iterator,
     List,
     Optional,
     Protocol,
-    Union,
 )
 
 from .utils.telemetry import record_metric, trace_operation
@@ -108,6 +105,10 @@ class StreamingAnalyzer:
 
         # Processing state
         self._chunk_results: List[StreamAnalysisResult] = []
+        # Aggregate of the most recent analyze_stream_async() run. The async
+        # path cannot hand this back the way the sync one does (see the note
+        # at the end of analyze_stream_async), so callers read it from here.
+        self.last_aggregate: Optional[AnalysisResult] = None
         self._processing_stats = {
             "total_chunks": 0,
             "processed_chunks": 0,
@@ -162,8 +163,8 @@ class StreamingAnalyzer:
                         self._processing_stats["threats_detected"] += 1
 
                     # Record metrics
-                    record_metric(f"stream.chunk.processing_time", processing_time, "ms")
-                    record_metric(f"stream.chunk.risk_score", chunk_result.risk_score, "score")
+                    record_metric("stream.chunk.processing_time", processing_time, "ms")
+                    record_metric("stream.chunk.risk_score", chunk_result.risk_score, "score")
 
                     yield stream_result
 
@@ -293,9 +294,19 @@ class StreamingAnalyzer:
             # Sort results by position for proper aggregation
             chunk_results.sort(key=lambda x: x.position)
 
-            # Aggregate final result
-            aggregated_result = self._aggregate_results(chunk_results)
-            return aggregated_result
+            # Aggregate final result.
+            #
+            # This CANNOT be `return aggregated_result`. The sync sibling
+            # analyze_stream() is an ordinary generator, where a returned value
+            # becomes StopIteration.value; this one is an ASYNC generator,
+            # where `return <value>` is a hard SyntaxError, not a runtime
+            # error. It made the whole module fail to import, which went
+            # unnoticed only because nothing imports it yet.
+            #
+            # Async generators have no equivalent channel, so the aggregate is
+            # published on the instance instead and the generator just stops.
+            self.last_aggregate = self._aggregate_results(chunk_results)
+            return
 
     def _create_chunks(self, text: str) -> Generator[StreamChunk, None, None]:
         """Create overlapping chunks from input text"""

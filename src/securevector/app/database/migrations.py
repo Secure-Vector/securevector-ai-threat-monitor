@@ -17,7 +17,6 @@ from securevector.app.database.models import (
     SCHEMA_SQL,
     MIGRATION_V12_SQL,
     MIGRATION_V13_SQL,
-    MIGRATION_V14_SQL,
     MIGRATION_V18_SQL,
     MIGRATION_V19_SQL,
     MIGRATION_V29_SQL,
@@ -188,6 +187,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         40: migrate_to_v40,
         41: migrate_to_v41,
         42: migrate_to_v42,
+        43: migrate_to_v43,
     }
 
     if version in migrations:
@@ -592,7 +592,6 @@ async def load_model_pricing(db: DatabaseConnection) -> int:
 
     Reads pricing/model_pricing.yml and upserts all entries.
     """
-    import json
     from pathlib import Path
     import yaml
 
@@ -1715,6 +1714,87 @@ async def migrate_to_v42(db: DatabaseConnection) -> None:
     logger.info("Applied migration v42: residency_locked flag")
 
 
+async def migrate_to_v43(db: DatabaseConnection) -> None:
+    """v42 -> v43: JIT tool access — request/grant lifecycle tables.
+
+    An agent that hits a *requestable* deny can file a time-boxed access
+    request; a human approves or denies it in the local web UI. Design
+    boundaries fixed by the idea page's legal/UX pre-review:
+
+    - Hard (non-requestable) denies never queue — requests against them are
+      rejected at creation, so an org DENY is never locally overridable.
+    - The lifecycle rows themselves are the audit trail: one immutable row
+      per request (status transitions stamp decided_at/decided_by) plus one
+      row per grant. tool_call_audit's hash-chained CHECK is untouched —
+      calls executed under a grant land there as ordinary `allow` rows whose
+      reason names the grant id.
+    - Grants are always time-boxed (15 min / 1 h) or session-scoped; there is
+      deliberately no "until I revoke" duration.
+    - `requestable` on synced_tool_rules defaults to 0: a cloud policy must
+      explicitly mark a deny requestable. Local Block rules are implicitly
+      requestable (the approver owns the rule).
+
+    Idempotent via CREATE IF NOT EXISTS / PRAGMA table_info.
+    """
+    conn = await db.connect()
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jit_access_requests (
+            id            TEXT PRIMARY KEY,
+            tool_id       TEXT NOT NULL,
+            function_name TEXT,
+            runtime_kind  TEXT,
+            session_id    TEXT,
+            trace_id      TEXT,
+            justification TEXT,
+            rule_source   TEXT NOT NULL CHECK (rule_source IN ('synced', 'local')),
+            requested_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            status        TEXT NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
+            decided_at    TIMESTAMP,
+            decided_by    TEXT,
+            deny_reason   TEXT
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jit_requests_status "
+        "ON jit_access_requests (status, requested_at)"
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jit_access_grants (
+            id            TEXT PRIMARY KEY,
+            request_id    TEXT NOT NULL REFERENCES jit_access_requests(id),
+            tool_id       TEXT NOT NULL,
+            runtime_kind  TEXT,
+            session_id    TEXT,
+            duration      TEXT NOT NULL CHECK (duration IN ('15m', '1h', 'session')),
+            granted_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expires_at    TIMESTAMP,
+            revoked_at    TIMESTAMP
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jit_grants_active "
+        "ON jit_access_grants (tool_id, expires_at, revoked_at)"
+    )
+    cur = await conn.execute("PRAGMA table_info(synced_tool_rules)")
+    existing = {row[1] for row in await cur.fetchall()}
+    if "requestable" not in existing:
+        await conn.execute(
+            "ALTER TABLE synced_tool_rules "
+            "ADD COLUMN requestable INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (43, CURRENT_TIMESTAMP, "
+        "'JIT tool access — request/grant lifecycle tables + requestable flag on synced rules')"
+    )
+    logger.info("Applied migration v43: JIT access request/grant tables")
+
+
 # Future migration functions would be defined here:
 #
 # async def migrate_to_v2(db: DatabaseConnection) -> None:
@@ -1789,6 +1869,11 @@ async def init_database_schema(db: DatabaseConnection) -> int:
     # so both tables respect the same `app_settings.retention_days` knob.
     await cleanup_old_audit_records(db)
 
+    # The remaining append-only event tables. Same knob again, so a user who
+    # sets retention once gets it applied everywhere rather than to two
+    # tables out of five.
+    await cleanup_old_event_records(db)
+
     return version
 
 
@@ -1827,6 +1912,63 @@ async def cleanup_old_audit_records(db: DatabaseConnection) -> None:
             logger.info(f"Cleaned up {deleted} expired audit rows (retention: {retention_days} days)")
     except Exception as e:
         logger.debug(f"Audit records cleanup skipped: {e}")
+
+
+# Append-only event tables that grow with normal use, and the timestamp
+# column each one ages out on. cost_records and tool_call_audit are handled
+# by their own repositories above (both need extra care — chain truncation,
+# aggregate rebuilds), so they are deliberately absent here.
+_EVENT_RETENTION_TABLES = (
+    ("redaction_events", "redacted_at"),
+    ("tool_call_log", "called_at"),
+    ("threat_intel_records", "created_at"),
+)
+
+
+async def cleanup_old_event_records(db: DatabaseConnection) -> None:
+    """Age out the remaining append-only event tables per retention_days.
+
+    Without this these three grew forever: every redaction, every logged tool
+    call, and every threat detection stayed on disk for the life of the
+    install, so the only bounded tables were the two that happened to have
+    bespoke cleanup. A long-lived install would keep paying for year-old rows
+    that the UI's own windows (7/30/90d) never surface.
+
+    Deliberately conservative:
+      * Same single `app_settings.retention_days` knob as the other two, so
+        retention stays one user-visible promise rather than four.
+      * Each table is pruned independently inside its own try — a missing
+        table (older schema) or a locked write must not abort the rest of
+        startup, which is why the caller is best-effort too.
+
+    NOTE: pruning threat_intel_records removes detection history. That is the
+    same trade the audit-row cleanup already makes, and the honest answer for
+    customers who need indefinite retention is a SIEM forwarder, not an
+    ever-growing local SQLite file.
+    """
+    try:
+        row = await db.fetch_one("SELECT retention_days FROM app_settings WHERE id = 1")
+        retention_days = row["retention_days"] if row and row["retention_days"] else 30
+    except Exception as e:  # noqa: BLE001 — settings unreadable: skip, never block startup
+        logger.debug(f"Event records cleanup skipped (no settings): {e}")
+        return
+
+    for table, ts_col in _EVENT_RETENTION_TABLES:
+        try:
+            cur = await db.execute(
+                f"DELETE FROM {table} "  # noqa: S608 — table/column are module constants
+                f"WHERE {ts_col} IS NOT NULL "
+                f"AND {ts_col} < datetime('now', ?)",
+                (f"-{int(retention_days)} days",),
+            )
+            deleted = getattr(cur, "rowcount", 0) or 0
+            if deleted > 0:
+                logger.info(
+                    f"Cleaned up {deleted} expired rows from {table} "
+                    f"(retention: {retention_days} days)"
+                )
+        except Exception as e:  # noqa: BLE001 — one table failing must not stop the others
+            logger.debug(f"Cleanup skipped for {table}: {e}")
 
 
 async def load_community_rules(db: DatabaseConnection) -> int:

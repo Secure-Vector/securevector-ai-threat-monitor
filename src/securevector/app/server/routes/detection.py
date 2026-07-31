@@ -279,6 +279,7 @@ async def detect_agents(
 
     harnesses = []
     total_sessions = active_sessions = detected_count = active_count = unprotected_total = 0
+    unprotected_active_total = 0
     for spec in _HARNESSES:
         try:
             home = spec["home"]()
@@ -322,6 +323,14 @@ async def detect_agents(
         else:
             prot_clamped = None
             unprotected = None
+        # Actionable coverage gap: sessions running RIGHT NOW on a harness
+        # Guard has never audited. Historical transcripts predating Guard are
+        # unfixable and belong in `unprotected_sessions` (the estimate), not
+        # in the headline warning — the UI leads with this number instead.
+        unprotected_active = 0
+        if sess.get("supported") and not plugin_connected:
+            unprotected_active = int(sess.get("active", 0) or 0)
+        unprotected_active_total += unprotected_active
         # Guard is considered installed when it has produced audit activity
         # (a definitive "it ran here" signal). The UI further refines this with
         # the per-harness /status registry check.
@@ -333,6 +342,7 @@ async def detect_agents(
             "status": status, "sessions": sess,
             "plugin_connected": plugin_connected, "guard_installed": guard_installed,
             "protected_sessions": prot_clamped, "unprotected_sessions": unprotected,
+            "unprotected_active": unprotected_active,
             "calls": int(audit.get("calls", 0)), "blocked": int(audit.get("blocked", 0)),
             "last_call": last_call,
         })
@@ -368,6 +378,7 @@ async def detect_agents(
             "total_sessions": total_sessions,
             "active_sessions": active_sessions,
             "unprotected_sessions": unprotected_total,
+            "unprotected_active_sessions": unprotected_active_total,
             "frameworks": len([f for f in frameworks if f["kind"] == "framework"]),
             "frameworks_active": fw_active,
             "agents": len([f for f in frameworks if f["kind"] == "agent"]),
