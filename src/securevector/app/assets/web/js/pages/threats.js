@@ -4,6 +4,18 @@
  */
 
 const ThreatsPage = {
+    // Threat Monitor is the single triage surface. Blocked Actions and Secret
+    // Detections are facets of it, not separate destinations — they answer the
+    // same operator question ("what did SecureVector catch or stop?") over
+    // correlated data, and having three rails for one question was the main
+    // "where do I look?" complaint.
+    //
+    // Each facet keeps its OWN renderer rather than being flattened into a
+    // shared table. Blocked is an aggregate grouped by the policy that fired
+    // (with hit counts); Secrets has a different shape again. Merging them
+    // into common rows would destroy what makes each useful. This mirrors how
+    // ToolPermissionsPage already handles its tabs.
+    activeFacet: 'threats',
     data: null,
     categories: [],
     autoRefreshInterval: null,
@@ -81,7 +93,63 @@ const ThreatsPage = {
         document.head.appendChild(st);
     },
 
+    // Facet shell: draws the facet bar, then delegates to whichever facet is
+    // active. Each facet owns its own rendering entirely.
     async render(container) {
+        container.textContent = '';
+
+        const bar = document.createElement('div');
+        bar.className = 'tab-bar';
+        bar.id = 'tm-facets';
+        container.appendChild(bar);
+
+        const content = document.createElement('div');
+        content.id = 'tm-facet-content';
+        container.appendChild(content);
+
+        this._renderFacetBar();
+        await this._renderActiveFacet();
+    },
+
+    _renderFacetBar() {
+        const bar = document.getElementById('tm-facets');
+        if (!bar) return;
+        bar.textContent = '';
+        [
+            { id: 'threats', label: 'Threats' },
+            { id: 'blocked', label: 'Blocked Actions' },
+            { id: 'secrets', label: 'Secret Detections' },
+        ].forEach(({ id, label }) => {
+            const btn = document.createElement('button');
+            btn.className = `tab-btn${this.activeFacet === id ? ' active' : ''}`;
+            btn.textContent = label;
+            btn.addEventListener('click', async () => {
+                if (this.activeFacet === id) return;
+                // Leaving the threats facet: stop its auto-refresh timer so it
+                // does not keep polling behind an inactive facet.
+                if (this.activeFacet === 'threats') this.destroy();
+                this.activeFacet = id;
+                this._renderFacetBar();
+                await this._renderActiveFacet();
+            });
+            bar.appendChild(btn);
+        });
+    },
+
+    async _renderActiveFacet() {
+        const content = document.getElementById('tm-facet-content');
+        if (!content) return;
+        content.textContent = '';
+        if (this.activeFacet === 'blocked' && window.BlockedLedgerPage) {
+            return BlockedLedgerPage.render(content);
+        }
+        if (this.activeFacet === 'secrets' && window.RedactionsPage) {
+            return RedactionsPage.render(content);
+        }
+        return this._renderThreatsFacet(content);
+    },
+
+    async _renderThreatsFacet(container) {
         container.textContent = '';
         this.selectedIds.clear();
         this._injectStyle();

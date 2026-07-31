@@ -6,7 +6,14 @@
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        // The single triage surface. Blocked Actions and Secret Detections are
+        // facets of this page, not rails of their own — three destinations for
+        // one question ("what did SecureVector catch or stop?") was the main
+        // source of "where do I look?". Old ids stay aliases so deep links and
+        // bookmarks keep this row highlighted.
+        { id: 'threats', label: 'Threat Monitor', icon: 'shield',
+          aliases: ['blocked-ledger', 'redactions'],
+          tooltip: 'Threats, blocked actions and secret detections — one triage surface' },
         // conversion-ux — the download hook: opt-in retroactive scan of the
         // agent history already on disk. Sits beside Threat Monitor: past vs live.
         { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
@@ -31,10 +38,8 @@ const Sidebar = {
             // tool_call_audit data — one destination, two tabs on the page.
             // 'bill-of-tools' stays as an alias so deep links keep this row lit.
             { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
-            // The blocked-action ledger — what enforcement PREVENTED, by policy.
-            // Sits beside Secret Detections as the other security-outcome ledger.
-            { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
-            { id: 'redactions',     label: 'Secret Detections' },
+            // Blocked Actions and Secret Detections moved up into Threat Monitor
+            // as facets — see the note on that entry above.
             { id: 'costs',          label: 'Cost & Tokens' },
         ]},
         // ---- Govern (v5 IA) ----
@@ -382,7 +387,13 @@ const Sidebar = {
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
-            const isActive = item.id === this.currentPage && (!hasSubItems || item.collapsible);
+            // Top-level rows honour `aliases` too. Sub-items already did (see the
+            // subItem branch below), but top-level never needed it until Threat
+            // Monitor absorbed the blocked/secrets ledgers — without this the row
+            // goes unlit on those routes and the user cannot tell where they are.
+            const matchesSelf = item.id === this.currentPage ||
+                (item.aliases && item.aliases.includes(this.currentPage));
+            const isActive = matchesSelf && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
             if (item.collapsible) navItem.dataset.collapsible = 'true';
@@ -528,6 +539,7 @@ const Sidebar = {
                 // collapsed — a hidden "where am I" is worse than a stale
                 // collapse preference.
                 const activeHere = item.id === this.currentPage ||
+                    (item.aliases && item.aliases.includes(this.currentPage)) ||
                     (item.subItems || []).some(s => s.id === this.currentPage ||
                         (s.aliases && s.aliases.includes(this.currentPage)));
                 if (activeHere) currentSection.containsActive = true;
