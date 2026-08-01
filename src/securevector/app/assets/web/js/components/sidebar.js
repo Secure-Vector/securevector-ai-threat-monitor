@@ -499,9 +499,29 @@ const Sidebar = {
 
 
 
-            // Top-level rows carry no chevron: the indented sub-list is the
-            // expanded signal, and the section headers keep the only chevron
-            // on the rail.
+            // Collapsible parents carry a right-edge chevron: without it a
+            // collapsed row is indistinguishable from a leaf, so users never
+            // learn there are sub-items. Points right when collapsed, down
+            // when expanded — the same glyph + rotation grammar as the
+            // section headers. Appended last so expandSection()'s
+            // `svg:last-child` lookup finds it.
+            let rowChev = null;
+            if (item.collapsible && hasSubItems) {
+                const stored = localStorage.getItem(`nav-${item.id}-expanded`);
+                const startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                rowChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                rowChev.setAttribute('viewBox', '0 0 24 24');
+                rowChev.setAttribute('fill', 'none');
+                rowChev.setAttribute('stroke', 'currentColor');
+                rowChev.setAttribute('stroke-width', '2.4');
+                rowChev.setAttribute('aria-hidden', 'true');
+                rowChev.style.cssText = 'width: 10px; height: 10px; flex-shrink: 0; opacity: 0.45; transition: transform 0.15s;';
+                rowChev.style.transform = startsExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                const rowChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                rowChevPath.setAttribute('d', 'M6 9l6 6 6-6');
+                rowChev.appendChild(rowChevPath);
+                navItem.appendChild(rowChev);
+            }
 
             // Click handler — collapsible rows toggle on any click; others navigate.
             // If the parent is `navigable`, an EXPAND click also navigates to
@@ -515,6 +535,7 @@ const Sidebar = {
                         const isVisible = subNav.style.display !== 'none';
                         const willExpand = !isVisible;
                         subNav.style.display = willExpand ? 'block' : 'none';
+                        if (rowChev) rowChev.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
                         localStorage.setItem(`nav-${item.id}-expanded`, String(willExpand));
                         if (willExpand && item.navigable && item.subItems[0]) {
                             this.navigate(item.subItems[0].id);
