@@ -145,7 +145,7 @@ const ToolPermissionsPage = {
                 : 'background: var(--bg-tertiary); color: var(--text-secondary);');
     },
 
-    _setBtnContent(btn, blocked) {
+    _setBtnContent(btn, blocked, jitRequestable = false) {
         btn.textContent = '';
         const ico = document.createElement('span');
         ico.style.cssText = 'font-size: 10px;';
@@ -154,6 +154,13 @@ const ToolPermissionsPage = {
         const lbl = document.createElement('span');
         lbl.textContent = blocked ? 'Block' : 'Allow';
         btn.appendChild(lbl);
+        // Blocked pills carry the JIT loop in their tooltip — the durable copy
+        // of the block-time toast. Opt-in per call site: registry tools pass
+        // true (local blocks are always requestable), custom tools pass
+        // nothing because their blocks never route through JIT.
+        btn.title = (blocked && jitRequestable)
+            ? 'Blocked. An agent can still request it: you approve for 15 min, 1 hour, or the session in Just-in-time access.'
+            : '';
     },
 
     _applyCardHover(card, accent) {
@@ -323,6 +330,7 @@ const ToolPermissionsPage = {
         };
         applyBtnStyle(isBlocked);
         let scopeSel = null;
+        let jitHint = null; // assigned below; the click handler closes over it
         if (isManaged) {
             actionBtn.disabled = true;
             actionBtn.title = (
@@ -358,13 +366,15 @@ const ToolPermissionsPage = {
                     tool.has_override = true;
                     isBlocked = newAction === 'block';
                     applyBtnStyle(isBlocked);
+                    if (jitHint) jitHint.style.display = isBlocked ? 'block' : 'none';
+                    if (isBlocked) this._jitBlockToast(tool.name || tool.tool_id);
                     // Sync the mini card button in the list
                     const miniCard = document.querySelector('[data-tool-id="' + tool.tool_id + '"]');
                     if (miniCard) {
                         const miniBtn = miniCard.querySelector('button');
                         if (miniBtn) {
                             this._applyActionBtnStyle(miniBtn, isBlocked);
-                            this._setBtnContent(miniBtn, isBlocked);
+                            this._setBtnContent(miniBtn, isBlocked, true);
                         }
                     }
                 } catch (e) {
@@ -373,6 +383,18 @@ const ToolPermissionsPage = {
             });
         }
         panel.appendChild(actionBtn);
+
+        // Persistent JIT hint, visible whenever the tool is blocked. The toast
+        // at block time is easy to miss; this line is the durable copy, sitting
+        // where a user looks when wondering how an agent gets the tool back.
+        // Managed tools skip it: whether a synced deny is requestable is the
+        // org policy's call, not something this UI can promise.
+        if (!isManaged) {
+            jitHint = document.createElement('div');
+            jitHint.style.cssText = 'margin-top: 8px; font-size: 11px; line-height: 1.5; color: var(--text-secondary); display: ' + (isBlocked ? 'block' : 'none') + ';';
+            jitHint.textContent = 'Agents can still request this tool. You approve for 15 min, 1 hour, or the session in Just-in-time access.';
+            panel.appendChild(jitHint);
+        }
 
         document.body.appendChild(panel);
 
@@ -456,9 +478,11 @@ const ToolPermissionsPage = {
 
         if (!this.hideTabBar) {
             // Tab bar
+            // No `.tab-bar` class — that adds the old 2px underline, which
+            // fights the pill-shaped segmented control the bar now holds.
             const tabs = document.createElement('div');
-            tabs.className = 'tab-bar';
             tabs.id = 'tp-tabs';
+            tabs.style.cssText = 'margin-bottom: 24px;';
             container.appendChild(tabs);
         }
 
@@ -481,31 +505,50 @@ const ToolPermissionsPage = {
     // on the rows that ARE matched, which is the honest signal. Discovery
     // of the dedicated MCP Policies page is handled by the left-nav entry.
 
+    // Permissions / Call History / Inventory are three lenses on one feature,
+    // exactly like Threat Monitor's facets and the Agent Observability tabs,
+    // so they use the same segmented control (ObsTabs' .sv-obs-tabs). The
+    // generic .tab-bar read as page furniture rather than as peer views.
+    _TABS: [
+        { id: 'permissions', label: 'Tool Permissions', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
+        { id: 'activity',    label: 'Tool Call History', icon: 'M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z' },
+        { id: 'bill',        label: 'Tool Inventory',    icon: 'M21 16V8l-9-5-9 5v8l9 5 9-5zM3.3 7L12 12l8.7-5M12 22V12' },
+    ],
+
     _renderTabBar() {
         const bar = document.getElementById('tp-tabs');
         if (!bar) return;
+        if (window.ObsTabs && ObsTabs._injectStyle) ObsTabs._injectStyle();
         bar.textContent = '';
 
-        const defs = [
-            { id: 'permissions', label: 'Tool Permissions' },
-            { id: 'activity',    label: 'Tool Call History' },
-            { id: 'bill',        label: 'Tool Inventory' },
-        ].filter(d => !this.visibleTabs || this.visibleTabs.includes(d.id));
+        const wrap = document.createElement('div');
+        wrap.className = 'sv-obs-tabs';
+        wrap.setAttribute('role', 'tablist');
 
-        defs.forEach(({ id, label }) => {
-            const btn = document.createElement('button');
-            const isActive = this.activeTab === id;
-            const isSeen = !!localStorage.getItem('sv-tab-seen-tp-' + id);
-            if (isActive) localStorage.setItem('sv-tab-seen-tp-' + id, '1');
-            btn.className = `tab-btn${isActive ? ' active' : ''}`;
-            btn.textContent = label;
-            btn.addEventListener('click', async () => {
-                this.activeTab = id;
-                this._renderTabBar();
-                await this._renderActiveTab();
+        this._TABS
+            .filter(d => !this.visibleTabs || this.visibleTabs.includes(d.id))
+            .forEach(({ id, label, icon }) => {
+                const btn = document.createElement('button');
+                const isActive = this.activeTab === id;
+                if (isActive) localStorage.setItem('sv-tab-seen-tp-' + id, '1');
+                btn.type = 'button';
+                btn.className = 'sv-obs-tab' + (isActive ? ' on' : '');
+                btn.setAttribute('role', 'tab');
+                btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                btn.innerHTML =
+                    `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" ` +
+                    `stroke-linejoin="round"><path d="${icon}"/></svg><span></span>`;
+                btn.querySelector('span').textContent = label;
+                btn.addEventListener('click', async () => {
+                    if (this.activeTab === id) return;
+                    this.activeTab = id;
+                    this._renderTabBar();
+                    await this._renderActiveTab();
+                });
+                wrap.appendChild(btn);
             });
-            bar.appendChild(btn);
-        });
+
+        bar.appendChild(wrap);
     },
 
     async _renderActiveTab() {
@@ -529,47 +572,11 @@ const ToolPermissionsPage = {
         const page = document.createElement('div');
         page.className = 'page-wrapper';
 
-        // Help banner — explains allow / block / log_only behavior
-        const helpBanner = document.createElement('div');
-        helpBanner.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary);';
-        const helpIcon = document.createElement('span');
-        helpIcon.textContent = 'ⓘ';
-        helpIcon.style.cssText = 'color: var(--accent-primary); font-weight: 600; flex-shrink: 0;';
-        helpBanner.appendChild(helpIcon);
-        const helpText = document.createElement('span');
-        helpText.style.cssText = 'flex: 1; line-height: 1.5;';
-        helpText.textContent = 'Tool calls are recorded on the Tool Activity tab as ';
-        const badgeCss = 'font-family: var(--font-mono, monospace); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); font-weight: 600;';
-        const allowBadge = document.createElement('code');
-        allowBadge.style.cssText = badgeCss;
-        allowBadge.textContent = 'allow';
-        helpText.appendChild(allowBadge);
-        helpText.appendChild(document.createTextNode(', '));
-        const blockBadge = document.createElement('code');
-        blockBadge.style.cssText = badgeCss;
-        blockBadge.textContent = 'block';
-        helpText.appendChild(blockBadge);
-        helpText.appendChild(document.createTextNode(', or '));
-        const logBadge = document.createElement('code');
-        logBadge.style.cssText = badgeCss;
-        logBadge.textContent = 'log_only';
-        helpText.appendChild(logBadge);
-        helpText.appendChild(document.createTextNode(' depending on the tool\u2019s policy and whether block mode is on. '));
-        const helpLink = document.createElement('a');
-        helpLink.href = '#';
-        helpLink.style.cssText = 'color: var(--accent-primary); text-decoration: none; font-weight: 600; cursor: pointer;';
-        helpLink.textContent = 'See guide \u2192';
-        helpLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.Sidebar && typeof Sidebar.navigateToSection === 'function') {
-                Sidebar.navigateToSection('guide', 'section-tool-permissions', 'gs-tool-permissions');
-            } else if (window.Sidebar) {
-                Sidebar.navigate('guide');
-            }
-        });
-        helpText.appendChild(helpLink);
-        helpBanner.appendChild(helpText);
-        page.appendChild(helpBanner);
+        // NOTE: a help banner used to sit here explaining that tool calls are
+        // recorded as allow / block / log_only. Removed — it described a
+        // different tab's contents from the top of this one, and the verdicts
+        // are self-evident where they actually appear. The Guide still carries
+        // the explanation for anyone who wants it.
 
         // JIT access requests + active grants. Rendered above the rules list
         // because a pending request is the one thing on this page that is
@@ -610,9 +617,14 @@ const ToolPermissionsPage = {
         toggleLabelText.textContent = 'Enforcement';
         toggleTextCol.appendChild(toggleLabelText);
 
+        // One line, not four. The old copy was 234 characters at 11px inside a
+        // 320px cap, so it wrapped to four lines and pushed the toolbar taller
+        // than the control it described. The full sentence moved to the
+        // tooltip, where length costs nothing.
         const toggleDesc = document.createElement('span');
-        toggleDesc.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4; max-width: 320px;';
-        toggleDesc.textContent = 'When ON, enforces your block/allow rules across the proxy and every installed agent plugin (Claude Code, Codex, OpenClaw). When OFF, all tool calls pass through unblocked (monitor only).';
+        toggleDesc.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4; max-width: 440px;';
+        toggleDesc.textContent = 'On: block rules enforced everywhere. Off: monitor only.';
+        toggleDesc.title = 'When ON, enforces your block/allow rules across the proxy and every installed agent plugin (Claude Code, Codex, OpenClaw). When OFF, all tool calls pass through unblocked (monitor only).';
         toggleTextCol.appendChild(toggleDesc);
 
         toggleWrap.appendChild(toggleTextCol);
@@ -2317,6 +2329,19 @@ const ToolPermissionsPage = {
         return `expires in ${Math.round(m / 60)}h ${m % 60}m`;
     },
 
+    // Shown at the moment a tool is switched to Block, because that is the
+    // moment "what if an agent still needs this?" occurs to the user. Local
+    // blocks are always JIT-requestable (custom tools are not, so their
+    // block buttons never call this).
+    _jitBlockToast(toolName) {
+        if (!window.Toast) return;
+        Toast.show({
+            message: (toolName || 'Tool') + ' blocked. An agent can still ask for it: the request lands in Just-in-time access at the top of this page, and you set the timer (15 min, 1 hour, or the session).',
+            type: 'info',
+            duration: 7000,
+        });
+    },
+
     _injectJitStyles() {
         if (document.getElementById('jit-styles')) return;
         const st = document.createElement('style');
@@ -2329,6 +2354,14 @@ const ToolPermissionsPage = {
             .jit-count { font-size: 10.5px; font-weight: 800; padding: 1px 8px; border-radius: 999px;
                 background: color-mix(in srgb, var(--warning, #f59e0b) 18%, transparent);
                 color: var(--warning, #f59e0b); }
+            /* Idle chip is neutral, not amber — nothing is waiting on the human. */
+            .jit-count-idle { background: var(--bg-tertiary); color: var(--text-muted); font-weight: 700; }
+            .jit-dismiss { margin-left: auto; border: 0; background: transparent; color: var(--text-muted);
+                font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; }
+            .jit-dismiss:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+            .jit-empty-lead { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
+            .jit-empty-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+            .jit-empty-steps li { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
             .jit-card { border: 1px solid var(--border-default); border-radius: 8px;
                 background: var(--bg-tertiary); padding: 12px 14px; margin-bottom: 10px; }
             .jit-card:last-child { margin-bottom: 0; }
@@ -2379,9 +2412,24 @@ const ToolPermissionsPage = {
         const pending = (reqs && reqs.items) || [];
         const active = (grants && grants.active) || [];
         box.textContent = '';
-        if (!pending.length && !active.length) return; // nothing waiting — stay quiet
 
         const refresh = () => this._renderJitPanel(box);
+
+        // The panel used to render nothing at all when there was no pending
+        // request and no live grant, which is the state a new install is
+        // permanently in. Just-in-time access is one of the strongest things
+        // this page does and it was invisible until an agent happened to trip
+        // a Block rule — so nobody knew it existed, and nobody knew how a
+        // grant comes to exist either. The empty state now explains the loop.
+        if (!pending.length && !active.length) {
+            // Dismissible: once the user has read the loop they can × it
+            // away for good, and the panel returns to taking no space until
+            // a real request or grant exists.
+            let dismissed = false;
+            try { dismissed = localStorage.getItem('sv-jit-intro-dismissed') === '1'; } catch (_) {}
+            if (!dismissed) box.appendChild(this._jitEmptyState());
+            return;
+        }
 
         if (pending.length) {
             const panel = document.createElement('div');
@@ -2412,6 +2460,58 @@ const ToolPermissionsPage = {
             active.forEach(g => panel.appendChild(this._jitGrantRow(g, refresh)));
             box.appendChild(panel);
         }
+    },
+
+    // Shown when there is no pending request and no live grant — i.e. what a
+    // new install sees. States the loop rather than the feature name, because
+    // "just-in-time access" means nothing until you have seen it happen. The
+    // durations are listed because they are the whole point: access that ends
+    // by itself is what makes approving one safe.
+    _jitEmptyState() {
+        const panel = document.createElement('div');
+        panel.className = 'jit-panel';
+        panel.setAttribute('role', 'region');
+        panel.setAttribute('aria-label', 'Just-in-time access');
+
+        const title = document.createElement('div');
+        title.className = 'jit-title';
+        title.textContent = 'Just-in-time access ';
+        const chip = document.createElement('span');
+        chip.className = 'jit-count jit-count-idle';
+        chip.textContent = 'no active grants';
+        title.appendChild(chip);
+        const dismiss = document.createElement('button');
+        dismiss.className = 'jit-dismiss';
+        dismiss.textContent = '×';
+        dismiss.title = 'Dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss just-in-time access introduction');
+        dismiss.addEventListener('click', () => {
+            try { localStorage.setItem('sv-jit-intro-dismissed', '1'); } catch (_) {}
+            panel.remove();
+        });
+        title.appendChild(dismiss);
+        panel.appendChild(title);
+
+        const lead = document.createElement('div');
+        lead.className = 'jit-empty-lead';
+        lead.textContent = 'Blocked tools do not have to stay blocked. An agent can ask for one, and you can hand it over for a fixed length of time:';
+        panel.appendChild(lead);
+
+        const steps = [
+            'Set a tool to Block in the list below.',
+            'When an agent calls it, the call is stopped and the request appears here with the reason the agent gave.',
+            'Approve it for 15 minutes, 1 hour, or the rest of the session. The grant expires on its own, and you can revoke it sooner from this panel.',
+        ];
+        const ol = document.createElement('ol');
+        ol.className = 'jit-empty-steps';
+        steps.forEach(t => {
+            const li = document.createElement('li');
+            li.textContent = t;
+            ol.appendChild(li);
+        });
+        panel.appendChild(ol);
+
+        return panel;
     },
 
     _jitRequestCard(req, refresh) {
@@ -3748,7 +3848,7 @@ const ToolPermissionsPage = {
             }
         } else {
             this._applyActionBtnStyle(actionBtn, isBlocked);
-            this._setBtnContent(actionBtn, isBlocked);
+            this._setBtnContent(actionBtn, isBlocked, true);
             actionBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const newAction = isBlocked ? 'allow' : 'block';
@@ -3759,8 +3859,9 @@ const ToolPermissionsPage = {
                     tool.effective_source = 'local';
                     isBlocked = newAction === 'block';
                     this._applyActionBtnStyle(actionBtn, isBlocked);
-                    this._setBtnContent(actionBtn, isBlocked);
+                    this._setBtnContent(actionBtn, isBlocked, true);
                     row.dataset.status = newAction;
+                    if (isBlocked) this._jitBlockToast(tool.name || tool.tool_id);
                     // Repaint the leading-edge stripe — decision source
                     // changed to local-override (amber). Logical property
                     // so RTL locales keep the stripe on the leading edge.
@@ -3789,7 +3890,7 @@ const ToolPermissionsPage = {
                 tool.effective_source = 'default';
                 isBlocked = tool.effective_action === 'block';
                 this._applyActionBtnStyle(actionBtn, isBlocked);
-                this._setBtnContent(actionBtn, isBlocked);
+                this._setBtnContent(actionBtn, isBlocked, true);
                 row.dataset.status = tool.effective_action === 'block' ? 'block' : 'allow';
                 row.style.borderInlineStartColor = 'var(--border-default)';
                 resetBtn.style.display = 'none';
@@ -3946,7 +4047,7 @@ const ToolPermissionsPage = {
             }
         } else {
             this._applyActionBtnStyle(actionBtn, isBlocked);
-            this._setBtnContent(actionBtn, isBlocked);
+            this._setBtnContent(actionBtn, isBlocked, true);
 
             actionBtn.addEventListener('click', async () => {
                 const newAction = isBlocked ? 'allow' : 'block';
@@ -3956,8 +4057,9 @@ const ToolPermissionsPage = {
                     tool.has_override = true;
                     isBlocked = newAction === 'block';
                     this._applyActionBtnStyle(actionBtn, isBlocked);
-                    this._setBtnContent(actionBtn, isBlocked);
+                    this._setBtnContent(actionBtn, isBlocked, true);
                     row.dataset.status = newAction;
+                    if (isBlocked) this._jitBlockToast(tool.name || tool.tool_id);
                     resetBtn.style.display = 'inline-block';
                     if (row._svRenderSourceBadge) row._svRenderSourceBadge();
                 } catch (e) {
@@ -3981,7 +4083,7 @@ const ToolPermissionsPage = {
                 tool.has_override = false;
                 isBlocked = tool.effective_action === 'block';
                 this._applyActionBtnStyle(actionBtn, isBlocked);
-                this._setBtnContent(actionBtn, isBlocked);
+                this._setBtnContent(actionBtn, isBlocked, true);
                 row.dataset.status = tool.effective_action === 'block' ? 'block' : 'allow';
                 resetBtn.style.display = 'none';
                 if (row._svRenderSourceBadge) row._svRenderSourceBadge();

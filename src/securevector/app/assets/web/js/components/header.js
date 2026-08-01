@@ -43,11 +43,16 @@ const Header = {
         left.className = 'header-left';
 
         const titleGroup = document.createElement('div');
-        titleGroup.style.cssText = 'display: flex; flex-direction: column; justify-content: center;';
+        // min-width: 0 has to repeat on every level of the flex chain — the
+        // header's own `.header-left` rule is not inherited, and one rigid
+        // link is enough to stop the whole side from shrinking.
+        titleGroup.style.cssText = 'display: flex; flex-direction: column; justify-content: center; min-width: 0;';
 
         const headerTitleEl = document.createElement('div');
         headerTitleEl.id = 'header-page-title';
-        headerTitleEl.style.cssText = 'font-size: 21px; font-weight: 700; color: var(--text-primary); line-height: 1.2; white-space: nowrap;';
+        // nowrap without an overflow rule meant the title set a hard floor on
+        // the header's left side; it now ellipsizes like the subtitle already did.
+        headerTitleEl.style.cssText = 'font-size: 21px; font-weight: 700; color: var(--text-primary); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
         titleGroup.appendChild(headerTitleEl);
 
         const headerSubtitleEl = document.createElement('div');
@@ -71,9 +76,12 @@ const Header = {
         const guardianCtl = this.createGuardianControl();
         right.appendChild(guardianCtl);
 
-        // Theme toggle button (sun/moon)
-        const themeBtn = this.createThemeToggle();
-        right.appendChild(themeBtn);
+        // NOTE: the theme toggle moved to the foot of the left rail (v5).
+        // The header is for global/frequent state — Guardian ML, Cloud
+        // Connect — and a display preference set once per session did not
+        // earn a slot there. It also cost 40px of the header's right block,
+        // which is the block that was overflowing on a narrowed window.
+        // See Sidebar.createThemeFooter().
 
         // Guided tour launcher (compass) — opens the step-by-step walkthrough.
         // The tour ends on the Guide, which is the single docs entry point now
@@ -140,57 +148,6 @@ const Header = {
             if (btn) btn.classList.add('active');
             document.body.classList.add('mobile-menu-open');
         }
-    },
-
-    createThemeToggle() {
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const btn = document.createElement('button');
-        btn.style.cssText = 'background: transparent; border: 2px solid var(--text-secondary); color: var(--text-secondary); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-right: 10px; padding: 0;';
-        btn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-        btn.setAttribute('aria-label', 'Toggle theme');
-
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2');
-        svg.style.cssText = 'width: 14px; height: 14px;';
-
-        if (isDark) {
-            // Sun icon
-            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            circle.setAttribute('cx', '12');
-            circle.setAttribute('cy', '12');
-            circle.setAttribute('r', '5');
-            svg.appendChild(circle);
-            ['M12 1v2', 'M12 21v2', 'M4.22 4.22l1.42 1.42', 'M18.36 18.36l1.42 1.42', 'M1 12h2', 'M21 12h2', 'M4.22 19.78l1.42-1.42', 'M18.36 5.64l1.42-1.42'].forEach(d => {
-                const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                p.setAttribute('d', d);
-                svg.appendChild(p);
-            });
-        } else {
-            // Moon icon
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z');
-            svg.appendChild(path);
-        }
-
-        btn.appendChild(svg);
-
-        btn.addEventListener('mouseenter', () => {
-            btn.style.borderColor = 'var(--accent-primary)';
-            btn.style.color = 'var(--accent-primary)';
-        });
-        btn.addEventListener('mouseleave', () => {
-            btn.style.borderColor = 'var(--text-secondary)';
-            btn.style.color = 'var(--text-secondary)';
-        });
-
-        btn.addEventListener('click', () => {
-            if (window.Sidebar) Sidebar.toggleTheme();
-        });
-
-        return btn;
     },
 
     createTourButton() {
@@ -2034,22 +1991,6 @@ graph.add_edge("output_security", END)`,
         return svg;
     },
 
-    async toggleTheme() {
-        const html = document.documentElement;
-        const currentTheme = html.getAttribute('data-theme') || 'dark';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-        html.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-
-        // Re-render to update the theme icon. render() rebuilds the title /
-        // subtitle elements empty — repopulate them so the header doesn't
-        // visually clear when the user toggles. (App.loadPage is the only
-        // other caller of render() and it always follows up with updateTitle,
-        // so this path is the one that needs the explicit restore.)
-        this.render();
-        this.updateTitle();
-    },
 
     async checkStatus() {
         try {

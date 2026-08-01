@@ -550,7 +550,12 @@ const App = {
      */
     loadTheme() {
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) {
+        // Validate against the known set rather than applying whatever is in
+        // storage. With more than two themes an unrecognised value is now a
+        // real possibility (a retired theme id, a hand-edited key), and it
+        // would paint the shell with no variant block matching at all.
+        const known = (window.Sidebar && Sidebar.THEMES) ? Sidebar.THEMES.map(t => t.id) : ['dark', 'light'];
+        if (savedTheme && known.includes(savedTheme)) {
             document.documentElement.setAttribute('data-theme', savedTheme);
         }
     },

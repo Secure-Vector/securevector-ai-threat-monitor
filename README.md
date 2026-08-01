@@ -56,11 +56,12 @@
 <br>
 
 > **What's new in v5.0.0**
-> - **Runtime Connect Wizard** — a guided detect → protect → verify flow. It scans this device for agent runtimes (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw, frameworks), installs Guard with one click per runtime, and verifies the first protected call live. The manual per-agent command sets remain under Connect Agents / Integrations.
+> - **v5 experience revamp** — navigation regrouped into **Observe / Govern / Connect** (page ids and deep links unchanged), a **Cmd+K** command palette, **six selectable themes**, a three-tier protection hero on the dashboard, and threat details that now lead with one plain-language sentence ("Blocked: this traffic contained an attempt to modify a protected system file.") with the technical breakdown below. The motion layer disables fully under `prefers-reduced-motion`.
+> - **Traces** *(formerly Agent Runs)* — every agent run replays as a stepped waterfall: tool calls, allow/block verdicts, per-step cost, triage chips, a verdict minimap, and in-trace search. **Live follow** streams a running session; **session replay** steps through the redacted event stream; one-click **audit PDF export**. Expanding a scanned step lazy-loads the exact content excerpt SecureVector inspected (LLM I/O visibility) — the app still never records full prompt or response bodies.
+> - **Instant Agent Audit** — answers "what have my agents *already* done?" in your first minute: a local, opt-in scan of past Claude Code / Codex sessions on this device, surfacing risky calls, secrets touched, and spend from before any hook was installed. Sortable, exportable, never leaves your machine.
 > - **JIT (just-in-time) tool access requests** — an agent that hits a *requestable* deny can file a time-boxed access request for a human to approve on the Tool Permissions page. Grants are 15 minutes, 1 hour, or the requesting session only; there is deliberately no "until I revoke". Org hard denies never queue. Revoke-now is one click, and the whole request/grant lifecycle is its own audit trail.
-> - **LLM I/O visibility in Agent Runs** — expanding a scanned step lazy-loads the exact content excerpt SecureVector inspected for that call, with action / threat-type / risk context. The privacy posture is unchanged: the app never records full prompt or response bodies, only what was scanned, and only while "Store text content" is on.
+> - **Runtime Connect Wizard** — a guided detect → protect → verify flow. It scans this device for agent runtimes (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw, frameworks), installs Guard with one click per runtime, and verifies the first protected call live. The manual per-agent command sets remain under Connect Agents / Integrations.
 > - **One-click cloud trial from the local app** *(Settings → Cloud)* — an OAuth-style device flow requests a code, opens the browser, polls for completion and stores the returned key itself, so there is no key to copy. Falls back to the manual paste path when the cloud endpoint is unavailable. Metadata-only, same consent gates as a manual connect.
-> - **v5 experience revamp** — navigation regrouped into **Observe / Govern / Connect** (page ids and deep links unchanged), a **Cmd+K** command palette, a three-tier protection hero on the dashboard, and threat details that now lead with one plain-language sentence ("Blocked: this traffic contained an attempt to modify a protected system file.") with the technical breakdown below. The motion layer disables fully under `prefers-reduced-motion`.
 >
 > **Previously:** v4.9.1 added SecureVector Guard for Hermes, a fourth framework SDK. v4.9.0 unified `SECUREVECTOR_ENGINE_ENDPOINT` across SDKs and plugins and shipped the one-page Connect Agents setup. v4.8.0 introduced the LangChain / LangGraph / CrewAI framework SDKs. v4.7.0 added optional cloud fleet management and SecureVector Guard for Cursor.
 >
@@ -129,12 +130,12 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 *All screenshots are from a local app instance.*
 
-**🗺️ New in v4.5.0 — Agent Map & Runs**
+**🗺️ Agent Map & Traces**
 
 <table>
 <tr>
-<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its run.</em></td>
-<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Agent Runs" width="100%"><br><em>Agent Runs — a turn-by-turn trace of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
+<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its trace.</em></td>
+<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Traces" width="100%"><br><em>Traces — a turn-by-turn waterfall of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
 </tr>
 </table>
 
