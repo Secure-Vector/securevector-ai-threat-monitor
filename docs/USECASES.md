@@ -714,7 +714,7 @@ chain.invoke(payload, config={"callbacks": [SecureVectorCallbackHandler()]})
 | Secret / data-leak detection | scans serialized args | scans the tool result |
 | Threat detection | prompt-injection / malicious content | indirect-injection in fetched data |
 
-Every decision is appended to the tamper-evident audit chain and tagged `runtime_kind=langchain`, so the calls show up in the **Agent Map** and **Agent Runs**. `observe` always runs the tool (advisory log); `enforce` short-circuits a blocked tool with a `ToolMessage`. If the app is unreachable, `observe` fails open and `enforce` fails closed.
+Every decision is appended to the tamper-evident audit chain and tagged `runtime_kind=langchain`, so the calls show up in the **Agent Map** and **Traces**. `observe` always runs the tool (advisory log); `enforce` short-circuits a blocked tool with a `ToolMessage`. If the app is unreachable, `observe` fails open and `enforce` fails closed.
 
 > **Legacy (LLM-traffic only).** Older integrations scanned prompt/response text via `SecureVectorClient().analyze()` in a callback. That still works for LLM I/O but does not see tool calls — prefer the SDK above for tool-call enforcement + audit fidelity.
 

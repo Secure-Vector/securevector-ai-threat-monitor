@@ -9,7 +9,7 @@ const App = {
     pages: {
         guide: GettingStartedPage,
         dashboard: DashboardPage,
-        threats: ThreatsPage,
+        threats: { render: (c) => { ThreatsPage.activeFacet = 'threats'; return ThreatsPage.render(c); } },
         // conversion-ux — retroactive scan of on-disk agent history (opt-in).
         'instant-audit': InstantAuditPage,
         replay: ReplayPage,
@@ -17,7 +17,8 @@ const App = {
         'agent-runs': AgentRunsPage,
         'agent-timeline': AgentTimelinePage,
         'storylines': StorylinesPage,
-        'blocked-ledger': BlockedLedgerPage,
+        // Kept routable as an alias: opens Threat Monitor on the Blocked facet.
+        'blocked-ledger': { render: (c) => { ThreatsPage.activeFacet = 'blocked'; return ThreatsPage.render(c); } },
         rules: RulesPage,
         'proxy-langchain': { render: (c) => IntegrationPage.render(c, 'proxy-langchain') },
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
@@ -65,7 +66,8 @@ const App = {
         // differ only in which tab is active on landing.
         'tool-activity':     { render: (c) => { ToolPermissionsPage.activeTab = 'activity';    ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
         'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
-        'redactions':        RedactionsPage,
+        // Kept routable as an alias: opens Threat Monitor on the Secrets facet.
+        'redactions':        { render: (c) => { ThreatsPage.activeFacet = 'secrets'; return ThreatsPage.render(c); } },
         costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,
@@ -548,7 +550,12 @@ const App = {
      */
     loadTheme() {
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) {
+        // Validate against the known set rather than applying whatever is in
+        // storage. With more than two themes an unrecognised value is now a
+        // real possibility (a retired theme id, a hand-edited key), and it
+        // would paint the shell with no variant block matching at all.
+        const known = (window.Sidebar && Sidebar.THEMES) ? Sidebar.THEMES.map(t => t.id) : ['dark', 'light'];
+        if (savedTheme && known.includes(savedTheme)) {
             document.documentElement.setAttribute('data-theme', savedTheme);
         }
     },

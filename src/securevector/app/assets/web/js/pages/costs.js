@@ -75,9 +75,10 @@ const CostsPage = {
         container.appendChild(hermesNoteHost);
         this._renderHermesCostGapNote(hermesNoteHost);
 
+        // No `.tab-bar` class — see the same note on Tool Permissions.
         const tabs = document.createElement('div');
-        tabs.className = 'tab-bar';
         tabs.id = 'costs-tabs';
+        tabs.style.cssText = 'margin-bottom: 24px;';
         container.appendChild(tabs);
 
         const content = document.createElement('div');
@@ -122,30 +123,46 @@ const CostsPage = {
         await this._loadAndRenderPricing();
     },
 
+    // Same segmented control as Agent Observability, Threat Monitor and Tool
+    // Permissions — every "one feature, several lenses" surface in the app now
+    // switches views the same way. Monitor mode only shows summary + history.
+    _TABS: [
+        { id: 'overview', label: 'Cost Summary',    icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6' },
+        { id: 'history',  label: 'Request History', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+    ],
+
     _renderTabBar() {
         const bar = document.getElementById('costs-tabs');
         if (!bar) return;
+        if (window.ObsTabs && ObsTabs._injectStyle) ObsTabs._injectStyle();
         bar.textContent = '';
 
-        // Monitor mode only shows summary + history
-        const defs = [
-            { id: 'overview', label: 'Cost Summary' },
-            { id: 'history', label: 'Request History' },
-        ];
+        const wrap = document.createElement('div');
+        wrap.className = 'sv-obs-tabs';
+        wrap.setAttribute('role', 'tablist');
 
-        defs.forEach(({ id, label }) => {
+        this._TABS.forEach(({ id, label, icon }) => {
             const btn = document.createElement('button');
             const isActive = this.activeTab === id;
             if (isActive) localStorage.setItem('sv-tab-seen-costs-' + id, '1');
-            btn.className = `tab-btn${isActive ? ' active' : ''}`;
-            btn.textContent = label;
+            btn.type = 'button';
+            btn.className = 'sv-obs-tab' + (isActive ? ' on' : '');
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            btn.innerHTML =
+                `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" ` +
+                `stroke-linejoin="round"><path d="${icon}"/></svg><span></span>`;
+            btn.querySelector('span').textContent = label;
             btn.addEventListener('click', async () => {
+                if (this.activeTab === id) return;
                 this.activeTab = id;
                 this._renderTabBar();
                 await this._renderActiveTab();
             });
-            bar.appendChild(btn);
+            wrap.appendChild(btn);
         });
+
+        bar.appendChild(wrap);
     },
 
     async _renderActiveTab() {

@@ -29,8 +29,11 @@ const CommandPalette = {
         // Mirror of the sidebar's SECTION_BEFORE — the palette shows the same
         // three verbs so both surfaces read as one system.
         const sectionOf = (id) => {
+            // 'blocked-ledger' and 'redactions' are facets of Threat Monitor now,
+            // but stay searchable here: users look for them by name, and the
+            // ids remain routable straight to the right facet.
             if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
-                'redactions', 'costs'].includes(id)) return 'Visibility';
+                'blocked-ledger', 'redactions', 'costs'].includes(id)) return 'Visibility';
             if (['tool-permissions', 'rules', 'skill-scanner', 'guardian-ml',
                 'cost-settings', 'governance', 'mcp-policies'].includes(id)) return 'Govern';
             if (['connect-wizard', 'guide-connect-agents', 'integrations'].includes(id) || id.startsWith('proxy-')) return 'Connect';
@@ -52,6 +55,11 @@ const CommandPalette = {
         push('agent-timeline', 'Traces: Live feed');
         push('storylines', 'Traces: grouped by agent');
         push('bill-of-tools', 'Tool Inventory (SBOM)');
+        // Folded into Threat Monitor as facets — no longer nav entries, so the
+        // loop above cannot emit them. People still search these by name, and
+        // the ids route straight to the right facet, so keep them findable.
+        push('blocked-ledger', 'Threat Monitor: Blocked Actions');
+        push('redactions', 'Threat Monitor: Secret Detections');
         push('settings', 'Settings');
         // De-dup by id, first-seen wins (nav entries beat aliases).
         const seen = new Set();

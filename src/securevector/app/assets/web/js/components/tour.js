@@ -87,7 +87,7 @@ const Tour = {
                 body: `Head to <b>Traces</b>: one trace per agent session. Open a trace to see its ` +
                     `<b>runs</b> (each LLM call and tool call) and the enforcement verdict on each, with <b>replay</b> and the ` +
                     `<b>Agent Map</b> (Tree · Radial · Mesh · Sankey) one tab away. Keep an eye on ` +
-                    `<b>Blocked Actions</b>, <b>Secret Detections</b> and <b>Cost & Tokens</b>.`,
+                    `<b>Cost & Tokens</b>. Blocked actions and secret detections are facets of <b>Threat Monitor</b>.`,
             },
             {
                 nav: 'guide', go: 'guide', expand: 'guide',

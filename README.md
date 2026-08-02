@@ -8,11 +8,12 @@
 
 </div>
 
-- **Secures tool calls *and* LLM traffic — locally.** Allow / deny / ask, enforced at agent runtime via native plugins, framework SDKs, or the multi-provider proxy. Nothing leaves your machine.
-- **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
-- **72 detection rules + Guardian ML** — OWASP LLM Top 10 + 28 agent-attack chains (prompt injection, jailbreaks, credential exfiltration, PII). An offline ML model catches obfuscated/encoded attacks regex misses — sub-millisecond, fail-open. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
-- **Token + cost tracking** — per-agent, per-model spend in real time.
-- **Apache 2.0, no signup** — `pip install` and you're covered in 60 seconds.
+- **See everything — Traces.** Every agent session replays as a stepped waterfall: verdict per tool call, tokens + estimated cost per model call. Live follow, redacted replay, audit PDF.
+- **Control everything — permissions + JIT.** Allow / deny / ask at agent runtime. Blocked tools become just-in-time requests: approve for 15 minutes, an hour, or one session — grants expire on their own.
+- **Audit the past — Instant Agent Audit.** Opt-in scan of session history already on disk: destructive commands, plaintext secrets, estimated spend.
+- **Catch the threats — 72 rules + Guardian ML.** OWASP LLM Top 10 + 28 agent-attack chains, detected while the agent is still running. Offline ML catches what regex misses. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
+- **Prove it** — every tool call in a SHA-256 hash-chained log; blocked actions get a per-rule evidence ledger.
+- **Apache 2.0, no signup, 100% local** — `pip install` and you're covered in 60 seconds. Nothing leaves your machine.
 
 ### Works with every agent
 
@@ -56,11 +57,12 @@
 <br>
 
 > **What's new in v5.0.0**
-> - **Runtime Connect Wizard** — a guided detect → protect → verify flow. It scans this device for agent runtimes (Claude Code, Codex, Copilot CLI, Cursor, OpenClaw, frameworks), installs Guard with one click per runtime, and verifies the first protected call live. The manual per-agent command sets remain under Connect Agents / Integrations.
-> - **JIT (just-in-time) tool access requests** — an agent that hits a *requestable* deny can file a time-boxed access request for a human to approve on the Tool Permissions page. Grants are 15 minutes, 1 hour, or the requesting session only; there is deliberately no "until I revoke". Org hard denies never queue. Revoke-now is one click, and the whole request/grant lifecycle is its own audit trail.
-> - **LLM I/O visibility in Agent Runs** — expanding a scanned step lazy-loads the exact content excerpt SecureVector inspected for that call, with action / threat-type / risk context. The privacy posture is unchanged: the app never records full prompt or response bodies, only what was scanned, and only while "Store text content" is on.
-> - **One-click cloud trial from the local app** *(Settings → Cloud)* — an OAuth-style device flow requests a code, opens the browser, polls for completion and stores the returned key itself, so there is no key to copy. Falls back to the manual paste path when the cloud endpoint is unavailable. Metadata-only, same consent gates as a manual connect.
-> - **v5 experience revamp** — navigation regrouped into **Observe / Govern / Connect** (page ids and deep links unchanged), a **Cmd+K** command palette, a three-tier protection hero on the dashboard, and threat details that now lead with one plain-language sentence ("Blocked: this traffic contained an attempt to modify a protected system file.") with the technical breakdown below. The motion layer disables fully under `prefers-reduced-motion`.
+> - **Traces** *(formerly Agent Runs)* — every run replays as a stepped waterfall with verdicts, per-step cost, and in-trace search. Live follow, redacted session replay, audit PDF export. Full prompt/response bodies are never stored.
+> - **JIT tool access requests** — a blocked agent can request time-boxed access: 15 minutes, 1 hour, or one session. No "until I revoke", one-click revoke, fully audited.
+> - **Instant Agent Audit** — opt-in local scan of past Claude Code / Codex sessions on this device: risky calls, secrets touched, estimated spend from before install.
+> - **Runtime Connect Wizard** — detect → protect → verify: scans for installed agent runtimes, installs Guard per runtime, verifies the first protected call live.
+> - **v5 experience revamp** — Observe / Govern / Connect navigation, Cmd+K palette, six themes, plain-language threat summaries.
+> - **One-click cloud trial** *(Settings → Cloud)* — device flow, no key to copy. Metadata-only, same consent gates as manual connect.
 >
 > **Previously:** v4.9.1 added SecureVector Guard for Hermes, a fourth framework SDK. v4.9.0 unified `SECUREVECTOR_ENGINE_ENDPOINT` across SDKs and plugins and shipped the one-page Connect Agents setup. v4.8.0 introduced the LangChain / LangGraph / CrewAI framework SDKs. v4.7.0 added optional cloud fleet management and SecureVector Guard for Cursor.
 >
@@ -72,11 +74,11 @@
 
 **SecureVector** protects your AI agents at three layers:
 
-- **Pre-install** — the Skill Scanner analyzes agent skill packages for shell access, network calls, and hidden risks before you install them
-- **Runtime** — audits every tool call to a SHA-256 hash-chained log, and scans prompts, responses, and natural-language tool inputs (WebFetch / Skill / Task / Agent prompts) for injection attacks, data leaks, and unauthorized access. Shell command bodies and file content are audited but not threat-scanned — that scope mismatch produced false positives, see the v4.2.0 notes above.
-- **Observe** — the **SIEM Forwarder** ships every threat + tool-call audit to your SOC in OCSF 1.3.0 format (Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OTLP, generic webhook, or a local NDJSON file) so AI events correlate with your existing security signals. Metadata-only by default; raw data is opt-in per destination.
+- **Pre-install** — the Skill Scanner checks agent skill packages for shell access, network calls, and hidden risks before you install them.
+- **Runtime** — every tool call lands in a SHA-256 hash-chained audit log; prompts, responses, and natural-language tool inputs are scanned for injection, data leaks, and unauthorized access.
+- **Observe** — the SIEM Forwarder ships threats + audits to your SOC in OCSF 1.3.0 (Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, webhook, NDJSON). Metadata-only by default.
 
-For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — events only leave the machine when you configure a SIEM destination you control.
+100% local — events only leave the machine when you configure a SIEM destination you control.
 
 <br>
 
@@ -129,12 +131,12 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 *All screenshots are from a local app instance.*
 
-**🗺️ New in v4.5.0 — Agent Map & Runs**
+**🗺️ Agent Map & Traces**
 
 <table>
 <tr>
-<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its run.</em></td>
-<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Agent Runs" width="100%"><br><em>Agent Runs — a turn-by-turn trace of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
+<td width="58%"><img src="docs/screenshots/agent-map.png" alt="Agent Map" width="100%"><br><em>Agent Map — your whole fleet at a glance: device → harness → agent → tool, across tree / radial / mesh / Sankey views. Blocked calls pop red, secret-touching agents wear a lock. Click any node to drill into its trace.</em></td>
+<td width="42%"><img src="docs/screenshots/agent-runs.png" alt="Traces" width="100%"><br><em>Traces — a turn-by-turn waterfall of every tool call with its allow / block verdict, risk, and reason. Here a prompt-injection and a credential-exfiltration attempt are both caught and blocked.</em></td>
 </tr>
 </table>
 

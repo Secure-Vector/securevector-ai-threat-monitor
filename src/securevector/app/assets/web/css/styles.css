@@ -155,6 +155,113 @@
     --warning-chip-border: rgba(180,83,9,0.25);
 }
 
+/* ── Extra dark variants ────────────────────────────────────────────────────
+   These override SHELL tokens only — page/rail/card backgrounds, borders and
+   the elevation ladder. They deliberately leave the accent and the severity
+   palette alone: teal still means "interactive/selected", and red / amber /
+   green still mean blocked / warned / allowed in every theme. A security
+   console where the colour of a verdict depends on the user's theme choice is
+   worse than one with fewer themes.
+
+   Why shell-only rather than a pick-your-accent control: the brand teal is
+   still written literally (#5eadb8 / rgba(94,173,184,…)) in ~80 CSS
+   declarations and ~345 inline styles across the page modules, so switching
+   `--accent-primary` alone would recolour some of the UI and leave the rest
+   teal. Converting all of those is a mechanical but large change and does not
+   belong in an open release branch.
+
+   Both blocks must stay AFTER `:root`: `[data-theme="x"]` and `:root` have
+   equal specificity, so source order is what decides.
+   Only dark variants are added — the 17 `[data-theme="light"]` rules elsewhere
+   in this file are keyed to that exact value, so a second LIGHT theme would
+   silently lose all of them. */
+
+/* Black — OLED/true black. For dark rooms and for panels left open all day. */
+[data-theme="black"] {
+    --bg-primary: #000000;
+    --bg-secondary: #08090b;
+    --bg-tertiary: #121316;
+    --bg-card: #0b0c0e;
+    --bg-elevated: #16181c;
+    --bg-hover: #17191d;
+
+    --border-default: #1e2024;
+    --border-light: #2a2d33;
+
+    --elevate-1: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.6);
+    --elevate-2: 0 1px 0 rgba(255,255,255,0.05) inset, 0 6px 20px rgba(0,0,0,0.65);
+    --elevate-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 40px rgba(0,0,0,0.75);
+}
+
+/* Azure — deep blue shell. The most saturated theme here and still safe: blue
+   is the one hue with no verdict meaning in this app (teal is interactive,
+   red/amber/green are blocked/warned/allowed). */
+[data-theme="azure"] {
+    --bg-primary: #071019;
+    --bg-secondary: #0c1826;
+    --bg-tertiary: #17293d;
+    --bg-card: #101f31;
+    --bg-elevated: #1b3149;
+    --bg-hover: #1c3349;
+
+    --text-primary: #eaf2fa;
+    --text-secondary: #a7bccf;
+    --text-muted: #7590a9;
+
+    --border-default: #1f374f;
+    --border-light: #2a4a68;
+
+    --elevate-1: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.45);
+    --elevate-2: 0 1px 0 rgba(255,255,255,0.05) inset, 0 6px 20px rgba(0,0,0,0.5);
+    --elevate-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 40px rgba(0,0,0,0.6);
+}
+
+/* Ember — warm charcoal. Note the deliberate restraint: the SHELL is warm, but
+   --warning / --error keep their own values, so an amber "warned" chip still
+   reads as a verdict and not as more background. This is the one theme where
+   that separation has to be checked by eye after any palette change. */
+[data-theme="ember"] {
+    --bg-primary: #100c09;
+    --bg-secondary: #19120e;
+    --bg-tertiary: #291d15;
+    --bg-card: #1e1612;
+    --bg-elevated: #2d2019;
+    --bg-hover: #2f221a;
+
+    --text-primary: #f7f0e9;
+    --text-secondary: #c6b5a6;
+    --text-muted: #998574;
+
+    --border-default: #35261c;
+    --border-light: #473326;
+
+    --elevate-1: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.5);
+    --elevate-2: 0 1px 0 rgba(255,255,255,0.05) inset, 0 6px 20px rgba(0,0,0,0.55);
+    --elevate-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 40px rgba(0,0,0,0.65);
+}
+
+/* Slate — lighter, bluer, lower contrast. Easier on the eyes over long
+   triage sessions than the near-black default. */
+[data-theme="slate"] {
+    --bg-primary: #151a23;
+    --bg-secondary: #1b212c;
+    --bg-tertiary: #252d3a;
+    --bg-card: #1f2632;
+    --bg-elevated: #2a3340;
+    --bg-hover: #2b3441;
+
+    --text-primary: #f0f4f9;
+    --text-secondary: #b6c0cd;
+    --text-muted: #8794a4;
+
+    --border-default: #333d4c;
+    --border-light: #3f4a5b;
+
+    --elevate-1: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.3);
+    --elevate-2: 0 1px 0 rgba(255,255,255,0.05) inset, 0 6px 20px rgba(0,0,0,0.35);
+    --elevate-pop: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 40px rgba(0,0,0,0.45);
+}
+
 /* Reset */
 *, *::before, *::after {
     margin: 0;
@@ -328,31 +435,6 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
        content, so the rail could not squeeze this column and the tagline
        spilled past the rail edge at narrow widths. */
     min-width: 0;
-}
-
-/* Tagline under the SecureVector wordmark. Theme-aware — uses
-   --text-muted so it tracks whatever palette is active. Wraps to two
-   lines: the positioning line does not fit one row at a legible size. */
-.sidebar-tagline {
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    /* The positioning line is 38 characters and does not fit the rail on one
-       row at any legible size (measured 226px of text into a 240px rail, and
-       the rail resizes down to 180px). It was clipping mid-word without even
-       an ellipsis, because the element is not width-constrained by its parent
-       so text-overflow never triggered. Wrap to two lines instead: the full
-       line stays intact rather than being truncated or abbreviated. */
-    white-space: normal;
-    line-height: 1.25;
-    max-width: 100%;
-}
-
-/* Collapsed sidebar: hide tagline alongside the wordmark. */
-.sidebar.collapsed .sidebar-tagline {
-    display: none;
 }
 
 /* Cloud Toggle in Header */
@@ -952,6 +1034,170 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     border-top: 1px solid var(--border-default);
 }
 
+/* Theme toggle pinned to the rail foot (v5) — see Sidebar.createThemeFooter().
+   Circle + label so it reads as a rail row rather than a stray control. */
+.sidebar-theme-fixed {
+    position: relative;
+    margin: 6px 8px 8px;
+}
+
+.sidebar-theme-trigger {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-theme-trigger:hover,
+.sv-theme-menu.open ~ .sidebar-theme-trigger,
+.sidebar-theme-fixed:hover .sidebar-theme-trigger {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-theme-trigger:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+.sidebar-theme-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Current theme's name, right-aligned — the row states what is ON without
+   needing the menu open. */
+.sidebar-theme-current {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* The swatch IS the preview — its fill is the theme's own page and edge
+   colours (set inline in JS), so nothing here may paint over `background`. */
+.sidebar-theme-chev {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: transform 0.15s, opacity 0.15s;
+}
+
+.sidebar-theme-fixed:hover .sidebar-theme-chev {
+    opacity: 0.85;
+}
+
+.sidebar-theme-trigger[aria-expanded="true"] .sidebar-theme-chev {
+    transform: rotate(180deg);
+    opacity: 0.85;
+}
+
+.sv-swatch {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-light);
+}
+
+/* ── Theme menu ──────────────────────────────────────────────────────────
+   Opens UPWARD: this row is the last thing in the rail, so there is never
+   room below it. */
+.sv-theme-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 60;
+    display: none;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px;
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    box-shadow: var(--elevate-pop);
+}
+
+.sv-theme-menu.open {
+    display: flex;
+}
+
+.sv-theme-opt {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sv-theme-opt:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sv-theme-opt.on {
+    color: var(--text-primary);
+}
+
+/* Selected marker is a ring on the swatch, never a fill — a check tinted over
+   the sample would misreport the colour the option is selling. */
+.sv-theme-opt.on .sv-swatch {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 3.5px var(--accent-primary);
+}
+
+.sv-theme-opt:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+.sv-theme-opt-name {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Icon-rail mode: swatch only, centred; the menu widens to fit its labels
+   since the 64px rail cannot hold them. */
+.sidebar.collapsed .sidebar-theme-trigger {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.sidebar.collapsed .sidebar-theme-name,
+.sidebar.collapsed .sidebar-theme-current {
+    display: none;
+}
+
+.sidebar.collapsed .sv-theme-menu {
+    right: auto;
+    min-width: 132px;
+}
+
 .sidebar-theme-row {
     padding: 8px 12px;
 }
@@ -1450,30 +1696,19 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     color: var(--text-primary);
     background: var(--bg-hover);
 }
+/* The section chevron is deliberately faint at rest (see sidebar.js) and only
+   firms up under the cursor, so at a glance one chevron presence on the rail
+   means "expandable item". */
+.nav-section-toggle:hover svg {
+    opacity: 0.8;
+}
 /* Long section names ("Cloud & Forwarders") truncate instead of wrapping —
-   a wrapped header strands the chevron and count mid-row. */
+   a wrapped header strands the chevron mid-row. */
 .nav-section-toggle > span:first-child {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
-}
-/* Hidden-destination count — visible only while the section is collapsed,
-   so "GOVERN › 6" reads as a closed door with six rooms behind it. */
-.nav-sec-count {
-    align-items: center;
-    justify-content: center;
-    min-width: 16px;
-    height: 15px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-default);
-    font-size: 9.5px;
-    font-weight: 700;
-    letter-spacing: 0;
-    color: var(--text-muted);
-    line-height: 1;
 }
 
 /* Rows hidden by a collapsed section. Class-based (not inline display) so
@@ -1501,6 +1736,27 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 .nav-item.nav-sub-item span {
     font-size: 11.5px;
     font-weight: 400;
+}
+
+/* Size alone was not carrying the tier: every row on the rail rendered at
+   var(--text-secondary), so three levels of structure had two levels of
+   signal, and 12.5px vs 11.5px is a half-step nobody perceives. Children step
+   down in COLOUR as well, which also frees `opacity` to mean one thing only
+   ("cloud-locked", .nav-item-locked) instead of doubling as "child".
+   Hover and active restore full contrast — a child you are looking at or
+   standing on is not a background element. Both overrides are explicit rather
+   than relying on the later `.nav-item:hover` / `.nav-item.active` rules,
+   which win only by source order at equal specificity. */
+.nav-item.nav-sub-item {
+    color: var(--text-muted);
+    /* Children stay denser than parents so the two tiers keep distinct
+       vertical rhythms (parents 9px, children 6px). */
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+.nav-item.nav-sub-item:hover,
+.nav-item.nav-sub-item.active {
+    color: var(--text-primary);
 }
 
 .nav-section-divider {
@@ -1540,13 +1796,15 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     right: 6px;
 }
 
+/* YouTube-guide rhythm: rhythm comes from row HEIGHT, not inter-row margins —
+   rows sit flush (margin 0) and the vertical padding does the breathing. */
 .nav-item {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 7px 16px;
-    margin-bottom: 2px;
+    gap: 14px;
+    padding: 9px 16px;
+    margin-bottom: 0;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
     text-decoration: none;
@@ -3063,15 +3321,25 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 }
 
 /* Header Right */
+/* The title block absorbs every pixel the controls do not need, and it is the
+   side that gives when the window narrows. Without `min-width: 0` a flex item
+   refuses to shrink below its content, and this one's children are
+   `white-space: nowrap`, so the whole right-hand control block was pushed past
+   the header's right edge — Cloud Connect started disappearing at roughly a
+   1100px window and Connect Agents followed at ~900px. */
 .header-left {
     display: flex;
     align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
+/* Controls never compress or wrap; the title ellipsizes instead. */
 .header-right {
     display: flex;
     align-items: center;
     gap: 16px;
+    flex-shrink: 0;
 }
 
 /* Status Badge */

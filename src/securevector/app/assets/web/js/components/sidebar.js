@@ -6,7 +6,30 @@
 const Sidebar = {
     navItems: [
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        { id: 'threats', label: 'Threat Monitor', icon: 'shield' },
+        // The single triage surface. Blocked Actions and Secret Detections are
+        // facets of this page, not rails of their own — three destinations for
+        // one question ("what did SecureVector catch or stop?") was the main
+        // source of "where do I look?". Old ids stay aliases so deep links and
+        // bookmarks keep this row highlighted.
+        // One triage surface, three lenses — same shape as Agent Observability
+        // below. The facets stay visible in the rail so they remain scannable;
+        // hiding them behind the page made them undiscoverable to anyone who
+        // never clicked in. Clicking a child opens that facet directly.
+        // The parent is a GROUP id, not a route — same shape as
+        // 'agent-activity' below. It used to be `threats`, which made the
+        // Threats facet unreachable from the rail: the group ships expanded,
+        // so the first click only collapsed it, and the click that did
+        // navigate went to subItems[0] (Blocked). Listing all three facets as
+        // children fixes reachability and puts the word "Threats" back in the
+        // rail, where it had disappeared behind the group label.
+        { id: 'threat-monitor', label: 'Threat Monitor', icon: 'shield', collapsible: true,
+          defaultExpanded: true, navigable: true,
+          tooltip: 'Threats, blocked actions and secret detections — one triage surface',
+          subItems: [
+              { id: 'threats',        label: 'Threats', tooltip: 'Prompt-injection, jailbreak and exfiltration attempts detected in agent traffic' },
+              { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
+              { id: 'redactions',     label: 'Secret Detections' },
+          ]},
         // conversion-ux — the download hook: opt-in retroactive scan of the
         // agent history already on disk. Sits beside Threat Monitor: past vs live.
         { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
@@ -31,10 +54,8 @@ const Sidebar = {
             // tool_call_audit data — one destination, two tabs on the page.
             // 'bill-of-tools' stays as an alias so deep links keep this row lit.
             { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
-            // The blocked-action ledger — what enforcement PREVENTED, by policy.
-            // Sits beside Secret Detections as the other security-outcome ledger.
-            { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
-            { id: 'redactions',     label: 'Secret Detections' },
+            // Blocked Actions and Secret Detections moved up into Threat Monitor
+            // as facets — see the note on that entry above.
             { id: 'costs',          label: 'Cost & Tokens' },
         ]},
         // ---- Govern (v5 IA) ----
@@ -259,12 +280,12 @@ const Sidebar = {
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
 
-        // Tagline — product positioning in small caps. Uses theme
-        // variables so it respects light/dark switches automatically.
-        const tagline = document.createElement('span');
-        tagline.className = 'sidebar-tagline';
-        tagline.textContent = 'Security & Observability for AI Agents';
-        logoTextCol.appendChild(tagline);
+        // No tagline in the rail. A marketing positioning line belongs on the
+        // surfaces where someone is still deciding — login, README, docs — not
+        // in authenticated chrome, where the user has already adopted the
+        // product. Observability and security tools conventionally leave this
+        // slot for orientation (workspace, environment, tier, version); here
+        // the `v5` chip beside the wordmark already fills that role.
 
         logoLink.appendChild(logoTextCol);
 
@@ -276,7 +297,7 @@ const Sidebar = {
         nav.className = 'sidebar-nav';
 
         // Core features get an orange badge dot overlaid on their icon
-        const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
+        const CORE_BADGE = new Set(['threat-monitor', 'tool-permissions', 'costs']);
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
@@ -348,24 +369,20 @@ const Sidebar = {
                 chev.setAttribute('stroke', 'currentColor');
                 chev.setAttribute('stroke-width', '2.4');
                 chev.setAttribute('aria-hidden', 'true');
-                chev.style.cssText = 'width: 11px; height: 11px; flex-shrink: 0; opacity: 0.75; transition: transform 0.15s;';
+                // The only chevron on the rail: top-level rows dropped theirs,
+                // so this header hint (firms up on hover) is the sole
+                // collapse affordance glyph.
+                chev.style.cssText = 'width: 10px; height: 10px; flex-shrink: 0; opacity: 0.4; transition: transform 0.15s, opacity 0.15s;';
                 const chevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 chevPath.setAttribute('d', 'M6 9l6 6 6-6');
                 chev.appendChild(chevPath);
                 sectionLbl.appendChild(chev);
-                // Hidden-item count — shown only while collapsed, so "GOVERN › 6"
-                // says "6 destinations live in here" instead of looking empty.
-                const count = document.createElement('span');
-                count.className = 'nav-sec-count';
-                count.style.display = 'none';
-                sectionLbl.appendChild(count);
                 nav.appendChild(sectionLbl);
                 currentSection = {
                     name,
                     key: `nav-sec-${name.toLowerCase()}-collapsed`,
                     btn: sectionLbl,
                     chev,
-                    count,
                     els: [],
                     containsActive: false,
                 };
@@ -382,7 +399,13 @@ const Sidebar = {
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
-            const isActive = item.id === this.currentPage && (!hasSubItems || item.collapsible);
+            // Top-level rows honour `aliases` too. Sub-items already did (see the
+            // subItem branch below), but top-level never needed it until Threat
+            // Monitor absorbed the blocked/secrets ledgers — without this the row
+            // goes unlit on those routes and the user cannot tell where they are.
+            const matchesSelf = item.id === this.currentPage ||
+                (item.aliases && item.aliases.includes(this.currentPage));
+            const isActive = matchesSelf && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
             if (item.collapsible) navItem.dataset.collapsible = 'true';
@@ -476,26 +499,28 @@ const Sidebar = {
 
 
 
-            // Chevron for collapsible items
-            let chevron = null;
+            // Collapsible parents carry a right-edge chevron: without it a
+            // collapsed row is indistinguishable from a leaf, so users never
+            // learn there are sub-items. Points right when collapsed, down
+            // when expanded — the same glyph + rotation grammar as the
+            // section headers. Appended last so expandSection()'s
+            // `svg:last-child` lookup finds it.
+            let rowChev = null;
             if (item.collapsible && hasSubItems) {
-                // Resolution order: explicit user preference (localStorage) →
-                // item's defaultExpanded flag → collapsed by default. Lets
-                // specific groups (Agent Replay) ship expanded out of the box
-                // while still respecting whatever the user clicks afterwards.
                 const stored = localStorage.getItem(`nav-${item.id}-expanded`);
-                const isExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
-                chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                chevron.setAttribute('viewBox', '0 0 24 24');
-                chevron.setAttribute('fill', 'none');
-                chevron.setAttribute('stroke', 'currentColor');
-                chevron.setAttribute('stroke-width', '2');
-                chevron.style.cssText = 'width: 14px; height: 14px; transition: transform 0.2s; flex-shrink: 0; opacity: 0.5;';
-                chevron.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
-                const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                chevronPath.setAttribute('d', 'M6 9l6 6 6-6');
-                chevron.appendChild(chevronPath);
-                navItem.appendChild(chevron);
+                const startsExpanded = stored !== null ? stored === 'true' : !!item.defaultExpanded;
+                rowChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                rowChev.setAttribute('viewBox', '0 0 24 24');
+                rowChev.setAttribute('fill', 'none');
+                rowChev.setAttribute('stroke', 'currentColor');
+                rowChev.setAttribute('stroke-width', '2.4');
+                rowChev.setAttribute('aria-hidden', 'true');
+                rowChev.style.cssText = 'width: 10px; height: 10px; flex-shrink: 0; opacity: 0.45; transition: transform 0.15s;';
+                rowChev.style.transform = startsExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                const rowChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                rowChevPath.setAttribute('d', 'M6 9l6 6 6-6');
+                rowChev.appendChild(rowChevPath);
+                navItem.appendChild(rowChev);
             }
 
             // Click handler — collapsible rows toggle on any click; others navigate.
@@ -510,8 +535,8 @@ const Sidebar = {
                         const isVisible = subNav.style.display !== 'none';
                         const willExpand = !isVisible;
                         subNav.style.display = willExpand ? 'block' : 'none';
+                        if (rowChev) rowChev.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
                         localStorage.setItem(`nav-${item.id}-expanded`, String(willExpand));
-                        if (chevron) chevron.style.transform = willExpand ? 'rotate(0deg)' : 'rotate(-90deg)';
                         if (willExpand && item.navigable && item.subItems[0]) {
                             this.navigate(item.subItems[0].id);
                         }
@@ -528,6 +553,7 @@ const Sidebar = {
                 // collapsed — a hidden "where am I" is worse than a stale
                 // collapse preference.
                 const activeHere = item.id === this.currentPage ||
+                    (item.aliases && item.aliases.includes(this.currentPage)) ||
                     (item.subItems || []).some(s => s.id === this.currentPage ||
                         (s.aliases && s.aliases.includes(this.currentPage)));
                 if (activeHere) currentSection.containsActive = true;
@@ -539,7 +565,16 @@ const Sidebar = {
                 subNav.className = 'nav-sub-items';
                 // Guide line ties children to their parent — plain indentation
                 // read as a second flat list.
-                subNav.style.cssText = 'margin-left: 25px; padding-left: 7px; font-size: 12px; border-left: 1px solid var(--border-default);';
+                // Guide line sits on the PARENT ICON'S CENTRE (row left 12 +
+                // nav-item padding 16 + half of the 20px icon = 38, i.e.
+                // margin-left 26 from the nav container). The children's text
+                // then lands 4px to the RIGHT of the parent's label instead of
+                // 3px to its left, which is where it used to sit: the rows
+                // were indented but the text — the thing you actually read —
+                // was not, so nesting read backwards. Child text x now works
+                // out to 26 + 1 border + 4 pad + 21 item-pad = 52 vs the
+                // parent label's 48.
+                subNav.style.cssText = 'margin-left: 26px; padding-left: 4px; font-size: 12px; border-left: 1px solid var(--border-default);';
 
                 if (item.collapsible) {
                     subNav.dataset.subFor = item.id;
@@ -574,12 +609,29 @@ const Sidebar = {
                     subNavItem.className = 'nav-item nav-sub-item' + (subActive ? ' active' : '');
                     subNavItem.dataset.page = subItem.id;
                     if (subItem.aliases) subNavItem.dataset.aliases = subItem.aliases.join(',');
-                    subNavItem.style.cssText = 'padding: 6px 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px;';
+                    // No `opacity` here: dimming already means "cloud-locked"
+                    // on this rail (nav-item-locked, 0.5), so reusing it at
+                    // 0.85 to mean "child" put two different states on one
+                    // device. Children recede via colour instead — see
+                    // `.nav-item.nav-sub-item` in styles.css.
+                    subNavItem.style.cssText = 'padding: 6px 12px 6px 21px; display: flex; align-items: center; gap: 6px;';
 
                     const subLabel = document.createElement('span');
                     subLabel.textContent = subItem.label;
                     subLabel.style.cssText = 'flex: 1; min-width: 0;';
                     subNavItem.appendChild(subLabel);
+
+                    // Pending JIT requests — an agent is waiting on a human
+                    // decision, the one genuinely time-sensitive signal on
+                    // Tool Permissions. Without this badge a request is only
+                    // visible on the page itself, so an agent could sit
+                    // blocked for hours. Filled by loadJitPendingCount().
+                    if (subItem.id === 'tool-permissions') {
+                        const jitBadge = document.createElement('span');
+                        jitBadge.id = 'jit-pending-badge';
+                        jitBadge.style.cssText = 'display: none; flex-shrink: 0; font-size: 9.5px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: rgba(245,158,11,0.18); color: #f59e0b; line-height: 1.5;';
+                        subNavItem.appendChild(jitBadge);
+                    }
 
                     if (subNewItems.includes(subItem.id) && !sessionStorage.getItem('sv-new-seen-' + subItem.id)) {
                         const newBadge = document.createElement('span');
@@ -615,14 +667,10 @@ const Sidebar = {
         // display state — sub-nav expand/collapse, banner visibility — is
         // preserved intact when the section reopens.
         sections.forEach(sec => {
-            const nItems = sec.els.filter(el =>
-                el.classList.contains('nav-item') && !el.classList.contains('nav-sub-item')).length;
             const apply = (collapsed) => {
                 sec.collapsed = collapsed;
                 sec.els.forEach(el => el.classList.toggle('nav-sec-hidden', collapsed));
                 sec.chev.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
-                sec.count.style.display = collapsed ? 'inline-flex' : 'none';
-                sec.count.textContent = nItems;
                 sec.btn.setAttribute('aria-expanded', String(!collapsed));
                 sec.btn.title = (collapsed ? 'Expand ' : 'Collapse ') + sec.name;
             };
@@ -640,6 +688,15 @@ const Sidebar = {
 
         // Fetch rules count
         this.loadRulesCount();
+
+        // JIT pending-request badge: load now, then poll. Guarded so repeated
+        // render() calls (every navigation) never stack intervals — the timer
+        // survives re-renders because the badge element is recreated with the
+        // same id each time.
+        this.loadJitPendingCount();
+        if (!this._jitBadgeTimer) {
+            this._jitBadgeTimer = setInterval(() => this.loadJitPendingCount(), 30000);
+        }
 
         container.appendChild(nav);
 
@@ -939,6 +996,15 @@ const Sidebar = {
             });
         }
 
+        // Theme toggle — pinned to the foot of the rail (v5). It used to sit in
+        // the header, where a once-a-session display preference competed for
+        // width with Guardian ML, Connect Agents and Cloud Connect, and where
+        // it was part of what pushed Cloud Connect off-screen on a narrowed
+        // window. `.sidebar-bottom` is already `margin-top: auto` under a
+        // `flex: 1; overflow-y: auto` nav, so this stays put while the nav
+        // list scrolls — genuinely fixed to the bottom, not merely last.
+        bottomSection.appendChild(this.createThemeFooter());
+
         container.appendChild(bottomSection);
 
         // Check all five indicators — AFTER the bottom section is attached.
@@ -1002,12 +1068,154 @@ const Sidebar = {
         return svg;
     },
 
-    toggleTheme() {
-        const html = document.documentElement;
-        const currentTheme = html.getAttribute('data-theme') || 'dark';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
+    // Theme picker at the rail foot. Started as a dark/light circle; it is a
+    // swatch row now because two options was not much of a choice. Each swatch
+    // is painted in that theme's own page and card colours, so the control
+    // previews rather than describes. Only the shell changes between themes —
+    // see the variant blocks in styles.css for why the accent is fixed.
+    // `page` and `edge` are each theme's darkest and lightest shell tones. The
+    // swatch runs one into the other rather than showing a single flat fill:
+    // three dark themes painted only in their page colour are three
+    // indistinguishable black dots at 18px, and the widest tonal span each
+    // theme actually contains is what separates them by eye.
+    THEMES: [
+        { id: 'dark',  label: 'Dark',  page: '#090b0f', edge: '#1a2029' },
+        { id: 'black', label: 'Black', page: '#000000', edge: '#16181c' },
+        { id: 'slate', label: 'Slate', page: '#151a23', edge: '#2a3340' },
+        { id: 'azure', label: 'Azure', page: '#071019', edge: '#1b3149' },
+        { id: 'ember', label: 'Ember', page: '#100c09', edge: '#2d2019' },
+        { id: 'light', label: 'Light', page: '#ffffff', edge: '#dfe5ec' },
+    ],
+
+    currentTheme() {
+        const t = document.documentElement.getAttribute('data-theme') || 'dark';
+        return this.THEMES.some(x => x.id === t) ? t : 'dark';
+    },
+
+    _swatchFill(t) {
+        return `linear-gradient(135deg, ${t.page} 0 50%, ${t.edge} 50% 100%)`;
+    },
+
+    createThemeFooter() {
+        const active = this.currentTheme();
+        const cur = this.THEMES.find(t => t.id === active) || this.THEMES[0];
+
+        const row = document.createElement('div');
+        row.className = 'sidebar-theme-fixed';
+
+        // Collapsed to a single row showing only the CURRENT theme; the full
+        // palette lives in a menu that opens on hover or focus. Six swatches
+        // sitting in the rail permanently spent the footer's whole width on a
+        // control that gets touched about once, and three of them were
+        // near-identical dark dots without their labels to tell them apart.
+        // The menu gives every option its name back.
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'sidebar-theme-trigger';
+        trigger.setAttribute('aria-haspopup', 'true');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.title = `Theme: ${cur.label}`;
+
+        // No swatch on the closed row. A lone dark circle sitting under the
+        // nav read as a stray control rather than a setting, and at rail size
+        // it could not show which of the dark themes was active anyway. The
+        // row states the theme by NAME; the colours appear in the menu, where
+        // they are being compared and actually mean something.
+        const label = document.createElement('span');
+        label.className = 'sidebar-theme-name';
+        label.textContent = 'Theme';
+        trigger.appendChild(label);
+
+        const cur_ = document.createElement('span');
+        cur_.className = 'sidebar-theme-current';
+        cur_.textContent = cur.label;
+        trigger.appendChild(cur_);
+
+        const chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chev.setAttribute('viewBox', '0 0 24 24');
+        chev.setAttribute('fill', 'none');
+        chev.setAttribute('stroke', 'currentColor');
+        chev.setAttribute('stroke-width', '2');
+        chev.setAttribute('aria-hidden', 'true');
+        chev.classList.add('sidebar-theme-chev');
+        const chevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        chevPath.setAttribute('d', 'M6 15l6-6 6 6');
+        chev.appendChild(chevPath);
+        trigger.appendChild(chev);
+
+        row.appendChild(trigger);
+
+        const menu = document.createElement('div');
+        menu.className = 'sv-theme-menu';
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', 'Colour theme');
+
+        this.THEMES.forEach(t => {
+            const opt = document.createElement('button');
+            opt.type = 'button';
+            opt.className = 'sv-theme-opt' + (t.id === active ? ' on' : '');
+            opt.setAttribute('role', 'menuitemradio');
+            opt.setAttribute('aria-checked', t.id === active ? 'true' : 'false');
+            opt.dataset.theme = t.id;
+
+            const sw = document.createElement('span');
+            sw.className = 'sv-swatch';
+            sw.style.background = this._swatchFill(t);
+            opt.appendChild(sw);
+
+            const nm = document.createElement('span');
+            nm.className = 'sv-theme-opt-name';
+            nm.textContent = t.label;
+            opt.appendChild(nm);
+
+            opt.addEventListener('click', () => this.setTheme(t.id));
+            menu.appendChild(opt);
+        });
+
+        row.appendChild(menu);
+
+        // Open on hover AND on click/focus. Hover alone would leave the
+        // control unreachable by keyboard and unusable by touch, and a
+        // hover-only menu on the very bottom row of the window is easy to
+        // open by accident on the way to somewhere else.
+        let closeTimer = null;
+        const open = () => {
+            if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+            menu.classList.add('open');
+            trigger.setAttribute('aria-expanded', 'true');
+        };
+        const close = () => {
+            menu.classList.remove('open');
+            trigger.setAttribute('aria-expanded', 'false');
+        };
+        // Small grace period so crossing the gap between row and menu, or
+        // clipping a corner, does not snap it shut mid-reach.
+        const closeSoon = () => {
+            if (closeTimer) clearTimeout(closeTimer);
+            closeTimer = setTimeout(close, 220);
+        };
+
+        row.addEventListener('mouseenter', open);
+        row.addEventListener('mouseleave', closeSoon);
+        row.addEventListener('focusin', open);
+        row.addEventListener('focusout', (e) => {
+            if (!row.contains(e.relatedTarget)) close();
+        });
+        trigger.addEventListener('click', () => {
+            menu.classList.contains('open') ? close() : open();
+        });
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { close(); trigger.focus(); }
+        });
+
+        return row;
+    },
+
+    setTheme(id) {
+        if (!this.THEMES.some(t => t.id === id)) return;
+        if (this.currentTheme() === id) return;
+        document.documentElement.setAttribute('data-theme', id);
+        try { localStorage.setItem('theme', id); } catch (_) { /* private mode */ }
         this.render();
         if (window.Header) Header.render();
     },
@@ -1144,6 +1352,19 @@ const Sidebar = {
         requestAnimationFrame(() => {
             overlay.classList.add('active');
         });
+    },
+
+    async loadJitPendingCount() {
+        try {
+            const r = await API.getJitRequests('pending');
+            const n = (r && typeof r.pending === 'number') ? r.pending
+                : ((r && r.items) ? r.items.length : 0);
+            const badge = document.getElementById('jit-pending-badge');
+            if (badge) {
+                badge.textContent = n === 1 ? '1 waiting' : n + ' waiting';
+                badge.style.display = n > 0 ? 'inline-flex' : 'none';
+            }
+        } catch (_) { /* fail-quiet: badge just stays hidden */ }
     },
 
     async loadRulesCount() {
