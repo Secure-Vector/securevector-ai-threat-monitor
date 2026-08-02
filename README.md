@@ -8,11 +8,12 @@
 
 </div>
 
-- **Secures tool calls *and* LLM traffic — locally.** Allow / deny / ask, enforced at agent runtime via native plugins, framework SDKs, or the multi-provider proxy. Nothing leaves your machine.
-- **Tamper-evident audit chain** — every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab.
-- **72 detection rules + Guardian ML** — OWASP LLM Top 10 + 28 agent-attack chains (prompt injection, jailbreaks, credential exfiltration, PII). An offline ML model catches obfuscated/encoded attacks regex misses — sub-millisecond, fail-open. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
-- **Token + cost tracking** — per-agent, per-model spend in real time.
-- **Apache 2.0, no signup** — `pip install` and you're covered in 60 seconds.
+- **See everything your agents do — Traces.** Every agent session replays as a stepped waterfall: each tool call with its allow/block verdict, each model call with its token flow and estimated cost. Live-follow a running session, step through a redacted replay of a past one, export an audit PDF. No grepping transcripts — it's already structured.
+- **Control what they're allowed to do — permissions + JIT.** Allow / deny / ask, enforced at agent runtime via native plugins, framework SDKs, or the multi-provider proxy. Blocked tools become **just-in-time requests**: the agent asks with its reason attached, you approve for 15 minutes, an hour, or one session — grants expire on their own. No standing exceptions.
+- **Know what they *already* did — Instant Agent Audit.** Opt-in scan of the agent session history already on your disk, from before anything was installed: destructive commands that ran, plaintext secrets, external MCP servers, estimated spend. Sortable, exportable, never leaves your machine.
+- **Catch the threats — 72 detection rules + Guardian ML.** OWASP LLM Top 10 + 28 agent-attack chains (prompt injection, jailbreaks, credential exfiltration, PII), with detections while the agent is still running — not in a transcript review afterward. An offline ML model catches obfuscated/encoded attacks regex misses — sub-millisecond, fail-open. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
+- **Prove it — tamper-evident audit chain.** Every tool call appended to a SHA-256 hash-chained log, verifiable from the Tool Activity tab; blocked actions get their own per-rule evidence ledger.
+- **Apache 2.0, no signup, 100% local** — `pip install` and you're covered in 60 seconds. Nothing leaves your machine.
 
 ### Works with every agent
 
