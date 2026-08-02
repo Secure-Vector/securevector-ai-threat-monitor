@@ -74,11 +74,11 @@
 
 **SecureVector** protects your AI agents at three layers:
 
-- **Pre-install** — the Skill Scanner analyzes agent skill packages for shell access, network calls, and hidden risks before you install them
-- **Runtime** — audits every tool call to a SHA-256 hash-chained log, and scans prompts, responses, and natural-language tool inputs (WebFetch / Skill / Task / Agent prompts) for injection attacks, data leaks, and unauthorized access. Shell command bodies and file content are audited but not threat-scanned — that scope mismatch produced false positives, see the v4.2.0 notes above.
-- **Observe** — the **SIEM Forwarder** ships every threat + tool-call audit to your SOC in OCSF 1.3.0 format (Splunk HEC, Datadog, Microsoft Sentinel, Google Chronicle, IBM QRadar, OTLP, generic webhook, or a local NDJSON file) so AI events correlate with your existing security signals. Metadata-only by default; raw data is opt-in per destination.
+- **Pre-install** — the Skill Scanner checks agent skill packages for shell access, network calls, and hidden risks before you install them.
+- **Runtime** — every tool call lands in a SHA-256 hash-chained audit log; prompts, responses, and natural-language tool inputs are scanned for injection, data leaks, and unauthorized access.
+- **Observe** — the SIEM Forwarder ships threats + audits to your SOC in OCSF 1.3.0 (Splunk, Datadog, Sentinel, Chronicle, QRadar, OTLP, webhook, NDJSON). Metadata-only by default.
 
-For OpenClaw, the native plugin runs inside the agent with zero latency. For other frameworks, the multi-provider proxy intercepts traffic. 100% local — events only leave the machine when you configure a SIEM destination you control.
+100% local — events only leave the machine when you configure a SIEM destination you control.
 
 <br>
 
