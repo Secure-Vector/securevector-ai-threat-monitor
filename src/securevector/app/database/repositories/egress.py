@@ -1,0 +1,332 @@
+"""
+Repository for agent egress governance.
+
+Three concerns, deliberately kept separate:
+
+- **Policy** — the active destination policy (preset + allow/deny lists).
+  Exactly one row is active at a time.
+- **Audit** — one row per *destination reached*, not per tool call. A single
+  Bash command can reach several hosts with different consequences, and
+  collapsing that into one row would erase the distinction the policy exists
+  to make.
+- **Containment proofs** — results of the controlled self-test, hash-chained
+  so a removed or edited proof is detectable.
+
+Data boundaries: no prompt text, no tool output, no credential value ever
+lands here. `evidence` is a truncated, already-redacted command fragment kept
+for display only, and callers must treat it as untrusted text.
+"""
+
+import json
+import logging
+import uuid
+from typing import Optional
+
+from securevector.app.database.connection import DatabaseConnection
+
+logger = logging.getLogger(__name__)
+
+# An agent in a scan loop can generate destinations far faster than a human
+# reads them. The cap bounds a single call's audit fan-out; the aggregate
+# volume signal (distinct hosts per run) is what actually carries meaning at
+# that scale, and it survives truncation.
+MAX_ATTEMPTS_PER_CALL = 50
+MAX_EVIDENCE_CHARS = 200
+
+
+class EgressRepository:
+    """Repository for egress policy, per-destination audit, and proofs."""
+
+    def __init__(self, db: DatabaseConnection):
+        self.db = db
+
+    # --------------------------------------------------------------- policy
+
+    async def get_active_policy(self) -> Optional[dict]:
+        """Return the active policy row, or None when nothing is active."""
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, name, preset, allowlist, denylist, fail_closed, "
+            "ci_profile, baseline_enabled, source, policy_version "
+            "FROM egress_policies WHERE is_active = 1 LIMIT 1"
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "preset": row[2],
+            "allowlist": self._load_list(row[3]),
+            "denylist": self._load_list(row[4]),
+            "fail_closed": bool(row[5]),
+            "ci_profile": bool(row[6]),
+            "baseline_enabled": bool(row[7]),
+            "source": row[8],
+            "policy_version": row[9],
+        }
+
+    @staticmethod
+    def _load_list(raw) -> list:
+        """Parse a JSON host list, degrading to empty rather than raising.
+
+        A corrupt allowlist must not take enforcement down. Degrading to empty
+        is the safe direction: it makes the policy stricter, never looser.
+        """
+        try:
+            value = json.loads(raw or "[]")
+            return [str(v) for v in value] if isinstance(value, list) else []
+        except (ValueError, TypeError):
+            logger.warning("Corrupt egress host list in policy row; treating as empty")
+            return []
+
+    async def update_policy(
+        self,
+        policy_id: int,
+        preset: Optional[str] = None,
+        allowlist: Optional[list] = None,
+        denylist: Optional[list] = None,
+        fail_closed: Optional[bool] = None,
+        ci_profile: Optional[bool] = None,
+        baseline_enabled: Optional[bool] = None,
+    ) -> None:
+        """Patch the named policy. Only supplied fields change."""
+        sets, params = [], []
+        if preset is not None:
+            sets.append("preset = ?")
+            params.append(preset)
+        if allowlist is not None:
+            sets.append("allowlist = ?")
+            params.append(json.dumps(sorted({str(h).strip().lower() for h in allowlist if str(h).strip()})))
+        if denylist is not None:
+            sets.append("denylist = ?")
+            params.append(json.dumps(sorted({str(h).strip().lower() for h in denylist if str(h).strip()})))
+        if fail_closed is not None:
+            sets.append("fail_closed = ?")
+            params.append(1 if fail_closed else 0)
+        if ci_profile is not None:
+            sets.append("ci_profile = ?")
+            params.append(1 if ci_profile else 0)
+        if baseline_enabled is not None:
+            sets.append("baseline_enabled = ?")
+            params.append(1 if baseline_enabled else 0)
+        if not sets:
+            return
+        sets.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(policy_id)
+        conn = await self.db.connect()
+        await conn.execute(
+            f"UPDATE egress_policies SET {', '.join(sets)} WHERE id = ?", params
+        )
+        await conn.commit()
+
+    async def promote_host(self, policy_id: int, host: str) -> bool:
+        """Add a host to the allowlist. This is the deny-time promotion path.
+
+        Promotion at deny-time (rather than proactive allowlist authoring) is
+        what keeps this policy maintainable: nobody maintains an allowlist, but
+        everybody clicks allow when something they recognise is stopped.
+        """
+        host = (host or "").strip().lower()
+        if not host:
+            return False
+        policy = await self.get_active_policy()
+        if not policy:
+            return False
+        allow = set(policy["allowlist"])
+        if host in allow:
+            return True
+        allow.add(host)
+        await self.update_policy(policy_id, allowlist=sorted(allow))
+        # Mark the matching denied rows as promoted so the promotion-rate
+        # health signal can distinguish "policy caught something real" from
+        # "policy is mis-set and the user is clicking through it".
+        conn = await self.db.connect()
+        await conn.execute(
+            "UPDATE egress_audit SET promoted = 1, promoted_at = CURRENT_TIMESTAMP "
+            "WHERE host = ? AND action = 'block' AND promoted = 0",
+            (host,),
+        )
+        await conn.commit()
+        return True
+
+    # ---------------------------------------------------------------- audit
+
+    async def log_attempts(self, verdicts, tool_name=None, runtime_kind=None,
+                           session_id=None, request_id=None) -> int:
+        """Persist one row per evaluated destination. Returns rows written."""
+        conn = await self.db.connect()
+        written = 0
+        for verdict in list(verdicts)[:MAX_ATTEMPTS_PER_CALL]:
+            attempt = verdict.attempt
+            await conn.execute(
+                """
+                INSERT INTO egress_audit (
+                    host, port, scheme, operation, kind, action, rule_id,
+                    severity, confidence, detector, tool_name, runtime_kind,
+                    session_id, request_id, evidence, reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attempt.host, attempt.port, attempt.scheme, attempt.operation,
+                    attempt.kind, verdict.action, verdict.rule_id, verdict.severity,
+                    attempt.confidence, attempt.detector, tool_name, runtime_kind,
+                    session_id, request_id,
+                    (attempt.evidence or "")[:MAX_EVIDENCE_CHARS],
+                    verdict.reason,
+                ),
+            )
+            written += 1
+        await conn.commit()
+        return written
+
+    async def recent(self, limit: int = 100, action: Optional[str] = None) -> list:
+        """Recent egress rows, newest first."""
+        conn = await self.db.connect()
+        sql = (
+            "SELECT id, timestamp, host, port, operation, kind, action, rule_id, "
+            "severity, confidence, detector, tool_name, runtime_kind, evidence, "
+            "reason, promoted FROM egress_audit"
+        )
+        params = []
+        if action:
+            sql += " WHERE action = ?"
+            params.append(action)
+        sql += " ORDER BY timestamp DESC, id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        cur = await conn.execute(sql, params)
+        cols = ["id", "timestamp", "host", "port", "operation", "kind", "action",
+                "rule_id", "severity", "confidence", "detector", "tool_name",
+                "runtime_kind", "evidence", "reason", "promoted"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+    async def destination_inventory(self, days: int = 30) -> list:
+        """Distinct destinations seen, with counts. The blast-radius number.
+
+        This is the figure nobody currently has: how many external hosts the
+        agents on this machine actually reached.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            """
+            SELECT host,
+                   COUNT(*)                                        AS calls,
+                   SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked,
+                   SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS writes,
+                   MIN(timestamp)                                  AS first_seen,
+                   MAX(timestamp)                                  AS last_seen
+            FROM egress_audit
+            WHERE host IS NOT NULL
+              AND timestamp >= datetime('now', ?)
+            GROUP BY host
+            ORDER BY calls DESC
+            """,
+            (f"-{max(1, int(days))} days",),
+        )
+        cols = ["host", "calls", "blocked", "writes", "first_seen", "last_seen"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+    async def known_hosts(self) -> frozenset:
+        """Every host seen before. Feeds hardened-preset first-seen detection."""
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT DISTINCT host FROM egress_audit WHERE host IS NOT NULL"
+        )
+        return frozenset(r[0].lower() for r in await cur.fetchall() if r[0])
+
+    async def promotion_rate(self, days: int = 30) -> dict:
+        """Blocks vs blocks-later-promoted.
+
+        A policy whose denials are all promoted is mis-set. Surfacing that is
+        the honest alternative to waiting for the user to disable the feature:
+        no security product measures its own false-positive rate out loud.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT COUNT(*), SUM(promoted) FROM egress_audit "
+            "WHERE action = 'block' AND timestamp >= datetime('now', ?)",
+            (f"-{max(1, int(days))} days",),
+        )
+        row = await cur.fetchone()
+        blocks = (row[0] or 0) if row else 0
+        promoted = (row[1] or 0) if row else 0
+        rate = (promoted / blocks) if blocks else 0.0
+        return {
+            "window_days": days,
+            "blocks": blocks,
+            "promoted": promoted,
+            "promotion_rate": round(rate, 3),
+            # Threshold is a judgement call, stated rather than hidden: if more
+            # than half of blocks get promoted the policy is fighting the user.
+            "policy_health": "mis-set" if blocks >= 4 and rate > 0.5 else "ok",
+        }
+
+    # ----------------------------------------------------- containment proof
+
+    async def save_proof(self, probes: list, verdict: str, coverage=None,
+                         trigger: str = "manual", policy_preset=None) -> dict:
+        """Persist a completed proof, chained to the previous one."""
+        import hashlib
+
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT result_hash FROM containment_proofs "
+            "ORDER BY started_at DESC, rowid DESC LIMIT 1"
+        )
+        prev_row = await cur.fetchone()
+        prev_hash = prev_row[0] if prev_row else None
+
+        proof_id = str(uuid.uuid4())
+        reached = sum(1 for p in probes if p.get("reached"))
+        blocked = sum(1 for p in probes if p.get("blocked_by_securevector"))
+        payload = json.dumps(probes, sort_keys=True)
+        result_hash = hashlib.sha256(
+            f"{proof_id}|{verdict}|{payload}|{prev_hash or ''}".encode("utf-8")
+        ).hexdigest()
+
+        await conn.execute(
+            """
+            INSERT INTO containment_proofs (
+                id, completed_at, trigger, verdict, probes, reached_count,
+                blocked_count, coverage, policy_preset, result_hash, prev_hash
+            ) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (proof_id, trigger, verdict, payload, reached, blocked,
+             json.dumps(coverage or []), policy_preset, result_hash, prev_hash),
+        )
+        await conn.commit()
+        return {
+            "id": proof_id, "verdict": verdict, "reached_count": reached,
+            "blocked_count": blocked, "result_hash": result_hash,
+        }
+
+    async def latest_proof(self) -> Optional[dict]:
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, started_at, completed_at, trigger, verdict, probes, "
+            "reached_count, blocked_count, coverage, policy_preset, result_hash "
+            "FROM containment_proofs ORDER BY started_at DESC, rowid DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "started_at": row[1], "completed_at": row[2],
+            "trigger": row[3], "verdict": row[4],
+            "probes": json.loads(row[5] or "[]"),
+            "reached_count": row[6], "blocked_count": row[7],
+            "coverage": json.loads(row[8] or "[]"),
+            "policy_preset": row[9], "result_hash": row[10],
+        }
+
+    async def proof_history(self, limit: int = 20) -> list:
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, started_at, verdict, reached_count, blocked_count, "
+            "policy_preset FROM containment_proofs "
+            "ORDER BY started_at DESC, rowid DESC LIMIT ?",
+            (max(1, min(int(limit), 200)),),
+        )
+        cols = ["id", "started_at", "verdict", "reached_count", "blocked_count",
+                "policy_preset"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]

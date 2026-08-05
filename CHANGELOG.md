@@ -5,6 +5,20 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - Unreleased
+
+### Added
+- **Agent Egress Governance** — a destination policy enforced at the Guard-plugin tool boundary. Network destinations are extracted from `WebFetch`, remote MCP calls, and best-effort `Bash` argv analysis, then evaluated against a policy that lives outside the agent context and outside the harness config, so the agent cannot read it, argue with it, or be told it does not exist. The model turns on a read/write asymmetry: reads (`pip install`, `git clone`, docs fetches) are recorded and allowed, while the narrow unambiguous write classes are denied by default. Three presets — **Baseline** (on by default, needs no tuning by construction), **Hardened** (allowlist-only writes), and **Contained** (full allowlist, intended as a per-run mode rather than a global setting). Every deny is promotable in one click, and the promotion rate is surfaced as a policy-health signal: a policy whose denials are all promoted is reported as mis-set rather than left to be disabled. Schema v44 adds `egress_policies`, `egress_audit` (one row per destination reached, not per tool call), and `containment_proofs`.
+- **Baseline egress rule pack** — package/registry publish (pypi, npm, cargo, docker, gem), the cloud instance-metadata endpoint `169.254.169.254` (waivable on CI runner profiles that legitimately read instance credentials), known anonymous drop sites, pushes to a git remote given as a literal URL, and reaches into RFC1918 private space. Every rule is rare in normal work and unambiguous when it fires, which is what lets Baseline ship on by default without ever needing maintenance.
+- **Containment Proof** — an on-demand, user-initiated self-test that answers whether the containment you believe in is actually there. It runs a fixed set of read-only probes through the real tool path and reports three columns: blocked by SecureVector, blocked by your own network, and **reached the internet anyway**. The third column is the one no operator can generate for themselves, because neither the agent nor the harness is in a position to report on its own boundary. A control probe runs first: if this machine cannot reach the network at all, the verdict degrades to `degraded` and names what was not tested, because an offline machine is otherwise indistinguishable from a contained one and a false pass would make the verdict worthless. Results are hash-chained. A preflight manifest publishes exactly what the proof will do, for security teams to review before running it.
+- **Blast-radius inventory** — the distinct external hosts this device's agents actually reached, with call counts, write counts, and first/last seen.
+
+### Security
+- Credential shapes (bearer tokens, `-u user:pass`, API keys, JWTs, PATs, private keys) are redacted from stored egress evidence at extraction time, before any caller can persist them. SecureVector never takes custody of a secret.
+
+### Notes
+- Egress enforcement is defense-in-depth at the agent tool boundary, **not** network isolation. A process reaching the network by a path the hooks do not cover (an inline interpreter, a compiled binary) is out of view, and a remote MCP server is an egress proxy whose downstream destinations are not observable. Both limits are printed in the containment attestation rather than hidden.
+
 ## [5.0.0] - 2026-07-31
 
 ### Added
