@@ -242,6 +242,49 @@ class EgressRepository:
             row["promotable"] = not row.pop("hard_blocked")
         return rows
 
+    async def session_scope(self, days: int = 7, limit: int = 50) -> list:
+        """Per-session egress shape: how wide, how novel, how fast.
+
+        The pattern carries information no individual destination does. A host
+        counts as *novel* only when its earliest appearance anywhere on this
+        device falls inside the session, so a session hammering familiar
+        infrastructure does not look like a session discovering new hosts.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            """
+            WITH firsts AS (
+                -- Keyed on the row id, not the timestamp. `timestamp` has
+                -- one-second resolution, so several sessions inside the same
+                -- second would each claim to have discovered the same host.
+                -- The id is monotonic and settles it.
+                SELECT host, MIN(id) AS first_id
+                FROM egress_audit WHERE host IS NOT NULL GROUP BY host
+            )
+            SELECT a.session_id,
+                   COUNT(DISTINCT a.host)                                   AS distinct_hosts,
+                   COUNT(DISTINCT CASE WHEN a.id = f.first_id
+                                       THEN a.host END)                     AS novel_hosts,
+                   COUNT(*)                                                 AS calls,
+                   MIN(a.timestamp)                                         AS started_at,
+                   MAX(a.timestamp)                                         AS ended_at,
+                   (julianday(MAX(a.timestamp)) - julianday(MIN(a.timestamp)))
+                       * 1440.0                                             AS span_minutes
+            FROM egress_audit a
+            JOIN firsts f ON f.host = a.host
+            WHERE a.session_id IS NOT NULL
+              AND a.host IS NOT NULL
+              AND a.timestamp >= datetime('now', ?)
+            GROUP BY a.session_id
+            ORDER BY novel_hosts DESC, distinct_hosts DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(days))} days", max(1, min(int(limit), 500))),
+        )
+        cols = ["session_id", "distinct_hosts", "novel_hosts", "calls",
+                "started_at", "ended_at", "span_minutes"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
     async def attempts_for_replay(self, days: int = 30, limit: int = 20000) -> list:
         """Recorded destinations in a window, shaped for counterfactual replay.
 

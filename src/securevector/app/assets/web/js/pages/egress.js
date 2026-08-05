@@ -422,12 +422,14 @@ const EgressPage = {
     // =================================================== destinations tab ===
 
     async _loadDestinations() {
-        const [blast, inv] = await Promise.all([
+        const [blast, inv, scope] = await Promise.all([
             API.getEgressBlastRadius(this._state.windowDays),
             API.getEgressDestinations(this._state.windowDays),
+            API.getEgressScope(7),
         ]);
         this._state.blast = blast;
         this._state.destinations = (inv && inv.destinations) || [];
+        this._state.scope = scope;
         this._renderDestinations();
     },
 
@@ -459,6 +461,9 @@ const EgressPage = {
             false, blast.first_seen_recently > 0 ? 'warn' : null));
         stats.appendChild(this._stat(blast.blocked_calls, 'calls blocked'));
         body.appendChild(stats);
+
+        const scopeCard = this._scopeCard(this._state.scope);
+        if (scopeCard) body.appendChild(scopeCard);
 
         const note = document.createElement('p');
         note.className = 'eg-note';
@@ -512,6 +517,41 @@ const EgressPage = {
         table.appendChild(tbody);
         card.appendChild(table);
         body.appendChild(card);
+    },
+
+    /** Only rendered when there is something to say. A permanently-visible
+     *  "no unusual activity" banner is furniture, and furniture stops being
+     *  read long before the day it says something different. */
+    _scopeCard(scope) {
+        if (!scope || scope.status === 'quiet' || scope.status === 'insufficient_baseline') {
+            return null;
+        }
+        const card = document.createElement('div');
+        card.className = 'eg-card eg-scope tone-warn';
+        card.appendChild(this._sectionTitle('Scope expansion', scope.headline));
+
+        (scope.sessions || []).forEach(s => {
+            const row = document.createElement('div');
+            row.className = 'eg-scope-row';
+            row.innerHTML =
+                `<code>${this._esc(s.session_id || 'unknown session')}</code>` +
+                `<span class="eg-scope-nums">${Number(s.distinct_hosts || 0)} hosts, ` +
+                `${Number(s.novel_hosts || 0)} new, ` +
+                `${Number(s.rate_per_minute || 0)}/min</span>`;
+            (s.reasons || []).forEach(reason => {
+                const li = document.createElement('div');
+                li.className = 'eg-scope-reason';
+                li.textContent = reason;
+                row.appendChild(li);
+            });
+            card.appendChild(row);
+        });
+
+        const note = document.createElement('p');
+        note.className = 'eg-note';
+        note.textContent = scope.note || '';
+        card.appendChild(note);
+        return card;
     },
 
     async _promote(host, btn) {
@@ -908,6 +948,16 @@ const EgressPage = {
             .eg-replay-summary { font:600 13px 'Avenir Next',Avenir,system-ui,sans-serif !important;
                 color:var(--text-primary,#e6edf3) !important; margin-bottom:10px !important; }
             .eg-caveats { margin-top:12px !important; }
+
+            .eg-scope-row { margin-top:12px; padding-top:12px; border-top:1px solid var(--border-default,#30363d); }
+            .eg-scope-row code { font:600 11.5px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-primary,#e6edf3); }
+            .eg-scope-nums { margin-left:10px; font:600 11px ui-monospace,'JetBrains Mono',Menlo,monospace;
+                color:var(--text-muted,#7d8590); font-variant-numeric:tabular-nums; }
+            .eg-scope-reason { margin-top:5px; font-size:12px; line-height:1.6; color:var(--text-secondary,#b1bac4); }
+            /* The alert-only note must not read as one more reason. */
+            .eg-scope .eg-note { margin-top:14px; padding-top:12px;
+                border-top:1px solid var(--border-default,#30363d); }
 
             .eg-health-line { margin:0 !important; }
             .eg-hostlist { display:flex; flex-wrap:wrap; gap:6px; }

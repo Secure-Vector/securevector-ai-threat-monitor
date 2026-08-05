@@ -880,6 +880,9 @@ const API = {
         return this.request(`/api/egress/destinations?days=${days}`)
             .catch(() => ({ destinations: [], distinct_hosts: 0 }));
     },
+    async getEgressScope(days = 7) {
+        return this.request(`/api/egress/scope?days=${days}`).catch(() => null);
+    },
     async getEgressPolicyHealth(days = 30) {
         return this.request(`/api/egress/policy-health?days=${days}`).catch(() => null);
     },

@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
-from securevector.app.services import egress_attestation
+from securevector.app.services import egress_attestation, egress_scope
 from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
@@ -265,6 +265,23 @@ async def get_blast_radius(days: int = 30, new_within_days: int = 7):
     """
     repo = EgressRepository(get_database())
     return await repo.blast_radius(days=days, new_within_days=new_within_days)
+
+
+@router.get("/egress/scope")
+async def get_scope_expansion(days: int = 7):
+    """Sessions whose egress *shape* is unusual, regardless of destination.
+
+    Alert-only by design. A rate threshold is a heuristic, and a heuristic that
+    halts legitimate work is a heuristic that gets switched off; destination
+    policy is what blocks, this only says where to look.
+    """
+    repo = EgressRepository(get_database())
+    sessions = await repo.session_scope(days=days)
+    known = len(await repo.known_hosts())
+    return {
+        "window_days": days,
+        **egress_scope.summarize([egress_scope.assess(s, known) for s in sessions]),
+    }
 
 
 class ReplayRequest(BaseModel):
