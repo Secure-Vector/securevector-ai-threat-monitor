@@ -25,6 +25,7 @@ from .engine import (
     evaluate_tool_call,
     load_baseline_pack,
 )
+from .replay import attempt_from_audit_row, replay_policy, summarize_replay
 
 __all__ = [
     "READ", "WRITE", "UNKNOWN",
@@ -34,4 +35,5 @@ __all__ = [
     "PRESET_BASELINE", "PRESET_HARDENED", "PRESET_CONTAINED", "VALID_PRESETS",
     "EgressPolicy", "EgressContext", "EgressVerdict", "EgressEvaluation",
     "evaluate_tool_call", "evaluate_attempt", "load_baseline_pack",
+    "replay_policy", "summarize_replay", "attempt_from_audit_row",
 ]

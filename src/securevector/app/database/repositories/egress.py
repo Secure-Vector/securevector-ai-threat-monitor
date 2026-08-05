@@ -226,6 +226,90 @@ class EgressRepository:
         cols = ["host", "calls", "blocked", "writes", "first_seen", "last_seen"]
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
 
+    async def attempts_for_replay(self, days: int = 30, limit: int = 20000) -> list:
+        """Recorded destinations in a window, shaped for counterfactual replay.
+
+        `evidence` is not selected. Replay decides on destination facts alone,
+        and pulling a display string it cannot use would move redacted command
+        fragments through a code path that has no reason to see them.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            """
+            SELECT host, port, scheme, operation, kind, action, rule_id,
+                   confidence, detector
+            FROM egress_audit
+            WHERE timestamp >= datetime('now', ?)
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (f"-{max(1, int(days))} days", max(1, min(int(limit), 100000))),
+        )
+        cols = ["host", "port", "scheme", "operation", "kind", "action",
+                "rule_id", "confidence", "detector"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+    async def blast_radius(self, days: int = 30, new_within_days: int = 7) -> dict:
+        """The headline counter: how far the agents on this machine can reach.
+
+        Deliberately a count of *destinations*, not of blocks. A blocked-events
+        number measures the product; a destination count measures the exposure,
+        and the exposure is what the operator did not previously have any way
+        to see. It is also the one number that stays interesting when the
+        policy is working and nothing is being blocked at all.
+
+        `first_seen_recently` is the movement in that number. A steady host set
+        is a steady blast radius; a set that grew this week grew for a reason.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            """
+            SELECT
+              COUNT(DISTINCT host)                                            AS hosts,
+              COUNT(DISTINCT CASE WHEN operation = 'write' THEN host END)     AS write_hosts,
+              COUNT(*)                                                        AS calls,
+              SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END)               AS blocked,
+              COUNT(DISTINCT CASE WHEN kind = 'mcp' THEN host END)            AS mcp_hosts
+            FROM egress_audit
+            WHERE host IS NOT NULL AND timestamp >= datetime('now', ?)
+            """,
+            (f"-{max(1, int(days))} days",),
+        )
+        row = await cur.fetchone() or (0, 0, 0, 0, 0)
+
+        # A host is "new" only if it was never seen before the recent window,
+        # not merely if it appears in it. Anything else counts every routine
+        # destination as new every week and the signal dies.
+        cur = await conn.execute(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT host FROM egress_audit
+                WHERE host IS NOT NULL
+                GROUP BY host
+                HAVING MIN(timestamp) >= datetime('now', ?)
+            )
+            """,
+            (f"-{max(1, int(new_within_days))} days",),
+        )
+        new_row = await cur.fetchone()
+
+        return {
+            "window_days": days,
+            "distinct_hosts": row[0] or 0,
+            "write_capable_hosts": row[1] or 0,
+            "mcp_hosts": row[4] or 0,
+            "total_calls": row[2] or 0,
+            "blocked_calls": row[3] or 0,
+            "first_seen_recently": (new_row[0] or 0) if new_row else 0,
+            "new_within_days": new_within_days,
+            "coverage": (
+                "Counts destinations SecureVector observed at the agent tool "
+                "boundary. Traffic from a process these hooks do not cover is "
+                "not included, and a remote MCP server counts as one "
+                "destination however many hosts it reaches downstream."
+            ),
+        }
+
     async def known_hosts(self) -> frozenset:
         """Every host seen before. Feeds hardened-preset first-seen detection."""
         conn = await self.db.connect()
@@ -317,6 +401,54 @@ class EgressRepository:
             "reached_count": row[6], "blocked_count": row[7],
             "coverage": json.loads(row[8] or "[]"),
             "policy_preset": row[9], "result_hash": row[10],
+        }
+
+    async def recent_proofs_full(self, limit: int = 2) -> list:
+        """The last N proofs including probe detail, newest first.
+
+        Drift needs the probe arrays, which `proof_history` deliberately omits
+        to keep the list view cheap.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, started_at, completed_at, trigger, verdict, probes, "
+            "reached_count, blocked_count, coverage, policy_preset, result_hash, "
+            "prev_hash FROM containment_proofs "
+            "ORDER BY started_at DESC, rowid DESC LIMIT ?",
+            (max(1, min(int(limit), 50)),),
+        )
+        out = []
+        for row in await cur.fetchall():
+            out.append({
+                "id": row[0], "started_at": row[1], "completed_at": row[2],
+                "trigger": row[3], "verdict": row[4],
+                "probes": json.loads(row[5] or "[]"),
+                "reached_count": row[6], "blocked_count": row[7],
+                "coverage": json.loads(row[8] or "[]"),
+                "policy_preset": row[9], "result_hash": row[10],
+                "prev_hash": row[11],
+            })
+        return out
+
+    async def get_proof(self, proof_id: str) -> Optional[dict]:
+        """One proof by id, with probe detail. Used by the attestation export."""
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, started_at, completed_at, trigger, verdict, probes, "
+            "reached_count, blocked_count, coverage, policy_preset, result_hash, "
+            "prev_hash FROM containment_proofs WHERE id = ?",
+            (proof_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "started_at": row[1], "completed_at": row[2],
+            "trigger": row[3], "verdict": row[4],
+            "probes": json.loads(row[5] or "[]"),
+            "reached_count": row[6], "blocked_count": row[7],
+            "coverage": json.loads(row[8] or "[]"),
+            "policy_preset": row[9], "result_hash": row[10], "prev_hash": row[11],
         }
 
     async def proof_history(self, limit: int = 20) -> list:

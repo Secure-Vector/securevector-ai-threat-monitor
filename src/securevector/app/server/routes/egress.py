@@ -15,10 +15,13 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.egress import EgressRepository
+from securevector.app.services import egress_attestation
+from securevector.app.services.containment_drift import diff_proofs
 from securevector.app.services.containment_proof import (
     preflight_manifest,
     run_containment_proof,
@@ -31,6 +34,8 @@ from securevector.core.egress import (
     EgressPolicy,
     evaluate_tool_call,
     load_baseline_pack,
+    replay_policy,
+    summarize_replay,
 )
 
 logger = logging.getLogger(__name__)
@@ -251,6 +256,61 @@ async def get_destinations(days: int = 30):
     }
 
 
+@router.get("/egress/blast-radius")
+async def get_blast_radius(days: int = 30, new_within_days: int = 7):
+    """How far the agents on this machine can reach.
+
+    The headline number. It stays meaningful when the policy is working and
+    nothing is being blocked, which a blocked-events counter does not.
+    """
+    repo = EgressRepository(get_database())
+    return await repo.blast_radius(days=days, new_within_days=new_within_days)
+
+
+class ReplayRequest(BaseModel):
+    """A candidate policy to test against recorded history."""
+
+    preset: str
+    allowlist: Optional[list] = None
+    denylist: Optional[list] = None
+    ci_profile: Optional[bool] = None
+    baseline_enabled: Optional[bool] = None
+    days: int = 30
+
+
+@router.post("/egress/replay")
+async def replay_candidate_policy(request: ReplayRequest):
+    """What a stricter policy would have done to this machine's own history.
+
+    This is what makes Hardened and Contained enableable. Switching presets
+    blind is an unbounded bet on tomorrow's workflow; replay converts it into a
+    number the operator can look at first.
+    """
+    if request.preset not in VALID_PRESETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"preset must be one of {', '.join(VALID_PRESETS)}",
+        )
+    repo = EgressRepository(get_database())
+    current = await _load_policy(repo)
+    candidate = EgressPolicy(
+        preset=request.preset,
+        # Default to the live lists so replay answers "switch the preset",
+        # which is the question actually being asked, rather than "switch the
+        # preset and simultaneously discard every promotion I have made".
+        allowlist=request.allowlist if request.allowlist is not None else current.allowlist,
+        denylist=request.denylist if request.denylist is not None else current.denylist,
+        ci_profile=current.ci_profile if request.ci_profile is None else request.ci_profile,
+        baseline_enabled=(
+            current.baseline_enabled if request.baseline_enabled is None
+            else request.baseline_enabled
+        ),
+    )
+    rows = await repo.attempts_for_replay(days=request.days)
+    result = replay_policy(rows, candidate, current=current, pack=_pack())
+    return {**result, "window_days": request.days, "summary": summarize_replay(result)}
+
+
 @router.get("/egress/policy-health")
 async def get_policy_health(days: int = 30):
     """Promotion rate. A policy whose denials are all promoted is mis-set.
@@ -279,6 +339,9 @@ async def run_proof(trigger: str = "manual"):
     try:
         repo = EgressRepository(get_database())
         policy = await _load_policy(repo)
+        # Captured before the new proof lands, so the diff compares this run to
+        # the last one rather than to itself.
+        previous = await repo.latest_proof()
         result = await run_containment_proof(policy)
         saved = await repo.save_proof(
             probes=result["probes"],
@@ -287,7 +350,10 @@ async def run_proof(trigger: str = "manual"):
             trigger=trigger,
             policy_preset=result["policy_preset"],
         )
-        return {**result, **saved}
+        # Drift is computed on every run rather than on request. A regression
+        # nobody asked about is exactly the regression worth surfacing.
+        drift = diff_proofs(previous, {**result, **saved})
+        return {**result, **saved, "drift": drift}
     except Exception as e:
         logger.error("Containment proof failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Containment proof failed: {e}")
@@ -306,3 +372,81 @@ async def get_latest_proof():
 async def get_proof_history(limit: int = 20):
     repo = EgressRepository(get_database())
     return {"proofs": await repo.proof_history(limit=limit)}
+
+
+@router.get("/egress/proof/drift")
+async def get_containment_drift():
+    """What changed between the last two proofs.
+
+    Reports the regression that is easy to see (a contained path now reaches)
+    and the one that is not: a path still contained, but no longer by us. Both
+    proofs say "contained" in that case, and the guarantee has still moved to a
+    control this policy does not manage.
+    """
+    repo = EgressRepository(get_database())
+    proofs = await repo.recent_proofs_full(limit=2)
+    current = proofs[0] if proofs else None
+    previous = proofs[1] if len(proofs) > 1 else None
+    return diff_proofs(previous, current)
+
+
+# ============================================================ attestation ===
+
+
+async def _proof_for_export(proof_id: Optional[str]):
+    repo = EgressRepository(get_database())
+    if proof_id:
+        proof = await repo.get_proof(proof_id)
+    else:
+        proofs = await repo.recent_proofs_full(limit=2)
+        proof = proofs[0] if proofs else None
+    if not proof:
+        raise HTTPException(status_code=404, detail="No containment proof found")
+    proofs = await repo.recent_proofs_full(limit=2)
+    previous = next((p for p in proofs if p["id"] != proof["id"]), None)
+    return proof, diff_proofs(previous, proof)
+
+
+@router.get("/egress/proof/export.json")
+async def export_proof_json(proof_id: Optional[str] = None):
+    proof, drift = await _proof_for_export(proof_id)
+    return PlainTextResponse(
+        egress_attestation.to_json(proof, drift),
+        media_type="application/json",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=containment-proof-{proof['id'][:8]}.json"
+        },
+    )
+
+
+@router.get("/egress/proof/export.csv")
+async def export_proof_csv(proof_id: Optional[str] = None):
+    proof, drift = await _proof_for_export(proof_id)
+    return StreamingResponse(
+        iter([egress_attestation.to_csv(proof, drift)]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=containment-proof-{proof['id'][:8]}.csv"
+        },
+    )
+
+
+@router.get("/egress/proof/export.md")
+async def export_proof_markdown(proof_id: Optional[str] = None):
+    """The attestation a security reviewer reads.
+
+    Ordered verdict, then what was NOT tested, then results. A reviewer who
+    stops after the second section has still read the part that stops this
+    document being overstated downstream.
+    """
+    proof, drift = await _proof_for_export(proof_id)
+    return PlainTextResponse(
+        egress_attestation.to_markdown(proof, drift),
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=containment-proof-{proof['id'][:8]}.md"
+        },
+    )
