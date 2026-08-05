@@ -49,11 +49,24 @@ HEURISTIC = "heuristic"  # pattern-matched; the host may be wrong or absent
 # Tools that can reach the network. Anything not in this set short-circuits
 # before any parsing happens, so the overwhelmingly common Read/Edit/Glob/Grep
 # path costs one set lookup and never touches the evaluator.
+#
+# Runtimes name their shell tool differently — Claude Code says `Bash`, Cursor
+# fires a `beforeShellExecution` event it calls `shell`, others say `exec` or
+# `terminal`. A name missing here means the server answers `network_capable:
+# false` and egress is SILENTLY not enforced for that runtime, so this list
+# must stay a superset of every runtime's shell tool name. The JS
+# `NETWORK_CAPABLE` set in each plugin's pre-tool-use hook mirrors it.
 NETWORK_CAPABLE_BUILTINS = frozenset({
     "webfetch",
     "websearch",
     "bash",
     "powershell",
+    "shell",
+    "exec",
+    "terminal",
+    "run_terminal_cmd",
+    "runcommand",
+    "execute_command",
 })
 
 # Shell binaries whose argv we know how to read. Extending this set widens

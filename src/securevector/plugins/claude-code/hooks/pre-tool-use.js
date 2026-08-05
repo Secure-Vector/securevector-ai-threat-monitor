@@ -43,7 +43,12 @@ const { redactForScan } = require('../lib/redact.js');
  * extractor returns `network_capable: false` for a tool it cannot route, which
  * costs one wasted round-trip and nothing else.
  */
-const NETWORK_CAPABLE = new Set(['webfetch', 'websearch', 'bash', 'powershell']);
+const NETWORK_CAPABLE = new Set([
+  'webfetch', 'websearch', 'bash', 'powershell',
+  // Runtimes name their shell tool differently; this must stay a superset.
+  // Mirrors NETWORK_CAPABLE_BUILTINS in core/egress/destinations.py.
+  'shell', 'exec', 'terminal', 'run_terminal_cmd', 'runcommand', 'execute_command',
+]);
 
 function isNetworkCapable(toolName) {
   const n = String(toolName || '').toLowerCase();

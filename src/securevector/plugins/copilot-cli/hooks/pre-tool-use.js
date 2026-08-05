@@ -32,7 +32,7 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { fetchSyncedOverrides, postJsonAndForget } = require('../lib/client.js');
+const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
 
 const EFFECT_TO_DECISION = Object.freeze({
@@ -174,11 +174,73 @@ function toHookOutput(d) {
  * fails open (returns {} on any network error / timeout / non-2xx), so a down
  * app yields ALLOW here, not a throw.
  */
-async function decide(toolName, baseUrl, sessionId = null) {
+/**
+ * Tools that can reach the network. Everything else short-circuits before any
+ * egress round-trip. Kept in sync with NETWORK_CAPABLE_BUILTINS in
+ * core/egress/destinations.py.
+ */
+const NETWORK_CAPABLE = new Set([
+  'webfetch', 'websearch', 'bash', 'powershell',
+  // Runtimes name their shell tool differently; this must stay a superset.
+  // Mirrors NETWORK_CAPABLE_BUILTINS in core/egress/destinations.py.
+  'shell', 'exec', 'terminal', 'run_terminal_cmd', 'runcommand', 'execute_command',
+]);
+
+function isNetworkCapable(toolName) {
+  const n = String(toolName || '').toLowerCase();
+  // A remote MCP server is an egress proxy: only its endpoint is observable
+  // from here, but that endpoint still belongs on the record.
+  return NETWORK_CAPABLE.has(n) || n.startsWith('mcp__');
+}
+
+async function decide(toolName, baseUrl, sessionId = null, toolInput = null) {
   const candidates = normalize(toolName);
-  if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
-  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
-  return decideFromOverrides(candidates, overrides, sessionId);
+  // Tool-permission rules key off the tool NAME. Egress rules key off the
+  // DESTINATION, so a tool with no name-based rule can still be denied for
+  // where it points — the egress check must run even with no candidates.
+  if (candidates.length > 0) {
+    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+    const decision = decideFromOverrides(candidates, overrides, sessionId);
+    // A name-based deny already stops the call; evaluating egress on top would
+    // add latency and a duplicate audit row for a call that never happens.
+    if (decision.decision !== 'allow') return decision;
+  }
+  return decideEgress(toolName, toolInput, baseUrl, sessionId);
+}
+
+
+/**
+ * Second gate: does this call's network destination violate the egress policy?
+ * Fail-open on every error path, consistent with the fail-open invariant.
+ */
+async function decideEgress(toolName, toolInput, baseUrl, sessionId) {
+  if (!isNetworkCapable(toolName)) return ALLOW;
+  try {
+    const result = await evaluateEgress(baseUrl, {
+      tool_name: toolName,
+      tool_input: toolInput || {},
+      runtime_kind: RUNTIME_KIND,
+      session_id: sessionId,
+    });
+    if (!result || result.action !== 'block') return ALLOW;
+    const top = Array.isArray(result.verdicts)
+      ? result.verdicts.find((v) => v && v.action === 'block')
+      : null;
+    let reason = (top && top.reason) || result.reason || 'Blocked by egress policy';
+    if (top && top.remediation) reason += ` ${top.remediation}`;
+    return {
+      decision: 'deny',
+      reason,
+      toolId: toolName,
+      // Egress denies are not JIT-requestable in v1: a JIT grant is keyed on
+      // tool_id, which would open the tool for every host rather than the one
+      // under review.
+      requestable: false,
+      egress: true,
+    };
+  } catch {
+    return ALLOW;
+  }
 }
 
 
@@ -217,9 +279,10 @@ async function main() {
     const toolName = (event && (event.toolName || event.tool_name)) || '';
     const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
     const sessionId = (event && (event.sessionId || event.session_id)) || null;
+    const toolInputForCall = (event && (event.tool_input || event.toolInput)) || null;
     let decision = ALLOW;
     try {
-      decision = await decide(toolName, baseUrl, sessionId);
+      decision = await decide(toolName, baseUrl, sessionId, toolInputForCall);
     } catch {
       decision = ALLOW;
     }
