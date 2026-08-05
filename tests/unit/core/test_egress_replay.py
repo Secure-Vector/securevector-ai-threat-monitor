@@ -169,3 +169,14 @@ class TestSummary:
         rows = [row("api.example.com", operation="write")]
         result = replay_policy(rows, EgressPolicy(preset="hardened"), pack=[])
         assert "promotion" in summarize_replay(result)
+
+    def test_singular_counts_read_as_english(self):
+        rows = [row("api.example.com", operation="write")]
+        text = summarize_replay(replay_policy(rows, EgressPolicy(preset="hardened"), pack=[]))
+        assert "1 recorded call across 1 host" in text
+
+    def test_plural_counts_read_as_english(self):
+        rows = [row("a.example.com", operation="write"),
+                row("b.example.com", operation="write")]
+        text = summarize_replay(replay_policy(rows, EgressPolicy(preset="hardened"), pack=[]))
+        assert "2 recorded calls across 2 hosts" in text

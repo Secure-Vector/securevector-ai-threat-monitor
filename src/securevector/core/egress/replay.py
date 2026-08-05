@@ -227,9 +227,11 @@ def summarize_replay(result: dict) -> str:
         f" {promotions} of {hosts} would clear with one promotion each."
         if promotions else ""
     )
+    call_word = "call" if calls == 1 else "calls"
+    host_word = "host" if hosts == 1 else "hosts"
     return (
-        f"{calls} recorded call(s) across {hosts} host(s) would have been "
-        f"blocked by the {result['candidate_preset']} preset.{tail}"
+        f"{calls} recorded {call_word} across {hosts} {host_word} would have "
+        f"been blocked by the {result['candidate_preset']} preset.{tail}"
     )
 
 

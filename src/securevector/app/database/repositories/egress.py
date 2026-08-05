@@ -200,6 +200,14 @@ class EgressRepository:
                 "runtime_kind", "evidence", "reason", "promoted"]
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
 
+    # Rules whose block a promotion cannot clear. Baseline verdicts are decided
+    # before the allowlist is consulted, so adding one of these hosts to the
+    # allowlist changes nothing: publish interdiction and the metadata endpoint
+    # are severe enough to cost an explicit policy edit. A UI that offers a
+    # one-click allow here would be offering a button that does not work.
+    NON_PROMOTABLE_RULES = ("sv.egress.package_publish", "sv.egress.cloud_metadata",
+                            "policy.denylist")
+
     async def destination_inventory(self, days: int = 30) -> list:
         """Distinct destinations seen, with counts. The blast-radius number.
 
@@ -207,12 +215,16 @@ class EgressRepository:
         agents on this machine actually reached.
         """
         conn = await self.db.connect()
+        placeholders = ", ".join("?" for _ in self.NON_PROMOTABLE_RULES)
         cur = await conn.execute(
-            """
+            f"""
             SELECT host,
                    COUNT(*)                                        AS calls,
                    SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) AS blocked,
                    SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS writes,
+                   MAX(CASE WHEN action = 'block'
+                             AND rule_id IN ({placeholders})
+                            THEN 1 ELSE 0 END)                     AS hard_blocked,
                    MIN(timestamp)                                  AS first_seen,
                    MAX(timestamp)                                  AS last_seen
             FROM egress_audit
@@ -221,10 +233,14 @@ class EgressRepository:
             GROUP BY host
             ORDER BY calls DESC
             """,
-            (f"-{max(1, int(days))} days",),
+            (*self.NON_PROMOTABLE_RULES, f"-{max(1, int(days))} days"),
         )
-        cols = ["host", "calls", "blocked", "writes", "first_seen", "last_seen"]
-        return [dict(zip(cols, r)) for r in await cur.fetchall()]
+        cols = ["host", "calls", "blocked", "writes", "hard_blocked",
+                "first_seen", "last_seen"]
+        rows = [dict(zip(cols, r)) for r in await cur.fetchall()]
+        for row in rows:
+            row["promotable"] = not row.pop("hard_blocked")
+        return rows
 
     async def attempts_for_replay(self, days: int = 30, limit: int = 20000) -> list:
         """Recorded destinations in a window, shaped for counterfactual replay.
