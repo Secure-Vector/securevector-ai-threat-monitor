@@ -5,7 +5,7 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.1.0] - Unreleased
+## [5.1.0] - 2026-08-06
 
 ### Added
 - **Agent Egress Governance** — a destination policy enforced at the Guard-plugin tool boundary. Network destinations are extracted from `WebFetch`, remote MCP calls, and best-effort `Bash` argv analysis, then evaluated against a policy that lives outside the agent context and outside the harness config, so the agent cannot read it, argue with it, or be told it does not exist. The model turns on a read/write asymmetry: reads (`pip install`, `git clone`, docs fetches) are recorded and allowed, while the narrow unambiguous write classes are denied by default. Three presets — **Baseline** (on by default, needs no tuning by construction), **Hardened** (allowlist-only writes), and **Contained** (full allowlist, intended as a per-run mode rather than a global setting). Every deny is promotable in one click, and the promotion rate is surfaced as a policy-health signal: a policy whose denials are all promoted is reported as mis-set rather than left to be disabled. Schema v44 adds `egress_policies`, `egress_audit` (one row per destination reached, not per tool call), and `containment_proofs`.
