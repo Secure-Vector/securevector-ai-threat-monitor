@@ -643,9 +643,32 @@ const EgressPage = {
         });
         body.appendChild(card);
 
-        body.appendChild(this._listCard('Allowed destinations', policy.allowlist || [],
-            'Hosts promoted from a block, or added by hand. A host covers its subdomains.'));
-        body.appendChild(this._listCard('Denied destinations', policy.denylist || [],
+        // Render what is enforced, not what is stored locally. Once an org
+        // policy is synced the two differ, and showing the local lists would
+        // tell the operator a destination is permitted while it is blocked.
+        const eff = policy.effective || {};
+        const orgManaged = !!eff.org_managed_allowlist;
+        const allowlist = eff.allowlist || policy.allowlist || [];
+        const denylist = eff.denylist || policy.denylist || [];
+
+        body.appendChild(this._listCard('Allowed destinations', allowlist,
+            orgManaged
+                ? 'Set by your organization' + (eff.policy_name ? ` (${eff.policy_name})` : '') +
+                  '. Hosts cannot be added on this device. A host covers its subdomains.'
+                : 'Hosts promoted from a block, or added by hand. A host covers its subdomains.'));
+
+        const suppressed = eff.local_allowlist_suppressed || [];
+        if (suppressed.length) {
+            // These are hosts the operator allowed themselves that are no
+            // longer in effect. Left unsaid, the first symptom is a block
+            // they cannot explain.
+            body.appendChild(this._listCard(
+                'No longer allowed on this device', suppressed,
+                'You had allowed these, and the organization policy does not. ' +
+                'They are blocked now. Ask an administrator to add any you still need.'));
+        }
+
+        body.appendChild(this._listCard('Denied destinations', denylist,
             'Always blocked, whatever the preset. A denylist entry outranks an allowlist entry.'));
     },
 

@@ -33,6 +33,7 @@ from typing import Optional
 import httpx
 
 from securevector.app.database.connection import DatabaseConnection
+from securevector.app.database.repositories.egress import EgressRepository
 from securevector.app.database.repositories.synced_rules import SyncedRulesRepository
 from securevector.app.database.repositories.synced_bundle_envelope import (
     SyncedBundleEnvelopeRepository,
@@ -45,6 +46,7 @@ from securevector.app.services.bundle_verifier import (
     verify_envelope,
 )
 from securevector.app.services.cloud_config import get_auth_service_url, get_lse_url
+from securevector.core.egress import synced_policy_from_bundle
 from securevector.app.services.credentials import (
     EnrolledCredentials,
     get_enrolled_credentials,
@@ -351,6 +353,7 @@ async def _sync_once(
         org_name=creds.org_name,
         rules=verified.rules,
     )
+    await _apply_egress(db, verified)
     # Persist the signed envelope alongside the extracted rules so the
     # next poll (and the next app startup) can re-verify the signature
     # without re-fetching from the cloud. The bundle JSON we serialise
@@ -405,6 +408,57 @@ async def _sync_once(
         error=None,
     )
     return True
+
+
+async def _apply_egress(db: DatabaseConnection, verified) -> None:
+    """Persist the bundle's org egress policy, or clear it when absent.
+
+    Clearing on absence is the half that is easy to leave out and expensive to
+    omit: when an admin deletes the org's egress policy, the bundle simply
+    stops carrying the section, and a device that only ever wrote on presence
+    would keep enforcing a policy nobody can see or revoke any more.
+
+    Failures here are logged rather than raised. The tool rules in this bundle
+    are already applied and acknowledged by this point, so raising would
+    convert a partial apply into a retried whole-bundle apply and leave the
+    two halves of the same bundle disagreeing.
+    """
+    try:
+        repo = EgressRepository(db)
+        if verified.egress is None:
+            cleared = await repo.clear_synced_policy()
+            if cleared:
+                logger.info(
+                    "Cloud Sync: bundle %s carries no egress policy; "
+                    "cleared the previously synced one",
+                    verified.bundle_id,
+                )
+            return
+
+        synced = synced_policy_from_bundle(verified.egress)
+        if synced is None:
+            return
+        await repo.replace_synced_policy(
+            preset=synced.preset,
+            allowlist=synced.allowlist,
+            denylist=synced.denylist,
+            policy_name=synced.policy_name,
+            policy_version=synced.policy_version,
+        )
+        logger.info(
+            "Cloud Sync: applied org egress policy '%s' preset=%s "
+            "(%d allow, %d deny)",
+            synced.policy_name,
+            synced.preset,
+            len(synced.allowlist),
+            len(synced.denylist),
+        )
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        logger.warning(
+            "Cloud Sync: failed to apply egress policy from bundle %s: %s",
+            getattr(verified, "bundle_id", "?"),
+            exc,
+        )
 
 
 def _build_sync_auth_headers(creds: EnrolledCredentials) -> dict:

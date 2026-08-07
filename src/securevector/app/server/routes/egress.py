@@ -35,6 +35,7 @@ from securevector.core.egress import (
     evaluate_tool_call,
     load_baseline_pack,
     replay_policy,
+    resolve_effective_policy,
     summarize_replay,
 )
 
@@ -54,22 +55,44 @@ def _pack():
 
 
 async def _load_policy(repo: EgressRepository) -> EgressPolicy:
+    """Return the policy the engine should evaluate against.
+
+    This is the local policy combined with any org policy synced from the
+    cloud. Every caller goes through here, so an org policy takes effect on
+    enforcement, on the containment proof, and on policy replay at the same
+    moment, instead of on whichever paths were remembered.
+    """
     row = await repo.get_active_policy()
     if not row:
         # No active policy means Baseline still applies. An install with no
         # policy row must not silently enforce nothing.
-        return EgressPolicy()
-    return EgressPolicy(
-        preset=row["preset"],
-        allowlist=row["allowlist"],
-        denylist=row["denylist"],
-        fail_closed=row["fail_closed"],
-        ci_profile=row["ci_profile"],
-        baseline_enabled=row["baseline_enabled"],
-        policy_name=row["name"],
-        policy_version=row["policy_version"],
-        source=row["source"],
+        local = EgressPolicy()
+    else:
+        local = EgressPolicy(
+            preset=row["preset"],
+            allowlist=row["allowlist"],
+            denylist=row["denylist"],
+            fail_closed=row["fail_closed"],
+            ci_profile=row["ci_profile"],
+            baseline_enabled=row["baseline_enabled"],
+            policy_name=row["name"],
+            policy_version=row["policy_version"],
+            source=row["source"],
+        )
+
+    synced_row = await repo.get_synced_policy()
+    if not synced_row:
+        return local
+
+    synced = EgressPolicy(
+        preset=synced_row["preset"],
+        allowlist=synced_row["allowlist"],
+        denylist=synced_row["denylist"],
+        policy_name=synced_row["name"],
+        policy_version=synced_row["policy_version"],
+        source="synced",
     )
+    return resolve_effective_policy(local, synced)
 
 
 # ============================================================ enforcement ===
@@ -187,10 +210,29 @@ class PolicyPatch(BaseModel):
 
 @router.get("/egress/policy")
 async def get_policy():
+    """Return the local policy plus what is actually in force.
+
+    The local row alone is no longer the truth once an org policy is synced,
+    so it is returned with an `effective` block beside it. The page renders
+    `effective`; without it a user would be shown their own allowlist while a
+    different one was being enforced.
+    """
     repo = EgressRepository(get_database())
     row = await repo.get_active_policy()
     if not row:
         raise HTTPException(status_code=404, detail="No active egress policy")
+
+    effective = await _load_policy(repo)
+    row["effective"] = {
+        "preset": effective.preset,
+        "allowlist": list(effective.allowlist),
+        "denylist": list(effective.denylist),
+        "source": effective.source,
+        "policy_name": effective.policy_name,
+        "policy_version": effective.policy_version,
+        "org_managed_allowlist": effective.org_managed_allowlist,
+        "local_allowlist_suppressed": list(effective.local_allowlist_suppressed),
+    }
     return row
 
 
@@ -205,12 +247,26 @@ async def patch_policy(patch: PolicyPatch):
     row = await repo.get_active_policy()
     if not row:
         raise HTTPException(status_code=404, detail="No active egress policy")
+
+    # Same reasoning as promote: an allowlist edit that cannot take effect is
+    # refused rather than saved. Presets and the host-shaped settings are
+    # still editable, because the operator can always tighten further.
+    if patch.allowlist is not None and await repo.get_synced_policy():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The allowlist is managed by your organization's egress "
+                "policy and cannot be edited on this device. You can still "
+                "choose a stricter preset or add local denials."
+            ),
+        )
+
     await repo.update_policy(
         row["id"], preset=patch.preset, allowlist=patch.allowlist,
         denylist=patch.denylist, fail_closed=patch.fail_closed,
         ci_profile=patch.ci_profile, baseline_enabled=patch.baseline_enabled,
     )
-    return await repo.get_active_policy()
+    return await get_policy()
 
 
 class PromoteRequest(BaseModel):
@@ -229,6 +285,21 @@ async def promote_destination(request: PromoteRequest):
     row = await repo.get_active_policy()
     if not row:
         raise HTTPException(status_code=404, detail="No active egress policy")
+
+    # Under an org policy the allowlist is the org's, so writing the host
+    # locally would succeed, show up in the local row, and change nothing.
+    # Refusing with the reason is the only honest outcome: an Allow button
+    # that reports success and does not allow is worse than no button.
+    if await repo.get_synced_policy():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Destinations are managed by your organization's egress "
+                "policy. Ask an administrator to add this host, or the "
+                "change will not take effect on this device."
+            ),
+        )
+
     if not await repo.promote_host(row["id"], request.host):
         raise HTTPException(status_code=400, detail="Invalid host")
     return {"ok": True, "policy": await repo.get_active_policy()}

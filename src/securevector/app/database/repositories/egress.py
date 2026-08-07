@@ -66,6 +66,90 @@ class EgressRepository:
             "policy_version": row[9],
         }
 
+    async def get_synced_policy(self) -> Optional[dict]:
+        """Return the org policy pushed by the cloud, or None if there is none.
+
+        Kept as a separate row from the active local policy rather than
+        overwriting it: an org policy must be removable (the device leaves the
+        org, the admin deletes the policy) and the operator's own settings
+        have to still be there when it is.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "SELECT id, name, preset, allowlist, denylist, policy_version "
+            "FROM egress_policies WHERE source = 'synced' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "preset": row[2],
+            "allowlist": self._load_list(row[3]),
+            "denylist": self._load_list(row[4]),
+            "policy_version": row[5],
+        }
+
+    async def replace_synced_policy(
+        self,
+        *,
+        preset: str,
+        allowlist: list,
+        denylist: list,
+        policy_name: str,
+        policy_version: Optional[int] = None,
+    ) -> None:
+        """Replace the org policy with the one from the latest bundle.
+
+        Replace rather than merge: the bundle is a complete statement of org
+        policy, so a host the admin removed upstream has to stop applying
+        here. Accumulating would make deletions in the cloud admin silently
+        ineffective on the device.
+
+        `is_active` stays 0 — the active row remains the operator's local
+        policy, and the two are combined at read time by
+        `core.egress.policy_merge.resolve_effective_policy`.
+        """
+        conn = await self.db.connect()
+        await conn.execute("DELETE FROM egress_policies WHERE source = 'synced'")
+        await conn.execute(
+            "INSERT INTO egress_policies "
+            "(name, preset, allowlist, denylist, is_active, source, "
+            " policy_version, updated_at) "
+            "VALUES (?, ?, ?, ?, 0, 'synced', ?, CURRENT_TIMESTAMP)",
+            (
+                policy_name,
+                preset,
+                json.dumps(self._normalise(allowlist)),
+                json.dumps(self._normalise(denylist)),
+                policy_version,
+            ),
+        )
+        await conn.commit()
+
+    async def clear_synced_policy(self) -> int:
+        """Drop the org policy. Used when the device is no longer enrolled.
+
+        Leaving a stale org policy applied after unenrollment would keep
+        enforcing rules from an organisation that can no longer change them,
+        which is the one failure here with no recovery path from the UI.
+        """
+        conn = await self.db.connect()
+        cur = await conn.execute(
+            "DELETE FROM egress_policies WHERE source = 'synced'"
+        )
+        await conn.commit()
+        return cur.rowcount or 0
+
+    @staticmethod
+    def _normalise(hosts) -> list:
+        """Match `update_policy`'s storage form so both paths compare equal."""
+        return sorted({
+            str(h).strip().lower() for h in (hosts or []) if str(h).strip()
+        })
+
     @staticmethod
     def _load_list(raw) -> list:
         """Parse a JSON host list, degrading to empty rather than raising.

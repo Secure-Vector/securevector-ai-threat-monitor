@@ -86,6 +86,14 @@ class EgressPolicy:
     policy_name: str = "local"
     policy_version: Optional[int] = None
     source: str = "local"  # "local" | "synced"
+    # True when an org policy supplied the allowlist, which means the local
+    # allowlist is not in effect and the page must not present it as if it
+    # were. Set only by `policy_merge.resolve_effective_policy`.
+    org_managed_allowlist: bool = False
+    # Local allowlist hosts the org policy displaced. Carried so the operator
+    # is told which of their own entries stopped applying, rather than being
+    # left to discover it as an unexplained block.
+    local_allowlist_suppressed: list = field(default_factory=list)
 
 
 @dataclass

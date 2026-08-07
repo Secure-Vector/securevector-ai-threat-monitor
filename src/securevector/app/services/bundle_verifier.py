@@ -55,6 +55,12 @@ class VerifiedBundle:
     signed_at: datetime
     expires_at: Optional[datetime]
     rules: list
+    # Org-authored egress policy, present only when a cloud policy targets
+    # this device. `None` and an empty dict mean different things: `None` is
+    # "the org authored no egress policy", which leaves the local policy
+    # untouched. The key is inside the signed body, so a tampered allowlist
+    # fails signature verification like any other field.
+    egress: Optional[dict] = None
 
 
 def _canonical_json(payload: dict) -> bytes:
@@ -191,6 +197,11 @@ def verify_bundle(
     policy_name_raw = payload.get("policy_name")
     policy_name = str(policy_name_raw) if policy_name_raw else None
 
+    # Older engines omit the key entirely rather than sending null, so
+    # absence is the normal case and must not be treated as an empty policy.
+    egress_raw = payload.get("egress")
+    egress = egress_raw if isinstance(egress_raw, dict) else None
+
     return VerifiedBundle(
         bundle_id=str(payload.get("bundle_id") or ""),
         org_id=str(payload.get("org_id") or ""),
@@ -201,6 +212,7 @@ def verify_bundle(
         signed_at=signed_at,
         expires_at=expires_at,
         rules=list(payload.get("rules") or []),
+        egress=egress,
     )
 
 
