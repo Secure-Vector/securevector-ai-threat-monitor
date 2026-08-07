@@ -88,6 +88,11 @@ _SCAN_MINIMAL = frozenset({
     "scan_id",
     "timestamp",
     "verdict",
+    # What the device actually DID, as opposed to what the verdict said it
+    # deserved. A monitor-only device (block_threats off) produces BLOCK
+    # verdicts it never enforced — every tier needs this or a downstream
+    # dashboard will report those threats as stopped when they went through.
+    "action_taken",
     "risk_level",
     "detected_items_count",
     "device_id",
@@ -270,6 +275,10 @@ def build_scan_payload(
     detected_items_count: int,
     detected_types: list[str],
     ml_status: str,
+    # Enforcement outcome ("blocked" / "logged" / "redacted"). Defaults to
+    # the safe reading: unless we are told the device blocked, we must not
+    # claim it did.
+    action_taken: str = "logged",
     scan_duration_ms: float,
     model_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
@@ -306,6 +315,7 @@ def build_scan_payload(
         "scan_id": scan_id,
         "timestamp": timestamp,
         "verdict": verdict,
+        "action_taken": action_taken,
         "threat_score": threat_score,
         "confidence_score": confidence_score,
         "risk_level": risk_level,

@@ -1115,9 +1115,11 @@ ENROLLMENT_DISCLOSURE_BULLETS = [
     "Enrolling installs managed policies. Your org's signed tool-permission "
     + "bundle is synced down and enforced on this device (see the MCP Policies page).",
     "Opt-in audit forwarding may be enabled. If your admin opted in, this "
-    + "device forwards agent/tool audit + lifecycle events to their destinations.",
-    "What's forwarded is metadata only. Tool ids, decisions, device + app "
-    + "version, timestamps — never your prompt text, model output, or tool arguments.",
+    + "device forwards agent/tool audit + lifecycle events and local rule-detection "
+    + "verdicts to their destinations.",
+    "What's forwarded is metadata only. Tool ids, decisions, detection verdicts + "
+    + "severities + threat-type labels, device + app version, timestamps — never your "
+    + "prompt text, model output, tool arguments, or the text a rule matched.",
     "Destinations come from your enrollment response. They are NOT hardcoded; "
     + "they arrive from your enrollment authority and are badged 'managed' locally.",
     "You can inspect everything, any time. Run `sv inspect-uplink` or open the "
