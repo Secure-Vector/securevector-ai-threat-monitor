@@ -29,6 +29,10 @@ def test_five_bullets_present() -> None:
     assert "managed policies" in joined
     assert "metadata only" in joined
     assert "inspect" in joined
+    # #197 Phase 2: detection verdicts now ride the fleet uplink — the
+    # disclosure must say so, and must still promise the matched text stays.
+    assert "detection verdicts" in joined
+    assert "text a rule matched" in joined
 
 
 def test_prompt_yes_proceeds(monkeypatch, capsys) -> None:

@@ -21,8 +21,8 @@
 
 const { normalize } = require('../lib/normalize.js');
 const {
-  decideForCandidates, maybeFileJitRequest, toCursorOutput, auditDecision,
-  sessionIdFrom, readAllStdin, DEFAULT_BASE_URL,
+  decideForCandidates, decideEgress, maybeFileJitRequest, toCursorOutput,
+  auditDecision, sessionIdFrom, readAllStdin, DEFAULT_BASE_URL,
 } = require('../lib/decide.js');
 
 const TOOL_NAME = 'shell';
@@ -45,10 +45,22 @@ async function main() {
     let decision = { decision: 'allow' };
     try {
       decision = await decideForCandidates(normalize(TOOL_NAME), baseUrl, sessionId);
+      // Name-based rules govern WHETHER the shell may run; egress governs
+      // WHERE the command reaches. A shell allowed by name can still be
+      // denied for its destination, so the egress gate runs on allow.
+      if (decision.decision === 'allow') {
+        decision = await decideEgress(
+          baseUrl, TOOL_NAME, { command: (event && event.command) || '' }, sessionId,
+        );
+      }
     } catch {
       decision = { decision: 'allow' };
     }
-    auditDecision(baseUrl, TOOL_NAME, event && event.command, decision, sessionId);
+    // Egress denies are already persisted server-side (one row per destination
+    // in egress_audit), so auditing here too would double-count the block.
+    if (!decision.egress) {
+      auditDecision(baseUrl, TOOL_NAME, event && event.command, decision, sessionId);
+    }
     decision = maybeFileJitRequest(baseUrl, TOOL_NAME, decision, sessionId);
     out = toCursorOutput(decision);
   } catch {

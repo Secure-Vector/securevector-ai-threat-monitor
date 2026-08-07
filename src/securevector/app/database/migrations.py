@@ -188,6 +188,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         41: migrate_to_v41,
         42: migrate_to_v42,
         43: migrate_to_v43,
+        44: migrate_to_v44,
     }
 
     if version in migrations:
@@ -1793,6 +1794,144 @@ async def migrate_to_v43(db: DatabaseConnection) -> None:
         "'JIT tool access — request/grant lifecycle tables + requestable flag on synced rules')"
     )
     logger.info("Applied migration v43: JIT access request/grant tables")
+
+
+async def migrate_to_v44(db: DatabaseConnection) -> None:
+    """v43 -> v44: agent egress governance + containment proof.
+
+    Three tables, one per concern:
+
+    - ``egress_policies`` — the destination policy. Exactly one row is active
+      at a time (``is_active``); presets are stored rather than computed so a
+      synced cloud policy and a local one share a shape. Allowlist/denylist are
+      JSON arrays of host patterns, matched by exact host or domain suffix.
+
+    - ``egress_audit`` — one row per *destination*, not per tool call. A single
+      Bash command can reach several hosts with different consequences
+      (``curl docs && git push elsewhere``), and collapsing that to one row
+      would lose the very thing the policy turned on. ``promoted`` marks rows
+      the operator later allowed, which is what drives the promotion-rate
+      health signal: a policy whose denials are all promoted is mis-set, and
+      the product should say so rather than wait to be disabled.
+
+    - ``containment_proofs`` — results of the controlled self-test. Probes are
+      stored as JSON on the row because they are always read as a set (a proof
+      is a single artifact) and because drift detection diffs whole proofs
+      against each other. ``result_hash``/``prev_hash`` chain successive proofs
+      so a tampered or removed proof is detectable, matching the tool_call_audit
+      chain precedent.
+
+    Deliberately NOT stored: any prompt text, any tool output, any credential.
+    ``evidence`` holds a truncated, redacted command fragment for display only.
+
+    Idempotent via CREATE TABLE IF NOT EXISTS.
+    """
+    conn = await db.connect()
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS egress_policies (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT NOT NULL DEFAULT 'local',
+            preset           TEXT NOT NULL DEFAULT 'baseline'
+                             CHECK (preset IN ('baseline', 'hardened', 'contained')),
+            allowlist        TEXT NOT NULL DEFAULT '[]',
+            denylist         TEXT NOT NULL DEFAULT '[]',
+            fail_closed      INTEGER NOT NULL DEFAULT 0,
+            ci_profile       INTEGER NOT NULL DEFAULT 0,
+            baseline_enabled INTEGER NOT NULL DEFAULT 1,
+            is_active        INTEGER NOT NULL DEFAULT 0,
+            source           TEXT NOT NULL DEFAULT 'local'
+                             CHECK (source IN ('local', 'synced')),
+            policy_version   INTEGER,
+            created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_egress_policies_active "
+        "ON egress_policies (is_active)"
+    )
+    # Seed the default Baseline policy. Baseline is on by default for every
+    # install: its rules are rare-and-unambiguous by construction, so it
+    # enforces without ever needing tuning. An install that starts with no
+    # policy would silently enforce nothing.
+    cur = await conn.execute("SELECT COUNT(*) FROM egress_policies")
+    row = await cur.fetchone()
+    if not row or row[0] == 0:
+        await conn.execute(
+            "INSERT INTO egress_policies (name, preset, is_active, source) "
+            "VALUES ('Baseline', 'baseline', 1, 'local')"
+        )
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS egress_audit (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            host          TEXT,
+            port          INTEGER,
+            scheme        TEXT,
+            operation     TEXT NOT NULL CHECK (operation IN ('read', 'write', 'unknown')),
+            kind          TEXT NOT NULL,
+            action        TEXT NOT NULL CHECK (action IN ('allow', 'block', 'log_only')),
+            rule_id       TEXT,
+            severity      TEXT,
+            confidence    TEXT NOT NULL,
+            detector      TEXT NOT NULL,
+            tool_name     TEXT,
+            runtime_kind  TEXT,
+            session_id    TEXT,
+            request_id    TEXT,
+            evidence      TEXT,
+            reason        TEXT,
+            promoted      INTEGER NOT NULL DEFAULT 0,
+            promoted_at   TIMESTAMP
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_egress_audit_time ON egress_audit (timestamp DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_egress_audit_host ON egress_audit (host, action)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_egress_audit_session ON egress_audit (session_id)"
+    )
+
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS containment_proofs (
+            id             TEXT PRIMARY KEY,
+            started_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at   TIMESTAMP,
+            trigger        TEXT NOT NULL DEFAULT 'manual'
+                           CHECK (trigger IN ('manual', 'scheduled', 'policy_change')),
+            verdict        TEXT NOT NULL DEFAULT 'pending'
+                           CHECK (verdict IN ('pending', 'contained', 'partial',
+                                              'uncontained', 'degraded', 'error')),
+            probes         TEXT NOT NULL DEFAULT '[]',
+            reached_count  INTEGER NOT NULL DEFAULT 0,
+            blocked_count  INTEGER NOT NULL DEFAULT 0,
+            coverage       TEXT,
+            policy_preset  TEXT,
+            result_hash    TEXT,
+            prev_hash      TEXT
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_containment_proofs_time "
+        "ON containment_proofs (started_at DESC)"
+    )
+
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (44, CURRENT_TIMESTAMP, "
+        "'Agent egress governance — policy, per-destination audit, containment proofs')"
+    )
+    logger.info("Applied migration v44: egress policy + audit + containment proofs")
 
 
 # Future migration functions would be defined here:
