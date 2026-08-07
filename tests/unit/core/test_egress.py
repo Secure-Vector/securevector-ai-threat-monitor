@@ -184,7 +184,12 @@ class TestCompoundCommands:
     def test_each_segment_classified_independently(self):
         attempts = extract_from_bash("curl https://a.example.com; git push https://b.example.com/r main").attempts
         hosts = {a.host for a in attempts}
-        assert "a.example.com" in hosts and "b.example.com" in hosts
+        # Equality rather than two membership checks: it also catches a third
+        # host being extracted from a two-destination command, and it keeps
+        # CodeQL from reading `<host literal> in <url-derived value>` as a
+        # substring URL check (py/incomplete-url-substring-sanitization).
+        # `hosts` is a set, so this was always exact matching, not substring.
+        assert hosts == {"a.example.com", "b.example.com"}
 
 
 class TestPresets:

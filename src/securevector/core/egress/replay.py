@@ -35,7 +35,6 @@ what replay rules out is the *known* breakage, which is the part that actually
 stops people from turning strictness on.
 """
 
-import logging
 from typing import Optional
 
 from .destinations import EgressAttempt
@@ -48,8 +47,6 @@ from .engine import (
     evaluate_attempt,
     load_baseline_pack,
 )
-
-logger = logging.getLogger(__name__)
 
 # Baseline rule ids whose match depends on a command-derived flag that the
 # audit row does not carry. When the recorded verdict names one of these, the
