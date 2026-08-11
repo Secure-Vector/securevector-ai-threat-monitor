@@ -103,6 +103,42 @@ const GuideConnectAgentsPage = {
             .ca-detect-chev { flex: none; font-size: 11px; color: var(--text-muted);
                 transition: transform 0.15s; }
             .ca-detect-body { padding: 4px 14px 14px; border-top: 1px solid var(--border-default); }
+
+            /* High-level flow: agents → engine → outcomes. Each node carries a
+               line drawing so the mental model reads before the words do: a
+               harnessed fleet, a lens over every call, a console watching the
+               result. Art is monochrome and inherits colour from the node, so
+               only the engine (the one node that is a security control) takes
+               the teal accent. */
+            .ca-flow { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 0 0 22px; }
+            .ca-flow-node { flex: 1 1 0; min-width: 132px; display: flex; flex-direction: column;
+                align-items: center; text-align: center; gap: 7px; padding: 12px 10px 11px;
+                border: 1px solid var(--border-default); border-radius: 10px;
+                background: var(--bg-card); }
+            .ca-flow-node.accent { border-color: var(--accent-primary);
+                background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-card)); }
+            .ca-flow-art { flex: none; height: 36px; color: var(--text-muted); }
+            .ca-flow-node.accent .ca-flow-art { color: var(--accent-primary); }
+            .ca-flow-title { font-family: var(--font-display); font-size: 11.5px; font-weight: 600;
+                letter-spacing: -0.01em; line-height: 1.25; color: var(--text-primary); }
+            .ca-flow-sub { font-size: 10px; line-height: 1.3; color: var(--text-muted); }
+            /* The nudge is the only motion here: it points, it does not decorate. */
+            .ca-flow-arrow { flex: none; align-self: center; display: flex; color: var(--text-muted);
+                animation: ca-flow-nudge 2.4s ease-in-out infinite; }
+            .ca-flow-arrow.d2 { animation-delay: 0.35s; }
+            @keyframes ca-flow-nudge {
+                0%, 100% { transform: translateX(0); opacity: 0.5; }
+                50% { transform: translateX(2px); opacity: 1; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .ca-flow-arrow { animation: none; opacity: 0.8; }
+            }
+            /* Stacked on narrow viewports; the arrow turns to keep pointing at
+               the next node rather than off the side of the card. */
+            @media (max-width: 560px) {
+                .ca-flow { flex-direction: column; }
+                .ca-flow-arrow { animation: none; transform: rotate(90deg); opacity: 0.8; }
+            }
         `;
         document.head.appendChild(st);
     },
@@ -442,37 +478,88 @@ const GuideConnectAgentsPage = {
         // engine, which monitors/secures/governs every tool call. The engine
         // is what runs "on this device or in your cloud" (step 2). Visual, so
         // it earns its space without adding prose.
-        const mkNode = (title, sub, accent) => {
+        // Line art, 56x36, drawn on a shared stroke so all three read as one
+        // set. Decorative only in the sense that it carries no state — it is
+        // never coloured by severity.
+        const flowArt = (inner) =>
+            '<svg viewBox="0 0 56 36" width="56" height="36" fill="none" stroke="currentColor" ' +
+            'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ' +
+            'focusable="false">' + inner + '</svg>';
+
+        // A fleet, not one agent: three heads of differing size, each tethered
+        // to a common rail. The harness is the point — they run on a leash.
+        const ART_FLEET = flowArt(
+            // antennae
+            '<path d="M11.5 5.5V8"/><circle cx="11.5" cy="4.6" r="0.9"/>' +
+            '<path d="M28 2.5V5"/><circle cx="28" cy="1.6" r="0.9"/>' +
+            '<path d="M44.5 5.5V8"/><circle cx="44.5" cy="4.6" r="0.9"/>' +
+            // heads
+            '<rect x="5.5" y="8" width="12" height="10" rx="3"/>' +
+            '<rect x="21" y="5" width="14" height="11.5" rx="3"/>' +
+            '<rect x="38.5" y="8" width="12" height="10" rx="3"/>' +
+            // eyes
+            '<circle cx="9" cy="12.6" r="0.95"/><circle cx="14" cy="12.6" r="0.95"/>' +
+            '<circle cx="25.2" cy="10.4" r="1"/><circle cx="30.8" cy="10.4" r="1"/>' +
+            '<circle cx="42" cy="12.6" r="0.95"/><circle cx="47" cy="12.6" r="0.95"/>' +
+            // tethers down to the harness rail
+            '<path d="M11.5 18v9.5"/><path d="M28 16.5v11"/><path d="M44.5 18v9.5"/>' +
+            '<path d="M5 27.5h46"/>'
+        );
+
+        // Calls enter left, leave right, and pass under a lens on the way. The
+        // check inside the glass is the whole claim: every call gets looked at,
+        // which is why this one sits on the outcome node rather than the engine.
+        // The call band sits high so the handle can fall away to the lower
+        // right at a true 45 degrees without clipping the outgoing lines — a
+        // handle dropped straight down reads as a balloon, not a lens.
+        const ART_LENS = flowArt(
+            '<path d="M2 7h14"/><path d="M2 14h14"/><path d="M2 21h14"/>' +
+            '<path d="M40 7h14"/><path d="M40 14h14"/><path d="M40 21h14"/>' +
+            '<circle cx="28" cy="14" r="8"/><path d="M33.7 19.7L38.8 24.8"/>' +
+            '<path d="M24.5 14l2.5 2.5 4.5-5"/>'
+        );
+
+        // A console with a shield beside it: the thing that is actually running,
+        // watching the stream and enforcing on it. This is the engine itself.
+        const ART_CONSOLE = flowArt(
+            '<rect x="3" y="5" width="31" height="21" rx="2.5"/>' +
+            '<path d="M7 19l5.5-5.5 4.5 3.5 5.5-7 4.5 4.5"/>' +
+            '<path d="M18.5 26v4"/><path d="M13 30h11"/>' +
+            '<path d="M44 10.5l6.5 2.5v5.5c0 4.3-2.7 7-6.5 8.5-3.8-1.5-6.5-4.2-6.5-8.5V13z"/>' +
+            '<path d="M41 19l2.2 2.2 4.3-4.6"/>'
+        );
+
+        const mkNode = (title, sub, art, accent) => {
             const d = document.createElement('div');
-            d.style.cssText = 'flex: 1 1 0; min-width: 124px; border-radius: 10px; padding: 9px 12px; ' +
-                (accent
-                    // Gradient border (cyan → red) via the padding-box/border-box
-                    // double-background trick so the corners stay rounded. The
-                    // SecureVector engine is the node that earns the highlight.
-                    ? 'border: 1.5px solid transparent; background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box, linear-gradient(90deg, color-mix(in srgb, ' + ACCENT + ' 70%, transparent), color-mix(in srgb, ' + DEEP + ' 45%, transparent)) border-box;'
-                    : 'border: 1px solid var(--border-default); background: var(--bg-card);');
+            d.className = 'ca-flow-node' + (accent ? ' accent' : '');
+            const a = document.createElement('div');
+            a.className = 'ca-flow-art';
+            a.innerHTML = art;
             const t = document.createElement('div');
-            t.style.cssText = 'font-size: 13px; font-weight: ' + (accent ? '800' : '700') + '; color: var(--text-primary);';
+            t.className = 'ca-flow-title';
             t.textContent = title;
             const s = document.createElement('div');
-            s.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 1px;';
+            s.className = 'ca-flow-sub';
             s.textContent = sub;
-            d.appendChild(t); d.appendChild(s);
+            d.appendChild(a); d.appendChild(t); d.appendChild(s);
             return d;
         };
-        const mkArrow = () => {
+        const mkArrow = (second) => {
             const a = document.createElement('div');
-            a.style.cssText = 'flex: none; align-self: center; color: var(--text-secondary); font-size: 16px; font-weight: 700;';
-            a.textContent = '→';
+            a.className = 'ca-flow-arrow' + (second ? ' d2' : '');
+            a.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" ' +
+                'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+                'stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+                '<path d="M2 8h10"/><path d="M9 4.5L12.5 8 9 11.5"/></svg>';
             return a;
         };
         const flow = document.createElement('div');
-        flow.style.cssText = 'display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px; margin: 0 0 22px;';
-        flow.appendChild(mkNode('Your agents', 'SDKs · plugins', false));
-        flow.appendChild(mkArrow());
-        flow.appendChild(mkNode('SecureVector engine', 'This device · or your cloud', true));
-        flow.appendChild(mkArrow());
-        flow.appendChild(mkNode('Monitor · Secure · Govern', 'every tool call', false));
+        flow.className = 'ca-flow';
+        flow.appendChild(mkNode('Your agents', 'SDKs · plugins', ART_FLEET, false));
+        flow.appendChild(mkArrow(false));
+        flow.appendChild(mkNode('SecureVector engine', 'This device · or your cloud', ART_CONSOLE, true));
+        flow.appendChild(mkArrow(true));
+        flow.appendChild(mkNode('Monitor · Secure · Govern', 'every tool call', ART_LENS, false));
         leftCol.appendChild(flow);
 
         // --- "Detected on this device" panel — a CONSENT-GATED local probe.
