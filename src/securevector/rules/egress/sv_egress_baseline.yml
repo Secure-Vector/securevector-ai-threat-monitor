@@ -1,0 +1,198 @@
+# SecureVector — Baseline egress rule pack
+#
+# The design constraint on this file: every rule must be correct WITHOUT
+# TUNING. Baseline ships on by default for every install, so a rule that
+# produces false positives here is not a bug in one deployment, it is the
+# reason the whole feature gets disabled everywhere.
+#
+# The test each rule must pass before it belongs in this pack:
+#   1. Is the behaviour RARE in ordinary agent work?
+#   2. Is it UNAMBIGUOUS when it fires (no legitimate reading)?
+#   3. Would blocking it ever break a normal build/test/dev loop?
+#
+# Anything that fails those tests belongs in the `hardened` or `contained`
+# preset, where the operator has opted into tuning. Baseline is not
+# "well-tuned" — it is permanently correct because of what it declines to
+# cover. Resist adding rules here.
+#
+# Reads are deliberately absent. Agents legitimately reach PyPI, npm, GitHub,
+# docs sites and MCP endpoints constantly and that set cannot be enumerated in
+# advance; blocking reads by default is the version of this feature that gets
+# uninstalled on day one.
+
+version: 1
+pack: baseline
+description: >-
+  Deny-by-default rules for network operations that are rare in normal agent
+  work and unambiguous when they occur. Reads are recorded, never blocked.
+
+rules:
+  # ---------------------------------------------------------------- publish --
+  - id: sv.egress.package_publish
+    title: Package or registry publish
+    severity: critical
+    match:
+      is_publish: true
+    effect: deny
+    rationale: >-
+      Publishing a package from an agent session is the exact path by which the
+      2026-08 eval-containment incident reached ~15 third-party systems. An
+      agent that publishes has escaped its blast radius in a way no rollback
+      recovers: the artifact is already on other people's machines.
+    remediation: >-
+      If this agent is meant to publish, promote this destination explicitly.
+      Prefer running publishes from CI with a scoped credential rather than
+      from an interactive agent session.
+
+  # -------------------------------------------------------- cloud metadata --
+  - id: sv.egress.cloud_metadata
+    title: Cloud instance metadata endpoint
+    severity: critical
+    match:
+      hosts:
+        - 169.254.169.254        # AWS / GCP / Azure / OpenStack IMDS
+        - metadata.google.internal
+        - metadata.goog
+    effect: deny
+    # NOTE: on an EC2/GCE-hosted CI runner, fetching instance credentials is
+    # legitimate. That is why `ci_exempt` exists — a runner profile can waive
+    # this one rule without waiving the pack. On a developer machine there is
+    # no legitimate reason for an agent to read IMDS.
+    ci_exempt: true
+    rationale: >-
+      The instance metadata service hands out live cloud credentials to anything
+      that can reach it. An agent reading IMDS converts a code-execution
+      foothold into cloud account access, and nothing downstream of that point
+      is contained.
+    remediation: >-
+      On a CI runner that legitimately needs instance credentials, enable the
+      runner profile exemption. On a workstation, treat a hit here as an
+      incident and check what prompted it.
+
+  # ------------------------------------------------------------- drop sites --
+  - id: sv.egress.known_drop_sites
+    title: Anonymous paste / file-drop / tunnel endpoint
+    severity: high
+    match:
+      operation: [write, unknown]
+      host_suffixes:
+        - pastebin.com
+        - hastebin.com
+        - paste.ee
+        - ghostbin.com
+        - dpaste.com
+        - termbin.com
+        - webhook.site
+        - requestbin.com
+        - pipedream.net
+        - ngrok.io
+        - ngrok-free.app
+        - trycloudflare.com
+        - localtunnel.me
+        - transfer.sh
+        - file.io
+        - anonfiles.com
+        - gofile.io
+        - 0x0.st
+        - oshi.at
+        - bashupload.com
+    effect: deny
+    rationale: >-
+      These endpoints exist to move data to an anonymous third party with no
+      account and no audit trail. There is no legitimate reason for a coding
+      agent to send bytes to one. Reads are not matched — fetching a public
+      paste is occasionally legitimate; writing to one never is.
+    remediation: >-
+      If a workflow genuinely needs an ephemeral file drop, use a destination
+      your organisation controls and promote it explicitly.
+
+  # ------------------------------------------------------------ git remotes --
+  - id: sv.egress.git_push_inline_url
+    title: Push to a git remote given as a literal URL
+    severity: high
+    match:
+      kinds: [git]
+      operation: [write]
+      inline_remote: true
+    effect: deny
+    # This is the form of the foreign-remote check that actually works from a
+    # tool hook. The `foreign_git_remote` rule below needs origin's host from
+    # .git/config, which a hook does not have; without it that rule is inert.
+    # An inline push URL needs no such context and is unambiguous on its own:
+    # ordinary pushes name a configured remote (`git push`, `git push origin
+    # main`), so a literal URL means the repository's configured remotes were
+    # deliberately bypassed.
+    rationale: >-
+      Pushing to a URL written directly on the command line skips the
+      repository's configured remotes entirely. This is how source leaves the
+      perimeter while looking like ordinary version control, and it is the one
+      push shape that carries its own evidence.
+    remediation: >-
+      Push to a configured remote. If this destination is legitimate, add it as
+      a named remote and promote its host.
+
+  - id: sv.egress.git_push_foreign_remote
+    title: Push to a remote other than the repository's origin
+    severity: high
+    match:
+      kinds: [git]
+      operation: [write]
+      foreign_git_remote: true
+    effect: deny
+    rationale: >-
+      Pushing to a remote the repository was not cloned from is how source
+      leaves the perimeter under the appearance of ordinary version control. A
+      push to origin is normal; a push somewhere else is a decision a human
+      should have made.
+    remediation: >-
+      Add the remote to the allowed git destinations if the push is intended.
+      This rule only fires when the target host differs from origin's host.
+
+  # ------------------------------------------------------- internal ranges --
+  - id: sv.egress.internal_ranges
+    title: Reach into private or link-local address space
+    severity: high
+    match:
+      cidrs:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 100.64.0.0/10          # CGNAT / tailnet space
+        - fc00::/7               # IPv6 unique-local
+        - fe80::/10              # IPv6 link-local
+    # IPv4 link-local (169.254.0.0/16) is deliberately NOT listed here. It is
+    # owned by the `cloud_metadata` rule above, which carries `ci_exempt` so a
+    # runner that legitimately reads instance credentials can waive it. Listing
+    # the range in both places would make that exemption unreachable: the CI
+    # profile would skip the metadata rule and then be blocked by this one.
+    effect: deny
+    # Loopback is deliberately NOT in this list. The agent talks to the local
+    # SecureVector app on loopback, and developers legitimately run services on
+    # 127.0.0.1 all day. Loopback is covered by the separate port rule below.
+    rationale: >-
+      An agent reaching RFC1918 or link-local space from a workstation is
+      probing infrastructure it was not pointed at. This is the SSRF-shaped
+      reach that turns a local agent into a lateral-movement tool.
+    remediation: >-
+      Internal services the agent is supposed to reach should be promoted by
+      host. If a whole range is legitimate, define it in a hardened policy
+      rather than disabling this rule.
+
+  - id: sv.egress.loopback_service_probe
+    title: Probe of a loopback port the agent was not pointed at
+    severity: medium
+    match:
+      hosts: [127.0.0.1, localhost, "::1", 0.0.0.0]
+      operation: [write, unknown]
+      exclude_ports_from_settings: true   # SecureVector's own port is never matched
+    effect: log_only
+    # log_only, not deny: developers run local services constantly and an agent
+    # touching one is usually correct. This exists to make lateral probing
+    # visible in the audit trail without generating a single false block.
+    rationale: >-
+      Recorded rather than blocked. A local service sweep is a meaningful signal
+      in aggregate (see scope-expansion) but any individual call is almost
+      always a developer running their own stack.
+    remediation: >-
+      No action needed for normal local development. Investigate if the audit
+      shows a sweep across many ports in one run.

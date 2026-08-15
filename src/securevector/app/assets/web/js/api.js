@@ -853,6 +853,68 @@ const API = {
     async getBudgetGuardian() {
         return this.request('/api/costs/budget/guardian').catch(() => null);
     },
+
+    // ---------------------------------------------------------- egress ---
+    // Read paths degrade to null so a missing policy or an unrun proof
+    // renders as an honest empty state rather than a page-level error. The
+    // write paths (proof, replay, promote) deliberately do NOT swallow: the
+    // operator asked for something and needs to know it did not happen.
+
+    async getEgressPolicy() {
+        return this.request('/api/egress/policy').catch(() => null);
+    },
+    async getEgressPresets() {
+        return this.request('/api/egress/presets').catch(() => null);
+    },
+    async patchEgressPolicy(patch) {
+        return this.request('/api/egress/policy', {
+            method: 'PATCH', body: JSON.stringify(patch || {}),
+        });
+    },
+    async promoteEgressHost(host) {
+        return this.request('/api/egress/promote', {
+            method: 'POST', body: JSON.stringify({ host }),
+        });
+    },
+    async getEgressBlastRadius(days = 30) {
+        return this.request(`/api/egress/blast-radius?days=${days}`).catch(() => null);
+    },
+    async getEgressDestinations(days = 30) {
+        return this.request(`/api/egress/destinations?days=${days}`)
+            .catch(() => ({ destinations: [], distinct_hosts: 0 }));
+    },
+    async getEgressScope(days = 7) {
+        return this.request(`/api/egress/scope?days=${days}`).catch(() => null);
+    },
+    async getEgressPolicyHealth(days = 30) {
+        return this.request(`/api/egress/policy-health?days=${days}`).catch(() => null);
+    },
+    async getEgressAudit(limit = 100, action = null) {
+        const q = new URLSearchParams({ limit });
+        if (action) q.set('action', action);
+        return this.request(`/api/egress/audit?${q}`).catch(() => ({ rows: [] }));
+    },
+    async replayEgressPolicy(body) {
+        return this.request('/api/egress/replay', {
+            method: 'POST', body: JSON.stringify(body || {}),
+        });
+    },
+    async getContainmentPreflight() {
+        return this.request('/api/egress/proof/preflight').catch(() => null);
+    },
+    async runContainmentProof(trigger = 'manual') {
+        return this.request(`/api/egress/proof?trigger=${trigger}`, { method: 'POST' });
+    },
+    async getLatestContainmentProof() {
+        return this.request('/api/egress/proof/latest').catch(() => null);
+    },
+    async getContainmentDrift() {
+        return this.request('/api/egress/proof/drift').catch(() => null);
+    },
+    async getContainmentProofHistory(limit = 20) {
+        return this.request(`/api/egress/proof/history?limit=${limit}`)
+            .catch(() => ({ proofs: [] }));
+    },
 };
 
 // Make API globally available

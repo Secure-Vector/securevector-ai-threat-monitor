@@ -20,7 +20,7 @@
 
 'use strict';
 
-const { fetchSyncedOverrides, postJsonAndForget } = require('./client.js');
+const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('./client.js');
 const { redactForScan } = require('./redact.js');
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
@@ -195,7 +195,48 @@ async function readAllStdin() {
   return buf;
 }
 
+
+/**
+ * Egress gate: does this call's network destination violate the policy?
+ *
+ * Cursor's hook model has no tool name on the shell/MCP events — the event
+ * type IS the tool — so callers pass the synthesized name and the payload the
+ * server-side extractor needs (`{command}` for shell, an endpoint for MCP).
+ *
+ * Fail-open on every error path, matching the rest of this plugin. A policy
+ * that opted into fail-closed is enforced server-side, where the policy lives.
+ */
+async function decideEgress(baseUrl, toolName, toolInput, sessionId, mcpEndpoint) {
+  try {
+    const result = await evaluateEgress(baseUrl, {
+      tool_name: toolName,
+      tool_input: toolInput || {},
+      runtime_kind: RUNTIME_KIND,
+      session_id: sessionId,
+      mcp_endpoint: mcpEndpoint || null,
+    });
+    if (!result || result.action !== 'block') return { decision: 'allow' };
+    const top = Array.isArray(result.verdicts)
+      ? result.verdicts.find((v) => v && v.action === 'block')
+      : null;
+    let reason = (top && top.reason) || result.reason || 'Blocked by egress policy';
+    if (top && top.remediation) reason += ` ${top.remediation}`;
+    return {
+      decision: 'deny',
+      reason,
+      toolId: toolName,
+      // A JIT grant is keyed on tool_id, which would open the tool for every
+      // host rather than the destination under review. Not requestable in v1.
+      requestable: false,
+      egress: true,
+    };
+  } catch {
+    return { decision: 'allow' };
+  }
+}
+
 module.exports = {
+  decideEgress,
   decideFromOverrides,
   decideForCandidates,
   maybeFileJitRequest,

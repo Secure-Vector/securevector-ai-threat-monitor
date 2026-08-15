@@ -34,7 +34,7 @@ const CommandPalette = {
             // ids remain routable straight to the right facet.
             if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
                 'blocked-ledger', 'redactions', 'costs'].includes(id)) return 'Visibility';
-            if (['tool-permissions', 'rules', 'skill-scanner', 'guardian-ml',
+            if (['tool-permissions', 'rules', 'egress', 'skill-scanner', 'guardian-ml',
                 'cost-settings', 'governance', 'mcp-policies'].includes(id)) return 'Govern';
             if (['connect-wizard', 'guide-connect-agents', 'integrations'].includes(id) || id.startsWith('proxy-')) return 'Connect';
             if (['siem-export', 'cloud-activity'].includes(id)) return 'Cloud & Forwarders';

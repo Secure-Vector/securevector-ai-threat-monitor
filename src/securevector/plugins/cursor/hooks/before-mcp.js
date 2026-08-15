@@ -21,7 +21,7 @@
 
 const { normalize } = require('../lib/normalize.js');
 const {
-  decideForCandidates, maybeFileJitRequest, toCursorOutput, auditDecision,
+  decideForCandidates, decideEgress, maybeFileJitRequest, toCursorOutput, auditDecision,
   sessionIdFrom, readAllStdin, DEFAULT_BASE_URL,
 } = require('../lib/decide.js');
 
@@ -78,10 +78,27 @@ async function main() {
         serverSlug: serverSlugFrom(event),
       });
       decision = await decideForCandidates(candidates, baseUrl, sessionId);
+      // A remote MCP server is an egress proxy: only its endpoint is
+      // observable from here, and whatever it reaches downstream is
+      // structurally invisible. Recording the endpoint is still worth doing,
+      // and an endpoint on the denylist should not be reachable by proxy.
+      if (decision.decision === 'allow') {
+        const endpoint = (event && (event.server_url || event.serverUrl
+          || event.url || event.endpoint)) || null;
+        if (endpoint) {
+          decision = await decideEgress(
+            baseUrl, toolName, event && event.tool_input, sessionId, endpoint,
+          );
+        }
+      }
     } catch {
       decision = { decision: 'allow' };
     }
-    auditDecision(baseUrl, toolName, event && event.tool_input, decision, sessionId);
+    // Egress denies are persisted server-side already; auditing here too
+    // would double-count the same block across two surfaces.
+    if (!decision.egress) {
+      auditDecision(baseUrl, toolName, event && event.tool_input, decision, sessionId);
+    }
     decision = maybeFileJitRequest(baseUrl, toolName, decision, sessionId);
     out = toCursorOutput(decision);
   } catch {

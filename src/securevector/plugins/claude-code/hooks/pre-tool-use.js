@@ -29,8 +29,35 @@
 'use strict';
 
 const { normalize } = require('../lib/normalize.js');
-const { fetchSyncedOverrides, postJsonAndForget } = require('../lib/client.js');
+const { fetchSyncedOverrides, postJsonAndForget, evaluateEgress } = require('../lib/client.js');
 const { redactForScan } = require('../lib/redact.js');
+
+/**
+ * Tools that can reach the network. Everything else short-circuits before any
+ * egress round-trip, so the overwhelmingly common Read/Edit/Glob/Grep path
+ * costs one Set lookup and adds zero latency.
+ *
+ * Kept in sync with NETWORK_CAPABLE_BUILTINS in core/egress/destinations.py.
+ * A name missing here means egress is silently not enforced for that tool, so
+ * err toward including anything plausibly network-capable: the server-side
+ * extractor returns `network_capable: false` for a tool it cannot route, which
+ * costs one wasted round-trip and nothing else.
+ */
+const NETWORK_CAPABLE = new Set([
+  'webfetch', 'websearch', 'bash', 'powershell',
+  // Runtimes name their shell tool differently; this must stay a superset.
+  // Mirrors NETWORK_CAPABLE_BUILTINS in core/egress/destinations.py.
+  'shell', 'exec', 'terminal', 'run_terminal_cmd', 'runcommand', 'execute_command',
+]);
+
+function isNetworkCapable(toolName) {
+  const n = String(toolName || '').toLowerCase();
+  // Remote MCP servers are egress proxies: the server endpoint is the only
+  // destination observable from here, and whatever it reaches downstream is
+  // structurally invisible. Still worth evaluating so the endpoint is on the
+  // record.
+  return NETWORK_CAPABLE.has(n) || n.startsWith('mcp__');
+}
 
 const EFFECT_TO_DECISION = Object.freeze({
   allow: 'allow',
@@ -203,11 +230,63 @@ function toHookOutput(d) {
  * @param {string} baseUrl   Local app base URL.
  * @returns {Promise<{permissionDecision: 'allow'|'deny'|'ask', message?: string}>}
  */
-async function decide(toolName, baseUrl, sessionId = null) {
+async function decide(toolName, baseUrl, sessionId = null, toolInput = null) {
   const candidates = normalize(toolName);
-  if (candidates.length === 0) return ALLOW; // unknown tool — short-circuit, no fetch
-  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
-  return decideFromOverrides(candidates, overrides, sessionId);
+  // Tool-permission rules key off the tool NAME. Egress rules key off the
+  // DESTINATION, so a tool with no name-based rule can still be denied for
+  // where it points — which means the egress check must run even when
+  // normalize() yields no candidates.
+  if (candidates.length > 0) {
+    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+    const decision = decideFromOverrides(candidates, overrides, sessionId);
+    // A name-based deny already stops the call; evaluating egress on top would
+    // add latency and a duplicate audit row for a call that never happens.
+    if (decision.decision !== 'allow') return decision;
+  }
+  return decideEgress(toolName, toolInput, baseUrl, sessionId);
+}
+
+
+/**
+ * Second gate: does this call's network destination violate the egress policy?
+ *
+ * Extraction and evaluation live server-side so there is one implementation of
+ * shell-command parsing rather than one per runtime plugin. This function only
+ * decides whether the round-trip is worth making.
+ *
+ * Fail-open on every error path, consistent with locked decision #5. When the
+ * policy is fail-closed the server returns `block` itself; an unreachable
+ * server cannot convey that intent, and wedging every agent on the machine
+ * because the local app stopped is the wrong failure mode.
+ */
+async function decideEgress(toolName, toolInput, baseUrl, sessionId) {
+  if (!isNetworkCapable(toolName)) return ALLOW;
+  try {
+    const result = await evaluateEgress(baseUrl, {
+      tool_name: toolName,
+      tool_input: toolInput || {},
+      runtime_kind: RUNTIME_KIND,
+      session_id: sessionId,
+    });
+    if (!result || result.action !== 'block') return ALLOW;
+    const top = Array.isArray(result.verdicts)
+      ? result.verdicts.find((v) => v && v.action === 'block')
+      : null;
+    let reason = (top && top.reason) || result.reason || 'Blocked by egress policy';
+    if (top && top.remediation) reason += ` ${top.remediation}`;
+    return {
+      decision: 'deny',
+      reason,
+      toolId: toolName,
+      // Egress denies are not JIT-requestable in v1. The JIT flow grants access
+      // to a TOOL; egress denies are about a DESTINATION, and a grant keyed on
+      // tool_id would open the tool for every host, not the one under review.
+      requestable: false,
+      egress: true,
+    };
+  } catch {
+    return ALLOW;
+  }
 }
 
 
@@ -231,9 +310,10 @@ async function main() {
   const toolName = (event && (event.tool_name || event.toolName)) || '';
   const baseUrl = process.env.SECUREVECTOR_ENGINE_ENDPOINT || process.env.SV_BASE_URL || DEFAULT_BASE_URL;
   const sessionId = (event && (event.session_id || event.sessionId)) || null;
+  const toolInput = (event && (event.tool_input || event.toolInput)) || null;
   let decision = ALLOW;
   try {
-    decision = await decide(toolName, baseUrl, sessionId);
+    decision = await decide(toolName, baseUrl, sessionId, toolInput);
   } catch {
     decision = ALLOW;
   }
@@ -242,8 +322,10 @@ async function main() {
   // Fire-and-forget: a slow / unreachable local app cannot delay the
   // decision return below. The enforcement decision was already
   // computed above; this is purely the audit row.
-  if (decision.decision === 'deny' && decision.toolId) {
-    const toolInput = event && (event.tool_input || event.toolInput);
+  // Egress denies are already persisted server-side (one row per destination
+  // in egress_audit, written by /api/egress/evaluate before it answered).
+  // Posting here too would double-count the same block in two audit surfaces.
+  if (decision.decision === 'deny' && decision.toolId && !decision.egress) {
     postJsonAndForget(
       `${baseUrl}/api/tool-permissions/call-audit`,
       buildAuditBody(toolName, decision.toolId, toolInput, decision.decision, decision.reason, sessionId),

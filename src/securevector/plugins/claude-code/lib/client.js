@@ -125,4 +125,55 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
   return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
 }
 
-module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, authHeaders, DEFAULT_TIMEOUT_MS };
+/**
+ * Egress evaluation needs a longer budget than the 100ms synced-overrides GET.
+ * It parses a shell command and evaluates it against the policy, and unlike
+ * the overrides fetch there is no cached fallback — a timeout here means the
+ * call is simply not evaluated. 400ms is still invisible in interactive use
+ * and only applies to network-capable tools (WebFetch / Bash / remote MCP),
+ * which are a small fraction of tool calls.
+ */
+const EGRESS_TIMEOUT_MS = 400;
+
+/**
+ * Domain helper: POST a tool call to the local app's egress evaluator.
+ *
+ * Destination extraction and policy evaluation deliberately live server-side
+ * so there is ONE implementation of shell-command parsing rather than one per
+ * runtime plugin. This keeps the hook thin: it decides whether the tool could
+ * reach the network, and defers everything else.
+ *
+ * Fail-open like every other client path here: `{}` on any error, and the
+ * caller treats a missing `action` as allow. A policy that opted into
+ * fail-closed is enforced server-side, where the policy actually lives — the
+ * hook cannot know the intent when it cannot reach the app at all.
+ *
+ * @param {string} baseUrl
+ * @param {object} body  { tool_name, tool_input, runtime_kind, session_id }
+ * @returns {Promise<object>}  `{ action, verdicts, ... }` or `{}`.
+ */
+async function evaluateEgress(baseUrl, body, opts = {}) {
+  const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : EGRESS_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${baseUrl}/api/egress/evaluate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp || !resp.ok) return {};
+    const data = await resp.json();
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = {
+  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress,
+  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS,
+};

@@ -125,4 +125,41 @@ async function fetchSyncedOverrides(baseUrl, runtime, opts = {}) {
   return getJson(`${baseUrl}/api/tool-permissions/synced-overrides${q}`, opts);
 }
 
-module.exports = { getJson, postJsonAndForget, fetchSyncedOverrides, authHeaders, DEFAULT_TIMEOUT_MS };
+/**
+ * Egress evaluation needs a longer budget than the 100ms synced-overrides GET.
+ * It parses a shell command and evaluates it against the policy, and there is
+ * no cached fallback — a timeout means the call is simply not evaluated.
+ */
+const EGRESS_TIMEOUT_MS = 400;
+
+/**
+ * Domain helper: POST a tool call to the local app's egress evaluator.
+ * Extraction and policy evaluation live server-side so there is ONE
+ * implementation of shell-command parsing, not one per runtime plugin.
+ * Fail-open on every error path.
+ */
+async function evaluateEgress(baseUrl, body, opts = {}) {
+  const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : EGRESS_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${baseUrl}/api/egress/evaluate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp || !resp.ok) return {};
+    const data = await resp.json();
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = {
+  getJson, postJsonAndForget, fetchSyncedOverrides, evaluateEgress,
+  authHeaders, DEFAULT_TIMEOUT_MS, EGRESS_TIMEOUT_MS,
+};

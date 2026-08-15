@@ -135,6 +135,45 @@ class SVClient {
     }, 3_000).catch(() => {});
   }
 
+  /** Evaluate a tool call's NETWORK DESTINATION against the egress policy.
+   *
+   * Separate from `toolVerdict` because the two answer different questions:
+   * tool permissions govern WHETHER a tool may run, egress governs WHERE it
+   * may reach. A tool allowed by name can still be denied for its destination.
+   *
+   * Extraction and evaluation live server-side so there is one implementation
+   * of shell-command parsing rather than one per runtime plugin. Returns null
+   * when the tool cannot reach the network or the app is unreachable, so the
+   * caller treats a null as "no egress opinion" and falls through.
+   */
+  async egressVerdict(toolName: string, args: string): Promise<ToolVerdict | null> {
+    if (!isNetworkCapable(toolName)) return null;
+    let toolInput: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed && typeof parsed === "object") toolInput = parsed as Record<string, unknown>;
+    } catch {
+      // Non-JSON args (a bare command string) still carry a destination.
+      toolInput = { command: args };
+    }
+    const result = await this.post("/api/egress/evaluate", {
+      tool_name: toolName,
+      tool_input: toolInput,
+      runtime_kind: "openclaw",
+    }, 3_000).catch(() => null);
+    if (!result || result.action !== "block") return null;
+    const top = Array.isArray(result.verdicts)
+      ? result.verdicts.find((v: any) => v && v.action === "block")
+      : null;
+    return {
+      action: "block",
+      risk: (top && top.severity) || "high",
+      reason: (top && top.reason) || result.reason || "Blocked by egress policy",
+      tool_id: toolName,
+      is_essential: false,
+    };
+  }
+
   /** Fire-and-forget: record a tool call decision for audit trail. */
   recordToolAudit(toolName: string, verdict: ToolVerdict, sessionKey: string, argsPreview: string): void {
     // Redact common secret patterns before persisting to audit log
@@ -226,6 +265,21 @@ interface ScanResult {
   matched_rules: Array<{ rule_id: string; rule_name: string; category: string; severity: string }>;
   processing_time_ms: number;
   action_taken: string;
+}
+
+/** Tools that can reach the network. Mirrors NETWORK_CAPABLE_BUILTINS in
+ * core/egress/destinations.py. A name missing here means egress is silently
+ * not enforced for that tool, so this stays a superset of every runtime's
+ * shell tool name. */
+const NETWORK_CAPABLE = new Set([
+  "webfetch", "websearch", "bash", "powershell",
+  "shell", "exec", "terminal", "run_terminal_cmd", "runcommand", "execute_command",
+]);
+
+function isNetworkCapable(toolName: string): boolean {
+  const n = String(toolName || "").toLowerCase();
+  // A remote MCP server is an egress proxy: only its endpoint is observable.
+  return NETWORK_CAPABLE.has(n) || n.startsWith("mcp__");
 }
 
 interface ToolVerdict {
@@ -451,7 +505,14 @@ export default {
 
         const { blockMode } = await sv.getSettings();
         for (const [toolName, args] of byName) {
-          const verdict = await sv.toolVerdict(toolName);
+          // Tool permissions govern WHETHER the tool may run; egress governs
+          // WHERE it reaches. Consult egress only when the name-based verdict
+          // did not already block, so one call yields one decision.
+          let verdict = await sv.toolVerdict(toolName);
+          if (!verdict || verdict.action !== "block") {
+            const egress = await sv.egressVerdict(toolName, args);
+            if (egress) verdict = egress;
+          }
           if (!verdict) continue;
           const auditVerdict = (!blockMode && verdict.action === "block")
             ? { ...verdict, action: "log_only" as const, reason: `${verdict.reason} (audit only — enable proxy to block)` }

@@ -72,6 +72,10 @@ const Sidebar = {
         { id: 'policies-controls', label: 'Policies & Controls', icon: 'lock', collapsible: true, defaultExpanded: true, subItems: [
             { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
             { id: 'rules', label: 'Rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
+            // Tool Permissions governs WHETHER a tool runs; egress governs WHERE
+            // it may reach. A tool allowed by name can still be denied its
+            // destination, so the two sit side by side rather than nested.
+            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it.' },
             // Skills + Tools entries cover their primary "configure" surfaces
             // (the Permissions / Policy tabs); the Activity / Tracking tabs
             // are surfaced under Observability above.
@@ -271,12 +275,27 @@ const Sidebar = {
         logo.textContent = 'SecureVector';
         brandRow.appendChild(logo);
 
-        // App version badge. Keep in sync with __version__ in
-        // src/securevector/__init__.py on every release bump.
+        // App version badge, read from the running server rather than typed
+        // here. A literal needing a manual bump every release is how the app
+        // shipped 5.1.0 while announcing 5.0.0 elsewhere; /health already
+        // reports the real version, so ask it. The major-only string stays as
+        // the pre-fetch value so the chip never renders empty or shifts width
+        // noticeably when the answer arrives.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
         version.textContent = 'v5';
-        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
+        fetch('/health')
+            .then(r => r.ok ? r.json() : null)
+            // Shape-check before it lands in chrome: a version is short and
+            // alphanumeric, and nothing else belongs in this slot.
+            .then(d => {
+                const v = d && d.version ? String(d.version) : '';
+                if (/^[\w.+-]{1,20}$/.test(v)) version.textContent = 'v' + v;
+            })
+            .catch(() => {});   // offline or mid-restart: the fallback stands
+        // Reserve the settled width so the chip does not jump from 'v5' to
+        // 'v5.1.0' once /health answers.
+        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);min-width:5ch;display:inline-block;';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
 

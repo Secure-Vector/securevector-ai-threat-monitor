@@ -50,7 +50,7 @@ async def test_v33_creates_tool_id_called_at_index(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_advances_to_43(tmp_path):
+async def test_schema_version_advances_to_44(tmp_path):
     # v34 — added redaction_events audit log (backs the local Secret
     # Detections page sibling to Tool Inventory).
     # v35 — added redaction_events.runtime_kind for per-row plugin
@@ -74,12 +74,17 @@ async def test_schema_version_advances_to_43(tmp_path):
     # v43 — added JIT tool-access request/grant lifecycle tables plus the
     # `requestable` flag on synced_tool_rules (policy-marked soft denies an
     # agent may request time-boxed access to).
+    # v44 — added agent egress governance: egress_policies (destination policy
+    # + preset), egress_audit (one row per destination reached, not per tool
+    # call), and containment_proofs (hash-chained results of the controlled
+    # self-test that verifies the containment boundary rather than asserting
+    # it). See story #198.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 43
+    assert CURRENT_SCHEMA_VERSION == 44
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 43
+    assert row["v"] == 44
 
 
 # --- Cleanup_old_audit_records --------------------------------------------

@@ -73,6 +73,9 @@ const App = {
         'siem-export':       SiemExportPage,
         'skill-scanner':     { render: (c) => { SkillScannerPage.activeTab = 'scanner';     return SkillScannerPage.render(c); } },
         'skill-permissions': { render: (c) => { SkillScannerPage.activeTab = 'permissions'; return SkillScannerPage.render(c); } },
+        // Agent Egress — observed destinations + destination policy (#198).
+        // The containment self-test tab is withheld; see js/pages/egress.js.
+        egress:              EgressPage,
     },
 
     /**
