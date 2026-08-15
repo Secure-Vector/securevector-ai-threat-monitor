@@ -275,11 +275,19 @@ const Sidebar = {
         logo.textContent = 'SecureVector';
         brandRow.appendChild(logo);
 
-        // App version badge. Keep in sync with __version__ in
-        // src/securevector/__init__.py on every release bump.
+        // App version badge, read from the running server rather than typed
+        // here. A literal needing a manual bump every release is how the app
+        // shipped 5.1.0 while announcing 5.0.0 elsewhere; /health already
+        // reports the real version, so ask it. The major-only string stays as
+        // the pre-fetch value so the chip never renders empty or shifts width
+        // noticeably when the answer arrives.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
         version.textContent = 'v5';
+        fetch('/health')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d && d.version) version.textContent = 'v' + d.version; })
+            .catch(() => {});   // offline or mid-restart: the fallback stands
         version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
