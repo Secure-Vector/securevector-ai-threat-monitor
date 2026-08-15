@@ -1372,29 +1372,35 @@ const DashboardPage = {
             if (b) b.tools += Number(row.n || 0);
         });
 
-        // LLM runs: how many times the agents actually called a model. This is
-        // `generation_total` — the same number the Traces masthead prints as
-        // "N LLM runs" — and it lives on the trace DETAIL, because generations
-        // are rebuilt from the runtime transcript. The list endpoint carries
-        // tool spans only, so the count has to be gathered per trace.
+        // LLM runs: how many times the agents actually called a model — the
+        // `generation` span, the same thing the Traces masthead counts as
+        // "N LLM runs". Each one is bucketed by its OWN called_at, never by the
+        // trace's start: a coding session routinely runs past midnight (one
+        // here spans 08/10 to 08/12), and charging its whole run count to the
+        // start day invents a spike on one day and empties the rest.
         //
-        // llm_cost_records is not used here: only the proxy and the SDKs write
-        // it, so a hook-only install would report zero model calls while its
+        // llm_cost_records is not used: only the proxy and the SDKs write it,
+        // so a hook-only install would report zero model calls while its own
         // traces plainly show thousands.
         const traceList = await API.getTraces({ window_days: days, limit: 500 }).catch(() => null);
         const runs = (traceList && traceList.runs) || [];
-        // Each detail parses a transcript, so cap the fan-out and say so when
-        // it truncates rather than quietly under-reporting.
+        // Each detail rebuilds generations from the runtime transcript, so cap
+        // the fan-out and disclose both limits rather than under-report quietly.
         const LLM_TRACE_CAP = 60;
         const scanned = runs.slice(0, LLM_TRACE_CAP);
-        let llmTruncated = runs.length > scanned.length;
+        const llmTracesTruncated = runs.length > scanned.length;
+        let llmSpansTruncated = false;
         const details = await Promise.all(scanned.map(r =>
-            API.getTrace(r.trace_id).then(d => [r, d]).catch(() => [r, null])
+            API.getTrace(r.trace_id).catch(() => null)
         ));
-        details.forEach(([r, d]) => {
+        details.forEach(d => {
             if (!d) return;
-            const b = bucketFor(r.started_at);
-            if (b) b.llm += Number(d.generation_total || 0);
+            if (d.generation_truncated) llmSpansTruncated = true;
+            (d.spans || []).forEach(sp => {
+                if (sp.span_kind !== 'generation') return;
+                const b = bucketFor(sp.called_at);
+                if (b) b.llm++;
+            });
         });
 
         container.textContent = '';
@@ -1449,10 +1455,12 @@ const DashboardPage = {
             onSelect: (s) => { if (window.Sidebar) Sidebar.navigate(s.page); },
         });
 
-        if (llmTruncated) {
+        if (llmTracesTruncated || llmSpansTruncated) {
             const n = document.createElement('div');
             n.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
-            n.textContent = `LLM runs counted across the ${scanned.length} most recent traces of ${runs.length} in this window`;
+            n.textContent = llmTracesTruncated
+                ? `LLM runs counted across the ${scanned.length} most recent traces of ${runs.length} in this window`
+                : 'LLM runs undercount a long session whose per-call detail is capped';
             container.appendChild(n);
         }
         if (threatTotal > threatItems.length) {
