@@ -527,7 +527,7 @@ const DashboardPage = {
         const chartDays = this.rangeDays;
         const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
 
-        const trendCard = Card.create({ title: `Threats: ${chartLabel}`, gradient: true });
+        const trendCard = Card.create({ title: `Tool Calls: ${chartLabel}`, gradient: true });
         const trendBody = trendCard.querySelector('.card-body');
         trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(trendCard);
@@ -1305,17 +1305,24 @@ const DashboardPage = {
     },
 
     /**
-     * Threats over the global range — the shape of the week, sitting directly
-     * above Recent Threat Activity so the feed below it has context.
+     * Audited tool-call volume over the global range — the shape of the week,
+     * and the only trend on this page that is not already stated as a number
+     * somewhere above it.
      *
-     * Deliberately ONE series. Tool-call and LLM-run volume were charted here
-     * too, and the pairing did not work: at hundreds of tool calls against a
-     * handful of threats the threat bars were unreadable stubs, and the two
-     * sources do not even have the same coverage (tool calls exist only where
-     * a Guard hook fired; LLM runs are rebuilt from the runtime transcript),
-     * so putting them on one axis implied a comparison neither side supports.
-     * Those totals already live where they belong: tool calls in the hero
-     * strip, LLM runs per agent on Traces.
+     * Deliberately ONE series, and deliberately not threats: the dashboard
+     * already leads with the threat headline, carries blocked/critical in the
+     * hero strip, and puts Recent Threat Activity directly below this card. A
+     * fourth threat surface plotting a handful of events earns nothing.
+     *
+     * Charting volume beside threats was worse still — at hundreds of calls
+     * against a handful of detections the threat bars were unreadable stubs,
+     * and the sources do not share coverage (a tool call is recorded only
+     * where a Guard hook fired), so one axis implied a comparison neither side
+     * supports. LLM runs live per agent on Traces for the same reason.
+     *
+     * Caveat this cannot fix here: a day when hook auditing stopped renders as
+     * a quiet day. Distinguishing "quiet" from "not recorded" needs capture
+     * coverage the app does not yet track.
      */
     async renderTrendChart(container, days = 7) {
         // Stored timestamps are UTC, but several tables write them without a
@@ -1347,39 +1354,37 @@ const DashboardPage = {
             ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
             : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
 
-        // Pull the window from the API rather than reusing the page's 50-row
-        // sample, so a 30-day chart is not a lie built on the latest 50 events.
-        const startIso = new Date(Date.now() - days * 86400000).toISOString();
-        let items = [];
-        let total = 0;
-        for (let page = 1; page <= 3; page++) {
-            const resp = await API.getThreats({ page, page_size: 100, start_date: startIso }).catch(() => null);
-            if (!resp) break;
-            items = items.concat(resp.items || []);
-            total = resp.total || items.length;
-            if (items.length >= total || !(resp.items || []).length) break;
-        }
-        items.forEach(t => {
-            const b = buckets.find(x => x.key === keyOf(parseTs(t.created_at || new Date().toISOString())));
-            if (b) b.n++;
+        // Audited tool calls, aggregated server-side across the whole window so
+        // the chart is not capped by the feed's page size.
+        const activity = await API.getCallAuditActivity({ windowDays: days }).catch(() => null);
+        ((activity && activity.buckets) || []).forEach(row => {
+            // These are pre-aggregated buckets, not events. In daily mode the
+            // server stamps each at UTC midnight, so parsing it as an instant
+            // would drop it into the previous local day. Read a day bucket as
+            // the calendar date it is; only the 24h view's hourly buckets are
+            // real instants worth converting.
+            const raw = String(row.called_at || '');
+            let b;
+            if (hourly) {
+                b = buckets.find(x => x.key === keyOf(parseTs(raw)));
+            } else {
+                const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+                b = m ? buckets.find(x => x.key === `${Number(m[1])}-${Number(m[2]) - 1}-${Number(m[3])}`) : null;
+            }
+            if (b) b.n += Number(row.n || 0);
         });
 
         container.textContent = '';
         this._renderTimelineChart(container, {
             labels: buckets.map(b => b.label),
-            series: [{ label: 'Threats', color: '#ef4444', data: buckets.map(b => b.n) }],
+            series: [{ label: 'Tool calls', color: 'var(--accent-primary)', data: buckets.map(b => b.n) }],
             yFormat: n => Math.round(n).toLocaleString(),
             height: 180,
-            onSelect: () => { if (window.Sidebar) Sidebar.navigate('threats'); },
+            onSelect: () => { if (window.Sidebar) Sidebar.navigate('tool-activity'); },
         });
 
-        if (total > items.length) {
-            const note = document.createElement('div');
-            note.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
-            note.textContent = `Showing the most recent ${items.length.toLocaleString()} of ${total.toLocaleString()} detections in this window`;
-            container.appendChild(note);
-        }
     },
+
     renderRecentActivity(container) {
         const threats = this.threats.slice(0, 8);
 
