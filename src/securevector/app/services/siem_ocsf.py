@@ -521,19 +521,76 @@ def _fleet_tool_activity_row(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Engine's threat aggregate only accepts these severities; anything else is
+# coerced to "info" server-side — coerce locally too so the wire is explicit.
+_FLEET_SEVERITIES = {"critical", "high", "medium", "low", "info"}
+
+
+def _fleet_scan_verdict_row(p: dict[str, Any]) -> dict[str, Any]:
+    """Map a scan/output_scan outbox payload to the flat scan-verdict fleet
+    row (OCSF 2001) the cloud /ocsf/ingest routes into the per-org threat
+    aggregate (story #197 Phase 2).
+
+    Built from an explicit field allowlist — NEVER by passing the payload
+    through — so raw-data fields a `full`-tier SIEM destination may carry
+    (prompt_text, llm_output, matched_patterns) cannot reach the cloud even
+    if redaction is misconfigured. The engine independently rejects the
+    whole request on any raw-text field; this keeps us from ever tripping it.
+    """
+    severity = str(p.get("worst_rule_severity") or p.get("risk_level") or "").lower()
+    if severity not in _FLEET_SEVERITIES:
+        severity = "info"
+    return {
+        "ocsf_version": "1.3.0",
+        # class marker the engine's scan-verdict router matches on — routes to
+        # the threat aggregate, NOT tool activity (a blocked verdict must not
+        # count as a blocked tool call).
+        "category": "scan_verdict",
+        "timestamp": p.get("timestamp"),
+        # Enforcement, not opinion. `verdict` only says what the rules thought
+        # the event deserved — on a device with block_threats off, a BLOCK
+        # verdict is still logged and the prompt went through. Reporting that
+        # as "blocked" would tell the console a threat was stopped when it was
+        # not, which is the one direction of error a security dashboard must
+        # never make. The engine counts blocked when decision ∈ {blocked,
+        # block, denied, ...}; "detected" lands in the non-blocked tally, and
+        # both count as detections either way.
+        "decision": (
+            "blocked"
+            if "block" in str(p.get("action_taken") or "").lower()
+            else "detected"
+        ),
+        "severity": severity,
+        # category slugs only (threat types / rule categories) — no rule text.
+        "detected_types": list(p.get("detected_types") or []) or None,
+        # scan_id doubles as row_hash so the engine can dedupe replayed
+        # batches if/when the threat path gains the rows-table novelty check.
+        "scan_id": p.get("scan_id"),
+        "row_hash": p.get("scan_id"),
+        "session_id": p.get("conversation_id"),
+        "device_id": p.get("device_id"),
+    }
+
+
 def encode_fleet_jsonl(batch: list[dict[str, Any]]) -> bytes:
     """Encode outbox rows as newline-delimited flat fleet metadata (NDJSON).
 
-    Only tool_audit rows are forwarded to the fleet view (scan/output_scan
-    rows are SIEM-only and have no place in the agent map / runs). Returns
-    UTF-8 NDJSON bytes ready to POST to the cloud /ocsf/ingest endpoint.
+    tool_audit rows become tool-activity fleet rows. scan/output_scan rows
+    with a detection verdict (BLOCK/DETECTED) become scan-verdict rows so the
+    cloud console can show local-rule detections (#197 Phase 2) — ALLOW scans
+    are skipped: the engine counts every scan-verdict row as a detection, so
+    forwarding clean scans would inflate the detected figure. Returns UTF-8
+    NDJSON bytes ready to POST to the cloud /ocsf/ingest endpoint.
     """
     lines: list[str] = []
     for row in batch:
-        if row.get("kind") != "tool_audit":
-            continue
+        kind = row.get("kind")
         payload = row.get("payload") or {}
-        lines.append(json.dumps(_fleet_tool_activity_row(payload), separators=(",", ":")))
+        if kind == "tool_audit":
+            lines.append(json.dumps(_fleet_tool_activity_row(payload), separators=(",", ":")))
+        elif kind in ("scan", "output_scan"):
+            if str(payload.get("verdict") or "").upper() in ("BLOCK", "DETECTED"):
+                lines.append(json.dumps(_fleet_scan_verdict_row(payload), separators=(",", ":")))
     return ("\n".join(lines)).encode("utf-8")
 
 

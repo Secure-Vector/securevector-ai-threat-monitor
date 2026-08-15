@@ -329,6 +329,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
         proxy,
         tool_permissions,
         jit_access,
+        egress,
         costs,
         hooks,
         hooks_claude_code,
@@ -355,6 +356,7 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     app.include_router(proxy.router, prefix="/api", tags=["Proxy"])
     app.include_router(tool_permissions.router, prefix="/api", tags=["Tool Permissions"])
     app.include_router(jit_access.router, prefix="/api", tags=["JIT Access"])
+    app.include_router(egress.router, prefix="/api", tags=["Egress Governance"])
     app.include_router(costs.router, prefix="/api", tags=["Costs"])
     app.include_router(hooks.router, prefix="/api", tags=["Hooks"])
     app.include_router(hooks_claude_code.router, prefix="/api", tags=["Hooks"])

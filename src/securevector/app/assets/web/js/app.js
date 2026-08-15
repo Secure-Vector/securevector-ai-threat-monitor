@@ -73,6 +73,8 @@ const App = {
         'siem-export':       SiemExportPage,
         'skill-scanner':     { render: (c) => { SkillScannerPage.activeTab = 'scanner';     return SkillScannerPage.render(c); } },
         'skill-permissions': { render: (c) => { SkillScannerPage.activeTab = 'permissions'; return SkillScannerPage.render(c); } },
+        // Agent Egress — destination policy + containment proof (#198).
+        egress:              EgressPage,
     },
 
     /**

@@ -36,6 +36,10 @@ async def _siem_enqueue_scan(
     db: DatabaseConnection,
     device_id: Optional[str] = None,
     source: Optional[str] = None,
+    # What the device actually did about it. Distinct from `verdict`, which
+    # only says what the rules thought it deserved — on a monitor-only
+    # device every BLOCK verdict is still "logged".
+    action_taken: str = "logged",
     # Raw-data fields for `full` redaction destinations. Stripped at the
     # repo layer for standard/minimal destinations before they hit the
     # outbox, so it's safe to pass these unconditionally.
@@ -165,6 +169,7 @@ async def _siem_enqueue_scan(
         scan_id=scan_id,
         timestamp=timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
         verdict=verdict,
+        action_taken=action_taken,
         threat_score=round(risk_score / 100.0, 4),
         confidence_score=float(confidence or 0.0),
         risk_level=risk_level,
@@ -432,6 +437,7 @@ class ThreatIntelRepository:
                 db=self.db,
                 device_id=device_id,
                 source=source,
+                action_taken=action_taken,
                 # Raw text — only delivered to destinations at redaction_level=full.
                 # Standard/minimal destinations get this stripped before the outbox.
                 prompt_text=text,

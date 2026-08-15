@@ -179,7 +179,8 @@ class ExternalForwarderService:
         if str(fwd.get("source") or "") == "enrollment":
             body = siem_ocsf.encode_fleet_jsonl(batch)
             if not body:
-                # Nothing forwardable (e.g. a batch of scan rows) — ack + move on.
+                # Nothing forwardable (e.g. a batch of ALLOW-verdict scans —
+                # detections forward as scan-verdict rows, clean scans don't).
                 await outbox_repo.mark_delivered(ids)
                 return
             try:
