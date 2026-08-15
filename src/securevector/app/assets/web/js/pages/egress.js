@@ -1,35 +1,44 @@
 /**
- * Agent Egress — destination governance and containment proof.
+ * Agent Egress — destination governance.
  *
- * Three tabs, ordered by what the operator needs first:
+ * Two tabs, ordered by what the operator needs first:
  *
- *   Containment   The proof. The one screen in this product that reports a
- *                 fact the user cannot obtain any other way, because neither
- *                 the agent nor the harness is in a position to report on its
- *                 own boundary. It leads.
  *   Destinations  Blast radius: every external host the agents on this device
  *                 actually reached. The number nobody currently has.
  *   Policy        The controls, plus the counterfactual that makes the strict
  *                 presets enableable instead of decorative.
  *
- * Two rules this page must not break, both inherited from the backend and both
- * easy to lose in a UI pass:
+ * CONTAINMENT SELF-TEST IS WITHHELD (not deleted). It never shipped — the
+ * feature was cut before its first release. The rendering code below and the
+ * whole `/api/egress/proof*` backend are intact and unreferenced; restoring the
+ * tab entry in `render()` brings it back. Two problems have to be solved first:
  *
- * 1. A `degraded` proof is NOT a pass and must never be styled like one. An
- *    offline machine produces a proof where every dangerous path looks
- *    contained; rendering that in the same colour as a real pass would be the
- *    single change that makes this whole feature dishonest.
- * 2. Coverage gaps render on the page, not behind a "details" link. What was
- *    not tested is part of the result.
+ * 1. It did not prove what its name claimed. The probes call `evaluate_tool_call`
+ *    in-process, so the run never crosses the installed hook, this app's own API,
+ *    or the harness. A machine where the plugin was never installed still returns
+ *    `contained` — confidence manufactured out of a unit test.
+ * 2. It sent real requests from a customer machine to third parties
+ *    (webhook.site, the cloud IMDS address, npm, PyPI) and, in a healthy
+ *    deployment where every dangerous path is blocked before execution, the only
+ *    packet that actually left established that the machine has internet.
+ *
+ * The replacement worth building is a zero-egress enforcement self-test: feed a
+ * synthetic PreToolUse event to the *installed* hook and assert the verdict comes
+ * back `deny`. That exercises plugin → hook → API → policy end to end and
+ * contacts nobody.
  *
  * SOC colour discipline: red means a dangerous path reached the network, amber
  * means the result is inconclusive or the guarantee moved off SecureVector,
  * teal is the one interactive accent. Nothing here is decorative.
+ *
+ * Retained for the dormant code: a `degraded` proof is NOT a pass and must never
+ * be styled like one, and coverage gaps render on the page rather than behind a
+ * "details" link.
  */
 
 const EgressPage = {
     _state: {
-        tab: 'containment',
+        tab: 'destinations',
         proof: null,
         drift: null,
         running: false,
@@ -46,15 +55,19 @@ const EgressPage = {
     async render(container) {
         container.textContent = '';
         if (window.Header) {
+            // No "and proof of where they cannot" — that promise belonged to the
+            // withheld containment self-test.
             Header.setPageInfo('Agent Egress',
-                'Where your agents may reach, and proof of where they cannot.');
+                'Every external host your agents reached, and the policy that governs it.');
         }
         this._injectStyle();
 
         const tabs = document.createElement('div');
         tabs.className = 'eg-tabs';
         [
-            ['containment', 'Containment Proof'],
+            // ['containment', 'Containment Self-Test'] is withheld — see the file
+            // header. Restore this entry to bring the tab back; the loader,
+            // renderer and backend are all still wired.
             ['destinations', 'Destinations'],
             ['policy', 'Policy'],
         ].forEach(([id, label]) => {
@@ -99,6 +112,12 @@ const EgressPage = {
 
         const proof = this._state.proof;
 
+        // Renders in both states, above everything. The rows on this tab name
+        // real attack techniques against real hosts; without a standing notice
+        // that SecureVector generated them, a glance or a screenshot reads as
+        // an incident report about the user's own agents.
+        body.appendChild(this._simBanner());
+
         if (!proof) {
             body.appendChild(this._firstRunCard());
             return;
@@ -109,6 +128,27 @@ const EgressPage = {
         body.appendChild(this._probeTable(proof));
         body.appendChild(this._coverageCard(proof));
         body.appendChild(this._exportBar(proof));
+    },
+
+    /** Deliberately untoned. The SOC palette reserves amber for an inconclusive
+     *  result and red for a path that got out; colouring a permanent
+     *  explanatory notice would spend a signal that means something else. */
+    _simBanner() {
+        const el = document.createElement('div');
+        el.className = 'eg-card eg-simbanner';
+        el.innerHTML =
+            '<h3>These calls are SecureVector\'s own. They are not your agents\' activity.</h3>' +
+            '<p>Every row on this tab is a probe this app generates when you press ' +
+            'run, against a fixed list of destinations. <strong>The attack is ' +
+            'simulated</strong> — the command shown names the technique being ' +
+            'tested, and no data of yours is ever sent. <strong>The measurement ' +
+            'is real</strong>: a path SecureVector does not block makes a genuine ' +
+            'request, which is the only way the last column can report something ' +
+            'neither your agent nor your harness can report about itself.</p>' +
+            '<p class="eg-note">Nothing here is recorded as a threat, and none of ' +
+            'it counts toward your dashboard. To see where your agents actually ' +
+            'went, use the Destinations tab.</p>';
+        return el;
     },
 
     _firstRunCard() {
@@ -331,13 +371,14 @@ const EgressPage = {
         const wrap = document.createElement('div');
         wrap.className = 'eg-card';
         wrap.appendChild(this._sectionTitle('Results',
-            'One row per path tested. The last column is the one no agent and no harness can report about itself.'));
+            'One row per simulated path, each attempted by SecureVector — not by your agents. ' +
+            'The last column is the one no agent and no harness can report about itself.'));
 
         const table = document.createElement('table');
         table.className = 'eg-table';
         table.innerHTML =
             '<thead><tr>' +
-            '<th>Path</th>' +
+            '<th>Simulated path</th>' +
             '<th class="num">Stopped by SecureVector</th>' +
             '<th class="num">Stopped by your network</th>' +
             '<th class="num">Reached anyway</th>' +
@@ -351,13 +392,18 @@ const EgressPage = {
             // The control probe's category IS "control", so printing both would
             // read "control · control". It gets the explanatory line instead.
             const meta = p.expect_contained
-                ? this._esc(p.category || '')
+                ? `simulated · ${this._esc(p.category || '')}`
                 : 'control, expected to reach the network';
             const first = document.createElement('td');
             first.innerHTML =
                 `<div class="eg-probe-title">${this._esc(p.title || p.id)}</div>` +
                 `<div class="eg-probe-meta">${meta}</div>` +
-                `<code class="eg-probe-dest">${this._esc(p.destination || '')}</code>`;
+                `<code class="eg-probe-dest">${this._esc(p.destination || '')}</code>` +
+                // The backend already distinguishes "blocked before execution"
+                // from "ran and was refused". Dropping it left the table unable
+                // to say the call never happened — the CSV export could, the
+                // screen could not.
+                (p.detail ? `<div class="eg-probe-detail">${this._esc(p.detail)}</div>` : '');
             tr.appendChild(first);
 
             tr.appendChild(this._mark(p.blocked_by_securevector, 'ok'));
@@ -571,12 +617,14 @@ const EgressPage = {
     // ========================================================= policy tab ===
 
     async _loadPolicy() {
-        const [policy, health] = await Promise.all([
+        const [policy, health, presets] = await Promise.all([
             API.getEgressPolicy(),
             API.getEgressPolicyHealth(this._state.windowDays),
+            API.getEgressPresets(),
         ]);
         this._state.policy = policy;
         this._state.health = health;
+        this._state.presets = presets;
         this._renderPolicy();
     },
 
@@ -590,6 +638,73 @@ const EgressPage = {
          'Only listed destinations are reachable at all. Intended for a single run, not as a permanent setting: ' +
          'a global allowlist covering a month of work is intractable and gets abandoned.'],
     ],
+
+    /** The rule pack behind a preset, collapsed by default.
+     *
+     *  Teal marks a denial rather than red: red is reserved for a dangerous
+     *  path that reached the network, and a rule that denies is enforcement
+     *  working. `log_only` is rendered as its own muted mark so it can never be
+     *  mistaken for a block that is not happening.
+     */
+    _presetDetail(presetId) {
+        const data = this._state.presets;
+        const entry = (data && data.presets || []).find(p => p.id === presetId);
+        const box = document.createElement('details');
+        box.className = 'eg-presetdetail';
+
+        if (!entry) {
+            box.innerHTML = '<summary>What this enforces</summary>' +
+                '<p class="eg-note">Could not load the rule pack.</p>';
+            return box;
+        }
+
+        const denies = entry.rules.filter(r => r.effect === 'deny').length;
+        const logs = entry.rules.length - denies;
+        box.innerHTML =
+            `<summary>What this enforces — ${denies} deny rule${denies === 1 ? '' : 's'}` +
+            `${logs ? `, ${logs} recorded-only` : ''}</summary>`;
+
+        if (data.pack_loaded === false) {
+            const warn = document.createElement('p');
+            warn.className = 'eg-note';
+            warn.textContent =
+                'The baseline rule pack did not load on this device, so nothing below is being enforced.';
+            box.appendChild(warn);
+        }
+
+        const adds = document.createElement('ul');
+        adds.className = 'eg-preset-adds';
+        (entry.adds || []).forEach(line => {
+            const li = document.createElement('li');
+            li.textContent = line;
+            adds.appendChild(li);
+        });
+        box.appendChild(adds);
+
+        const list = document.createElement('div');
+        list.className = 'eg-rulelist';
+        entry.rules.forEach(r => {
+            const item = document.createElement('div');
+            item.className = 'eg-rule';
+            const isDeny = r.effect === 'deny';
+            item.innerHTML =
+                '<div class="eg-rule-head">' +
+                `<span class="eg-mark ${isDeny ? 'tone-ok' : 'off'}">` +
+                `${isDeny ? 'deny' : 'record'}</span>` +
+                `<span class="eg-rule-title">${this._esc(r.title || r.id)}</span>` +
+                `<span class="eg-rule-sev">${this._esc(r.severity || '')}</span>` +
+                (r.ci_exempt
+                    ? '<span class="eg-rule-flag" title="A CI runner profile can waive this one rule ' +
+                      'without waiving the pack.">CI-waivable</span>'
+                    : '') +
+                '</div>' +
+                (r.matches || []).map(m =>
+                    `<div class="eg-rule-match">${this._esc(m)}</div>`).join('');
+            list.appendChild(item);
+        });
+        box.appendChild(list);
+        return box;
+    },
 
     _renderPolicy() {
         const body = document.getElementById('eg-body');
@@ -621,6 +736,10 @@ const EgressPage = {
                 `<span class="eg-preset-name">${this._esc(label)}</span>` +
                 (policy.preset === id ? '<span class="eg-preset-active">active</span>' : '') +
                 `</div><p class="eg-preset-blurb">${this._esc(blurb)}</p>`;
+
+            // "Needs tuning" is not something an operator can consent to
+            // without the list, so the list ships with the selector.
+            row.appendChild(this._presetDetail(id));
 
             if (policy.preset !== id) {
                 const actions = document.createElement('div');
@@ -810,6 +929,10 @@ const EgressPage = {
             .eg-empty { padding:26px; color:var(--text-muted,#7d8590); font-size:13px; }
             .eg-empty-clear { text-align:center; max-width:600px; margin:40px auto; }
             .eg-note { font-size:12px; color:var(--text-muted,#7d8590); line-height:1.6; }
+            .eg-simbanner { border-style:dashed; }
+            .eg-simbanner h3 { color:var(--text-secondary,#b1bac4); }
+            .eg-simbanner strong { color:var(--text-primary,#e6edf3); font-weight:700; }
+            .eg-simbanner p:last-child { margin-bottom:0; }
             .eg-running { font-size:12.5px; color:var(--text-muted,#7d8590); padding:4px 2px 16px; }
 
             /* Tone is security state only: ok = enforced, warn = inconclusive or
@@ -900,6 +1023,8 @@ const EgressPage = {
             .eg-probe-meta { margin-top:3px; font-size:11px; color:var(--text-muted,#7d8590); }
             .eg-probe-dest { display:block; margin-top:5px; font-size:11px !important;
                 color:var(--text-muted,#7d8590) !important; word-break:break-all; }
+            .eg-probe-detail { margin-top:5px; font-size:11px; font-style:italic;
+                color:var(--text-muted,#7d8590); }
             .eg-mark { font:700 11px 'Avenir Next',Avenir,system-ui,sans-serif; text-transform:uppercase;
                 letter-spacing:.5px; padding:2px 8px; border-radius:6px; border:1px solid var(--border-default,#30363d);
                 color:var(--text-muted,#7d8590); }
@@ -941,6 +1066,25 @@ const EgressPage = {
                 letter-spacing:.5px; color:var(--accent-primary,#5eadb8); padding:2px 7px; border-radius:5px;
                 border:1px solid color-mix(in srgb,var(--accent-primary,#5eadb8) 55%,transparent); }
             .eg-preset-blurb { margin:6px 0 0 !important; }
+            .eg-presetdetail { margin-top:10px; }
+            .eg-presetdetail > summary { cursor:pointer; font:600 11.5px 'Avenir Next',Avenir,system-ui,sans-serif;
+                color:var(--accent-primary,#5eadb8); list-style:revert; width:fit-content; }
+            .eg-presetdetail > summary:hover { text-decoration:underline; }
+            .eg-preset-adds { margin:10px 0 0; padding-left:18px; }
+            .eg-preset-adds li { font-size:12px; line-height:1.65; color:var(--text-secondary,#b1bac4); }
+            .eg-rulelist { margin-top:12px; display:flex; flex-direction:column; gap:8px; }
+            .eg-rule { padding:9px 11px; border-radius:8px; border:1px solid var(--border-default,#30363d);
+                background:var(--bg-elevated,#0d1117); }
+            .eg-rule-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .eg-rule-title { font:600 12.5px 'Avenir Next',Avenir,system-ui,sans-serif;
+                color:var(--text-primary,#e6edf3); }
+            .eg-rule-sev { font-size:10.5px; text-transform:uppercase; letter-spacing:.5px;
+                color:var(--text-muted,#7d8590); }
+            .eg-rule-flag { font:600 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; text-transform:uppercase;
+                letter-spacing:.5px; color:var(--text-muted,#7d8590); border:1px dashed var(--border-default,#30363d);
+                padding:2px 7px; border-radius:5px; cursor:help; }
+            .eg-rule-match { margin-top:5px; font-size:11px; line-height:1.55;
+                color:var(--text-muted,#7d8590); word-break:break-word; }
 
             .eg-replay { margin-top:14px; padding:14px 16px; border-radius:10px;
                 background:var(--bg-card,#161b22); border:1px solid var(--border-default,#30363d);

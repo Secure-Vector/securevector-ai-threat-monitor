@@ -863,6 +863,9 @@ const API = {
     async getEgressPolicy() {
         return this.request('/api/egress/policy').catch(() => null);
     },
+    async getEgressPresets() {
+        return this.request('/api/egress/presets').catch(() => null);
+    },
     async patchEgressPolicy(patch) {
         return this.request('/api/egress/policy', {
             method: 'PATCH', body: JSON.stringify(patch || {}),
