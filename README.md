@@ -58,7 +58,6 @@
 
 > **What's new in v5.1.0**
 > - **Agent Egress Governance** — a destination policy enforced at the Guard tool boundary, outside the agent's context. Reads are recorded; unambiguous write classes (package publish, metadata endpoint, drop sites) are denied by default. Three presets: Baseline, Hardened, Contained. Works across all five Guard runtimes.
-> - **Containment Proof** — an on-demand self-test that reports what's blocked by SecureVector, what's blocked by your network, and what **reached the internet anyway** — the column nobody else can give you. Hash-chained results, drift detection between runs, attestation export (JSON/CSV/Markdown).
 > - **Blast-radius inventory** — the distinct external hosts your agents actually reached, with write counts and first/last seen.
 > - **Scope-expansion alerting** — flags sessions whose egress *shape* looks like scanning (many novel hosts, fast), the pattern destination rules can't see. Alert-only, baseline-aware, published thresholds.
 > - **Counterfactual policy replay** — preview exactly what a stricter preset would have blocked against your own recorded traffic before enabling it.

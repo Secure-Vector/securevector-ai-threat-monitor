@@ -467,3 +467,119 @@ async def export_proof_markdown(proof_id: Optional[str] = None):
                 f"attachment; filename=containment-proof-{proof['id'][:8]}.md"
         },
     )
+
+
+def _describe_match(match: dict) -> list:
+    """Turn a rule's `match` block into lines an operator can read.
+
+    The YAML is written for the evaluator, not for a person: `is_publish: true`
+    and `cidrs: [...]` say nothing to someone deciding whether to switch preset.
+    Rendering happens here rather than in JS so the page cannot drift from the
+    pack it claims to be describing.
+    """
+    if not isinstance(match, dict):
+        return []
+    out = []
+    ops = match.get("operation")
+    if ops:
+        out.append("Applies to: " + ", ".join(ops) + " operations only")
+    if match.get("is_publish"):
+        out.append("Any package or registry publish (pypi, npm, cargo, docker, gem)")
+    for key, label in (("hosts", "Hosts"), ("host_suffixes", "Host suffixes"),
+                       ("cidrs", "Address ranges")):
+        vals = match.get(key)
+        if vals:
+            out.append(f"{label}: " + ", ".join(str(v) for v in vals))
+    if match.get("kinds"):
+        out.append("Command kinds: " + ", ".join(match["kinds"]))
+    if match.get("inline_remote"):
+        out.append("Remote given as a literal URL on the command line")
+    if match.get("foreign_git_remote"):
+        out.append("Target host differs from the repository's origin")
+    if match.get("exclude_ports_from_settings"):
+        out.append("SecureVector's own port is never matched")
+    return out
+
+
+# Preset semantics live next to the evaluator that implements them
+# (`core/egress/engine.py`), so this endpoint describes what the code does
+# rather than restating marketing copy that can fall out of step with it.
+_PRESET_SEMANTICS = {
+    "baseline": {
+        "label": "Baseline",
+        "adds": [
+            "Reads are recorded and allowed — never blocked.",
+            "Only the rule pack below denies anything.",
+        ],
+    },
+    "hardened": {
+        "label": "Hardened",
+        "adds": [
+            "Everything Baseline denies, plus:",
+            "Every write must be to an allowlisted host, or it is denied.",
+            "An operation SecureVector cannot classify counts as a write. "
+            "Guessing 'read' on an opaque protocol is the assumption that makes "
+            "containment theatre.",
+            "Reads still flow. Needs tuning: preview the impact first.",
+        ],
+    },
+    "contained": {
+        "label": "Contained",
+        "adds": [
+            "Everything Baseline denies, plus:",
+            "Only allowlisted destinations are reachable at all — reads included.",
+            "Intended for a single run, not as a permanent setting.",
+        ],
+    },
+}
+
+
+@router.get("/egress/presets")
+async def get_presets():
+    """What each preset actually enforces, rule by rule.
+
+    The preset selector previously offered three one-line blurbs and no way to
+    see what any of them would do. An operator cannot consent to 'needs tuning'
+    without the list, so the list ships with the selector.
+    """
+    pack = load_baseline_pack()
+    rules = [
+        {
+            "id": r.get("id"),
+            "title": r.get("title"),
+            "severity": r.get("severity"),
+            # log_only is not a denial and must not be rendered as one.
+            "effect": r.get("effect"),
+            "matches": _describe_match(r.get("match") or {}),
+            "rationale": (r.get("rationale") or "").strip(),
+            "remediation": (r.get("remediation") or "").strip(),
+            "ci_exempt": bool(r.get("ci_exempt")),
+        }
+        for r in pack
+    ]
+
+    # No active policy row still means Baseline applies — `_load_policy`
+    # already encodes that, so reuse it rather than defaulting separately.
+    active = "baseline"
+    try:
+        policy = await _load_policy(EgressRepository(get_database()))
+        active = (policy.preset or "baseline").lower()
+    except Exception as e:  # noqa: BLE001 - the page still renders without it
+        logger.warning("Could not read active egress policy: %s", e)
+
+    return {
+        "active": active,
+        "pack_loaded": bool(rules),
+        "presets": [
+            {
+                "id": pid,
+                "label": meta["label"],
+                "active": pid == active,
+                "adds": meta["adds"],
+                # Every preset inherits the pack; showing it once per preset is
+                # what makes "Baseline, plus..." checkable rather than asserted.
+                "rules": rules,
+            }
+            for pid, meta in _PRESET_SEMANTICS.items()
+        ],
+    }

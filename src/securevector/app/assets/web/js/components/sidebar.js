@@ -75,7 +75,7 @@ const Sidebar = {
             // Tool Permissions governs WHETHER a tool runs; egress governs WHERE
             // it may reach. A tool allowed by name can still be denied its
             // destination, so the two sit side by side rather than nested.
-            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, plus the containment proof.' },
+            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it.' },
             // Skills + Tools entries cover their primary "configure" surfaces
             // (the Permissions / Policy tabs); the Activity / Tracking tabs
             // are surfaced under Observability above.
