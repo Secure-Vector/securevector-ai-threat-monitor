@@ -1111,7 +1111,11 @@ const DashboardPage = {
         const innerW = w - padL - padR;
         const innerH = height - padT - padB;
 
-        const xAt = i => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+        // Bars occupy a band per bucket rather than sitting on a point, so
+        // the first and last bars are inset by half a band instead of being
+        // clipped at the plot edges. Labels ride the same centres.
+        const band = innerW / n;
+        const xAt = i => padL + (i + 0.5) * band;
         const yAt = v => padT + innerH - (v / niceMax) * innerH;
 
         const svgNS = 'http://www.w3.org/2000/svg';
@@ -1163,109 +1167,76 @@ const DashboardPage = {
             const t = document.createElementNS(svgNS, 'text');
             t.setAttribute('x', xAt(i));
             t.setAttribute('y', height - 6);
-            t.setAttribute('text-anchor', isFirst ? 'start' : isLast ? 'end' : 'middle');
+            // Band centres are already inset by half a band, so every label
+            // centres on its bar without clipping at either edge.
+            t.setAttribute('text-anchor', 'middle');
             t.setAttribute('font-size', '10');
             t.setAttribute('fill', 'var(--text-muted)');
             t.textContent = lbl;
             svg.appendChild(t);
         });
 
-        // Monotone cubic interpolation (Fritsch–Carlson) — the standard for
-        // count/metric lines. Unlike a cardinal spline it never overshoots:
-        // a series of zeros stays flat on the baseline instead of dipping
-        // below it between points, and peaks aren't exaggerated.
         const r1 = v => Math.round(v * 10) / 10;
-        const smoothPath = (data) => {
-            const len = data.length;
-            if (len === 0) return '';
-            const xs = data.map((_, i) => xAt(i));
-            const ys = data.map(v => yAt(v));
-            if (len === 1) return `M ${r1(xs[0])} ${r1(ys[0])}`;
-            if (len === 2) return `M ${r1(xs[0])} ${r1(ys[0])} L ${r1(xs[1])} ${r1(ys[1])}`;
-            const dxs = [], slopes = [];
-            for (let i = 0; i < len - 1; i++) {
-                dxs.push(xs[i + 1] - xs[i]);
-                slopes.push((ys[i + 1] - ys[i]) / dxs[i]);
-            }
-            const tangents = [slopes[0]];
-            for (let i = 1; i < len - 1; i++) {
-                if (slopes[i - 1] * slopes[i] <= 0) {
-                    tangents.push(0);
-                } else {
-                    const w1 = 2 * dxs[i] + dxs[i - 1];
-                    const w2 = dxs[i] + 2 * dxs[i - 1];
-                    tangents.push((w1 + w2) / (w1 / slopes[i - 1] + w2 / slopes[i]));
-                }
-            }
-            tangents.push(slopes[len - 2]);
-            let d = `M ${r1(xs[0])} ${r1(ys[0])}`;
-            for (let i = 0; i < len - 1; i++) {
-                const h = dxs[i] / 3;
-                d += ` C ${r1(xs[i] + h)} ${r1(ys[i] + tangents[i] * h)}, ` +
-                    `${r1(xs[i + 1] - h)} ${r1(ys[i + 1] - tangents[i + 1] * h)}, ` +
-                    `${r1(xs[i + 1])} ${r1(ys[i + 1])}`;
-            }
-            return d;
-        };
 
-        // Visible markers only when the data is sparse enough to read them
-        // (dense windows become a dotted mess); hover always surfaces one.
-        const showDots = n <= 16;
-        // Area fills muddy fast when several series overlap — keep the
-        // subtle fill for 1–2 series, lines only beyond that.
-        const fillOpacity = series.length <= 2 ? 0.10 : 0;
+        // Bars, not a spline. These are discrete daily counts: a smoothed
+        // curve draws values that were never measured (a 1 and a 2 become a
+        // 1.7 somewhere between them) and the area fill under it turns two
+        // events into a wall of colour. A bar states the count for its
+        // bucket and claims nothing between buckets. Red therefore appears
+        // only in proportion to the threats actually recorded, instead of
+        // sweeping across the whole card.
+        const m = series.length;
+        // Leave a quarter of each band as breathing room, then split what is
+        // left between the series with a 2px surface gap between neighbours.
+        // Thin marks: a wide window keeps bars proportional to the band, but
+        // a 7-bucket chart on a full-width card would otherwise render slabs.
+        // Capping the group keeps the plot airy at every range.
+        const groupW = Math.min(band * 0.7, 26 * m);
+        const barW = Math.max(3, (groupW - (m - 1) * 2) / m);
+        const groupX = i => xAt(i) - groupW / 2;
+        // Rounded data-ends, but never taller than the bar itself, so a
+        // 1-count bar keeps its shape instead of collapsing into a lozenge.
+        const radiusFor = h => Math.min(4, h / 2, barW / 2);
 
-        series.forEach((s) => {
+        series.forEach((s, si) => {
             const data = s.data || [];
-            const pathStr = smoothPath(data);
-            if (!pathStr) return;
+            const fmt = s.format || yFormat;
 
-            // Area fill — same path closed to baseline with low alpha.
-            if (fillOpacity > 0 && data.length > 1) {
-                const areaStr = `${pathStr} L ${r1(xAt(data.length - 1))} ${r1(padT + innerH)} L ${r1(xAt(0))} ${r1(padT + innerH)} Z`;
-                const area = document.createElementNS(svgNS, 'path');
-                area.setAttribute('d', areaStr);
-                area.setAttribute('fill', s.color);
-                area.setAttribute('fill-opacity', String(fillOpacity));
-                svg.appendChild(area);
-            }
-
-            // Line stroke.
-            const line = document.createElementNS(svgNS, 'path');
-            line.setAttribute('d', pathStr);
-            line.setAttribute('fill', 'none');
-            line.setAttribute('stroke', s.color);
-            line.setAttribute('stroke-width', '2');
-            line.setAttribute('stroke-linecap', 'round');
-            line.setAttribute('stroke-linejoin', 'round');
-            svg.appendChild(line);
-
-            // Markers + hover targets. Visible dots only on sparse data;
-            // dense windows get a clean line and the dot appears on hover.
             data.forEach((v, i) => {
-                const isLast = i === data.length - 1;
-                const restR = showDots ? (isLast ? 4 : 3) : 0;
-                const dot = document.createElementNS(svgNS, 'circle');
-                dot.setAttribute('cx', r1(xAt(i)));
-                dot.setAttribute('cy', r1(yAt(v)));
-                dot.setAttribute('r', String(restR));
-                dot.setAttribute('fill', 'var(--bg-card)');
-                dot.setAttribute('stroke', s.color);
-                dot.setAttribute('stroke-width', '2');
-                if (!showDots) dot.setAttribute('opacity', '0');
-                svg.appendChild(dot);
+                const x = groupX(i) + si * (barW + 2);
+                const full = padT + innerH;
+                const h = Math.max(0, full - yAt(v));
+                // A zero keeps a hairline on the baseline: the bucket was
+                // measured and came back empty, which is not the same as a
+                // bucket with no bar because nothing was reported.
+                const drawH = v > 0 ? Math.max(h, 2) : 1;
+                const y = full - drawH;
+                const rad = v > 0 ? radiusFor(drawH) : 0;
 
-                // Generous invisible hit target driving a styled HTML tooltip
-                // (faster + better-looking than the native SVG <title>).
-                const fmt = s.format || yFormat;
-                const hit = document.createElementNS(svgNS, 'circle');
-                hit.setAttribute('cx', r1(xAt(i)));
-                hit.setAttribute('cy', r1(yAt(v)));
-                hit.setAttribute('r', '12');
+                const bar = document.createElementNS(svgNS, 'path');
+                // Top corners rounded, bottom square so every bar sits flat
+                // on the baseline.
+                bar.setAttribute('d',
+                    `M ${r1(x)} ${r1(y + drawH)} L ${r1(x)} ${r1(y + rad)} ` +
+                    `Q ${r1(x)} ${r1(y)} ${r1(x + rad)} ${r1(y)} ` +
+                    `L ${r1(x + barW - rad)} ${r1(y)} ` +
+                    `Q ${r1(x + barW)} ${r1(y)} ${r1(x + barW)} ${r1(y + rad)} ` +
+                    `L ${r1(x + barW)} ${r1(y + drawH)} Z`);
+                bar.setAttribute('fill', s.color);
+                bar.setAttribute('fill-opacity', v > 0 ? '0.85' : '0.35');
+                bar.style.transition = 'fill-opacity 0.08s';
+                svg.appendChild(bar);
+
+                // Hit target spans the full band height so the tooltip is
+                // reachable without hunting for a 1px bar.
+                const hit = document.createElementNS(svgNS, 'rect');
+                hit.setAttribute('x', r1(x - 1));
+                hit.setAttribute('y', padT);
+                hit.setAttribute('width', r1(barW + 2));
+                hit.setAttribute('height', innerH);
                 hit.setAttribute('fill', 'transparent');
                 hit.style.cursor = 'pointer';
                 const label = `${labels[i]} · ${s.label}: ${fmt(v)}`;
-                // Native title as an accessible / no-JS fallback.
                 const titleEl = document.createElementNS(svgNS, 'title');
                 titleEl.textContent = label;
                 hit.appendChild(titleEl);
@@ -1273,30 +1244,23 @@ const DashboardPage = {
                     tooltip.textContent = label;
                     tooltip.style.opacity = '1';
                     const rect = host.getBoundingClientRect();
-                    let x = ev.clientX - rect.left + 12;
-                    let y = ev.clientY - rect.top - 10;
-                    // Keep the tooltip inside the card horizontally.
+                    let x2 = ev.clientX - rect.left + 12;
+                    const y2 = ev.clientY - rect.top - 10;
                     const maxX = rect.width - tooltip.offsetWidth - 6;
-                    if (x > maxX) x = ev.clientX - rect.left - tooltip.offsetWidth - 12;
-                    tooltip.style.left = Math.max(0, x) + 'px';
-                    tooltip.style.top = Math.max(0, y) + 'px';
+                    if (x2 > maxX) x2 = ev.clientX - rect.left - tooltip.offsetWidth - 12;
+                    tooltip.style.left = Math.max(0, x2) + 'px';
+                    tooltip.style.top = Math.max(0, y2) + 'px';
                 };
                 hit.addEventListener('mouseenter', show);
                 hit.addEventListener('mousemove', show);
-                hit.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
-                // Surface / enlarge the dot on hover for feedback.
-                hit.addEventListener('mouseenter', () => {
-                    dot.setAttribute('opacity', '1');
-                    dot.setAttribute('r', '5');
-                });
+                hit.addEventListener('mouseenter', () => bar.setAttribute('fill-opacity', '1'));
                 hit.addEventListener('mouseleave', () => {
-                    dot.setAttribute('r', String(restR));
-                    if (!showDots) dot.setAttribute('opacity', '0');
+                    tooltip.style.opacity = '0';
+                    bar.setAttribute('fill-opacity', v > 0 ? '0.85' : '0.35');
                 });
                 svg.appendChild(hit);
             });
         });
-
         // Host the SVG in a positioned wrapper so the HTML tooltip can be
         // absolutely placed relative to the chart.
         host.style.position = 'relative';
