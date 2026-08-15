@@ -15,11 +15,10 @@ Usage:
     securevector-app [--port PORT] [--host HOST] [--debug] [--no-tray]
 """
 
-# Derived, never re-declared. A second literal here is how the app came to
-# print 5.0.0 on a 5.1.0 build: packaging reads the package version, every
-# banner and `--version` reads this one, and nothing forced them to agree.
-from securevector import __version__  # noqa: F401  (re-exported for main.py)
-
+# Keep in sync with __version__ in src/securevector/__init__.py on every
+# release bump. This is the value main.py prints in the startup banner and
+# --version; it was left at 5.0.0 for the 5.1.0 branch.
+__version__ = "5.1.0"
 __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app
