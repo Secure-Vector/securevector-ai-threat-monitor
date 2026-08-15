@@ -527,10 +527,7 @@ const DashboardPage = {
         const chartDays = this.rangeDays;
         const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
 
-        // "LLM Requests" was the old single-series title, and it was never
-        // what the chart measured. The card now carries three named panels,
-        // so the title states the window and lets each panel name itself.
-        const trendCard = Card.create({ title: `Activity: ${chartLabel}`, gradient: true });
+        const trendCard = Card.create({ title: `Threats: ${chartLabel}`, gradient: true });
         const trendBody = trendCard.querySelector('.card-body');
         trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(trendCard);
@@ -1308,21 +1305,22 @@ const DashboardPage = {
     },
 
     /**
-     * Volume + threats over the global range: one chart, three bars per
-     * bucket — LLM requests, tool calls, threats detected.
+     * Threats over the global range — the shape of the week, sitting directly
+     * above Recent Threat Activity so the feed below it has context.
      *
-     * The three differ by orders of magnitude (hundreds of tool calls against
-     * a handful of threats), so a non-zero bar is floored at 2px: a day with
-     * two threats stays visible beside a day with 250 tool calls instead of
-     * rounding away to nothing. The number itself is on hover and in the
-     * per-series totals above the plot. Clicking any bar opens the page that
-     * number came from.
+     * Deliberately ONE series. Tool-call and LLM-run volume were charted here
+     * too, and the pairing did not work: at hundreds of tool calls against a
+     * handful of threats the threat bars were unreadable stubs, and the two
+     * sources do not even have the same coverage (tool calls exist only where
+     * a Guard hook fired; LLM runs are rebuilt from the runtime transcript),
+     * so putting them on one axis implied a comparison neither side supports.
+     * Those totals already live where they belong: tool calls in the hero
+     * strip, LLM runs per agent on Traces.
      */
     async renderTrendChart(container, days = 7) {
         // Stored timestamps are UTC, but several tables write them without a
         // designator, and an ISO string with no zone is parsed as LOCAL by JS.
-        // That silently moved an evening event into the next day. Assume UTC
-        // unless the string actually carries a zone.
+        // That silently moved an evening detection into the next day.
         const parseTs = (ts) => {
             const v = String(ts || '').trim().replace(' ', 'T');
             const zoned = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(v);
@@ -1334,166 +1332,51 @@ const DashboardPage = {
         if (hourly) {
             for (let i = 23; i >= 0; i--) {
                 const d = new Date(now.getTime() - i * 3600000);
-                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, llm: 0, tools: 0, threats: 0 });
+                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, n: 0 });
             }
         } else {
             for (let i = days - 1; i >= 0; i--) {
                 const d = new Date();
                 d.setUTCDate(d.getUTCDate() - i);
-                buckets.push({ label: (d.getUTCMonth()+1).toString().padStart(2,'0') + '/' + d.getUTCDate().toString().padStart(2,'0'), key: `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, llm: 0, tools: 0, threats: 0 });
+                buckets.push({ label: (d.getUTCMonth()+1).toString().padStart(2,'0') + '/' + d.getUTCDate().toString().padStart(2,'0'), key: `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, n: 0 });
             }
         }
-        // Hourly (24h) buckets are real instants, so they read in local time.
-        // Daily buckets follow UTC, matching the server-side day aggregation
-        // the tool-call series comes from — otherwise two series would answer
-        // to different calendars on the same axis.
+        // Hourly buckets are real instants and read in local time; day buckets
+        // follow UTC, which is the calendar the stored timestamps are in.
         const keyOf = (d) => hourly
             ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
             : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
-        // A 'YYYY-MM-DD' from a server-side day bucket is a calendar date, not
-        // a moment: it must not be shifted by the viewer's offset.
-        const bucketForDateString = (ymd) => {
-            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
-            if (!m) return null;
-            const key = `${Number(m[1])}-${Number(m[2]) - 1}-${Number(m[3])}`;
-            return buckets.find(x => x.key === key) || null;
-        };
-        const bucketFor = (ts) => {
-            if (!ts) return null;
-            return buckets.find(x => x.key === keyOf(parseTs(ts))) || null;
-        };
 
+        // Pull the window from the API rather than reusing the page's 50-row
+        // sample, so a 30-day chart is not a lie built on the latest 50 events.
         const startIso = new Date(Date.now() - days * 86400000).toISOString();
-
-        // Threats: threat_intel_records. These rows exist ONLY when a
-        // detection fired — analyze.py stores nothing for a clean scan — so
-        // this series is detections, never request volume. Request volume
-        // comes from the two sources below, which is the whole reason the
-        // old single "Requests" line tracked the threat line exactly.
-        let threatItems = [];
-        let threatTotal = 0;
+        let items = [];
+        let total = 0;
         for (let page = 1; page <= 3; page++) {
             const resp = await API.getThreats({ page, page_size: 100, start_date: startIso }).catch(() => null);
             if (!resp) break;
-            threatItems = threatItems.concat(resp.items || []);
-            threatTotal = resp.total || threatItems.length;
-            if (threatItems.length >= threatTotal || !(resp.items || []).length) break;
+            items = items.concat(resp.items || []);
+            total = resp.total || items.length;
+            if (items.length >= total || !(resp.items || []).length) break;
         }
-        threatItems.forEach(t => {
-            const b = bucketFor(t.created_at || new Date().toISOString());
-            if (b) b.threats++;
-        });
-
-        // Tool calls: tool_call_audit, aggregated server-side across the whole
-        // window so the chart is not capped by the feed's page size.
-        const activity = await API.getCallAuditActivity({ windowDays: days }).catch(() => null);
-        ((activity && activity.buckets) || []).forEach(row => {
-            // These are pre-aggregated buckets, not events. In daily mode the
-            // server stamps each one at UTC midnight, so parsing it as an
-            // instant drops it into the PREVIOUS local day for anyone west of
-            // UTC — every tool-call bar sat one day to the left. Read the day
-            // bucket as the calendar date it is; only the 24h window's hourly
-            // buckets are real instants worth converting.
-            const raw = String(row.called_at || '');
-            const b = hourly ? bucketFor(raw) : bucketForDateString(raw.slice(0, 10));
-            if (b) b.tools += Number(row.n || 0);
-        });
-
-        // LLM runs: how many times the agents actually called a model — the
-        // `generation` span, the same thing the Traces masthead counts as
-        // "N LLM runs". Each one is bucketed by its OWN called_at, never by the
-        // trace's start: a coding session routinely runs past midnight (one
-        // here spans 08/10 to 08/12), and charging its whole run count to the
-        // start day invents a spike on one day and empties the rest.
-        //
-        // llm_cost_records is not used: only the proxy and the SDKs write it,
-        // so a hook-only install would report zero model calls while its own
-        // traces plainly show thousands.
-        const traceList = await API.getTraces({ window_days: days, limit: 500 }).catch(() => null);
-        const runs = (traceList && traceList.runs) || [];
-        // Each detail rebuilds generations from the runtime transcript, so cap
-        // the fan-out and disclose both limits rather than under-report quietly.
-        const LLM_TRACE_CAP = 60;
-        const scanned = runs.slice(0, LLM_TRACE_CAP);
-        const llmTracesTruncated = runs.length > scanned.length;
-        let llmSpansTruncated = false;
-        const details = await Promise.all(scanned.map(r =>
-            API.getTrace(r.trace_id).catch(() => null)
-        ));
-        details.forEach(d => {
-            if (!d) return;
-            if (d.generation_truncated) llmSpansTruncated = true;
-            (d.spans || []).forEach(sp => {
-                if (sp.span_kind !== 'generation') return;
-                const b = bucketFor(sp.called_at);
-                if (b) b.llm++;
-            });
+        items.forEach(t => {
+            const b = buckets.find(x => x.key === keyOf(parseTs(t.created_at || new Date().toISOString())));
+            if (b) b.n++;
         });
 
         container.textContent = '';
-
-        const series = [
-            // Neutral by policy: an LLM request is volume, not a security
-            // state, so it must not carry an alarm hue. Amber and orange both
-            // pass separation but read as severity next to the threat red.
-            { label: 'LLM runs',     color: '#c9d1d9', data: buckets.map(b => b.llm),     page: 'agent-runs' },
-            { label: 'Tool calls',   color: '#5eadb8', data: buckets.map(b => b.tools),   page: 'tool-activity' },
-            // Threats run two orders of magnitude below tool calls, so the
-            // bar alone cannot carry the number. Labelled, not rescaled.
-            { label: 'Threats',      color: '#ef4444', data: buckets.map(b => b.threats), page: 'threats' },
-        ];
-
-        // Per-series totals sit above the plot so the small bars still report
-        // a readable number.
-        const totals = document.createElement('div');
-        totals.style.cssText = 'display:flex; gap:18px; flex-wrap:wrap; margin: 0 0 10px;';
-        series.forEach(s => {
-            const sum = s.data.reduce((a, c) => a + c, 0);
-            const item = document.createElement('button');
-            item.type = 'button';
-            item.style.cssText = 'display:flex; align-items:baseline; gap:6px; background:none; border:none; padding:0; cursor:pointer;';
-            item.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(s.page); });
-            const dot = document.createElement('span');
-            dot.style.cssText = `width:8px; height:8px; border-radius:2px; background:${s.color}; flex:none; align-self:center;`;
-            item.appendChild(dot);
-            const v = document.createElement('span');
-            v.style.cssText = 'font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums;';
-            v.textContent = sum.toLocaleString();
-            item.appendChild(v);
-            const l = document.createElement('span');
-            l.style.cssText = "font: 500 11px 'Avenir Next',Avenir,system-ui,sans-serif; color: var(--text-muted);";
-            l.textContent = s.label;
-            item.appendChild(l);
-            totals.appendChild(item);
-        });
-        container.appendChild(totals);
-
-        const plot = document.createElement('div');
-        container.appendChild(plot);
-
-        this._renderTimelineChart(plot, {
+        this._renderTimelineChart(container, {
             labels: buckets.map(b => b.label),
-            series,
+            series: [{ label: 'Threats', color: '#ef4444', data: buckets.map(b => b.n) }],
             yFormat: n => Math.round(n).toLocaleString(),
-            height: 220,
-            // The totals row above already carries a swatch and a name for
-            // each series, so a second legend below the plot is furniture.
-            showLegend: false,
-            onSelect: (s) => { if (window.Sidebar) Sidebar.navigate(s.page); },
+            height: 180,
+            onSelect: () => { if (window.Sidebar) Sidebar.navigate('threats'); },
         });
 
-        if (llmTracesTruncated || llmSpansTruncated) {
-            const n = document.createElement('div');
-            n.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
-            n.textContent = llmTracesTruncated
-                ? `LLM runs counted across the ${scanned.length} most recent traces of ${runs.length} in this window`
-                : 'LLM runs undercount a long session whose per-call detail is capped';
-            container.appendChild(n);
-        }
-        if (threatTotal > threatItems.length) {
+        if (total > items.length) {
             const note = document.createElement('div');
             note.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
-            note.textContent = `Threats reflect the most recent ${threatItems.length.toLocaleString()} of ${threatTotal.toLocaleString()} detections in this window`;
+            note.textContent = `Showing the most recent ${items.length.toLocaleString()} of ${total.toLocaleString()} detections in this window`;
             container.appendChild(note);
         }
     },
