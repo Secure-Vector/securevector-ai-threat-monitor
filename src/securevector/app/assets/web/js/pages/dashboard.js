@@ -1372,19 +1372,41 @@ const DashboardPage = {
             if (b) b.tools += Number(row.n || 0);
         });
 
-        // LLM requests: llm_cost_records, written by the proxy and the SDKs —
-        // the only paths that see a model call. A hook-only install has none.
-        const costs = await API.getCostRecords({ start: startIso, page_size: 200 }).catch(() => null);
-        ((costs && costs.items) || []).forEach(r => {
-            const b = bucketFor(r.created_at);
-            if (b) b.llm++;
+        // LLM runs: how many times the agents actually called a model. This is
+        // `generation_total` — the same number the Traces masthead prints as
+        // "N LLM runs" — and it lives on the trace DETAIL, because generations
+        // are rebuilt from the runtime transcript. The list endpoint carries
+        // tool spans only, so the count has to be gathered per trace.
+        //
+        // llm_cost_records is not used here: only the proxy and the SDKs write
+        // it, so a hook-only install would report zero model calls while its
+        // traces plainly show thousands.
+        const traceList = await API.getTraces({ window_days: days, limit: 500 }).catch(() => null);
+        const runs = (traceList && traceList.runs) || [];
+        // Each detail parses a transcript, so cap the fan-out and say so when
+        // it truncates rather than quietly under-reporting.
+        const LLM_TRACE_CAP = 60;
+        const scanned = runs.slice(0, LLM_TRACE_CAP);
+        let llmTruncated = runs.length > scanned.length;
+        const details = await Promise.all(scanned.map(r =>
+            API.getTrace(r.trace_id).then(d => [r, d]).catch(() => [r, null])
+        ));
+        details.forEach(([r, d]) => {
+            if (!d) return;
+            const b = bucketFor(r.started_at);
+            if (b) b.llm += Number(d.generation_total || 0);
         });
 
         container.textContent = '';
 
         const series = [
-            { label: 'LLM requests', color: '#a78bfa', data: buckets.map(b => b.llm),     page: 'costs' },
+            // Neutral by policy: an LLM request is volume, not a security
+            // state, so it must not carry an alarm hue. Amber and orange both
+            // pass separation but read as severity next to the threat red.
+            { label: 'LLM runs',     color: '#c9d1d9', data: buckets.map(b => b.llm),     page: 'agent-runs' },
             { label: 'Tool calls',   color: '#5eadb8', data: buckets.map(b => b.tools),   page: 'tool-activity' },
+            // Threats run two orders of magnitude below tool calls, so the
+            // bar alone cannot carry the number. Labelled, not rescaled.
             { label: 'Threats',      color: '#ef4444', data: buckets.map(b => b.threats), page: 'threats' },
         ];
 
@@ -1427,6 +1449,12 @@ const DashboardPage = {
             onSelect: (s) => { if (window.Sidebar) Sidebar.navigate(s.page); },
         });
 
+        if (llmTruncated) {
+            const n = document.createElement('div');
+            n.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
+            n.textContent = `LLM runs counted across the ${scanned.length} most recent traces of ${runs.length} in this window`;
+            container.appendChild(n);
+        }
         if (threatTotal > threatItems.length) {
             const note = document.createElement('div');
             note.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
