@@ -1319,7 +1319,15 @@ const DashboardPage = {
      * number came from.
      */
     async renderTrendChart(container, days = 7) {
-        const parseTs = ts => new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
+        // Stored timestamps are UTC, but several tables write them without a
+        // designator, and an ISO string with no zone is parsed as LOCAL by JS.
+        // That silently moved an evening event into the next day. Assume UTC
+        // unless the string actually carries a zone.
+        const parseTs = (ts) => {
+            const v = String(ts || '').trim().replace(' ', 'T');
+            const zoned = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(v);
+            return new Date(zoned ? v : v + 'Z');
+        };
         const hourly = days === 1;
         const buckets = [];
         const now = new Date();
@@ -1331,13 +1339,25 @@ const DashboardPage = {
         } else {
             for (let i = days - 1; i >= 0; i--) {
                 const d = new Date();
-                d.setDate(d.getDate() - i);
-                buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, llm: 0, tools: 0, threats: 0 });
+                d.setUTCDate(d.getUTCDate() - i);
+                buckets.push({ label: (d.getUTCMonth()+1).toString().padStart(2,'0') + '/' + d.getUTCDate().toString().padStart(2,'0'), key: `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, llm: 0, tools: 0, threats: 0 });
             }
         }
+        // Hourly (24h) buckets are real instants, so they read in local time.
+        // Daily buckets follow UTC, matching the server-side day aggregation
+        // the tool-call series comes from — otherwise two series would answer
+        // to different calendars on the same axis.
         const keyOf = (d) => hourly
             ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
-            : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+            : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+        // A 'YYYY-MM-DD' from a server-side day bucket is a calendar date, not
+        // a moment: it must not be shifted by the viewer's offset.
+        const bucketForDateString = (ymd) => {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
+            if (!m) return null;
+            const key = `${Number(m[1])}-${Number(m[2]) - 1}-${Number(m[3])}`;
+            return buckets.find(x => x.key === key) || null;
+        };
         const bucketFor = (ts) => {
             if (!ts) return null;
             return buckets.find(x => x.key === keyOf(parseTs(ts))) || null;
@@ -1368,7 +1388,14 @@ const DashboardPage = {
         // window so the chart is not capped by the feed's page size.
         const activity = await API.getCallAuditActivity({ windowDays: days }).catch(() => null);
         ((activity && activity.buckets) || []).forEach(row => {
-            const b = bucketFor(row.called_at);
+            // These are pre-aggregated buckets, not events. In daily mode the
+            // server stamps each one at UTC midnight, so parsing it as an
+            // instant drops it into the PREVIOUS local day for anyone west of
+            // UTC — every tool-call bar sat one day to the left. Read the day
+            // bucket as the calendar date it is; only the 24h window's hourly
+            // buckets are real instants worth converting.
+            const raw = String(row.called_at || '');
+            const b = hourly ? bucketFor(raw) : bucketForDateString(raw.slice(0, 10));
             if (b) b.tools += Number(row.n || 0);
         });
 
