@@ -286,9 +286,16 @@ const Sidebar = {
         version.textContent = 'v5';
         fetch('/health')
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d && d.version) version.textContent = 'v' + d.version; })
+            // Shape-check before it lands in chrome: a version is short and
+            // alphanumeric, and nothing else belongs in this slot.
+            .then(d => {
+                const v = d && d.version ? String(d.version) : '';
+                if (/^[\w.+-]{1,20}$/.test(v)) version.textContent = 'v' + v;
+            })
             .catch(() => {});   // offline or mid-restart: the fallback stands
-        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);';
+        // Reserve the settled width so the chip does not jump from 'v5' to
+        // 'v5.1.0' once /health answers.
+        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);min-width:5ch;display:inline-block;';
         brandRow.appendChild(version);
         logoTextCol.appendChild(brandRow);
 
