@@ -15,7 +15,10 @@ Usage:
     securevector-app [--port PORT] [--host HOST] [--debug] [--no-tray]
 """
 
-__version__ = "5.0.0"
+# Keep in sync with __version__ in src/securevector/__init__.py on every
+# release bump. This is the value main.py prints in the startup banner and
+# --version; it was left at 5.0.0 for the 5.1.0 branch.
+__version__ = "5.1.0"
 __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app
