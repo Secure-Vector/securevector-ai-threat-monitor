@@ -537,23 +537,25 @@ const DashboardPage = {
 
         container.appendChild(chartsRow);
 
-        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
-        activityCard.style.marginBottom = '20px';
-        this.renderRecentActivity(activityCard.querySelector('.card-body'));
-        container.appendChild(activityCard);
-
-        // Security Controls — moved adjacent to Recent Activity since they're
-        // the "see threats / shape your response" pair. Previously they sat
-        // between Reports and the charts which was a context break.
+        // Security Controls — what is on and off, which is the page's
+        // actionable half and now reads before the feed.
         const securityControls = await this.renderSecurityControls();
         container.appendChild(securityControls);
 
         // Governance posture moved to its own Cloud-section page
         // (GovernancePage) — kept off the dashboard to reduce clutter.
 
-        // Reports — weekly artifacts, last in the reading order as compact
-        // tiles; the full pages (and rich PDF export) are one click away.
+        // Reports — weekly artifacts as compact tiles; the full pages (and
+        // rich PDF export) are one click away.
         this.renderReportsSection(container);
+
+        // Recent Threat Activity closes the page. The headline above already
+        // states how many threats need review, so the row-by-row feed is the
+        // detail you scroll to, not the thing you land on.
+        const activityCard = Card.create({ title: 'Recent Threat Activity', gradient: true });
+        activityCard.style.marginTop = '20px';
+        this.renderRecentActivity(activityCard.querySelector('.card-body'));
+        container.appendChild(activityCard);
     },
 
     /**
