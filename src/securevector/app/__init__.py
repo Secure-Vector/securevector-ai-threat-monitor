@@ -15,7 +15,11 @@ Usage:
     securevector-app [--port PORT] [--host HOST] [--debug] [--no-tray]
 """
 
-__version__ = "5.0.0"
+# Derived, never re-declared. A second literal here is how the app came to
+# print 5.0.0 on a 5.1.0 build: packaging reads the package version, every
+# banner and `--version` reads this one, and nothing forced them to agree.
+from securevector import __version__  # noqa: F401  (re-exported for main.py)
+
 __app_name__ = "SecureVector Local Threat Monitor"
 
 # Required dependencies for the app
