@@ -471,9 +471,11 @@ const DashboardPage = {
             const appendGaps = () => {
                 if (!this.settings) return;
                 const gaps = [];
-                if (!this.settings.block_threats) {
-                    gaps.push(['block-mode', 'Block mode is off: threats are detected and logged, but nothing is stopped', 'Turn on']);
-                }
+                // Block Mode is deliberately not an alert here. It only governs
+                // the OpenClaw proxy path; hook, SDK and MCP runtimes block tool
+                // calls natively, so "nothing is stopped" was untrue on most
+                // installs. The Governance page still reports its real state per
+                // runtime, which is where the distinction can actually be made.
                 if (!this.settings.scan_llm_responses) {
                     gaps.push(['output-scan', 'Output scan is off: LLM responses are not checked or redacted', 'Turn on']);
                 }
@@ -488,7 +490,7 @@ const DashboardPage = {
                 if (due.length === 1) {
                     stack.appendChild(buildGapItem([due[0][0]], due[0][1], due[0][2], syncVis));
                 } else if (due.length > 1) {
-                    const names = { 'block-mode': 'Block mode', 'output-scan': 'Output scan', 'guardian-ml': 'Guardian ML' };
+                    const names = { 'output-scan': 'Output scan', 'guardian-ml': 'Guardian ML' };
                     const list = due.map(([id]) => names[id] || id).join(', ');
                     stack.appendChild(buildGapItem(
                         due.map(([id]) => id),
