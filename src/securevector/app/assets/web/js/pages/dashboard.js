@@ -514,28 +514,12 @@ const DashboardPage = {
             }
         } catch (e) { /* attention stack is non-critical */ }
 
-        // ── Tier 2 — trend first, then live proof ───────────────────────────
-        // The requests/threats chart leads (founder direction 2026-07-27):
-        // the shape of the day gives the feed its context, so Recent Threat
-        // Activity now sits directly BELOW the graph.
-        // One full-width chart: requests + threats. Cost/token trends live
-        // on Cost & Tokens now (that page owns spend + tokens together) —
-        // a second chart here was the main source of dashboard cramp.
-        const chartsRow = document.createElement('div');
-        chartsRow.style.cssText = 'margin-bottom: 24px;';
-
-        const chartDays = this.rangeDays;
-        const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
-
-        const trendCard = Card.create({ title: `Tool Calls: ${chartLabel}`, gradient: true });
-        const trendBody = trendCard.querySelector('.card-body');
-        trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
-        chartsRow.appendChild(trendCard);
-        this.renderTrendChart(trendBody, chartDays).catch(() => {
-            trendBody.innerHTML = '<div style="height:160px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px;">Chart unavailable</div>';
-        });
-
-        container.appendChild(chartsRow);
+        // No full-width trend card here. Every figure on this page has a
+        // detail page that owns it, so a single-metric chart could only repeat
+        // one of them at the cost of the widest element on the dashboard. The
+        // shape now rides with its own number as a sparkline in the strip
+        // above, which is a fifth of the space and reads as an attribute of
+        // the figure rather than a section competing with it.
 
         // Security Controls — what is on and off, which is the page's
         // actionable half and now reads before the feed.
@@ -556,6 +540,58 @@ const DashboardPage = {
         activityCard.style.marginTop = '20px';
         this.renderRecentActivity(activityCard.querySelector('.card-body'));
         container.appendChild(activityCard);
+    },
+
+    /**
+     * Sparkline: a number's own shape, at instrument scale.
+     *
+     * Micro-histogram rather than a line — these are discrete daily counts,
+     * and a smoothed curve would draw values that were never measured. Bars
+     * sit at low opacity with the most recent at full strength, so the eye
+     * lands on "now" and the rest reads as context. A measured-but-empty
+     * bucket keeps a baseline hairline: absent and zero must not look alike.
+     *
+     * Deliberately unlabelled. Magnitude lives in the figure above it; this
+     * only answers "steady, spiking, or stopped", and the tooltip carries the
+     * per-bucket detail for anyone who wants it.
+     */
+    _sparkline(data, opts = {}) {
+        const values = (data || []).map(v => Number(v) || 0);
+        if (!values.length) return null;
+        const color = opts.color || 'var(--text-muted)';
+        const W = 4, GAP = 2, H = 16;
+        const max = Math.max(...values, 1);
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const w = values.length * W + (values.length - 1) * GAP;
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('viewBox', `0 0 ${w} ${H}`);
+        svg.setAttribute('width', String(w));
+        svg.setAttribute('height', String(H));
+        svg.style.cssText = 'display:block; overflow:visible;';
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', opts.ariaLabel || 'recent trend');
+        values.forEach((v, i) => {
+            const x = i * (W + GAP);
+            const isLast = i === values.length - 1;
+            // Floor a real value at 2px so a small count stays visible beside
+            // a large one; a true zero gets a 1px baseline tick instead.
+            const h = v > 0 ? Math.max(2, Math.round((v / max) * H)) : 1;
+            const bar = document.createElementNS(svgNS, 'rect');
+            bar.setAttribute('x', String(x));
+            bar.setAttribute('y', String(H - h));
+            bar.setAttribute('width', String(W));
+            bar.setAttribute('height', String(h));
+            bar.setAttribute('rx', v > 0 ? '1' : '0');
+            bar.setAttribute('fill', color);
+            bar.setAttribute('opacity', v > 0 ? (isLast ? '1' : '0.42') : '0.18');
+            svg.appendChild(bar);
+        });
+        if (opts.title) {
+            const t = document.createElementNS(svgNS, 'title');
+            t.textContent = opts.title;
+            svg.appendChild(t);
+        }
+        return svg;
     },
 
     /**
@@ -589,11 +625,18 @@ const DashboardPage = {
             lblEl.style.cssText = 'font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; margin-top: 4px; letter-spacing: 0.3px; text-transform: uppercase;';
             lblEl.textContent = label;
             cell.appendChild(lblEl);
+            // Reserved slot for the number's own shape. Kept between value and
+            // label so a sparkline reads as an attribute of the figure rather
+            // than a chart that happens to sit nearby, and so the strip's
+            // baseline never shifts when one arrives late.
+            const sparkEl = document.createElement('div');
+            sparkEl.style.cssText = 'height: 16px; margin-top: 7px;';
+            cell.insertBefore(sparkEl, lblEl);
             cell.addEventListener('mouseenter', () => { valEl.style.textDecoration = 'underline'; });
             cell.addEventListener('mouseleave', () => { valEl.style.textDecoration = ''; });
             if (navPage) cell.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(navPage); });
             strip.appendChild(cell);
-            return { valEl, cell };
+            return { valEl, cell, sparkEl };
         };
 
         // v5 color policy: stat values are neutral by default — color is
@@ -621,6 +664,37 @@ const DashboardPage = {
         });
         const blocked = inRange.filter(t => String(t.action_taken || '').toLowerCase().includes('block')).length;
         const critical = inRange.filter(t => t.risk_score >= 80).length;
+
+        // Calendar days across the window, oldest first. The daily tool-call
+        // endpoint keys on local calendar dates, so the sparklines use the
+        // same keys and the two figures cannot disagree about what "a day" is.
+        const dayKeys = [];
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(Date.now() - i * 86400000);
+            dayKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+        }
+        const dayLabel = (k) => k.slice(5).replace('-', '/');
+
+        if (days > 1) {
+            // Must plot the SAME population as the figure it sits under, or
+            // the shape quietly describes a different number than the label.
+            const perDay = new Map(dayKeys.map(k => [k, 0]));
+            inRange.filter(t => t.risk_score >= 80).forEach(t => {
+                const d = parseTs(t.created_at);
+                if (!d) return;
+                const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                if (perDay.has(k)) perDay.set(k, perDay.get(k) + 1);
+            });
+            const series = dayKeys.map(k => perDay.get(k) || 0);
+            if (series.some(v => v > 0)) {
+                const spark = this._sparkline(series, {
+                    color: '#ef4444',
+                    ariaLabel: 'critical threats per day',
+                    title: dayKeys.map((k, i) => `${dayLabel(k)}: ${series[i]}`).join('\n'),
+                });
+                if (spark) criticalStat.sparkEl.appendChild(spark);
+            }
+        }
         blockedStat.valEl.textContent = blocked.toLocaleString();
         if (blocked > 0) blockedStat.valEl.style.color = '#ef4444';
         criticalStat.valEl.textContent = critical.toLocaleString();
@@ -659,6 +733,18 @@ const DashboardPage = {
                     .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
                 : 0;
             calls.valEl.textContent = toolCalls.toLocaleString();
+            if (days > 1 && auditDaily && auditDaily.days) {
+                const byDay = new Map(auditDaily.days.map(d => [d.day,
+                    (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0)]));
+                const series = dayKeys.map(k => byDay.get(k) || 0);
+                if (series.some(v => v > 0)) {
+                    const spark = this._sparkline(series, {
+                        ariaLabel: 'tool calls per day',
+                        title: dayKeys.map((k, i) => `${dayLabel(k)}: ${series[i].toLocaleString()}`).join('\n'),
+                    });
+                    if (spark) calls.sparkEl.appendChild(spark);
+                }
+            }
 
             const secretsCaught = redactions && redactions.summary ? (redactions.summary.total || 0) : 0;
             secretsStat.valEl.textContent = secretsCaught.toLocaleString();
@@ -1032,360 +1118,6 @@ const DashboardPage = {
         return 'success';
     },
 
-
-    /**
-     * Reusable SVG line/area timeline chart.
-     *
-     * Replaces the prior column-bar charts. The dashboard surface
-     * benefits from a continuous-time mental model — bars segregate
-     * each day into a vertical silo, while a line traces the trend
-     * across days and makes spikes/dips visually obvious.
-     *
-     * Renderer: pure SVG, no deps. Smooth path via Catmull-Rom
-     * approximation through midpoints (cardinal-spline-lite). Filled
-     * area under each line at low alpha so the line stays the focus.
-     * Hover dots + tooltips per data point. Y-axis: max + midpoint
-     * grid line. X-axis: day labels at each bucket.
-     *
-     * opts:
-     *   - title: optional inline header (omitted — the Card already
-     *            wraps with a title)
-     *   - series: [{ label, color, data: number[], format?: fn(n)→str }]
-     *             All series MUST share the same x-axis (buckets) length.
-     *   - labels: string[] — x-axis tick labels, same length as data
-     *   - yFormat: fn(n) → str — Y-axis tick formatter (default: integer)
-     *   - height: chart height in px (default 140)
-     */
-    _renderTimelineChart(container, opts) {
-        const series = opts.series || [];
-        const labels = opts.labels || [];
-        const height = opts.height || 160;
-        const yFormat = opts.yFormat || (n => Math.round(n).toLocaleString());
-        if (series.length === 0 || labels.length === 0) return;
-
-        // The chart owns an inner host div so a responsive re-render clears
-        // only itself — siblings the caller appended (e.g. the dashboard's
-        // truncation note) survive.
-        let host = container.querySelector(':scope > .sv-linechart');
-        if (!host) {
-            container.textContent = '';
-            host = document.createElement('div');
-            host.className = 'sv-linechart';
-            container.appendChild(host);
-        } else {
-            host.textContent = '';
-        }
-
-        // True pixel coordinates. The previous fixed-600 viewBox with
-        // preserveAspectRatio="none" stretched non-uniformly to the card —
-        // circles became ellipses, text and strokes distorted. Rendering at
-        // the container's real width keeps every glyph and marker crisp; a
-        // ResizeObserver re-renders when the card's width actually changes.
-        const w = container.clientWidth || 600;
-        container._svTimelineOpts = opts;
-        container._svTimelineLastW = w;
-        if (!container._svTimelineRO && window.ResizeObserver) {
-            const ro = new ResizeObserver(() => {
-                const cw = container.clientWidth;
-                if (!cw || Math.abs(cw - (container._svTimelineLastW || 0)) < 8) return;
-                requestAnimationFrame(() =>
-                    this._renderTimelineChart(container, container._svTimelineOpts));
-            });
-            ro.observe(container);
-            container._svTimelineRO = ro;
-        }
-
-        const n = labels.length;
-        // Shared y-axis across series keeps them comparable; round the max
-        // up to a "nice" value so tick labels are clean.
-        const allValues = series.flatMap(s => s.data || []);
-        const maxVal = Math.max(...allValues, 1);
-        const niceMax = (() => {
-            // Keep small maxima even so the mid gridline's label is exact
-            // (a max of 3 would put a rounded "2" at the 1.5 line).
-            if (maxVal <= 10) return Math.max(2, Math.ceil(maxVal / 2) * 2);
-            const pow = Math.pow(10, Math.floor(Math.log10(maxVal)));
-            const norm = maxVal / pow;
-            const rounded = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
-            return rounded * pow;
-        })();
-
-        // Fixed paddings so labels never get cropped.
-        const padL = 40, padR = 12, padT = 10, padB = 24;
-        const innerW = w - padL - padR;
-        const innerH = height - padT - padB;
-
-        // Bars occupy a band per bucket rather than sitting on a point, so
-        // the first and last bars are inset by half a band instead of being
-        // clipped at the plot edges. Labels ride the same centres.
-        const band = innerW / n;
-        const xAt = i => padL + (i + 0.5) * band;
-        const yAt = v => padT + innerH - (v / niceMax) * innerH;
-
-        const svgNS = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(svgNS, 'svg');
-        svg.setAttribute('viewBox', `0 0 ${w} ${height}`);
-        svg.setAttribute('width', w);
-        svg.setAttribute('height', height);
-        svg.style.cssText = 'display: block; overflow: visible; max-width: 100%;';
-        svg.setAttribute('role', 'img');
-        svg.setAttribute('aria-label', series.map(s => s.label).join(' and ') + ' over time');
-
-        // Grid lines + Y-axis ticks (3 lines: 0, mid, max).
-        [0, 0.5, 1].forEach(frac => {
-            const y = padT + innerH - frac * innerH;
-            const line = document.createElementNS(svgNS, 'line');
-            line.setAttribute('x1', padL);
-            line.setAttribute('x2', w - padR);
-            line.setAttribute('y1', y);
-            line.setAttribute('y2', y);
-            line.setAttribute('stroke', 'var(--border-default)');
-            line.setAttribute('stroke-width', '1');
-            line.setAttribute('stroke-dasharray', frac === 0 ? '0' : '3 3');
-            line.setAttribute('opacity', frac === 0 ? '0.7' : '0.35');
-            svg.appendChild(line);
-
-            const tick = document.createElementNS(svgNS, 'text');
-            tick.setAttribute('x', padL - 6);
-            tick.setAttribute('y', y + 3);
-            tick.setAttribute('text-anchor', 'end');
-            tick.setAttribute('font-size', '9');
-            tick.setAttribute('fill', 'var(--text-muted)');
-            tick.textContent = yFormat(frac * niceMax);
-            svg.appendChild(tick);
-        });
-
-        // X-axis labels. One tick per data point collides once the window
-        // grows, so thin to a stride derived from the real pixel width —
-        // roughly one tick per 80px, clamped to a sane band. First and last
-        // are always shown; interior labels are dropped on the stride. The
-        // text-anchor on the edge ticks is nudged inward so they don't clip.
-        const targetTicks = Math.max(4, Math.min(12, Math.floor(innerW / 80)));
-        const stride = Math.max(1, Math.ceil(n / targetTicks));
-        // Stacked panels share one x-scale, so only the last one draws the
-        // axis; repeating identical dates under every panel is noise.
-        if (opts.showXLabels !== false) labels.forEach((lbl, i) => {
-            const isFirst = i === 0;
-            const isLast = i === n - 1;
-            // Show first, last, and every stride-th label; never render a tick
-            // adjacent to the last one (avoids a cramped final pair).
-            if (!isFirst && !isLast && (i % stride !== 0 || (n - 1 - i) < stride / 2)) return;
-            const t = document.createElementNS(svgNS, 'text');
-            t.setAttribute('x', xAt(i));
-            t.setAttribute('y', height - 6);
-            // Band centres are already inset by half a band, so every label
-            // centres on its bar without clipping at either edge.
-            t.setAttribute('text-anchor', 'middle');
-            t.setAttribute('font-size', '10');
-            t.setAttribute('fill', 'var(--text-muted)');
-            t.textContent = lbl;
-            svg.appendChild(t);
-        });
-
-        const r1 = v => Math.round(v * 10) / 10;
-
-        // Bars, not a spline. These are discrete daily counts: a smoothed
-        // curve draws values that were never measured (a 1 and a 2 become a
-        // 1.7 somewhere between them) and the area fill under it turns two
-        // events into a wall of colour. A bar states the count for its
-        // bucket and claims nothing between buckets. Red therefore appears
-        // only in proportion to the threats actually recorded, instead of
-        // sweeping across the whole card.
-        const m = series.length;
-        // Leave a quarter of each band as breathing room, then split what is
-        // left between the series with a 2px surface gap between neighbours.
-        // Thin marks: a wide window keeps bars proportional to the band, but
-        // a 7-bucket chart on a full-width card would otherwise render slabs.
-        // Capping the group keeps the plot airy at every range.
-        const groupW = Math.min(band * 0.7, 26 * m);
-        const barW = Math.max(3, (groupW - (m - 1) * 2) / m);
-        const groupX = i => xAt(i) - groupW / 2;
-        // Rounded data-ends, but never taller than the bar itself, so a
-        // 1-count bar keeps its shape instead of collapsing into a lozenge.
-        const radiusFor = h => Math.min(4, h / 2, barW / 2);
-
-        series.forEach((s, si) => {
-            const data = s.data || [];
-            const fmt = s.format || yFormat;
-
-            data.forEach((v, i) => {
-                const x = groupX(i) + si * (barW + 2);
-                const full = padT + innerH;
-                const h = Math.max(0, full - yAt(v));
-                // A zero keeps a hairline on the baseline: the bucket was
-                // measured and came back empty, which is not the same as a
-                // bucket with no bar because nothing was reported.
-                const drawH = v > 0 ? Math.max(h, 2) : 1;
-                const y = full - drawH;
-                const rad = v > 0 ? radiusFor(drawH) : 0;
-
-                const bar = document.createElementNS(svgNS, 'path');
-                // Top corners rounded, bottom square so every bar sits flat
-                // on the baseline.
-                bar.setAttribute('d',
-                    `M ${r1(x)} ${r1(y + drawH)} L ${r1(x)} ${r1(y + rad)} ` +
-                    `Q ${r1(x)} ${r1(y)} ${r1(x + rad)} ${r1(y)} ` +
-                    `L ${r1(x + barW - rad)} ${r1(y)} ` +
-                    `Q ${r1(x + barW)} ${r1(y)} ${r1(x + barW)} ${r1(y + rad)} ` +
-                    `L ${r1(x + barW)} ${r1(y + drawH)} Z`);
-                bar.setAttribute('fill', s.color);
-                bar.setAttribute('fill-opacity', v > 0 ? '0.85' : '0.35');
-                bar.style.transition = 'fill-opacity 0.08s';
-                svg.appendChild(bar);
-
-                // Hit target spans the full band height so the tooltip is
-                // reachable without hunting for a 1px bar.
-                const hit = document.createElementNS(svgNS, 'rect');
-                hit.setAttribute('x', r1(x - 1));
-                hit.setAttribute('y', padT);
-                hit.setAttribute('width', r1(barW + 2));
-                hit.setAttribute('height', innerH);
-                hit.setAttribute('fill', 'transparent');
-                hit.style.cursor = 'pointer';
-                const label = `${labels[i]} · ${s.label}: ${fmt(v)}`;
-                const titleEl = document.createElementNS(svgNS, 'title');
-                titleEl.textContent = label;
-                hit.appendChild(titleEl);
-                const show = (ev) => {
-                    tooltip.textContent = label;
-                    tooltip.style.opacity = '1';
-                    const rect = host.getBoundingClientRect();
-                    let x2 = ev.clientX - rect.left + 12;
-                    const y2 = ev.clientY - rect.top - 10;
-                    const maxX = rect.width - tooltip.offsetWidth - 6;
-                    if (x2 > maxX) x2 = ev.clientX - rect.left - tooltip.offsetWidth - 12;
-                    tooltip.style.left = Math.max(0, x2) + 'px';
-                    tooltip.style.top = Math.max(0, y2) + 'px';
-                };
-                hit.addEventListener('mouseenter', show);
-                hit.addEventListener('mousemove', show);
-                hit.addEventListener('mouseenter', () => bar.setAttribute('fill-opacity', '1'));
-                hit.addEventListener('mouseleave', () => {
-                    tooltip.style.opacity = '0';
-                    bar.setAttribute('fill-opacity', v > 0 ? '0.85' : '0.35');
-                });
-                // Click-through to wherever the number came from, carrying the
-                // bucket so the destination can scope to the same day.
-                if (opts.onSelect) {
-                    hit.addEventListener('click', () => opts.onSelect(s, i, v));
-                }
-                svg.appendChild(hit);
-            });
-        });
-        // Host the SVG in a positioned wrapper so the HTML tooltip can be
-        // absolutely placed relative to the chart.
-        host.style.position = 'relative';
-        const tooltip = document.createElement('div');
-        tooltip.style.cssText = [
-            'position:absolute', 'pointer-events:none', 'opacity:0',
-            'transition:opacity 0.08s', 'z-index:5', 'white-space:nowrap',
-            'background:var(--bg-card)', 'color:var(--text-primary)',
-            'border:1px solid var(--border-default)', 'border-radius:6px',
-            'padding:4px 8px', 'font-size:11px', 'font-weight:600',
-            'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
-        ].join(';');
-        host.appendChild(tooltip);
-
-        host.appendChild(svg);
-
-        // Legend — uses the same color swatches as the lines.
-        const legend = document.createElement('div');
-        legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
-        // A single series needs no legend: whatever titles the panel already
-        // names it, and a swatch for one colour is furniture.
-        if (opts.showLegend === false || series.length < 2) return;
-        series.forEach(s => {
-            const item = document.createElement('span');
-            item.style.cssText = 'display: flex; align-items: center; gap: 6px;';
-            const sw = document.createElement('span');
-            sw.style.cssText = `width: 9px; height: 9px; background: ${s.color}; flex-shrink: 0; border-radius: 2px;`;
-            item.appendChild(sw);
-            item.appendChild(document.createTextNode(s.label));
-            legend.appendChild(item);
-        });
-        host.appendChild(legend);
-    },
-
-    /**
-     * Audited tool-call volume over the global range — the shape of the week,
-     * and the only trend on this page that is not already stated as a number
-     * somewhere above it.
-     *
-     * Deliberately ONE series, and deliberately not threats: the dashboard
-     * already leads with the threat headline, carries blocked/critical in the
-     * hero strip, and puts Recent Threat Activity directly below this card. A
-     * fourth threat surface plotting a handful of events earns nothing.
-     *
-     * Charting volume beside threats was worse still — at hundreds of calls
-     * against a handful of detections the threat bars were unreadable stubs,
-     * and the sources do not share coverage (a tool call is recorded only
-     * where a Guard hook fired), so one axis implied a comparison neither side
-     * supports. LLM runs live per agent on Traces for the same reason.
-     *
-     * Caveat this cannot fix here: a day when hook auditing stopped renders as
-     * a quiet day. Distinguishing "quiet" from "not recorded" needs capture
-     * coverage the app does not yet track.
-     */
-    async renderTrendChart(container, days = 7) {
-        // Stored timestamps are UTC, but several tables write them without a
-        // designator, and an ISO string with no zone is parsed as LOCAL by JS.
-        // That silently moved an evening detection into the next day.
-        const parseTs = (ts) => {
-            const v = String(ts || '').trim().replace(' ', 'T');
-            const zoned = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(v);
-            return new Date(zoned ? v : v + 'Z');
-        };
-        const hourly = days === 1;
-        const buckets = [];
-        const now = new Date();
-        if (hourly) {
-            for (let i = 23; i >= 0; i--) {
-                const d = new Date(now.getTime() - i * 3600000);
-                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, n: 0 });
-            }
-        } else {
-            for (let i = days - 1; i >= 0; i--) {
-                const d = new Date();
-                d.setUTCDate(d.getUTCDate() - i);
-                buckets.push({ label: (d.getUTCMonth()+1).toString().padStart(2,'0') + '/' + d.getUTCDate().toString().padStart(2,'0'), key: `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`, n: 0 });
-            }
-        }
-        // Hourly buckets are real instants and read in local time; day buckets
-        // follow UTC, which is the calendar the stored timestamps are in.
-        const keyOf = (d) => hourly
-            ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
-            : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
-
-        // Audited tool calls, aggregated server-side across the whole window so
-        // the chart is not capped by the feed's page size.
-        const activity = await API.getCallAuditActivity({ windowDays: days }).catch(() => null);
-        ((activity && activity.buckets) || []).forEach(row => {
-            // These are pre-aggregated buckets, not events. In daily mode the
-            // server stamps each at UTC midnight, so parsing it as an instant
-            // would drop it into the previous local day. Read a day bucket as
-            // the calendar date it is; only the 24h view's hourly buckets are
-            // real instants worth converting.
-            const raw = String(row.called_at || '');
-            let b;
-            if (hourly) {
-                b = buckets.find(x => x.key === keyOf(parseTs(raw)));
-            } else {
-                const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
-                b = m ? buckets.find(x => x.key === `${Number(m[1])}-${Number(m[2]) - 1}-${Number(m[3])}`) : null;
-            }
-            if (b) b.n += Number(row.n || 0);
-        });
-
-        container.textContent = '';
-        this._renderTimelineChart(container, {
-            labels: buckets.map(b => b.label),
-            series: [{ label: 'Tool calls', color: 'var(--accent-primary)', data: buckets.map(b => b.n) }],
-            yFormat: n => Math.round(n).toLocaleString(),
-            height: 180,
-            onSelect: () => { if (window.Sidebar) Sidebar.navigate('tool-activity'); },
-        });
-
-    },
 
     renderRecentActivity(container) {
         const threats = this.threats.slice(0, 8);
