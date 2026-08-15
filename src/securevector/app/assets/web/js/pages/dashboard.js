@@ -527,7 +527,10 @@ const DashboardPage = {
         const chartDays = this.rangeDays;
         const chartLabel = chartDays === 1 ? 'Last 24h' : `Last ${chartDays} Days`;
 
-        const trendCard = Card.create({ title: `LLM Requests: ${chartLabel}`, gradient: true });
+        // "LLM Requests" was the old single-series title, and it was never
+        // what the chart measured. The card now carries three named panels,
+        // so the title states the window and lets each panel name itself.
+        const trendCard = Card.create({ title: `Activity: ${chartLabel}`, gradient: true });
         const trendBody = trendCard.querySelector('.card-body');
         trendBody.innerHTML = '<div class="loading-container" style="height:160px;"><div class="spinner"></div></div>';
         chartsRow.appendChild(trendCard);
@@ -1160,7 +1163,9 @@ const DashboardPage = {
         // text-anchor on the edge ticks is nudged inward so they don't clip.
         const targetTicks = Math.max(4, Math.min(12, Math.floor(innerW / 80)));
         const stride = Math.max(1, Math.ceil(n / targetTicks));
-        labels.forEach((lbl, i) => {
+        // Stacked panels share one x-scale, so only the last one draws the
+        // axis; repeating identical dates under every panel is noise.
+        if (opts.showXLabels !== false) labels.forEach((lbl, i) => {
             const isFirst = i === 0;
             const isLast = i === n - 1;
             // Show first, last, and every stride-th label; never render a tick
@@ -1260,6 +1265,11 @@ const DashboardPage = {
                     tooltip.style.opacity = '0';
                     bar.setAttribute('fill-opacity', v > 0 ? '0.85' : '0.35');
                 });
+                // Click-through to wherever the number came from, carrying the
+                // bucket so the destination can scope to the same day.
+                if (opts.onSelect) {
+                    hit.addEventListener('click', () => opts.onSelect(s, i, v));
+                }
                 svg.appendChild(hit);
             });
         });
@@ -1282,11 +1292,14 @@ const DashboardPage = {
         // Legend — uses the same color swatches as the lines.
         const legend = document.createElement('div');
         legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
+        // A single series needs no legend: whatever titles the panel already
+        // names it, and a swatch for one colour is furniture.
+        if (opts.showLegend === false || series.length < 2) return;
         series.forEach(s => {
             const item = document.createElement('span');
             item.style.cssText = 'display: flex; align-items: center; gap: 6px;';
             const sw = document.createElement('span');
-            sw.style.cssText = `width: 16px; height: 2px; background: ${s.color}; flex-shrink: 0; border-radius: 1px;`;
+            sw.style.cssText = `width: 9px; height: 9px; background: ${s.color}; flex-shrink: 0; border-radius: 2px;`;
             item.appendChild(sw);
             item.appendChild(document.createTextNode(s.label));
             legend.appendChild(item);
@@ -1295,10 +1308,15 @@ const DashboardPage = {
     },
 
     /**
-     * Requests/threats trend, scoped to the global range. Fetches the
-     * window's records directly (up to 3 pages of 100) instead of reusing
-     * the page-level 50-row sample, so 30-day charts aren't lies built on
-     * the most recent 50 events. 24h renders hourly buckets.
+     * Volume + threats over the global range: one chart, three bars per
+     * bucket — LLM requests, tool calls, threats detected.
+     *
+     * The three differ by orders of magnitude (hundreds of tool calls against
+     * a handful of threats), so a non-zero bar is floored at 2px: a day with
+     * two threats stays visible beside a day with 250 tool calls instead of
+     * rounding away to nothing. The number itself is on hover and in the
+     * per-series totals above the plot. Clicking any bar opens the page that
+     * number came from.
      */
     async renderTrendChart(container, days = 7) {
         const parseTs = ts => new Date(ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z');
@@ -1308,61 +1326,114 @@ const DashboardPage = {
         if (hourly) {
             for (let i = 23; i >= 0; i--) {
                 const d = new Date(now.getTime() - i * 3600000);
-                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, total: 0, threats: 0 });
+                buckets.push({ label: String(d.getHours()).padStart(2, '0') + ':00', key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`, llm: 0, tools: 0, threats: 0 });
             }
         } else {
             for (let i = days - 1; i >= 0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
-                buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, total: 0, threats: 0 });
+                buckets.push({ label: (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getDate().toString().padStart(2,'0'), key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, llm: 0, tools: 0, threats: 0 });
             }
         }
         const keyOf = (d) => hourly
             ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`
             : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const bucketFor = (ts) => {
+            if (!ts) return null;
+            return buckets.find(x => x.key === keyOf(parseTs(ts))) || null;
+        };
 
-        // Pull the actual window from the API (start_date-scoped), not the
-        // dashboard's 50-row sample. 3×100 covers typical local volume;
-        // when there's more we say so instead of silently truncating.
         const startIso = new Date(Date.now() - days * 86400000).toISOString();
-        let items = [];
-        let total = 0;
+
+        // Threats: threat_intel_records. These rows exist ONLY when a
+        // detection fired — analyze.py stores nothing for a clean scan — so
+        // this series is detections, never request volume. Request volume
+        // comes from the two sources below, which is the whole reason the
+        // old single "Requests" line tracked the threat line exactly.
+        let threatItems = [];
+        let threatTotal = 0;
         for (let page = 1; page <= 3; page++) {
             const resp = await API.getThreats({ page, page_size: 100, start_date: startIso }).catch(() => null);
             if (!resp) break;
-            items = items.concat(resp.items || []);
-            total = resp.total || items.length;
-            if (items.length >= total || !(resp.items || []).length) break;
+            threatItems = threatItems.concat(resp.items || []);
+            threatTotal = resp.total || threatItems.length;
+            if (threatItems.length >= threatTotal || !(resp.items || []).length) break;
         }
+        threatItems.forEach(t => {
+            const b = bucketFor(t.created_at || new Date().toISOString());
+            if (b) b.threats++;
+        });
 
-        items.forEach(t => {
-            const d = parseTs(t.created_at || new Date().toISOString());
-            const bucket = buckets.find(b => b.key === keyOf(d));
-            if (bucket) {
-                bucket.total++;
-                if ((t.risk_score || 0) >= 60) bucket.threats++;
-            }
+        // Tool calls: tool_call_audit, aggregated server-side across the whole
+        // window so the chart is not capped by the feed's page size.
+        const activity = await API.getCallAuditActivity({ windowDays: days }).catch(() => null);
+        ((activity && activity.buckets) || []).forEach(row => {
+            const b = bucketFor(row.called_at);
+            if (b) b.tools += Number(row.n || 0);
+        });
+
+        // LLM requests: llm_cost_records, written by the proxy and the SDKs —
+        // the only paths that see a model call. A hook-only install has none.
+        const costs = await API.getCostRecords({ start: startIso, page_size: 200 }).catch(() => null);
+        ((costs && costs.items) || []).forEach(r => {
+            const b = bucketFor(r.created_at);
+            if (b) b.llm++;
         });
 
         container.textContent = '';
-        this._renderTimelineChart(container, {
-            labels: buckets.map(b => b.label),
-            series: [
-                { label: 'Requests',           color: '#5eadb8', data: buckets.map(b => b.total) },
-                { label: 'Threats (risk ≥60%)', color: '#ef4444', data: buckets.map(b => b.threats) },
-            ],
-            yFormat: n => Math.round(n).toLocaleString(),
-            // Full-width card — a taller plot keeps the aspect ratio sane.
-            height: 220,
+
+        const series = [
+            { label: 'LLM requests', color: '#a78bfa', data: buckets.map(b => b.llm),     page: 'costs' },
+            { label: 'Tool calls',   color: '#5eadb8', data: buckets.map(b => b.tools),   page: 'tool-activity' },
+            { label: 'Threats',      color: '#ef4444', data: buckets.map(b => b.threats), page: 'threats' },
+        ];
+
+        // Per-series totals sit above the plot so the small bars still report
+        // a readable number.
+        const totals = document.createElement('div');
+        totals.style.cssText = 'display:flex; gap:18px; flex-wrap:wrap; margin: 0 0 10px;';
+        series.forEach(s => {
+            const sum = s.data.reduce((a, c) => a + c, 0);
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.style.cssText = 'display:flex; align-items:baseline; gap:6px; background:none; border:none; padding:0; cursor:pointer;';
+            item.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate(s.page); });
+            const dot = document.createElement('span');
+            dot.style.cssText = `width:8px; height:8px; border-radius:2px; background:${s.color}; flex:none; align-self:center;`;
+            item.appendChild(dot);
+            const v = document.createElement('span');
+            v.style.cssText = 'font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums;';
+            v.textContent = sum.toLocaleString();
+            item.appendChild(v);
+            const l = document.createElement('span');
+            l.style.cssText = "font: 500 11px 'Avenir Next',Avenir,system-ui,sans-serif; color: var(--text-muted);";
+            l.textContent = s.label;
+            item.appendChild(l);
+            totals.appendChild(item);
         });
-        if (total > items.length) {
+        container.appendChild(totals);
+
+        const plot = document.createElement('div');
+        container.appendChild(plot);
+
+        this._renderTimelineChart(plot, {
+            labels: buckets.map(b => b.label),
+            series,
+            yFormat: n => Math.round(n).toLocaleString(),
+            height: 220,
+            // The totals row above already carries a swatch and a name for
+            // each series, so a second legend below the plot is furniture.
+            showLegend: false,
+            onSelect: (s) => { if (window.Sidebar) Sidebar.navigate(s.page); },
+        });
+
+        if (threatTotal > threatItems.length) {
             const note = document.createElement('div');
             note.style.cssText = 'font-size: 10.5px; color: var(--text-muted); margin-top: 4px;';
-            note.textContent = `Showing the most recent ${items.length.toLocaleString()} of ${total.toLocaleString()} events in this window`;
+            note.textContent = `Threats reflect the most recent ${threatItems.length.toLocaleString()} of ${threatTotal.toLocaleString()} detections in this window`;
             container.appendChild(note);
         }
     },
-
     renderRecentActivity(container) {
         const threats = this.threats.slice(0, 8);
 
