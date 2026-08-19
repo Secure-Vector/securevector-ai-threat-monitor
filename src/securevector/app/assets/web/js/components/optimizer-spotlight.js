@@ -107,8 +107,10 @@ const OptimizerSpotlight = {
 
         modal.innerHTML =
             '<div class="modal-header" style="border-bottom:1px solid var(--border-default);">' +
+            '<div style="display:flex;align-items:center;gap:14px;">' +
+            '<span class="sv-spot-bot"></span>' +
             '<div><div style="font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent-primary,#5eadb8);">New in v5.2.0</div>' +
-            '<div class="modal-title" style="font-family:var(--font-display,inherit);">Cost / Token Optimizer</div></div>' +
+            '<div class="modal-title" style="font-family:var(--font-display,inherit);">Cost / Token Optimizer</div></div></div>' +
             '<button type="button" class="modal-close" aria-label="Dismiss">&times;</button></div>' +
             '<div class="modal-body">' +
             `<p style="color:var(--text-secondary);font-size:14px;line-height:1.55;margin:0 0 14px;">${esc(headline)}. Every finding names the exact session and turn it came from, and links to the evidence in Traces.</p>` +
@@ -130,6 +132,10 @@ const OptimizerSpotlight = {
             '<button type="button" class="btn btn-primary sv-spot-open">Open the Optimizer</button>' +
             '</div>';
 
+        const botHost = modal.querySelector('.sv-spot-bot');
+        if (botHost && window.GuardianBot) {
+            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 46, label: 'Guardian' }));
+        }
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         requestAnimationFrame(() => overlay.classList.add('active'));
