@@ -28,6 +28,10 @@ const CostsPage = {
     async render(container) {
         container.textContent = '';
         if (this.pollInterval) clearInterval(this.pollInterval);
+        if (this._optPoll) { clearTimeout(this._optPoll); this._optPoll = null; }
+        // One-shot tab handoff (Optimizer spotlight CTA, trace annotation
+        // click-through) — consumed after App.pages has set the default tab.
+        if (this._pendingTab) { this.activeTab = this._pendingTab; this._pendingTab = null; }
 
         if (this.mode === 'settings') {
             if (window.Header) Header.setPageInfo('Cost Settings', 'Set daily budgets and manage model pricing');
@@ -109,6 +113,13 @@ const CostsPage = {
         const budgetSection = this._buildGlobalBudgetWidget();
         container.appendChild(budgetSection);
 
+        // Cost / Token Optimizer preferences (billing mode + recommendations).
+        // Controls live here on the Policies side; the findings stay on
+        // Cost & Tokens — the split the app already encodes.
+        const optPrefsHost = document.createElement('div');
+        container.appendChild(optPrefsHost);
+        this._renderOptimizerPrefsCard(optPrefsHost);
+
         // Divider / heading for pricing
         const pricingHeading = document.createElement('div');
         pricingHeading.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; padding: 20px 0 10px;';
@@ -127,8 +138,11 @@ const CostsPage = {
     // Permissions — every "one feature, several lenses" surface in the app now
     // switches views the same way. Monitor mode only shows summary + history.
     _TABS: [
-        { id: 'overview', label: 'Cost Summary',    icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6' },
-        { id: 'history',  label: 'Request History', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+        { id: 'overview',  label: 'Cost Summary',    icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6' },
+        // Overview stays first: it is the honest baseline number. Discovery of
+        // the Optimizer is handled by the unseen dot, not by reordering.
+        { id: 'optimizer', label: 'Optimizer',       icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' },
+        { id: 'history',   label: 'Request History', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
     ],
 
     _renderTabBar() {
@@ -144,7 +158,11 @@ const CostsPage = {
         this._TABS.forEach(({ id, label, icon }) => {
             const btn = document.createElement('button');
             const isActive = this.activeTab === id;
-            if (isActive) localStorage.setItem('sv-tab-seen-costs-' + id, '1');
+            let unseen = false;
+            try {
+                unseen = !localStorage.getItem('sv-tab-seen-costs-' + id) && id === 'optimizer';
+                if (isActive) localStorage.setItem('sv-tab-seen-costs-' + id, '1');
+            } catch (_) { /* private mode */ }
             btn.type = 'button';
             btn.className = 'sv-obs-tab' + (isActive ? ' on' : '');
             btn.setAttribute('role', 'tab');
@@ -153,6 +171,16 @@ const CostsPage = {
                 `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" ` +
                 `stroke-linejoin="round"><path d="${icon}"/></svg><span></span>`;
             btn.querySelector('span').textContent = label;
+            if (unseen && !isActive) {
+                // Unseen marker: the read side of the sv-tab-seen-costs-<id>
+                // contract. Teal (interactive accent), not amber: "new to
+                // you" is not a security state.
+                const dot = document.createElement('span');
+                dot.style.cssText =
+                    'display:inline-block;width:6px;height:6px;border-radius:50%;' +
+                    'margin-left:6px;background:var(--accent-primary,#5eadb8);vertical-align:middle;';
+                btn.appendChild(dot);
+            }
             btn.addEventListener('click', async () => {
                 if (this.activeTab === id) return;
                 this.activeTab = id;
@@ -171,6 +199,7 @@ const CostsPage = {
         content.textContent = '';
 
         if (this.activeTab === 'overview') await this._loadAndRenderOverview();
+        else if (this.activeTab === 'optimizer') await this._loadAndRenderOptimizer();
         else if (this.activeTab === 'history') await this._loadAndRenderHistory();
     },
 
@@ -3234,10 +3263,673 @@ const CostsPage = {
         return n.toString();
     },
 
+    /** Cost Settings card: billing mode (which unit leads in the Optimizer)
+     *  and the reversible Recommendations switch. */
+    async _renderOptimizerPrefsCard(host) {
+        const st = await API.getOptimizerStatus();
+        if (!st) return; // server unreachable: settings page stays usable
+        const prefs = st.prefs || {};
+        const card = document.createElement('div');
+        card.style.cssText =
+            'background: var(--bg-secondary); border: 1px solid var(--border-default); ' +
+            'border-radius: 12px; padding: 18px 22px; margin-top: 16px;';
+        const modeVal = prefs.billing_mode || '';
+        const derivedNote = !prefs.billing_mode && prefs.billing_mode_derived === 'api'
+            ? ' (currently auto-detected: metered, from proxy activity)' : '';
+        card.innerHTML =
+            '<div style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-secondary);margin-bottom:6px;">Cost / Token Optimizer</div>' +
+            '<div style="color:var(--text-muted);font-size:13px;line-height:1.5;margin-bottom:14px;">Display preferences for the Optimizer tab on Cost &amp; Tokens. One shared analysis: billing mode only changes which unit leads.</div>' +
+            '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end;">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Billing mode' + this._esc(derivedNote) +
+            '<select class="filter-select" id="svo-pref-mode">' +
+            `<option value=""${modeVal === '' ? ' selected' : ''}>Not set (ask on first open)</option>` +
+            `<option value="api"${modeVal === 'api' ? ' selected' : ''}>Metered API billing (dollars lead)</option>` +
+            `<option value="subscription"${modeVal === 'subscription' ? ' selected' : ''}>Subscription plan (tokens lead)</option>` +
+            '</select></label>' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Recommendations' +
+            '<select class="filter-select" id="svo-pref-rec">' +
+            `<option value=""${prefs.recommend_enabled == null ? ' selected' : ''}>Not decided (ask when findings exist)</option>` +
+            `<option value="1"${prefs.recommend_enabled === true ? ' selected' : ''}>On: findings state what to change</option>` +
+            `<option value="0"${prefs.recommend_enabled === false ? ' selected' : ''}>Off: detect only</option>` +
+            '</select></label></div>';
+        card.querySelector('#svo-pref-mode').addEventListener('change', async (ev) => {
+            const v = ev.target.value;
+            if (!v) return; // "not set" is the absence of a choice, not a write
+            try { await API.setOptimizerPrefs({ billing_mode: v }); }
+            catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        });
+        card.querySelector('#svo-pref-rec').addEventListener('change', async (ev) => {
+            const v = ev.target.value;
+            if (v === '') return;
+            try { await API.setOptimizerPrefs({ recommend_enabled: v === '1' }); }
+            catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        });
+        host.appendChild(card);
+    },
+
+    // ================= Cost / Token Optimizer tab (v5.2.0, #202) =========
+    // Why a session cost what it did, and what to change. Findings come from
+    // the local transcript scan (consent-gated, same contract as Instant
+    // Audit); every number here is an estimate at list price, never metered
+    // billing, and the copy says so everywhere a figure appears.
+
+    _optWindow: 30,
+    _pendingTab: null,   // one-shot tab handoff (spotlight CTA, trace chips)
+
+    async _loadAndRenderOptimizer() {
+        const content = document.getElementById('costs-tab-content');
+        if (!content) return;
+        this._optInjectStyle();
+        if (this._optPoll) { clearTimeout(this._optPoll); this._optPoll = null; }
+        content.textContent = '';
+        const host = document.createElement('div');
+        host.id = 'sv-optimizer';
+        content.appendChild(host);
+
+        const st = await API.getOptimizerStatus();
+        if (!st) {
+            host.innerHTML = '<div class="empty-state"><div class="empty-state-title">Optimizer unavailable</div>' +
+                '<div class="empty-state-text">The local server did not answer. The Optimizer runs entirely on this machine, no cloud is involved.</div></div>';
+            return;
+        }
+        if (st.running) { this._optScanning(host, st); return; }
+        if (!st.has_report) { this._optConsent(host, st); return; }
+        const rep = await API.getOptimizerReport();
+        if (!rep) { this._optConsent(host, st); return; }
+        this._optReportView(host, rep, st);
+    },
+
+    _optMode(st, rep) {
+        // Billing mode picks the LEADING unit: dollars for API-metered,
+        // tokens for subscription. One shared analysis, one display mode,
+        // never a tier split. Unset and unknown lead with tokens: honest by
+        // default, since tokens are the ground truth.
+        const p = (st && st.prefs) || {};
+        return p.billing_mode || p.billing_mode_derived || null;
+    },
+
+    _optFmtTok(n) {
+        if (n == null) return '–';
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+        return String(Math.round(n));
+    },
+
+    _optFmtUsd(v) {
+        if (v == null) return null;
+        return '$' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
+    },
+
+    /** Leading + secondary value strings for a finding or the strip. */
+    _optValue(tokens, usd, mode) {
+        const tok = this._optFmtTok(tokens) + ' tok';
+        const dollars = usd != null ? '≈' + this._optFmtUsd(usd) : null;
+        if (mode === 'api' && dollars) return { lead: dollars, sub: tok };
+        return { lead: tok, sub: dollars ? dollars + ' est' : null };
+    },
+
+    // ---------------- consent (first open, no report yet) ----------------
+
+    _optConsent(host, st) {
+        const consented = !!st.consented_at;
+        host.innerHTML =
+            '<div class="svo-hero">' +
+            '<div class="svo-eyebrow">Runs entirely on this machine</div>' +
+            '<h2 class="svo-h">Find out why your sessions cost what they did.</h2>' +
+            '<p class="svo-p">Cost tracking answers how much. The Optimizer reads the session transcripts already on this device and answers <b>why</b>: repeated context, cache misses, retry loops, duplicate requests, each finding named to the exact session and turn that produced it.</p>' +
+            '<div class="svo-points">' +
+            '<div class="svo-point"><b>Attributable or absent</b><span>Every finding names a session and a turn, and links to it in Traces. A claim that cannot say where it came from does not appear.</span></div>' +
+            '<div class="svo-point"><b>Estimates, labelled</b><span>Token counts are exact, from the transcript. Dollar figures are tokens times list price, always marked as estimates, never an invoice.</span></div>' +
+            '</div>' +
+            (consented ? '' :
+                '<div class="svo-consent">' +
+                '<div class="svo-consent-t">Before scanning, know exactly what happens:</div>' +
+                '<ul>' +
+                '<li>Transcripts under <code>~/.claude</code> and <code>~/.codex</code> are read locally, once per scan.</li>' +
+                '<li>The report keeps aggregate numbers and content hashes only: no prompt text, no tool arguments, no file paths.</li>' +
+                '<li>The report lives in this app’s local data folder and can be deleted from this tab.</li>' +
+                '<li>Nothing is uploaded. The scan works with the device offline.</li>' +
+                '</ul></div>') +
+            '<div class="svo-actions">' +
+            [7, 30, 90].map(d =>
+                `<button type="button" class="svo-winbtn${d === this._optWindow ? ' on' : ''}" data-days="${d}">${d} days</button>`
+            ).join('') +
+            `<button type="button" class="btn btn-primary svo-go">${consented ? 'Scan my sessions' : 'Agree and scan'}</button>` +
+            '</div><div class="svo-err" hidden></div></div>';
+
+        host.querySelectorAll('.svo-winbtn').forEach(b => b.addEventListener('click', () => {
+            this._optWindow = Number(b.dataset.days) || 30;
+            host.querySelectorAll('.svo-winbtn').forEach(x => x.classList.toggle('on', x === b));
+        }));
+        host.querySelector('.svo-go').addEventListener('click', async () => {
+            try {
+                await API.runOptimizer({ consent: true, window_days: this._optWindow });
+                await this._loadAndRenderOptimizer();
+            } catch (e) {
+                const err = host.querySelector('.svo-err');
+                if (err) { err.hidden = false; err.textContent = 'Could not start the scan: ' + e.message; }
+            }
+        });
+    },
+
+    // ---------------- scanning progress ----------------
+
+    _optScanning(host, st) {
+        const p = st.progress || {};
+        const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+        host.innerHTML =
+            '<div class="svo-hero"><div class="svo-eyebrow">Scanning locally</div>' +
+            `<h2 class="svo-h">Reading ${p.total || '…'} sessions on this machine.</h2>` +
+            '<div class="svo-prog"><div class="svo-prog-fill" style="width:' + pct + '%"></div></div>' +
+            `<p class="svo-p">${p.done || 0} of ${p.total || '?'} sessions analyzed. Nothing leaves the device.</p></div>`;
+        this._optPoll = setTimeout(() => {
+            if (this.activeTab === 'optimizer') this._loadAndRenderOptimizer();
+        }, 1200);
+    },
+
+    // ---------------- the report ----------------
+
+    _optReportView(host, rep, st) {
+        const mode = this._optMode(st, rep);
+        host.textContent = '';
+        host.appendChild(this._optStrip(rep, mode));
+        if (!mode && !(st.prefs && st.prefs.billing_mode)) this._optBillingAsk(host, st);
+
+        const prefs = (st && st.prefs) || {};
+        const findings = rep.findings || [];
+        if (findings.length && (prefs.recommend_enabled == null)) {
+            this._optRecommendAsk(host);
+        }
+        this._optFindings(host, rep, st);
+        this._optReceipts(host, rep, mode);
+        this._optFootnotes(host, rep);
+        this._optFooter(host, rep);
+    },
+
+    /** The with/without comparison strip: observed next to the modeled figure
+     *  under the achievable counterfactuals. Derived, never computed here:
+     *  modeled = observed minus the sum of the lower-bound buckets, straight
+     *  off the report, so this strip and the findings list cannot disagree. */
+    _optStrip(rep, mode) {
+        const obs = rep.observed || {};
+        const mod = rep.modeled || {};
+        const b = rep.buckets || {};
+        const wrap = document.createElement('div');
+        wrap.className = 'svo-strip';
+        const from = this._optValue(obs.total_tokens, obs.est_cost_usd, mode);
+        const to = this._optValue(mod.total_tokens, mod.est_cost_usd, mode);
+        const savedTok = (obs.total_tokens || 0) - (mod.total_tokens || 0);
+        const savedUsd = obs.est_cost_usd != null && mod.est_cost_usd != null
+            ? obs.est_cost_usd - mod.est_cost_usd : null;
+        const saved = this._optValue(savedTok, savedUsd, mode);
+        const headline = mode === 'subscription'
+            ? 'usage headroom you could get back'
+            : 'estimated avoidable spend in the window';
+        wrap.innerHTML =
+            '<div class="svo-strip-head"><span class="svo-eyebrow">With and without these changes</span>' +
+            '<span class="svo-strip-label" title="Modeled from the lower-bound waste buckets below. List-price estimate, not an invoice.">modeled estimate</span></div>' +
+            '<div class="svo-strip-row">' +
+            `<div class="svo-strip-cell"><div class="svo-strip-v">${from.lead}</div><div class="svo-strip-l">observed, last ${rep.window_days} days${from.sub ? ' · ' + from.sub : ''}</div></div>` +
+            '<div class="svo-strip-arrow">→</div>' +
+            `<div class="svo-strip-cell"><div class="svo-strip-v svo-accent">${to.lead}</div><div class="svo-strip-l">with these changes${to.sub ? ' · ' + to.sub : ''}</div></div>` +
+            `<div class="svo-strip-cell svo-strip-save"><div class="svo-strip-v">${saved.lead}</div><div class="svo-strip-l">${headline}${saved.sub ? ' · ' + saved.sub : ''}</div></div>` +
+            '</div>' +
+            '<div class="svo-buckets">' + this._optBucketRow('Prompt caching', b.cache, obs, mode) +
+            this._optBucketRow('Context compaction', b.compaction, obs, mode) + '</div>' +
+            '<div class="svo-strip-foot"><span>Token counts are exact; dollar figures are list-price estimates and are labelled. Nothing here claims your invoice will change.</span>' +
+            '<button type="button" class="btn btn-secondary btn-sm svo-share">Share as image</button></div>';
+        wrap.querySelector('.svo-share').addEventListener('click',
+            (ev) => this._optShareCard(ev.currentTarget, rep, mode, null));
+        return wrap;
+    },
+
+    _optBucketRow(label, bucket, obs, mode) {
+        if (!bucket) return '';
+        const total = obs.total_tokens || 1;
+        const pct = Math.min(100, Math.round((bucket.tokens / total) * 100));
+        const v = this._optValue(bucket.tokens, bucket.est_value_usd, mode);
+        return '<div class="svo-bucket"><span class="svo-bucket-l">' + label + '</span>' +
+            '<span class="svo-bucket-bar"><span style="width:' + Math.max(pct, bucket.tokens ? 2 : 0) + '%"></span></span>' +
+            `<span class="svo-bucket-v">${v.lead}${v.sub ? ' · ' + v.sub : ''}</span></div>`;
+    },
+
+    // ---------------- one-time asks ----------------
+
+    _optBillingAsk(host, st) {
+        const card = document.createElement('div');
+        card.className = 'svo-ask';
+        card.innerHTML =
+            '<div class="svo-ask-t">How do you pay for these models?</div>' +
+            '<p class="svo-ask-p">This only changes which unit leads. On a subscription the invoice will not move, so the Optimizer talks in tokens: usage headroom you get back before hitting limits. On metered API billing it leads with dollar estimates.</p>' +
+            '<div class="svo-ask-btns">' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-mode="subscription">Subscription plan</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-mode="api">Metered API billing</button>' +
+            '</div>';
+        card.querySelectorAll('button[data-mode]').forEach(btn => btn.addEventListener('click', async () => {
+            try {
+                await API.setOptimizerPrefs({ billing_mode: btn.dataset.mode });
+                await this._loadAndRenderOptimizer();
+            } catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        }));
+        host.appendChild(card);
+    },
+
+    _optRecommendAsk(host) {
+        // Recommendations are offered, not imposed: one-time card, reversible
+        // in Cost Settings. Same consent pattern as Instant Audit.
+        const card = document.createElement('div');
+        card.className = 'svo-ask';
+        card.innerHTML =
+            '<div class="svo-ask-t">Want recommendations on how to fix these?</div>' +
+            '<p class="svo-ask-p">Each one states what it saves you before you act, with the evidence: what was observed, on what share of calls, in which sessions. You can turn this off any time under Cost Settings.</p>' +
+            '<div class="svo-ask-btns">' +
+            '<button type="button" class="btn btn-primary btn-sm" data-rec="1">Show recommendations</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" data-rec="0">Not now</button>' +
+            '</div>';
+        card.querySelectorAll('button[data-rec]').forEach(btn => btn.addEventListener('click', async () => {
+            try {
+                await API.setOptimizerPrefs({ recommend_enabled: btn.dataset.rec === '1' });
+                await this._loadAndRenderOptimizer();
+            } catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        }));
+        host.appendChild(card);
+    },
+
+    // ---------------- findings ----------------
+
+    _OPT_TYPE_LABELS: {
+        repeated_context: 'Repeated context',
+        tool_result_carry: 'Tool-result carry',
+        low_cache_utilization: 'Low cache utilisation',
+        retry_loop: 'Retry loop',
+        duplicate_llm: 'Duplicate requests',
+        excessive_output: 'Excessive output',
+        abnormal_loop: 'Abnormal loop shape',
+        model_right_sizing: 'Model right-sizing',
+    },
+
+    _optFindings(host, rep, st) {
+        const mode = this._optMode(st, rep);
+        const recOn = !!(st.prefs && st.prefs.recommend_enabled);
+        const findings = rep.findings || [];
+        const sec = document.createElement('div');
+        sec.className = 'svo-sec';
+        if (!findings.length) {
+            const scannedAny = (rep.scanned && (rep.scanned.claude_code || rep.scanned.codex));
+            sec.innerHTML = '<div class="svo-ok">' + (scannedAny
+                ? 'No material waste above the noise floor in this window. The comparison above still shows the observed totals.'
+                : 'No agent sessions found in this window. Run some sessions, then rescan.') + '</div>';
+            host.appendChild(sec);
+            return;
+        }
+        const h = document.createElement('div');
+        h.className = 'svo-sec-h';
+        h.textContent = 'Findings, ranked by estimated value';
+        sec.appendChild(h);
+
+        findings.forEach(f => {
+            const v = this._optValue(f.tokens_wasted, f.est_value_usd, mode);
+            const row = document.createElement('div');
+            row.className = 'svo-find';
+            const label = this._OPT_TYPE_LABELS[f.type] || f.type;
+            const conf = f.confidence || 'low';
+            const sessRef = f.session_id
+                ? `<span class="svo-sess" title="Session ${this._esc(f.session_id)}">${this._esc(String(f.session_id).slice(0, 8))}… · ${this._esc(f.harness || '')}</span>`
+                : '<span class="svo-sess">all sessions</span>';
+            const turnsTxt = (f.turns && f.turns.length)
+                ? (f.turns.length > 2 ? `turns ${f.turns[0]}–${f.turns[f.turns.length - 1]}`
+                    : 'turn ' + f.turns.join(', '))
+                : '';
+            row.innerHTML =
+                '<div class="svo-find-top">' +
+                `<span class="svo-find-type">${label}</span>` +
+                `<span class="svo-conf svo-conf-${conf}" title="Detector confidence: ${conf}">${conf}</span>` +
+                (f.potential_only ? '<span class="svo-tag" title="Flagged for review only; the long outputs may be intentional.">potential</span>' : '') +
+                (f.observation_only ? '<span class="svo-tag" title="An observation with no verdict: evaluate before acting.">observation</span>' : '') +
+                `<span class="svo-find-val" title="Token counts are exact; dollar values are list-price estimates.">${v.lead}${v.sub ? ' <i>' + v.sub + '</i>' : ''}</span>` +
+                '</div>' +
+                `<div class="svo-find-ev">${this._esc((f.evidence && f.evidence.observed) || '')}</div>` +
+                '<div class="svo-find-meta">' + sessRef +
+                (turnsTxt ? `<span class="svo-turns">${turnsTxt}</span>` : '') +
+                (f.trace_id ? '<a class="svo-view" href="javascript:void 0">View in Traces</a>' : '') +
+                (f.beyond_trace_cap
+                    ? '<span class="svo-cap" title="The analysis used the full transcript. The Traces view keeps only the most recent 1500 runs, so some referenced turns are not visible there.">exceeds the Traces 1500-run view</span>'
+                    : '') +
+                '</div>' +
+                (recOn && f.recommendation
+                    ? '<div class="svo-rec"><span class="svo-rec-k">Change</span>' +
+                      `<span class="svo-rec-t">${this._esc(this._optBenefitFirst(f, mode))}</span></div>`
+                    : '');
+            const view = row.querySelector('.svo-view');
+            if (view) view.addEventListener('click', () => {
+                if (!window.AgentRunsPage) return;
+                AgentRunsPage._pendingTrace = f.trace_id;
+                const sample = f.evidence && f.evidence.sample_turns && f.evidence.sample_turns[0];
+                if (sample && sample.request_id) AgentRunsPage._pendingGenRid = sample.request_id;
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
+            });
+            sec.appendChild(row);
+        });
+        host.appendChild(sec);
+    },
+
+    /** Recommendation phrasing: the benefit leads, in the billing mode's
+     *  leading unit, then the change and its evidence. */
+    _optBenefitFirst(f, mode) {
+        const v = this._optValue(f.tokens_wasted, f.est_value_usd, mode);
+        const benefit = (f.tokens_wasted || f.est_value_usd)
+            ? (mode === 'api' && f.est_value_usd != null
+                ? `Saves ≈${this._optFmtUsd(f.est_value_usd)} of the observed window (estimate). `
+                : `Gets back ~${this._optFmtTok(f.tokens_wasted)} tokens in the observed window. `)
+            : '';
+        return benefit + ((f.recommendation && f.recommendation.change) || '');
+    },
+
+    // ---------------- receipts ----------------
+
+    _optReceipts(host, rep, mode) {
+        const rec = rep.receipts || {};
+        const resolved = rec.resolved || [];
+        const pending = (rec.pending || []).filter(p => p.status === 'insufficient');
+        if (!resolved.length && !pending.length) return;
+        const sec = document.createElement('div');
+        sec.className = 'svo-sec';
+        const h = document.createElement('div');
+        h.className = 'svo-sec-h';
+        h.textContent = 'Impact receipts, measured';
+        sec.appendChild(h);
+        resolved.forEach(r => {
+            const row = document.createElement('div');
+            row.className = 'svo-find svo-receipt';
+            const label = this._OPT_TYPE_LABELS[r.type] || r.type;
+            row.innerHTML =
+                '<div class="svo-find-top">' +
+                `<span class="svo-find-type">${label}: resolved</span>` +
+                '<span class="svo-tag svo-tag-measured" title="Measured from real sessions across like-for-like windows, not an estimate.">measured</span>' +
+                `<span class="svo-find-val">${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</span>` +
+                '</div>' +
+                `<div class="svo-find-ev">Before: ${r.before_sessions} sessions. After: ${r.after_sessions} sessions. Measured token movement is fact; any dollar reading of it stays an estimate.</div>` +
+                '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" href="javascript:void 0">Share as image</a></div>';
+            row.querySelector('.svo-share-receipt').addEventListener('click',
+                (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));
+            sec.appendChild(row);
+        });
+        pending.forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'svo-pending';
+            const label = this._OPT_TYPE_LABELS[p.type] || p.type;
+            row.textContent = `${label}: not enough sessions yet for a measured before/after ` +
+                `(${p.after_sessions}/${p.needed_sessions} sessions, ${p.after_days}/${p.needed_days} days).`;
+            sec.appendChild(row);
+        });
+        host.appendChild(sec);
+    },
+
+    _optMetricLabel(m) {
+        return { cache_hit_rate: 'cache hit rate', avg_prompt_slope: 'prompt growth' }[m] || m;
+    },
+
+    _optMetricFmt(m, v) {
+        if (v == null) return '–';
+        if (m === 'cache_hit_rate') return Math.round(v * 100) + '%';
+        return this._optFmtTok(v);
+    },
+
+    // ---------------- footnotes + footer ----------------
+
+    _optFootnotes(host, rep) {
+        const notes = rep.capability_notes || [];
+        if (!notes.length) return;
+        const div = document.createElement('div');
+        div.className = 'svo-note';
+        div.textContent = notes.map(n =>
+            `${n.harness}: ${n.reason}`).join(' ');
+        host.appendChild(div);
+    },
+
+    _optFooter(host, rep) {
+        const foot = document.createElement('div');
+        foot.className = 'svo-foot';
+        foot.innerHTML =
+            `<span class="svo-foot-meta">Scanned ${(rep.scanned && rep.scanned.claude_code) || 0} Claude Code and ${(rep.scanned && rep.scanned.codex) || 0} Codex sessions, last ${rep.window_days} days` +
+            ((rep.scanned && rep.scanned.sessions_capped) ? ', capped at ' + rep.scanned.caps.max_sessions_per_harness + ' per harness (disclosed, never silent)' : '') +
+            '. Analysis is local; works offline.</span>' +
+            '<span class="svo-foot-btns">' +
+            '<button type="button" class="btn btn-secondary btn-sm svo-rescan">Rescan</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm svo-del">Delete report</button></span>';
+        foot.querySelector('.svo-rescan').addEventListener('click', async () => {
+            try {
+                await API.runOptimizer({ window_days: rep.window_days || this._optWindow });
+                await this._loadAndRenderOptimizer();
+            } catch (e) { if (window.Toast) Toast.error('Could not start the scan: ' + e.message); }
+        });
+        foot.querySelector('.svo-del').addEventListener('click', async () => {
+            try {
+                await API.deleteOptimizerReport();
+                await this._loadAndRenderOptimizer();
+            } catch (e) { if (window.Toast) Toast.error('Could not delete: ' + e.message); }
+        });
+        host.appendChild(foot);
+    },
+
+    // ---------------- share card (PNG, local only) ----------------
+
+    /** One-click export of the comparison strip (or a measured receipt) as an
+     *  image. Aggregate numbers only: window, buckets, deltas, app version.
+     *  The estimate/measured label is baked into the pixels so the honesty
+     *  caveat travels with the screenshot. No session identifiers, no prompt
+     *  text, no paths, no hostnames. PNG to clipboard or file, no social
+     *  integrations, no cloud round-trip. */
+    async _optShareCard(btn, rep, mode, receipt) {
+        try { await (document.fonts && document.fonts.ready); } catch (_) { /* draw anyway */ }
+        const W = 1200, H = 630;
+        const cv = document.createElement('canvas');
+        cv.width = W; cv.height = H;
+        const ctx = cv.getContext('2d');
+        const TEAL = '#5eadb8';
+        const mono = (px) => `${px}px 'Space Mono', monospace`;
+        const disp = (px, w) => `${w || 700} ${px}px 'Space Grotesk', sans-serif`;
+
+        ctx.fillStyle = '#0e1218';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = 'rgba(94,173,184,0.45)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, W - 2, H - 2);
+        ctx.fillStyle = TEAL;
+        ctx.fillRect(0, 0, 6, H);
+
+        ctx.fillStyle = TEAL;
+        ctx.font = disp(20, 700);
+        ctx.fillText('SECUREVECTOR', 60, 72);
+        ctx.fillStyle = '#aeb7c2';
+        ctx.font = disp(20, 500);
+        ctx.fillText('Cost / Token Optimizer', 260, 72);
+        ctx.fillStyle = '#7f8a97';
+        ctx.font = mono(16);
+        ctx.fillText(`last ${rep.window_days} days · local-first analysis`, 60, 104);
+
+        if (receipt) {
+            ctx.fillStyle = '#eef2f7';
+            ctx.font = disp(34, 700);
+            ctx.fillText((this._OPT_TYPE_LABELS[receipt.type] || receipt.type) + ': resolved', 60, 200);
+            ctx.font = mono(64);
+            ctx.fillStyle = TEAL;
+            ctx.fillText(
+                `${this._optMetricLabel(receipt.metric)} ${this._optMetricFmt(receipt.metric, receipt.before)} → ${this._optMetricFmt(receipt.metric, receipt.after)}`,
+                60, 300);
+            ctx.fillStyle = '#aeb7c2';
+            ctx.font = mono(20);
+            ctx.fillText(`measured across ${receipt.before_sessions} sessions before and ${receipt.after_sessions} after`, 60, 350);
+            ctx.fillStyle = '#0e1218';
+            const tag = 'MEASURED · LIKE-FOR-LIKE WINDOWS, REAL SESSIONS';
+            ctx.font = disp(16, 700);
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = TEAL;
+            ctx.fillRect(60, 400, tw + 32, 36);
+            ctx.fillStyle = '#0e1218';
+            ctx.fillText(tag, 76, 424);
+        } else {
+            const obs = rep.observed || {}, mod = rep.modeled || {}, b = rep.buckets || {};
+            const from = this._optValue(obs.total_tokens, obs.est_cost_usd, mode);
+            const to = this._optValue(mod.total_tokens, mod.est_cost_usd, mode);
+            ctx.fillStyle = '#eef2f7';
+            ctx.font = mono(72);
+            ctx.fillText(from.lead, 60, 240);
+            const w1 = ctx.measureText(from.lead).width;
+            ctx.fillStyle = '#7f8a97';
+            ctx.fillText(' → ', 60 + w1, 240);
+            const w2 = ctx.measureText(' → ').width;
+            ctx.fillStyle = TEAL;
+            ctx.fillText(to.lead, 60 + w1 + w2, 240);
+            ctx.fillStyle = '#aeb7c2';
+            ctx.font = disp(24, 500);
+            ctx.fillText(mode === 'subscription'
+                ? 'observed usage, and what it models to with the recommended changes'
+                : 'observed window, and its modeled figure with the recommended changes', 60, 288);
+
+            const total = obs.total_tokens || 1;
+            let y = 370;
+            [['Prompt caching', b.cache], ['Context compaction', b.compaction]].forEach(([label, bucket]) => {
+                if (!bucket) return;
+                const pct = Math.min(100, Math.round((bucket.tokens / total) * 100));
+                ctx.fillStyle = '#aeb7c2';
+                ctx.font = disp(20, 500);
+                ctx.fillText(label, 60, y);
+                ctx.fillStyle = 'rgba(94,173,184,0.18)';
+                ctx.fillRect(340, y - 16, 560, 18);
+                ctx.fillStyle = TEAL;
+                ctx.fillRect(340, y - 16, Math.max(560 * pct / 100, bucket.tokens ? 8 : 0), 18);
+                ctx.fillStyle = '#eef2f7';
+                ctx.font = mono(18);
+                const bv = this._optValue(bucket.tokens, bucket.est_value_usd, mode);
+                ctx.fillText(`${bv.lead}${bv.sub ? ' · ' + bv.sub : ''} · ${pct}%`, 920, y);
+                y += 52;
+            });
+
+            const tag = 'MODELED ESTIMATE · LIST-PRICE TOKENS, NOT AN INVOICE';
+            ctx.font = disp(16, 700);
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = TEAL;
+            ctx.fillRect(60, 500, tw + 32, 36);
+            ctx.fillStyle = '#0e1218';
+            ctx.fillText(tag, 76, 524);
+        }
+
+        ctx.fillStyle = '#7f8a97';
+        ctx.font = mono(16);
+        ctx.fillText(`SecureVector ${rep.app_version ? 'v' + rep.app_version : ''} · securevector.io`, 60, H - 42);
+
+        const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+        if (!blob) { if (window.Toast) Toast.error('Could not render the image.'); return; }
+        // Clipboard first (feature-detected), file download as the fallback.
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+            try {
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                if (window.Toast) Toast.success('Image copied to clipboard.');
+                return;
+            } catch (_) { /* fall through to download */ }
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = receipt ? 'securevector-optimizer-receipt.png' : 'securevector-optimizer.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        if (window.Toast) Toast.success('Image downloaded.');
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    },
+
+    _optInjectStyle() {
+        if (document.getElementById('sv-optimizer-style')) return;
+        const st = document.createElement('style');
+        st.id = 'sv-optimizer-style';
+        st.textContent = `
+#sv-optimizer { display: flex; flex-direction: column; gap: 16px; }
+.svo-hero { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 28px; }
+.svo-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent-primary, #5eadb8); }
+.svo-h { font-family: var(--font-display, inherit); font-size: 24px; margin: 10px 0 8px; color: var(--text-primary); }
+.svo-p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; max-width: 720px; }
+.svo-points { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 16px 0; }
+.svo-point { background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.svo-point b { display: block; color: var(--text-primary); margin-bottom: 4px; }
+.svo-point span { color: var(--text-muted); line-height: 1.45; }
+.svo-consent { border-left: 3px solid var(--accent-primary, #5eadb8); background: var(--bg-secondary); border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 14px 0; }
+.svo-consent-t { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); margin-bottom: 8px; }
+.svo-consent ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.svo-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.svo-winbtn { background: var(--bg-secondary); border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 9999px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+.svo-winbtn.on { border-color: var(--accent-primary, #5eadb8); color: var(--accent-primary, #5eadb8); }
+.svo-go { margin-left: auto; }
+.svo-err { color: var(--error, #ef4444); font-size: 13px; margin-top: 10px; }
+.svo-prog { height: 8px; border-radius: 9999px; background: var(--bg-secondary); overflow: hidden; margin: 18px 0 10px; }
+.svo-prog-fill { height: 100%; background: var(--accent-primary, #5eadb8); transition: width 300ms ease; }
+.svo-strip { background: var(--bg-card); border: 2px solid color-mix(in srgb, var(--accent-primary, #5eadb8) 35%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-primary, #5eadb8) 6%, transparent); border-radius: 12px; padding: 20px 24px; }
+.svo-strip-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.svo-strip-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); border: 1px solid var(--border-light); border-radius: 9999px; padding: 2px 10px; cursor: help; }
+.svo-strip-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.svo-strip-cell { min-width: 150px; }
+.svo-strip-v { font-family: var(--font-mono, monospace); font-size: 30px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.svo-strip-v.svo-accent { color: var(--accent-primary, #5eadb8); }
+.svo-strip-l { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.svo-strip-arrow { font-size: 26px; color: var(--text-muted); }
+.svo-strip-save { margin-left: auto; text-align: right; }
+.svo-buckets { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.svo-bucket { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.svo-bucket-l { width: 160px; color: var(--text-secondary); }
+.svo-bucket-bar { flex: 1; height: 8px; border-radius: 9999px; background: var(--bg-secondary); overflow: hidden; }
+.svo-bucket-bar span { display: block; height: 100%; background: var(--accent-primary, #5eadb8); }
+.svo-bucket-v { font-family: var(--font-mono, monospace); color: var(--text-secondary); white-space: nowrap; }
+.svo-strip-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 16px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.svo-ask { background: var(--bg-card); border-left: 3px solid var(--accent-primary, #5eadb8); border-radius: 0 10px 10px 0; padding: 16px 20px; }
+.svo-ask-t { font-weight: 600; color: var(--text-primary); font-size: 14px; }
+.svo-ask-p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 6px 0 12px; max-width: 680px; }
+.svo-ask-btns { display: flex; gap: 8px; }
+.svo-sec { display: flex; flex-direction: column; gap: 10px; }
+.svo-sec-h { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); padding-top: 6px; }
+.svo-find { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 18px; }
+.svo-find-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.svo-find-type { font-weight: 600; color: var(--text-primary); font-size: 14px; }
+.svo-conf { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 9999px; padding: 1px 8px; border: 1px solid var(--border-light); color: var(--text-muted); cursor: help; }
+.svo-conf-high { border-color: color-mix(in srgb, var(--accent-primary, #5eadb8) 55%, transparent); color: var(--accent-primary, #5eadb8); }
+.svo-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 9999px; padding: 1px 8px; background: var(--bg-secondary); color: var(--text-muted); cursor: help; }
+.svo-tag-measured { color: var(--accent-primary, #5eadb8); background: color-mix(in srgb, var(--accent-primary, #5eadb8) 10%, transparent); }
+.svo-find-val { margin-left: auto; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-primary); font-size: 15px; font-weight: 700; cursor: help; }
+.svo-find-val i { font-style: normal; font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.svo-find-ev { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-top: 6px; }
+.svo-find-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.svo-sess { font-family: var(--font-mono, monospace); }
+.svo-view { color: var(--accent-primary, #5eadb8); cursor: pointer; text-decoration: none; }
+.svo-view:hover { text-decoration: underline; }
+.svo-cap { border: 1px dashed var(--border-light); border-radius: 9999px; padding: 1px 8px; cursor: help; }
+.svo-rec { display: flex; gap: 10px; align-items: baseline; margin-top: 10px; border-top: 1px dashed var(--border-default); padding-top: 10px; }
+.svo-rec-k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary, #5eadb8); flex-shrink: 0; }
+.svo-rec-t { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.svo-receipt { border-color: color-mix(in srgb, var(--accent-primary, #5eadb8) 40%, transparent); }
+.svo-pending { color: var(--text-muted); font-size: 12px; padding: 4px 2px; }
+.svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; }
+.svo-note { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.svo-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 2px 20px; }
+.svo-foot-meta { color: var(--text-muted); font-size: 12px; max-width: 680px; }
+.svo-foot-btns { display: flex; gap: 8px; }
+`;
+        document.head.appendChild(st);
+    },
+
     destroy() {
         if (this.pollInterval) {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
+        }
+        if (this._optPoll) {
+            clearTimeout(this._optPoll);
+            this._optPoll = null;
         }
     },
 };

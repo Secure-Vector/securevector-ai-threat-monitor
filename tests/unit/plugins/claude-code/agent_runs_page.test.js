@@ -46,8 +46,8 @@ test('agent-runs renders Generation (LLM turn) spans with redacted I/O previews'
   assert.match(src, /_genSpan\(/);
   assert.match(src, /_genDetail\(/);
   // Shows model + token flow + cost, and the LLM input/output preview boxes.
-  assert.match(src, /LLM input — prompt/);
-  assert.match(src, /LLM output — response/);
+  assert.match(src, /LLM input: prompt/);
+  assert.match(src, /LLM output: response/);
   assert.match(src, /input_preview/);
   assert.match(src, /output_preview/);
   // Honest privacy contract carried through to the detail.

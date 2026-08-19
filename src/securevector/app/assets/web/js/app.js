@@ -161,6 +161,10 @@ const App = {
         // dialog on first launch was too aggressive for what the plugins
         // nudge banner and the Integrations page already cover.
         if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
+
+        // v5.2.0 Optimizer spotlight: upgraders only, once, never stacked on
+        // another modal (it self-guards on both).
+        if (window.OptimizerSpotlight) OptimizerSpotlight.maybeShow();
     },
 
     /**

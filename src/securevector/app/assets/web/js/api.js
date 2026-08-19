@@ -854,6 +854,35 @@ const API = {
         return this.request('/api/costs/budget/guardian').catch(() => null);
     },
 
+    // ------------------------------------------- cost / token optimizer ---
+    // Reads degrade (status -> null, report -> null) so the Optimizer tab
+    // renders its empty state offline; run/prefs writes surface their errors.
+    async getOptimizerStatus() {
+        return this.request('/api/cost-optimizer/status').catch(() => null);
+    },
+
+    async getOptimizerReport() {
+        return this.request('/api/cost-optimizer/report').catch(() => null);
+    },
+
+    async runOptimizer(payload) {
+        return this.request('/api/cost-optimizer/run', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async setOptimizerPrefs(payload) {
+        return this.request('/api/cost-optimizer/prefs', {
+            method: 'PUT',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async deleteOptimizerReport() {
+        return this.request('/api/cost-optimizer/report', { method: 'DELETE' });
+    },
+
     // ---------------------------------------------------------- egress ---
     // Read paths degrade to null so a missing policy or an unrun proof
     // renders as an honest empty state rather than a page-level error. The

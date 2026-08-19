@@ -57,6 +57,13 @@ const Tour = {
                     `but <b>Cost & Tokens shows token usage</b> for them instead of dollars.`,
             },
             {
+                nav: 'costs', go: 'costs', expand: 'agent-activity', sub: true,
+                badge: 'Optimize', title: 'Cost / Token Optimizer',
+                body: `The <b>Optimizer</b> tab on Cost &amp; Tokens explains <b>why</b> sessions cost what they ` +
+                    `did: repeated context, cache misses, retry loops, duplicate requests. Every finding names ` +
+                    `its exact <b>session and turn</b>, links to the evidence in Traces, and states what to change.`,
+            },
+            {
                 nav: 'rules', go: 'rules',
                 badge: 'Configure', title: 'Rules',
                 body: `The local rule engine auto-blocks or alerts on matches. Want curated cloud rule packs? ` +
