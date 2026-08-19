@@ -34,22 +34,28 @@ const GuardianBot = {
         host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;';
         host.innerHTML =
             '<svg id="sv-gbot-defs" aria-hidden="true"><defs>' +
-            // head: lit from the upper left, falling into shadow lower right
-            '<linearGradient id="gb3d-head" x1="0" y1="0" x2="0.6" y2="1">' +
+            // head + shield, DARK body palette (used on the light theme)
+            '<linearGradient id="gb3d-head-d" x1="0" y1="0" x2="0.6" y2="1">' +
             '<stop offset="0" stop-color="#4a5462"/><stop offset="0.55" stop-color="#333c48"/>' +
             '<stop offset="1" stop-color="#212831"/></linearGradient>' +
-            // shield body: slightly darker range than the head
-            '<linearGradient id="gb3d-shield" x1="0" y1="0" x2="0.5" y2="1">' +
+            '<linearGradient id="gb3d-shield-d" x1="0" y1="0" x2="0.5" y2="1">' +
             '<stop offset="0" stop-color="#3d4653"/><stop offset="1" stop-color="#1a212a"/>' +
+            '</linearGradient>' +
+            // head + shield, LIGHT body palette (used on the dark themes)
+            '<linearGradient id="gb3d-head-l" x1="0" y1="0" x2="0.6" y2="1">' +
+            '<stop offset="0" stop-color="#fbfdfe"/><stop offset="0.55" stop-color="#dde4eb"/>' +
+            '<stop offset="1" stop-color="#b7c2cd"/></linearGradient>' +
+            '<linearGradient id="gb3d-shield-l" x1="0" y1="0" x2="0.5" y2="1">' +
+            '<stop offset="0" stop-color="#e9eef3"/><stop offset="1" stop-color="#a9b6c2"/>' +
             '</linearGradient>' +
             // visor: near-black glass with a cool bottom bounce
             '<linearGradient id="gb3d-visor" x1="0" y1="0" x2="0" y2="1">' +
             '<stop offset="0" stop-color="#0a0e14"/><stop offset="0.75" stop-color="#10161e"/>' +
             '<stop offset="1" stop-color="#1a2430"/></linearGradient>' +
-            // eyes: white spheres
-            '<radialGradient id="gb3d-eye" cx="0.35" cy="0.3" r="1">' +
-            '<stop offset="0" stop-color="#ffffff"/><stop offset="0.7" stop-color="#e8edf2"/>' +
-            '<stop offset="1" stop-color="#c3ccd6"/></radialGradient>' +
+            // eyes: soft glowing LED ovals (no pupil contrast — friendly)
+            '<radialGradient id="gb3d-eye" cx="0.5" cy="0.42" r="0.75">' +
+            '<stop offset="0" stop-color="#ffffff"/><stop offset="0.65" stop-color="#eef4f8"/>' +
+            '<stop offset="1" stop-color="#cfdbe4"/></radialGradient>' +
             // antenna tip: teal core with falloff
             '<radialGradient id="gb3d-tip" cx="0.4" cy="0.35" r="1">' +
             '<stop offset="0" stop-color="#9fd8de"/><stop offset="0.5" stop-color="#5eadb8"/>' +
@@ -85,29 +91,29 @@ const GuardianBot = {
             '<ellipse class="gb-shadow" cx="32" cy="67" rx="12.5" ry="2.5" filter="url(#gb3d-soft)"/>' +
             '<g class="gb-body">' +
             // antenna: short and cute, with a glowing teal bead
-            '<line x1="32" y1="10.5" x2="32" y2="14.5" stroke="#4a5462" stroke-width="2.2"/>' +
+            '<line class="gb-stem" x1="32" y1="10.5" x2="32" y2="14.5" stroke-width="2.2"/>' +
             '<circle class="gb-tip-halo" cx="32" cy="8" r="3.2" fill="#5eadb8" filter="url(#gb3d-glow)"/>' +
             '<circle class="gb-tip" cx="32" cy="8" r="2.5" fill="url(#gb3d-tip)"/>' +
             // ears: soft pods tucked against the head
-            '<rect x="8.5" y="22.5" width="5" height="11" rx="2.5" fill="url(#gb3d-shield)"/>' +
-            '<rect x="50.5" y="22.5" width="5" height="11" rx="2.5" fill="url(#gb3d-shield)"/>' +
+            '<rect class="gb-pod" x="8.5" y="22.5" width="5" height="11" rx="2.5"/>' +
+            '<rect class="gb-pod" x="50.5" y="22.5" width="5" height="11" rx="2.5"/>' +
             // head: a soft capsule, lit from the upper left
-            '<rect x="13" y="14" width="38" height="28" rx="13" fill="url(#gb3d-head)"/>' +
+            '<rect class="gb-head" x="13" y="14" width="38" height="28" rx="13"/>' +
             // key-light sheen: a big soft highlight hugging the top curve
-            '<ellipse cx="26" cy="18.5" rx="12" ry="4" fill="rgba(255,255,255,0.13)" filter="url(#gb3d-soft)"/>' +
+            '<ellipse class="gb-sheen" cx="26" cy="18.5" rx="12" ry="4" filter="url(#gb3d-soft)"/>' +
             // cool rim bounce on the right edge (screen light)
             '<path d="M48.5 21c1.6 2.6 1.6 9.4 0 12" stroke="rgba(94,173,184,0.35)" stroke-width="1.6"/>' +
             // visor: one wide glass capsule, the face lives inside it
             '<rect class="gb-visor" x="17.5" y="20" width="29" height="16" rx="8" fill="url(#gb3d-visor)"/>' +
             // glass glare: an angled streak across the visor's top
             '<path d="M22 23.5c6.5 -2 13.5 -2 20 0" stroke="rgba(255,255,255,0.16)" stroke-width="2.4"/>' +
-            // eyes: big white spheres with pin-light speculars
-            '<g class="gb-eye gb-eye-l"><circle cx="26" cy="28" r="4.1" fill="url(#gb3d-eye)"/>' +
-            '<g class="gb-pupil"><circle cx="26" cy="28" r="1.7" fill="#10161e"/>' +
-            '<circle cx="26.7" cy="27.3" r="0.6" fill="#ffffff"/></g></g>' +
-            '<g class="gb-eye gb-eye-r"><circle cx="38" cy="28" r="4.1" fill="url(#gb3d-eye)"/>' +
-            '<g class="gb-pupil"><circle cx="38" cy="28" r="1.7" fill="#10161e"/>' +
-            '<circle cx="38.7" cy="27.3" r="0.6" fill="#ffffff"/></g></g>' +
+            // eyes: tall glowing ovals, softly haloed — expressive, never staring
+            '<g class="gb-eye gb-eye-l"><g class="gb-look">' +
+            '<ellipse cx="26" cy="28" rx="3.1" ry="4" fill="#eef4f8" opacity="0.35" filter="url(#gb3d-soft)"/>' +
+            '<ellipse cx="26" cy="28" rx="2.7" ry="3.6" fill="url(#gb3d-eye)"/></g></g>' +
+            '<g class="gb-eye gb-eye-r"><g class="gb-look">' +
+            '<ellipse cx="38" cy="28" rx="3.1" ry="4" fill="#eef4f8" opacity="0.35" filter="url(#gb3d-soft)"/>' +
+            '<ellipse cx="38" cy="28" rx="2.7" ry="3.6" fill="url(#gb3d-eye)"/></g></g>' +
             // ok eyes (happy arcs, only in ok state)
             '<path class="gb-happy" d="M22.5 29q3.5 -4.2 7 0"/>' +
             '<path class="gb-happy" d="M34.5 29q3.5 -4.2 7 0"/>' +
@@ -116,9 +122,9 @@ const GuardianBot = {
             'stroke-width="4.5" opacity="0.5" filter="url(#gb3d-glow)"/>' +
             '<line x1="22" y1="22.5" x2="22" y2="33.5" stroke="#bfe6ea" stroke-width="1.8"/></g>' +
             // shield body: soft-shouldered, with a lit crest and keel
-            '<path d="M20.5 45.5q11.5 -4.6 23 0v6.5c0 7 -5.3 11.3 -11.5 13.8c-6.2 -2.5 -11.5 -6.8 -11.5 -13.8z" fill="url(#gb3d-shield)"/>' +
-            '<path d="M21.5 45.2q10.5 -4 21 0" stroke="rgba(255,255,255,0.22)" stroke-width="1.4" fill="none"/>' +
-            '<line x1="32" y1="47.5" x2="32" y2="61.5" stroke="rgba(255,255,255,0.16)" stroke-width="1.8"/>' +
+            '<path class="gb-pod" d="M20.5 45.5q11.5 -4.6 23 0v6.5c0 7 -5.3 11.3 -11.5 13.8c-6.2 -2.5 -11.5 -6.8 -11.5 -13.8z"/>' +
+            '<path class="gb-ridge" d="M21.5 45.2q10.5 -4 21 0" stroke-width="1.4" fill="none"/>' +
+            '<line class="gb-ridge gb-keel" x1="32" y1="47.5" x2="32" y2="61.5" stroke-width="1.8"/>' +
             // neck shadow: the head sits ON the body (ambient occlusion)
             '<ellipse cx="32" cy="43.6" rx="8" ry="1.5" fill="rgba(0,0,0,0.30)" filter="url(#gb3d-soft)"/>' +
             '</g></svg>';
@@ -139,6 +145,20 @@ const GuardianBot = {
 .sv-gbot { display: inline-block; flex-shrink: 0; perspective: 260px; }
 .sv-gbot svg { width: 100%; height: 100%; overflow: visible; transform-style: preserve-3d; }
 .sv-gbot .gb-shadow { fill: rgba(0, 0, 0, 0.38); }
+/* Theme-adaptive body: light (white) figure on the dark themes for contrast,
+   dark figure on the light theme. The visor stays dark glass in both so the
+   glowing eyes always have a home. */
+.sv-gbot .gb-head { fill: url(#gb3d-head-l); }
+.sv-gbot .gb-pod { fill: url(#gb3d-shield-l); }
+.sv-gbot .gb-stem { stroke: #9aa6b2; }
+.sv-gbot .gb-sheen { fill: rgba(255, 255, 255, 0.5); }
+.sv-gbot .gb-ridge { stroke: rgba(255, 255, 255, 0.75); }
+[data-theme="light"] .sv-gbot .gb-head { fill: url(#gb3d-head-d); }
+[data-theme="light"] .sv-gbot .gb-pod { fill: url(#gb3d-shield-d); }
+[data-theme="light"] .sv-gbot .gb-stem { stroke: #4a5462; }
+[data-theme="light"] .sv-gbot .gb-sheen { fill: rgba(255, 255, 255, 0.13); }
+[data-theme="light"] .sv-gbot .gb-ridge { stroke: rgba(255, 255, 255, 0.2); }
+[data-theme="light"] .sv-gbot .gb-shadow { fill: rgba(20, 26, 34, 0.25); }
 .sv-gbot .gb-happy { stroke: #f4f7fa; stroke-width: 2.6; }
 .sv-gbot .gb-beam line { stroke-linecap: round; }
 
@@ -157,8 +177,8 @@ const GuardianBot = {
   .sv-gbot .gb-shadow { animation: gb-shade 4s ease-in-out infinite; transform-origin: 32px 67px; }
   .sv-gbot .gb-tip-halo { animation: gb-pulse 2.6s ease-in-out infinite; }
   .sv-gbot-idle .gb-eye, .sv-gbot-scan .gb-eye { animation: gb-blink 5.2s infinite; transform-origin: center; transform-box: fill-box; }
-  .sv-gbot .gb-pupil { animation: gb-wander 7s ease-in-out infinite; }
-  .sv-gbot .gb-eye-r .gb-pupil { animation-delay: 0.06s; }
+  .sv-gbot .gb-look { animation: gb-wander 7s ease-in-out infinite; }
+  .sv-gbot .gb-eye-r .gb-look { animation-delay: 0.06s; }
   .sv-gbot-scan .gb-beam { animation: gb-sweep 1.6s ease-in-out infinite; }
   .sv-gbot-scan .gb-tip-halo { animation: gb-pulse 0.9s ease-in-out infinite; }
   .sv-gbot-ok .gb-body { animation: gb-bob 4s ease-in-out infinite, gb-nod 0.9s ease-in-out 1; }
@@ -171,9 +191,9 @@ const GuardianBot = {
 /* the pupils look around: right, hold, left, up, back to center */
 @keyframes gb-wander {
   0%, 18%, 100% { transform: translate(0, 0); }
-  24%, 38% { transform: translate(1.2px, 0.2px); }
-  46%, 60% { transform: translate(-1.2px, 0.3px); }
-  70%, 80% { transform: translate(0.2px, -1px); }
+  24%, 38% { transform: translate(0.9px, 0.15px); }
+  46%, 60% { transform: translate(-0.9px, 0.2px); }
+  70%, 80% { transform: translate(0.15px, -0.7px); }
 }
 @keyframes gb-sweep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(20px); } }
 @keyframes gb-nod { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } 70% { transform: translateY(-1px); } }
