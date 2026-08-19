@@ -136,17 +136,19 @@ test('findings digest: by-type filter chips over the ranked list', () => {
   assert.match(src, /_optTypeFilter/);
 });
 
-test('guardian bot: original animated character, reduced-motion aware, wired in', () => {
+test('guardian bot: generic assistant only — absent from optimizer surfaces', () => {
   const bot = read('js/components/guardian-bot.js');
   assert.match(bot, /prefers-reduced-motion: no-preference/);
   assert.match(bot, /GuardianBot/);
   assert.doesNotMatch(bot, /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   const idx = read('index.html');
   assert.match(idx, /guardian-bot\.js/);
-  const costs = read('js/pages/costs.js');
-  assert.match(costs, /GuardianBot\.el/);
-  const spot = read('js/components/optimizer-spotlight.js');
-  assert.match(spot, /GuardianBot\.el/);
+  // the bot is the app-wide Guardian: it lives in the floating assistant and
+  // nowhere inside the Cost/Token Optimizer's own surfaces
+  assert.match(read('js/components/guardian-assistant.js'), /GuardianBot\.el/);
+  assert.doesNotMatch(read('js/pages/costs.js'), /GuardianBot\.el/);
+  assert.doesNotMatch(read('js/components/optimizer-spotlight.js'), /GuardianBot/);
+  assert.doesNotMatch(read('js/pages/dashboard.js'), /GuardianBot\.el/);
 });
 
 test('guardian assistant replaces the chat: FAB, triage rows, no TryItChat', () => {

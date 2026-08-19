@@ -1137,12 +1137,6 @@ const DashboardPage = {
             if (!st) { card.remove(); return; } // server facet missing: no tile
             const rep = st.has_report ? await API.getOptimizerReport() : null;
 
-            if (window.GuardianBot) {
-                card.appendChild(GuardianBot.el({
-                    state: rep && (rep.findings || []).length ? 'idle' : 'ok',
-                    size: 70, label: 'Guardian',
-                }));
-            }
             const col = document.createElement('div');
             col.style.cssText = 'flex:1 1 280px;min-width:220px;';
             const title = document.createElement('div');

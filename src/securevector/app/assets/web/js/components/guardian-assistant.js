@@ -46,6 +46,12 @@ const GuardianAssistant = {
         this._open = true;
         if (!this._panel) this._build();
         this._panel.classList.add('open');
+        // greeting: a quick wave from the panel bot, then back to idle
+        const headBot = this._panel.querySelector('.sv-ga-headbot .sv-gbot');
+        if (headBot && window.GuardianBot) {
+            GuardianBot.set(headBot, 'ok');
+            setTimeout(() => GuardianBot.set(headBot, 'idle'), 2600);
+        }
         await this._fill();
     },
 
@@ -102,6 +108,11 @@ const GuardianAssistant = {
         ]);
         let rep = null;
         if (optStatus && optStatus.has_report) rep = await API.getOptimizerReport();
+        // the FAB mirrors what the app is doing: scanning -> scan state
+        if (this._fab && window.GuardianBot) {
+            const fabBot = this._fab.querySelector('.sv-gbot');
+            if (fabBot) GuardianBot.set(fabBot, optStatus && optStatus.running ? 'scan' : 'idle');
+        }
 
         body.textContent = '';
 

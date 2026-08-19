@@ -2394,7 +2394,6 @@ const CostsPage = {
         const consented = !!st.consented_at;
         host.innerHTML =
             '<div class="svo-hero">' +
-            '<div class="svo-hero-bot"></div>' +
             '<div class="svo-eyebrow">Runs entirely on this machine</div>' +
             '<h2 class="svo-h">Find out why your sessions cost what they did.</h2>' +
             '<p class="svo-p">Cost tracking answers how much. The Optimizer reads the session transcripts already on this device and answers <b>why</b>: repeated context, cache misses, retry loops, duplicate requests, each finding named to the exact session and turn that produced it.</p>' +
@@ -2418,10 +2417,6 @@ const CostsPage = {
             `<button type="button" class="btn btn-primary svo-go">${consented ? 'Scan my sessions' : 'Agree and scan'}</button>` +
             '</div><div class="svo-err" hidden></div></div>';
 
-        const botHost = host.querySelector('.svo-hero-bot');
-        if (botHost && window.GuardianBot) {
-            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 116, label: 'Guardian, idle' }));
-        }
         host.querySelectorAll('.svo-winbtn').forEach(b => b.addEventListener('click', () => {
             this._optWindow = Number(b.dataset.days) || 30;
             host.querySelectorAll('.svo-winbtn').forEach(x => x.classList.toggle('on', x === b));
@@ -2444,15 +2439,10 @@ const CostsPage = {
         const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
         host.innerHTML =
             '<div class="svo-hero" style="text-align:center;">' +
-            '<div class="svo-scan-bot"></div>' +
             '<div class="svo-eyebrow">Scanning locally</div>' +
             `<h2 class="svo-h">Reading ${p.total || '…'} sessions on this machine.</h2>` +
             '<div class="svo-prog" style="max-width:420px;margin-left:auto;margin-right:auto;"><div class="svo-prog-fill" style="width:' + pct + '%"></div></div>' +
             `<p class="svo-p" style="margin-left:auto;margin-right:auto;">${p.done || 0} of ${p.total || '?'} sessions analyzed. Nothing leaves the device.</p></div>`;
-        const botHost = host.querySelector('.svo-scan-bot');
-        if (botHost && window.GuardianBot) {
-            botHost.appendChild(GuardianBot.el({ state: 'scan', size: 132, label: 'Guardian, scanning' }));
-        }
         this._optPoll = setTimeout(() => {
             if (this.activeTab === 'optimizer') this._loadAndRenderOptimizer();
         }, 1200);
@@ -2591,12 +2581,6 @@ const CostsPage = {
             const scannedAny = (rep.scanned && (rep.scanned.claude_code || rep.scanned.codex));
             const ok = document.createElement('div');
             ok.className = 'svo-ok';
-            if (window.GuardianBot) {
-                ok.appendChild(GuardianBot.el({
-                    state: scannedAny ? 'ok' : 'idle', size: 80,
-                    label: scannedAny ? 'Guardian, all clear' : 'Guardian, idle',
-                }));
-            }
             const okText = document.createElement('span');
             okText.textContent = scannedAny
                 ? 'No material waste above the noise floor in this window. The comparison above still shows the observed totals.'
@@ -2957,9 +2941,6 @@ const CostsPage = {
         st.textContent = `
 #sv-optimizer { display: flex; flex-direction: column; gap: 16px; }
 .svo-hero { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 28px; position: relative; }
-.svo-hero-bot { position: absolute; top: 24px; right: 32px; }
-@media (max-width: 860px) { .svo-hero-bot { display: none; } }
-.svo-scan-bot { display: flex; justify-content: center; margin-bottom: 4px; }
 .svo-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent-primary, #5eadb8); }
 .svo-h { font-family: var(--font-display, inherit); font-size: 24px; margin: 10px 0 8px; color: var(--text-primary); }
 .svo-p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; max-width: 720px; }

@@ -190,9 +190,13 @@ const GuardianBot = {
   .sv-gbot-scan .gb-beam { animation: gb-sweep 1.6s ease-in-out infinite; }
   .sv-gbot-scan .gb-tip-halo { animation: gb-pulse 0.9s ease-in-out infinite; }
   .sv-gbot-ok .gb-body { animation: gb-bob 4s ease-in-out infinite, gb-nod 0.9s ease-in-out 1; }
+  /* per-state arm language: idle sways, scan works, ok celebrates */
   .sv-gbot .gb-arm-l { animation: gb-armsway 4s ease-in-out infinite; transform-origin: 16px 45px; }
   .sv-gbot .gb-arm-r { animation: gb-armsway 4s ease-in-out infinite reverse; transform-origin: 48px 45px; }
-  .sv-gbot-ok .gb-arm-r { animation: gb-wave 1.1s ease-in-out 1, gb-armsway 4s ease-in-out 1.1s infinite reverse; }
+  .sv-gbot-scan .gb-arm-l { animation: gb-busy 0.9s ease-in-out infinite; }
+  .sv-gbot-scan .gb-arm-r { animation: gb-busy-r 0.9s ease-in-out 0.12s infinite; }
+  .sv-gbot-ok .gb-arm-r { animation: gb-wave 1.2s ease-in-out 2, gb-armsway 4s ease-in-out 2.4s infinite reverse; }
+  .sv-gbot-ok .gb-arm-l { animation: gb-cheer 1.2s ease-in-out 2, gb-armsway 4s ease-in-out 2.4s infinite; }
 }
 @keyframes gb-sway { 0%, 100% { transform: rotateY(-7deg); } 50% { transform: rotateY(7deg); } }
 @keyframes gb-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
@@ -208,7 +212,30 @@ const GuardianBot = {
 }
 @keyframes gb-sweep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(20px); } }
 @keyframes gb-armsway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3.5deg); } }
-@keyframes gb-wave { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-38deg); } 55% { transform: rotate(-18deg); } 75% { transform: rotate(-34deg); } }
+/* scan: both arms raised outward, oscillating quickly — hands busy at the
+   work (screen-space rotation mirrors between the two sides) */
+@keyframes gb-busy {
+  0%, 100% { transform: rotate(14deg) translateY(-1.6px); }
+  50% { transform: rotate(26deg) translateY(-2.6px); }
+}
+@keyframes gb-busy-r {
+  0%, 100% { transform: rotate(-14deg) translateY(-1.6px); }
+  50% { transform: rotate(-26deg) translateY(-2.6px); }
+}
+/* ok, right hand: a proper wave — raised high, three swings, back down */
+@keyframes gb-wave {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-52deg); }
+  40% { transform: rotate(-30deg); }
+  55% { transform: rotate(-52deg); }
+  70% { transform: rotate(-32deg); }
+  85% { transform: rotate(-48deg); }
+}
+/* ok, left hand: a small sympathetic lift while the right waves */
+@keyframes gb-cheer {
+  0%, 100% { transform: rotate(0); }
+  30%, 70% { transform: rotate(18deg) translateY(-1.2px); }
+}
 @keyframes gb-nod { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } 70% { transform: translateY(-1px); } }
 `;
         document.head.appendChild(st);
