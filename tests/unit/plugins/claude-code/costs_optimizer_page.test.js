@@ -186,7 +186,12 @@ test('receipts are proof cards: prediction vs measured vs quality, no faulty com
   assert.match(src, /Output quality/);
   assert.match(src, /median\/session/);
   assert.match(src, /Semantic output quality is not judged, and no model is involved/);
-  // a comparison we will not show is always explained, never silently absent
-  assert.match(src, /not_comparable|no comparison will be shown/);
-  assert.match(src, /below_noise|reopened/);
+  // a comparison we will not show is always explained, never silently absent:
+  // the backend words the refusal, the UI renders every pending reason verbatim
+  assert.match(src, /reopened/);
+  assert.match(src, /\$\{label\}: \$\{p\.reason\}/);
+  const svc = fs.readFileSync(path.resolve(WEB, '..', '..', 'services', 'cost_optimizer.py'), 'utf8');
+  assert.match(svc, /no comparison will be shown/);
+  assert.match(svc, /below_noise/);
+  assert.match(svc, /receipt_min_improvement/);
 });
