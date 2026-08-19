@@ -3448,9 +3448,11 @@ const CostsPage = {
     },
 
     /** The with/without comparison strip: observed next to the modeled figure
-     *  under the achievable counterfactuals. Derived, never computed here:
-     *  modeled = observed minus the sum of the lower-bound buckets, straight
-     *  off the report, so this strip and the findings list cannot disagree. */
+     *  under the achievable counterfactuals. Derived, never computed here —
+     *  both figures come straight off the report (dollars: observed minus
+     *  both lower-bound buckets; tokens: observed minus the compaction
+     *  bucket only, since cache waste changes the rate, not the token
+     *  volume), so this strip and the findings list cannot disagree. */
     _optStrip(rep, mode) {
         const obs = rep.observed || {};
         const mod = rep.modeled || {};

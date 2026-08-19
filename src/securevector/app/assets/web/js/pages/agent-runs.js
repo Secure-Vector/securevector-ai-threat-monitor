@@ -2138,6 +2138,10 @@ const AgentRunsPage = {
                     el.dataset.ridx = ridxOf(startI + k);
                     body.appendChild(el);
                 });
+                // The rows inside this group only just entered the DOM, so
+                // the Optimizer's per-turn chips must be re-applied now —
+                // the render-time pass couldn't have found them.
+                if (this._trace) this._annotateOptimizer(this._trace);
             }
         });
         wrap.appendChild(head);
