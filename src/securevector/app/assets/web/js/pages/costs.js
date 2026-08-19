@@ -3707,7 +3707,13 @@ const CostsPage = {
         h.textContent = 'Findings, ranked by estimated value';
         sec.appendChild(h);
 
-        findings.forEach(f => {
+        // The ranking is the product; a wall of hundreds of cards is not.
+        // Long-running agent sessions can legitimately produce hundreds of
+        // per-segment findings, so render the top of the ranking and expand
+        // on demand.
+        const FINDINGS_PAGE = 30;
+        const shown = this._optShowAllFindings ? findings : findings.slice(0, FINDINGS_PAGE);
+        shown.forEach(f => {
             const v = this._optValue(f.tokens_wasted, f.est_value_usd, mode);
             const row = document.createElement('div');
             row.className = 'svo-find';
@@ -3731,7 +3737,7 @@ const CostsPage = {
                 `<div class="svo-find-ev">${this._esc((f.evidence && f.evidence.observed) || '')}</div>` +
                 '<div class="svo-find-meta">' + sessRef +
                 (turnsTxt ? `<span class="svo-turns">${turnsTxt}</span>` : '') +
-                (f.trace_id ? '<a class="svo-view" href="javascript:void 0">View in Traces</a>' : '') +
+                (f.trace_id ? '<a class="svo-view" role="button" tabindex="0">View in Traces</a>' : '') +
                 (f.beyond_trace_cap
                     ? '<span class="svo-cap" title="The analysis used the full transcript. The Traces view keeps only the most recent 1500 runs, so some referenced turns are not visible there.">exceeds the Traces 1500-run view</span>'
                     : '') +
@@ -3750,6 +3756,18 @@ const CostsPage = {
             });
             sec.appendChild(row);
         });
+        if (!this._optShowAllFindings && findings.length > FINDINGS_PAGE) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'btn btn-secondary btn-sm';
+            more.style.cssText = 'align-self: flex-start;';
+            more.textContent = `Show all ${findings.length} findings`;
+            more.addEventListener('click', async () => {
+                this._optShowAllFindings = true;
+                await this._loadAndRenderOptimizer();
+            });
+            sec.appendChild(more);
+        }
         host.appendChild(sec);
     },
 
@@ -3789,7 +3807,7 @@ const CostsPage = {
                 `<span class="svo-find-val">${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</span>` +
                 '</div>' +
                 `<div class="svo-find-ev">Before: ${r.before_sessions} sessions. After: ${r.after_sessions} sessions. Measured token movement is fact; any dollar reading of it stays an estimate.</div>` +
-                '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" href="javascript:void 0">Share as image</a></div>';
+                '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" role="button" tabindex="0">Share as image</a></div>';
             row.querySelector('.svo-share-receipt').addEventListener('click',
                 (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));
             sec.appendChild(row);
@@ -3839,6 +3857,7 @@ const CostsPage = {
             '<button type="button" class="btn btn-secondary btn-sm svo-del">Delete report</button></span>';
         foot.querySelector('.svo-rescan').addEventListener('click', async () => {
             try {
+                this._optShowAllFindings = false; // a fresh scan restarts at the top slice
                 await API.runOptimizer({ window_days: rep.window_days || this._optWindow });
                 await this._loadAndRenderOptimizer();
             } catch (e) { if (window.Toast) Toast.error('Could not start the scan: ' + e.message); }
@@ -3936,13 +3955,14 @@ const CostsPage = {
                 ctx.font = disp(20, 500);
                 ctx.fillText(label, 60, y);
                 ctx.fillStyle = 'rgba(94,173,184,0.18)';
-                ctx.fillRect(340, y - 16, 560, 18);
+                ctx.fillRect(340, y - 16, 430, 18);
                 ctx.fillStyle = TEAL;
-                ctx.fillRect(340, y - 16, Math.max(560 * pct / 100, bucket.tokens ? 8 : 0), 18);
+                ctx.fillRect(340, y - 16, Math.max(430 * pct / 100, bucket.tokens ? 8 : 0), 18);
                 ctx.fillStyle = '#eef2f7';
                 ctx.font = mono(18);
                 const bv = this._optValue(bucket.tokens, bucket.est_value_usd, mode);
-                ctx.fillText(`${bv.lead}${bv.sub ? ' · ' + bv.sub : ''} · ${pct}%`, 920, y);
+                const bvText = `${bv.lead}${bv.sub ? ' · ' + bv.sub : ''} · ${pct}%`;
+                ctx.fillText(bvText, W - 60 - ctx.measureText(bvText).width, y);
                 y += 52;
             });
 
