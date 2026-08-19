@@ -240,7 +240,7 @@ const GlobalBanners = {
         titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-        title.textContent = 'New: the Cost / Token Optimizer';
+        title.textContent = 'New: the Cost / Token Optimizer, with your Guardian Bot';
         titleRow.appendChild(title);
         const pill = document.createElement('span');
         pill.style.cssText = 'font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
@@ -250,7 +250,7 @@ const GlobalBanners = {
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'See why your agent sessions cost what they did, and what to change: repeated context, cache misses, retry loops, each finding named to its exact session and turn.';
+        desc.textContent = 'See why your agent sessions cost what they did, and what to change: repeated context, cache misses, retry loops, each finding named to its exact session and turn. The Guardian Bot at the bottom right takes you there, and keeps threats, secret leaks and blocked actions one click away.';
         textCol.appendChild(desc);
 
         card.appendChild(textCol);

@@ -101,6 +101,9 @@ const App = {
         // (the Dashboard), so no init-time render here.
         Sidebar.render();
         Header.render();
+        // The floating Guardian (replaces the retired TryItChat panel):
+        // cost optimization first, threats/secrets/blocked actions alongside.
+        if (window.GuardianAssistant) GuardianAssistant.mount();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {
