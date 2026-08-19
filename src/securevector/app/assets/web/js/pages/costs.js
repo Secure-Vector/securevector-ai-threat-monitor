@@ -2456,13 +2456,16 @@ const CostsPage = {
         host.appendChild(this._optStrip(rep, mode));
         if (!mode && !(st.prefs && st.prefs.billing_mode)) this._optBillingAsk(host, st);
 
+        // Proof leads: a measured receipt is the feature's strongest artifact,
+        // so it renders directly under the comparison, before the findings.
+        this._optReceipts(host, rep, mode, 'resolved');
         const prefs = (st && st.prefs) || {};
         const findings = rep.findings || [];
         if (findings.length && (prefs.recommend_enabled == null)) {
             this._optRecommendAsk(host);
         }
         this._optFindings(host, rep, st);
-        this._optReceipts(host, rep, mode);
+        this._optReceipts(host, rep, mode, 'pending');
         this._optFootnotes(host, rep);
         this._optFooter(host, rep);
     },
@@ -2713,56 +2716,68 @@ const CostsPage = {
 
     // ---------------- receipts ----------------
 
-    _optReceipts(host, rep, mode) {
+    _optReceipts(host, rep, mode, which) {
         const rec = rep.receipts || {};
         const resolved = rec.resolved || [];
         const pending = rec.pending || [];
-        if (!resolved.length && !pending.length) return;
         const sec = document.createElement('div');
         sec.className = 'svo-sec';
+
+        if (which === 'resolved') {
+            if (!resolved.length) return;
+            const h = document.createElement('div');
+            h.className = 'svo-sec-h';
+            h.textContent = 'Proof: measured impact';
+            sec.appendChild(h);
+            resolved.forEach(r => {
+                const label = this._OPT_TYPE_LABELS[r.type] || r.type;
+                const pred = r.predicted;
+                const q = (r.quality_before && r.quality_after)
+                    ? { b: r.quality_before, a: r.quality_after } : null;
+                const pct = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';
+                const card = document.createElement('div');
+                card.className = 'svo-proof';
+                card.innerHTML =
+                    '<div class="svo-proof-head">' +
+                    '<span class="svo-eyebrow">Proof · measured, not modeled</span>' +
+                    '<span class="svo-tag svo-tag-measured" title="Measured from real same-harness sessions across comparable windows. Never an estimate.">measured</span>' +
+                    '</div>' +
+                    '<div class="svo-proof-headline">' +
+                    `<span class="svo-proof-big">${this._optMetricFmt(r.metric, r.before)} <span class="svo-proof-arrow">→</span> <b>${this._optMetricFmt(r.metric, r.after)}</b></span>` +
+                    `<span class="svo-proof-what">${this._esc(this._optMetricLabel(r.metric))} · ${label} resolved</span>` +
+                    '</div>' +
+                    '<div class="svo-proof-grid">' +
+                    (pred && (pred.tokens || pred.est_value_usd)
+                        ? '<div class="svo-proof-cell"><div class="svo-proof-k">Predicted</div>' +
+                          `<div class="svo-proof-v">~${this._optFmtTok(pred.tokens)} tok back` +
+                          (pred.est_value_usd ? ` <i>≈$${pred.est_value_usd} est</i>` : '') + '</div>' +
+                          '<div class="svo-proof-s">frozen when the finding first appeared</div></div>'
+                        : '') +
+                    '<div class="svo-proof-cell"><div class="svo-proof-k">Measured</div>' +
+                    `<div class="svo-proof-v">${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</div>` +
+                    `<div class="svo-proof-s">${r.before_sessions} sessions before · ${r.after_sessions} after, like-for-like</div></div>` +
+                    (q
+                        ? '<div class="svo-proof-cell"><div class="svo-proof-k">Output quality</div>' +
+                          `<div class="svo-proof-v">output ${this._optFmtTok(q.b.output_avg)} → ${this._optFmtTok(q.a.output_avg)}</div>` +
+                          `<div class="svo-proof-s">tool errors ${pct(q.b.tool_error_rate)} → ${pct(q.a.tool_error_rate)} · turns ${q.b.turns_avg ?? '–'} → ${q.a.turns_avg ?? '–'} · truncated ${pct(q.b.max_tokens_share)} → ${pct(q.a.max_tokens_share)}</div></div>`
+                        : '') +
+                    '</div>' +
+                    '<div class="svo-proof-foot"><span>Medians across real same-harness sessions in comparable windows. Failed tool calls, session length and truncated answers rise when an optimization hurts the work; semantic quality is not judged and no model is involved. Token movement is fact; dollar readings stay estimates.</span>' +
+                    '<a class="svo-view svo-share-receipt" role="button" tabindex="0">Share as image</a></div>';
+                card.querySelector('.svo-share-receipt').addEventListener('click',
+                    (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));
+                sec.appendChild(card);
+            });
+            host.appendChild(sec);
+            return;
+        }
+
+        // pending: the comparisons we refuse to show, each with its reason
+        if (!pending.length) return;
         const h = document.createElement('div');
         h.className = 'svo-sec-h';
-        h.textContent = 'Impact receipts, measured';
+        h.textContent = 'Receipts in waiting';
         sec.appendChild(h);
-        resolved.forEach(r => {
-            const row = document.createElement('div');
-            row.className = 'svo-find svo-receipt';
-            const label = this._OPT_TYPE_LABELS[r.type] || r.type;
-            // Prediction vs outcome: the frozen estimate this receipt is
-            // judged against, next to what the windows actually measured.
-            const pred = r.predicted;
-            const predLine = pred && (pred.tokens || pred.est_value_usd)
-                ? `<div class="svo-proof-row"><span class="svo-proof-k">Predicted</span>` +
-                  `<span>~${this._optFmtTok(pred.tokens)} tok back` +
-                  (pred.est_value_usd ? ` (≈$${pred.est_value_usd} est)` : '') +
-                  ', frozen when the finding first appeared</span></div>'
-                : '';
-            const q = (r.quality_before && r.quality_after) ? { b: r.quality_before, a: r.quality_after } : null;
-            const pct = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';
-            const qLine = q
-                ? '<div class="svo-proof-row"><span class="svo-proof-k">Output quality</span><span>' +
-                  `output ${this._optFmtTok(q.b.output_avg)} → ${this._optFmtTok(q.a.output_avg)} median/session · ` +
-                  `tool errors ${pct(q.b.tool_error_rate)} → ${pct(q.a.tool_error_rate)} · ` +
-                  `turns ${q.b.turns_avg ?? '–'} → ${q.a.turns_avg ?? '–'} · ` +
-                  `truncated answers ${pct(q.b.max_tokens_share)} → ${pct(q.a.max_tokens_share)}` +
-                  '</span></div>'
-                : '';
-            row.innerHTML =
-                '<div class="svo-find-top">' +
-                `<span class="svo-find-type">${label}: resolved</span>` +
-                '<span class="svo-tag svo-tag-measured" title="Measured from real sessions across like-for-like windows, not an estimate.">measured</span>' +
-                `<span class="svo-find-val">${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</span>` +
-                '</div>' +
-                predLine +
-                `<div class="svo-proof-row"><span class="svo-proof-k">Measured</span>` +
-                `<span>${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)} across ${r.before_sessions} sessions before and ${r.after_sessions} after</span></div>` +
-                qLine +
-                '<div class="svo-find-ev">Quality figures are behavioral signals, medians across real same-harness sessions in comparable windows: failed tool calls, session length and truncated answers rise when an optimization hurts the work. Semantic output quality is not judged, and no model is involved. Measured token movement is fact; dollar readings stay estimates.</div>' +
-                '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" role="button" tabindex="0">Share as image</a></div>';
-            row.querySelector('.svo-share-receipt').addEventListener('click',
-                (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));
-            sec.appendChild(row);
-        });
         pending.forEach(p => {
             const row = document.createElement('div');
             row.className = 'svo-pending';
@@ -3060,9 +3075,22 @@ const CostsPage = {
 .svo-rec { display: flex; gap: 10px; align-items: baseline; margin-top: 10px; border-top: 1px dashed var(--border-default); padding-top: 10px; }
 .svo-rec-k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary, #5eadb8); flex-shrink: 0; }
 .svo-rec-t { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
-.svo-receipt { border-color: color-mix(in srgb, var(--accent-primary, #5eadb8) 40%, transparent); }
-.svo-proof-row { display: flex; gap: 10px; align-items: baseline; margin-top: 7px; font-size: 12.5px; color: var(--text-secondary); }
-.svo-proof-row .svo-proof-k { flex-shrink: 0; width: 96px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
+.svo-proof { background: var(--bg-card); border: 2px solid color-mix(in srgb, var(--accent-primary, #5eadb8) 55%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-primary, #5eadb8) 8%, transparent);
+  border-radius: 14px; padding: 20px 24px; }
+.svo-proof-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.svo-proof-headline { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.svo-proof-big { font-family: var(--font-mono, monospace); font-size: 34px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.svo-proof-big b { color: var(--accent-primary, #5eadb8); font-weight: 700; }
+.svo-proof-arrow { color: var(--text-muted); font-weight: 400; font-size: 26px; }
+.svo-proof-what { font-size: 13px; color: var(--text-secondary); }
+.svo-proof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.svo-proof-cell { background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 10px; padding: 12px 14px; }
+.svo-proof-k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--accent-primary, #5eadb8); margin-bottom: 5px; }
+.svo-proof-v { font-family: var(--font-mono, monospace); font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.svo-proof-v i { font-style: normal; font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.svo-proof-s { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+.svo-proof-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-top: 14px; font-size: 11px; color: var(--text-muted); line-height: 1.5; }
 .svo-pending { color: var(--text-muted); font-size: 12px; padding: 4px 2px; }
 .svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 18px; line-height: 1.5; }
 .svo-note { color: var(--text-muted); font-size: 12px; line-height: 1.5; }

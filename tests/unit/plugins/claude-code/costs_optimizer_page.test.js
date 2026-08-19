@@ -184,8 +184,8 @@ test('receipts are proof cards: prediction vs measured vs quality, no faulty com
   const src = read('js/pages/costs.js');
   assert.match(src, /frozen when the finding first appeared/);
   assert.match(src, /Output quality/);
-  assert.match(src, /median\/session/);
-  assert.match(src, /Semantic output quality is not judged, and no model is involved/);
+  assert.match(src, /Medians across real same-harness sessions/);
+  assert.match(src, /semantic quality is not judged and no model is involved/);
   // a comparison we will not show is always explained, never silently absent:
   // the backend words the refusal, the UI renders every pending reason verbatim
   assert.match(src, /reopened/);
