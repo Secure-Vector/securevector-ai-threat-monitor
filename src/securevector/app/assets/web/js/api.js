@@ -854,6 +854,31 @@ const API = {
         return this.request('/api/costs/budget/guardian').catch(() => null);
     },
 
+    // ------------------------------------------------- per-run limits ---
+    // #203 enforcement controls. Reads degrade; writes surface errors.
+    async getRunLimits() {
+        return this.request('/api/costs/run-limits').catch(() => null);
+    },
+
+    async setRunLimits(payload) {
+        return this.request('/api/costs/run-limits', {
+            method: 'PUT',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async getRunLimitStops(windowDays) {
+        const q = windowDays ? `?window_days=${encodeURIComponent(windowDays)}` : '';
+        return this.request(`/api/costs/run-limits/stops${q}`).catch(() => ({ stops: [] }));
+    },
+
+    async exemptRun(payload) {
+        return this.request('/api/costs/run-limits/exempt', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
     // ------------------------------------------- cost / token optimizer ---
     // Reads degrade (status -> null, report -> null) so the Optimizer tab
     // renders its empty state offline; run/prefs writes surface their errors.

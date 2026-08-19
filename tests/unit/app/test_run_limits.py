@@ -128,38 +128,43 @@ async def test_exemption_lifts_the_cap_and_is_revocable_shaped(tmp_path):
     await db.disconnect()
 
 
-@pytest.mark.asyncio
-async def test_wildcard_grants_are_not_emitted_as_allow_rows(tmp_path):
+def test_wildcard_grants_are_not_emitted_as_allow_rows(tmp_path, monkeypatch):
     """A run exemption must lift ONLY the run cap — a '*' allow row reaching
-    the plugins would lift policy denies too."""
+    the plugins would lift policy denies too.
+
+    Sync test + asyncio.run setup, like the killswitch route tests: a
+    TestClient inside an async test runs handlers on a second event loop
+    against a DB bound to the first, which wedges aiosqlite.
+    """
+    import asyncio
+
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    import securevector.app.database.connection as conn_mod
     from securevector.app.server.routes import tool_permissions as tp
 
-    db = await _build_db(tmp_path)
-    await create_run_exemption(db, RUNTIME, SESSION)
+    async def _setup():
+        db = await _build_db(tmp_path)
+        await create_run_exemption(db, RUNTIME, SESSION)
+        await db.disconnect()
 
+    asyncio.run(_setup())
+    db = DatabaseConnection(tmp_path / "test.db")
     app = FastAPI()
     app.include_router(tp.router, prefix="/api")
-    orig = conn_mod.get_database
-    conn_mod.get_database = lambda: db
-    tp.get_database = lambda: db
+    monkeypatch.setattr(tp, "get_database", lambda: db)
     try:
-        client = TestClient(app)
-        res = client.get(
-            "/api/tool-permissions/synced-overrides",
-            params={"runtime": RUNTIME, "session_id": SESSION},
-        ).json()
+        with TestClient(app) as client:
+            res = client.get(
+                "/api/tool-permissions/synced-overrides",
+                params={"runtime": RUNTIME, "session_id": SESSION},
+            ).json()
         assert all(r["tool_id"] != "*" or r["effect"] == "deny" for r in res["synced"])
         assert not any(
             r.get("source") == "jit_grant" and r["tool_id"] == "*" for r in res["synced"]
         )
     finally:
-        conn_mod.get_database = orig
-        tp.get_database = orig
-    await db.disconnect()
+        asyncio.run(db.disconnect())
 
 
 # --- loop breaker ----------------------------------------------------------
@@ -189,6 +194,36 @@ async def test_loop_breaker_off_by_default_ignores_repeats(tmp_path):
 
 
 # --- per-run ceilings on budget-status -------------------------------------
+# Sync tests + asyncio.run for setup/teardown, mirroring the killswitch route
+# tests: a TestClient must never run inside an async test (two event loops,
+# one aiosqlite).
+
+import asyncio as _asyncio  # noqa: E402
+
+
+def _setup_db(tmp_path, coro_factory):
+    """Run async setup against a fresh DB on its own loop, then return a new
+    connection to the same file for the sync TestClient phase."""
+    async def _run():
+        db = await _build_db(tmp_path)
+        await coro_factory(db)
+        await db.disconnect()
+
+    _asyncio.run(_run())
+    return DatabaseConnection(tmp_path / "test.db")
+
+
+def _budget_client(db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from securevector.app.server.routes import costs as costs_routes
+
+    app = FastAPI()
+    app.include_router(costs_routes.router, prefix="/api")
+    monkeypatch.setattr(costs_routes, "get_database", lambda: db)
+    return TestClient(app)
+
 
 async def _record(db, session_id, cost, tokens):
     await CostsRepository(db).record_cost(
@@ -199,107 +234,115 @@ async def _record(db, session_id, cost, tokens):
     )
 
 
-def _budget_client(db):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+def test_cost_ceiling_trips_on_run_spend(tmp_path, monkeypatch):
+    async def seed(db):
+        await SettingsRepository(db).update(run_max_cost_usd=5.0, run_limit_action="block")
+        await _record(db, SESSION, 6.0, 1000)
 
-    from securevector.app.server.routes import costs as costs_routes
-
-    app = FastAPI()
-    app.include_router(costs_routes.router, prefix="/api")
-    costs_routes.get_database = lambda: db
-    return TestClient(app), costs_routes
-
-
-@pytest.mark.asyncio
-async def test_cost_ceiling_trips_on_run_spend(tmp_path):
-    db = await _build_db(tmp_path)
-    await SettingsRepository(db).update(run_max_cost_usd=5.0, run_limit_action="block")
-    await _record(db, SESSION, 6.0, 1000)
-    client, routes_mod = _budget_client(db)
+    db = _setup_db(tmp_path, seed)
     try:
-        res = client.get("/api/costs/budget-status",
-                         params={"agent_id": "local-agent", "session_id": SESSION}).json()
-        assert res["over_run_limit"] is True
-        assert res["run_limit_action"] == "block"
-        assert res["run_limit_reason"].startswith("Per-run cost ceiling")
-        # daily budget behaviour unchanged: no daily budget set -> not over
-        assert res["over_budget"] is False
-        # another run of the same agent is clean
-        res2 = client.get("/api/costs/budget-status",
-                          params={"agent_id": "local-agent", "session_id": "fresh-run"}).json()
-        assert res2["over_run_limit"] is False
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/budget-status",
+                             params={"agent_id": "local-agent", "session_id": SESSION}).json()
+            assert res["over_run_limit"] is True
+            assert res["run_limit_action"] == "block"
+            assert res["run_limit_reason"].startswith("Per-run cost ceiling")
+            # daily budget behaviour unchanged: no daily budget set -> not over
+            assert res["over_budget"] is False
+            # another run of the same agent is clean
+            res2 = client.get("/api/costs/budget-status",
+                              params={"agent_id": "local-agent", "session_id": "fresh-run"}).json()
+            assert res2["over_run_limit"] is False
     finally:
-        pass
-    await db.disconnect()
+        _asyncio.run(db.disconnect())
 
 
-@pytest.mark.asyncio
-async def test_token_ceiling_works_without_pricing(tmp_path):
+def test_token_ceiling_works_without_pricing(tmp_path, monkeypatch):
     """The token ceiling is the subscription-mode counterpart: token counts
     come straight off the provider responses, no pricing table needed."""
-    db = await _build_db(tmp_path)
-    await SettingsRepository(db).update(run_max_tokens=500)
-    await _record(db, SESSION, 0.0, 800)  # unpriced: cost 0, tokens real
-    client, _ = _budget_client(db)
-    res = client.get("/api/costs/budget-status",
-                     params={"agent_id": "local-agent", "session_id": SESSION}).json()
-    assert res["over_run_limit"] is True
-    assert res["run_limit_reason"].startswith("Per-run token ceiling")
-    await db.disconnect()
+    async def seed(db):
+        await SettingsRepository(db).update(run_max_tokens=500)
+        await _record(db, SESSION, 0.0, 800)  # unpriced: cost 0, tokens real
+
+    db = _setup_db(tmp_path, seed)
+    try:
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/budget-status",
+                             params={"agent_id": "local-agent", "session_id": SESSION}).json()
+        assert res["over_run_limit"] is True
+        assert res["run_limit_reason"].startswith("Per-run token ceiling")
+    finally:
+        _asyncio.run(db.disconnect())
 
 
-@pytest.mark.asyncio
-async def test_exemption_lifts_the_ceiling_too(tmp_path):
-    db = await _build_db(tmp_path)
-    await SettingsRepository(db).update(run_max_cost_usd=1.0)
-    await _record(db, SESSION, 2.0, 100)
-    await create_run_exemption(db, "openclaw", SESSION)
-    client, _ = _budget_client(db)
-    res = client.get("/api/costs/budget-status",
-                     params={"agent_id": "local-agent", "session_id": SESSION}).json()
-    assert res["over_run_limit"] is False
-    assert res["run_exempted"] is True
-    await db.disconnect()
+def test_exemption_lifts_the_ceiling_too(tmp_path, monkeypatch):
+    async def seed(db):
+        await SettingsRepository(db).update(run_max_cost_usd=1.0)
+        await _record(db, SESSION, 2.0, 100)
+        await create_run_exemption(db, "openclaw", SESSION)
+
+    db = _setup_db(tmp_path, seed)
+    try:
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/budget-status",
+                             params={"agent_id": "local-agent", "session_id": SESSION}).json()
+        assert res["over_run_limit"] is False
+        assert res["run_exempted"] is True
+    finally:
+        _asyncio.run(db.disconnect())
 
 
-@pytest.mark.asyncio
-async def test_budget_status_without_session_is_unchanged(tmp_path):
-    db = await _build_db(tmp_path)
-    client, _ = _budget_client(db)
-    res = client.get("/api/costs/budget-status", params={"agent_id": "a"}).json()
-    assert res["over_budget"] is False
-    assert res["over_run_limit"] is False
-    assert res["session_id"] is None
-    await db.disconnect()
+def test_budget_status_without_session_is_unchanged(tmp_path, monkeypatch):
+    async def seed(db):
+        pass
+
+    db = _setup_db(tmp_path, seed)
+    try:
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/budget-status", params={"agent_id": "a"}).json()
+        assert res["over_budget"] is False
+        assert res["over_run_limit"] is False
+        assert res["session_id"] is None
+    finally:
+        _asyncio.run(db.disconnect())
 
 
 # --- run-limits settings API + stops ---------------------------------------
 
-@pytest.mark.asyncio
-async def test_run_limits_roundtrip_and_immediate_effect(tmp_path):
-    db = await _build_db(tmp_path)
-    client, _ = _budget_client(db)
-    res = client.get("/api/costs/run-limits").json()
-    assert res["run_max_tool_calls"] is None and res["run_loop_breaker"] is False
+def test_run_limits_roundtrip_and_immediate_effect(tmp_path, monkeypatch):
+    async def seed(db):
+        pass
 
-    put = client.put("/api/costs/run-limits", json={
-        "run_max_tool_calls": 50, "run_max_cost_usd": 10.0,
-        "run_max_tokens": 2000000, "run_limit_action": "block",
-        "run_loop_breaker": True,
-    })
-    assert put.status_code == 200 and put.json()["run_max_tool_calls"] == 50
+    db = _setup_db(tmp_path, seed)
+    try:
+        with _budget_client(db, monkeypatch) as client:
+            res = client.get("/api/costs/run-limits").json()
+            assert res["run_max_tool_calls"] is None and res["run_loop_breaker"] is False
 
-    # disabling takes effect without any restart: a fresh PUT clears it and
-    # the decision path reads settings per call
-    client.put("/api/costs/run-limits", json={"run_limit_action": "warn"})
-    assert (await SettingsRepository(db).get()).run_max_tool_calls is None
-    await _log_calls(db, 60)
-    assert await evaluate_run_limits(db, RUNTIME, SESSION) == []
+            put = client.put("/api/costs/run-limits", json={
+                "run_max_tool_calls": 50, "run_max_cost_usd": 10.0,
+                "run_max_tokens": 2000000, "run_limit_action": "block",
+                "run_loop_breaker": True,
+            })
+            assert put.status_code == 200 and put.json()["run_max_tool_calls"] == 50
 
-    bad = client.put("/api/costs/run-limits", json={"run_limit_action": "explode"})
-    assert bad.status_code == 422
-    await db.disconnect()
+            # disabling takes effect without any restart: a fresh PUT clears
+            # the cap and the decision path reads settings per call
+            client.put("/api/costs/run-limits", json={"run_limit_action": "warn"})
+
+            bad = client.put("/api/costs/run-limits", json={"run_limit_action": "explode"})
+            assert bad.status_code == 422
+    finally:
+        _asyncio.run(db.disconnect())
+
+    async def verify():
+        db2 = DatabaseConnection(tmp_path / "test.db")
+        assert (await SettingsRepository(db2).get()).run_max_tool_calls is None
+        await _log_calls(db2, 60)
+        assert await evaluate_run_limits(db2, RUNTIME, SESSION) == []
+        await db2.disconnect()
+
+    _asyncio.run(verify())
 
 
 @pytest.mark.asyncio
@@ -324,31 +367,32 @@ async def test_recent_stops_surface_with_exemption_state(tmp_path):
 
 # --- synced-overrides integration ------------------------------------------
 
-@pytest.mark.asyncio
-async def test_overrides_endpoint_emits_run_limit_deny_first(tmp_path):
+def test_overrides_endpoint_emits_run_limit_deny_first(tmp_path, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from securevector.app.server.routes import tool_permissions as tp
 
-    db = await _build_db(tmp_path)
-    await SettingsRepository(db).update(run_max_tool_calls=3)
-    await _log_calls(db, 4)
+    async def seed(db):
+        await SettingsRepository(db).update(run_max_tool_calls=3)
+        await _log_calls(db, 4)
 
+    db = _setup_db(tmp_path, seed)
     app = FastAPI()
     app.include_router(tp.router, prefix="/api")
-    tp.get_database = lambda: db
-    client = TestClient(app)
+    monkeypatch.setattr(tp, "get_database", lambda: db)
+    try:
+        with TestClient(app) as client:
+            res = client.get("/api/tool-permissions/synced-overrides",
+                             params={"runtime": RUNTIME, "session_id": SESSION}).json()
+            assert res["synced"], "run-limit deny row expected"
+            first = res["synced"][0]
+            assert first["tool_id"] == "*" and first["effect"] == "deny"
+            assert first["source"] == "run_limit"
 
-    res = client.get("/api/tool-permissions/synced-overrides",
-                     params={"runtime": RUNTIME, "session_id": SESSION}).json()
-    assert res["synced"], "run-limit deny row expected"
-    first = res["synced"][0]
-    assert first["tool_id"] == "*" and first["effect"] == "deny"
-    assert first["source"] == "run_limit"
-
-    # without a session id the endpoint's contract is unchanged
-    res2 = client.get("/api/tool-permissions/synced-overrides",
-                      params={"runtime": RUNTIME}).json()
-    assert not any(r.get("source") == "run_limit" for r in res2["synced"])
-    await db.disconnect()
+            # without a session id the endpoint's contract is unchanged
+            res2 = client.get("/api/tool-permissions/synced-overrides",
+                              params={"runtime": RUNTIME}).json()
+            assert not any(r.get("source") == "run_limit" for r in res2["synced"])
+    finally:
+        _asyncio.run(db.disconnect())

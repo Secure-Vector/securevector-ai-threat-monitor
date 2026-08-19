@@ -120,6 +120,11 @@ const CostsPage = {
         container.appendChild(optPrefsHost);
         this._renderOptimizerPrefsCard(optPrefsHost);
 
+        // Per-run limits (#203): the enforcement half of the Optimizer.
+        const runLimitsHost = document.createElement('div');
+        container.appendChild(runLimitsHost);
+        this._renderRunLimitsCard(runLimitsHost);
+
         // Divider / heading for pricing
         const pricingHeading = document.createElement('div');
         pricingHeading.style.cssText = 'font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; padding: 20px 0 10px;';
@@ -3304,6 +3309,138 @@ const CostsPage = {
             try { await API.setOptimizerPrefs({ recommend_enabled: v === '1' }); }
             catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
         });
+        host.appendChild(card);
+    },
+
+    /** Cost Settings card: per-run limits (#203). Everything defaults to
+     *  off. The tool-call cap and loop breaker stop calls at the tool
+     *  boundary; the cost/token ceilings stop LLM requests at the proxy.
+     *  Every stop is audited and promotable ("allow this run to continue"). */
+    async _renderRunLimitsCard(host) {
+        const [limits, status, stopsRes] = await Promise.all([
+            API.getRunLimits(),
+            API.getOptimizerStatus(),
+            API.getRunLimitStops(7),
+        ]);
+        if (!limits) return; // server unreachable: settings page stays usable
+        const mode = (status && status.prefs
+            && (status.prefs.billing_mode || status.prefs.billing_mode_derived)) || null;
+        const stops = (stopsRes && stopsRes.stops) || [];
+
+        const card = document.createElement('div');
+        card.style.cssText =
+            'background: var(--bg-secondary); border: 1px solid var(--border-default); ' +
+            'border-radius: 12px; padding: 18px 22px; margin-top: 16px;';
+
+        const num = (id, label, value, placeholder, stepAttr) =>
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">' +
+            label +
+            `<input type="number" min="1" ${stepAttr || ''} class="filter-input" id="${id}" ` +
+            `value="${value != null ? value : ''}" placeholder="${placeholder}" style="width:170px;"></label>`;
+
+        // Billing mode decides which ceiling leads: tokens for subscription,
+        // dollars for metered API. Same controls either way, never a split.
+        const costField = num('svo-run-cost', 'Max cost per run ($)',
+            limits.run_max_cost_usd, 'off', 'step="0.5"');
+        const tokenField = num('svo-run-tokens', 'Max tokens per run',
+            limits.run_max_tokens, 'off');
+        const ceilingFields = mode === 'subscription'
+            ? tokenField + costField : costField + tokenField;
+
+        card.innerHTML =
+            '<div style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-secondary);margin-bottom:6px;">Per-Run Limits</div>' +
+            '<div style="color:var(--text-muted);font-size:13px;line-height:1.5;margin-bottom:14px;">' +
+            'Stop a runaway run before the money is spent. All controls are off by default and every stop is audited and reversible: ' +
+            'the tool-call cap and loop breaker deny further tool calls in Claude Code, Codex, Copilot CLI and Cursor ' +
+            '(OpenClaw cannot deny at the plugin layer, so enforcement there is proxy-only); ' +
+            'the per-run ceilings stop LLM requests at the proxy, and without the proxy running they do not apply. ' +
+            'No control ever modifies a request or changes the model.</div>' +
+            '<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;">' +
+            num('svo-run-calls', 'Max tool calls per run', limits.run_max_tool_calls, 'off') +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Loop breaker' +
+            '<select class="filter-select" id="svo-run-loop">' +
+            `<option value="0"${limits.run_loop_breaker ? '' : ' selected'}>Off</option>` +
+            `<option value="1"${limits.run_loop_breaker ? ' selected' : ''}>On: stop identical-call loops</option>` +
+            '</select></label>' +
+            ceilingFields +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Ceiling action' +
+            '<select class="filter-select" id="svo-run-action">' +
+            `<option value="warn"${limits.run_limit_action !== 'block' ? ' selected' : ''}>Warn (log + header)</option>` +
+            `<option value="block"${limits.run_limit_action === 'block' ? ' selected' : ''}>Block (429)</option>` +
+            '</select></label>' +
+            '<button type="button" class="btn btn-primary btn-sm" id="svo-run-save">Save</button>' +
+            '</div>' +
+            '<div style="color:var(--text-muted);font-size:11px;line-height:1.5;margin-top:10px;">' +
+            `Loop breaker thresholds are published, not tuned per install: ${this._esc(String(limits.loop_thresholds.repeat_limit))} identical calls ` +
+            `or a sustained ${this._esc(String(limits.loop_thresholds.rate_per_min))}/min call rate within ${this._esc(String(limits.loop_thresholds.window_seconds))}s. ` +
+            'The cap and breaker stop calls whenever set; the ceiling action above applies to the cost/token ceilings.</div>' +
+            '<div id="svo-run-stops"></div>';
+
+        card.querySelector('#svo-run-save').addEventListener('click', async () => {
+            const val = (id) => {
+                const v = card.querySelector('#' + id).value;
+                return v === '' ? null : Number(v);
+            };
+            try {
+                await API.setRunLimits({
+                    run_max_tool_calls: val('svo-run-calls'),
+                    run_max_cost_usd: val('svo-run-cost'),
+                    run_max_tokens: val('svo-run-tokens'),
+                    run_limit_action: card.querySelector('#svo-run-action').value,
+                    run_loop_breaker: card.querySelector('#svo-run-loop').value === '1',
+                });
+                if (window.Toast) Toast.success('Per-run limits saved. They apply to the next call, no restarts.');
+            } catch (e) {
+                if (window.Toast) Toast.error('Could not save: ' + e.message);
+            }
+        });
+
+        // Recent stops: the one-click "approve continuation" surface.
+        if (stops.length) {
+            const list = card.querySelector('#svo-run-stops');
+            const head = document.createElement('div');
+            head.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-secondary);margin:16px 0 6px;';
+            head.textContent = 'Recent stops (7 days)';
+            list.appendChild(head);
+            stops.forEach(s => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border-default);font-size:12px;color:var(--text-secondary);flex-wrap:wrap;';
+                const sess = document.createElement('span');
+                sess.style.cssText = 'font-family:var(--font-mono,monospace);';
+                sess.textContent = (s.session_id ? String(s.session_id).slice(0, 12) : 'unknown') +
+                    (s.runtime_kind ? ' · ' + s.runtime_kind : '');
+                const reason = document.createElement('span');
+                reason.style.cssText = 'flex:1 1 260px;min-width:200px;color:var(--text-muted);';
+                reason.textContent = (s.reason || '').split('.')[0] + ` (${s.stops} stopped)`;
+                row.appendChild(sess);
+                row.appendChild(reason);
+                if (s.exempted) {
+                    const tag = document.createElement('span');
+                    tag.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent-primary,#5eadb8);';
+                    tag.textContent = 'continuation approved';
+                    row.appendChild(tag);
+                } else if (s.session_id) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-secondary btn-sm';
+                    btn.textContent = 'Allow run to continue';
+                    btn.title = 'Creates a session-scoped exemption, revocable from the JIT grants list. The grant is audited.';
+                    btn.addEventListener('click', async () => {
+                        try {
+                            await API.exemptRun({ session_id: s.session_id, runtime_kind: s.runtime_kind || null });
+                            btn.replaceWith(Object.assign(document.createElement('span'), {
+                                textContent: 'continuation approved',
+                            }));
+                            if (window.Toast) Toast.success('This run may continue. The exemption is audited and revocable.');
+                        } catch (e) {
+                            if (window.Toast) Toast.error('Could not approve: ' + e.message);
+                        }
+                    });
+                    row.appendChild(btn);
+                }
+                list.appendChild(row);
+            });
+        }
         host.appendChild(card);
     },
 
