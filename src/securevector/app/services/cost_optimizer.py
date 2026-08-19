@@ -1105,8 +1105,13 @@ class CostOptimizerService:
             ),
         }
 
+        try:
+            from securevector import __version__ as app_version
+        except Exception:  # noqa: BLE001
+            app_version = None
         report = {
             "version": REPORT_VERSION,
+            "app_version": app_version,
             "generated_at": _now_iso(),
             "window_days": window_days,
             "billing": {"proxy_metered_seen": proxy_metered_seen},

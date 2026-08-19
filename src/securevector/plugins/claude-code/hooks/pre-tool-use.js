@@ -108,6 +108,25 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
   }
 
   // Candidates are ordered most-specific-first (prefixed before bare).
+  // Per-run limit rows (#203) are keyed '*' and apply to every tool. Checked
+  // ahead of the candidates so a tool-specific allow cannot bypass a run
+  // stop. The sanctioned lift (a run exemption) suppresses these rows
+  // server-side, so any '*' row that arrives is meant to act.
+  const runRow = byToolId.get('*');
+  if (runRow) {
+    const runMapped = EFFECT_TO_DECISION[runRow.effect];
+    if (runMapped && runMapped !== 'allow') {
+      return {
+        decision: runMapped,
+        reason: typeof runRow.reason === 'string' && runRow.reason.length > 0
+          ? runRow.reason
+          : 'Per-run limit reached',
+        toolId: candidates[0],
+        requestable: runRow.requestable === true,
+      };
+    }
+  }
+
   for (const cand of candidates) {
     const match = byToolId.get(cand.toLowerCase());
     if (!match) continue;
@@ -237,7 +256,7 @@ async function decide(toolName, baseUrl, sessionId = null, toolInput = null) {
   // where it points — which means the egress check must run even when
   // normalize() yields no candidates.
   if (candidates.length > 0) {
-    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+    const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, { sessionId });
     const decision = decideFromOverrides(candidates, overrides, sessionId);
     // A name-based deny already stops the call; evaluating egress on top would
     // add latency and a duplicate audit row for a call that never happens.

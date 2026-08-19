@@ -91,8 +91,13 @@ class CostsRepository:
         pricing_known: bool = True,
         request_id: Optional[str] = None,
         input_cached_tokens: int = 0,
+        session_id: Optional[str] = None,
     ) -> CostRecord:
-        """Record a single LLM request's cost."""
+        """Record a single LLM request's cost.
+
+        ``session_id`` (v45) is the proxy's stable per-conversation id — it
+        turns "spend today" into "spend this run" for the per-run ceilings.
+        """
         record_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
@@ -102,15 +107,15 @@ class CostsRepository:
             (id, agent_id, provider, model_id, request_id,
              input_tokens, output_tokens, input_cached_tokens,
              input_cost_usd, output_cost_usd, total_cost_usd,
-             rate_input, rate_output, pricing_known, recorded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             rate_input, rate_output, pricing_known, recorded_at, session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id, agent_id, provider, model_id, request_id,
                 input_tokens, output_tokens, input_cached_tokens,
                 input_cost_usd, output_cost_usd, total_cost_usd,
                 rate_input, rate_output, 1 if pricing_known else 0,
-                now.isoformat(),
+                now.isoformat(), session_id,
             ),
         )
 
@@ -446,6 +451,24 @@ class CostsRepository:
                 (today_start.isoformat(),),
             )
         return float(row["total"]) if row else 0.0
+
+    async def get_run_usage(self, session_id: str) -> dict:
+        """Spend and token usage for one run (proxy session). No time window —
+        the run IS the window. Tokens count everything the provider processed
+        (fresh input + cached input + output) so the per-run token ceiling
+        tracks usage limits, not just fresh input."""
+        row = await self.db.fetch_one(
+            "SELECT COALESCE(SUM(total_cost_usd), 0.0) AS spend, "
+            "COALESCE(SUM(input_tokens + input_cached_tokens + output_tokens), 0) AS tokens, "
+            "COUNT(*) AS requests "
+            "FROM llm_cost_records WHERE session_id = ?",
+            (session_id,),
+        )
+        return {
+            "spend_usd": float(row["spend"]) if row else 0.0,
+            "tokens": int(row["tokens"]) if row else 0,
+            "requests": int(row["requests"]) if row else 0,
+        }
 
     async def get_monthly_spend(self, agent_id: Optional[str] = None) -> float:
         """Return this calendar month's total spend in USD, optionally filtered by agent_id."""

@@ -283,7 +283,8 @@ class LLMProxy:
             return None
         return self._cost_recorder_instance
 
-    async def _record_cost(self, provider: str, agent_id: str, response_body: bytes) -> None:
+    async def _record_cost(self, provider: str, agent_id: str, response_body: bytes,
+                           session_id: Optional[str] = None) -> None:
         """Fire-and-forget cost recording. Never raises.
 
         For SSE streaming bodies, scans chunks in reverse to find the last
@@ -304,22 +305,29 @@ class LLMProxy:
                     logger.debug("[llm-proxy] cost recording skipped: no usage in SSE stream")
                     return
 
-            await recorder.record(provider=provider, agent_id=agent_id, response_body=body_bytes)
+            await recorder.record(provider=provider, agent_id=agent_id,
+                                  response_body=body_bytes, session_id=session_id)
             logger.info(f"[llm-proxy] cost recorded for agent={agent_id} provider={provider}")
             # Invalidate budget cache so the next request re-checks against updated spend
             self._budget_cache.pop(agent_id, None)
+            if session_id:
+                self._budget_cache.pop((agent_id, session_id), None)
         except Exception as e:
             logger.warning(f"[llm-proxy] cost recording failed: {e}")
 
-    async def _check_budget(self, agent_id: str) -> dict:
-        """Check if agent is within its daily budget. Returns budget status dict.
+    async def _check_budget(self, agent_id: str, session_id: Optional[str] = None) -> dict:
+        """Check if agent is within its daily budget — and, when session_id is
+        given, whether the run is within its per-run cost/token ceilings
+        (#203). Returns the budget-status dict.
 
-        Cached for 30s to avoid DB hit on every request.
+        Cached briefly to avoid a DB hit on every request; the run-scoped
+        check caches under (agent_id, session_id) so runs don't share state.
         Never raises — returns permissive defaults on error.
         """
         import time
         now = time.monotonic()
-        cached = self._budget_cache.get(agent_id)
+        cache_key = (agent_id, session_id) if session_id else agent_id
+        cached = self._budget_cache.get(cache_key)
         if cached:
             status, checked_at = cached
             if (now - checked_at) < self._budget_cache_ttl:
@@ -327,9 +335,12 @@ class LLMProxy:
 
         try:
             client = await self.get_http_client()
+            params = {"agent_id": agent_id}
+            if session_id:
+                params["session_id"] = session_id
             response = await client.get(
                 f"{self.securevector_url}/api/costs/budget-status",
-                params={"agent_id": agent_id},
+                params=params,
                 timeout=2.0,
             )
             if response.status_code == 200:
@@ -338,9 +349,10 @@ class LLMProxy:
                     f"[llm-proxy] Budget check: agent={agent_id} "
                     f"spend=${status.get('today_spend_usd', 0):.6f} "
                     f"limit=${status.get('effective_budget_usd')} "
-                    f"over={status.get('over_budget')}"
+                    f"over={status.get('over_budget')} "
+                    f"run_over={status.get('over_run_limit')}"
                 )
-                self._budget_cache[agent_id] = (status, now)
+                self._budget_cache[cache_key] = (status, now)
                 return status
             else:
                 logger.warning(f"[llm-proxy] Budget check returned HTTP {response.status_code}: {response.text[:200]}")
@@ -349,6 +361,30 @@ class LLMProxy:
 
         # Default: no budget limits
         return {"over_budget": False, "effective_budget_usd": None, "budget_action": "warn"}
+
+    async def _audit_run_stop(self, session_id: Optional[str], reason: str) -> None:
+        """Write the audit row for a per-run ceiling stop. No enforcement
+        without an audit row: a stop the operator cannot see and reverse is
+        worse than no stop. Best-effort, never raises."""
+        try:
+            client = await self.get_http_client()
+            await client.post(
+                f"{self.securevector_url}/api/tool-permissions/call-audit",
+                json={
+                    "tool_id": "llm:proxy-request",
+                    "function_name": "llm_request",
+                    "action": "block",
+                    "risk": None,
+                    "reason": reason,
+                    "is_essential": False,
+                    "args_preview": None,
+                    "runtime_kind": "openclaw",
+                    "session_id": session_id,
+                },
+                timeout=2.0,
+            )
+        except Exception as e:
+            logger.warning(f"[llm-proxy] run-stop audit failed: {e}")
 
     def _extract_sse_usage_chunk(self, sse_body: bytes, provider: str = "") -> Optional[bytes]:
         """Extract token usage from an SSE response body.
@@ -1338,9 +1374,21 @@ class LLMProxy:
 
         print(f"[llm-proxy] → {method} {path}")
 
+        # Parse body for scanning. Parsed BEFORE the budget check so the
+        # per-run ceilings (#203) can key off the derived session id.
+        body_dict = {}
+        if body_text:
+            try:
+                body_dict = json.loads(body_text)
+            except json.JSONDecodeError:
+                pass
+
+        # Stable per-conversation id for grouping tool-call audits into runs.
+        session_id = self._derive_session_id(body_dict) if body_dict else None
+
         # Budget check (only for POST to LLM endpoints)
         if method == "POST":
-            budget_status = await self._check_budget(agent_id)
+            budget_status = await self._check_budget(agent_id, session_id)
             if budget_status.get("over_budget") and budget_status.get("effective_budget_usd") is not None:
                 budget_action = budget_status.get("budget_action", "warn")
                 spend = budget_status.get("today_spend_usd", 0)
@@ -1364,16 +1412,32 @@ class LLMProxy:
                 else:
                     print(f"[llm-proxy] ⚠️  BUDGET WARNING: {msg}")
 
-        # Parse body for scanning
-        body_dict = {}
-        if body_text:
-            try:
-                body_dict = json.loads(body_text)
-            except json.JSONDecodeError:
-                pass
-
-        # Stable per-conversation id for grouping tool-call audits into runs.
-        session_id = self._derive_session_id(body_dict) if body_dict else None
+            # Per-run cost/token ceiling (#203) — same warn/block model as the
+            # daily budget, scoped to this run. Never modifies the request; a
+            # block returns 429 and writes an audit row so the stop is visible
+            # and promotable ("approve continuation") in the app.
+            if budget_status.get("over_run_limit"):
+                run_action = budget_status.get("run_limit_action", "warn")
+                run_msg = budget_status.get("run_limit_reason") or "Per-run limit exceeded"
+                if run_action == "block":
+                    print(f"[llm-proxy] 💸 RUN LIMIT — blocking: {run_msg}")
+                    if session_id:
+                        self._budget_cache.pop((agent_id, session_id), None)
+                    await self._audit_run_stop(session_id, run_msg)
+                    return Response(
+                        content=json.dumps({
+                            "error": {
+                                "message": f"[SecureVector] {run_msg}. Request blocked; "
+                                           "approve continuation under Cost Settings to resume.",
+                                "type": "run_limit_exceeded",
+                                "code": "run_limit_exceeded",
+                            }
+                        }),
+                        status_code=429,
+                        media_type="application/json",
+                    )
+                else:
+                    print(f"[llm-proxy] ⚠️  RUN LIMIT WARNING: {run_msg}")
 
         # Extract full conversation context for context-aware output scanning
         input_context = self.extract_all_context_text(body_dict) if body_dict else ""
@@ -1556,7 +1620,8 @@ class LLMProxy:
                 # Record cost (fire-and-forget, never blocks the response)
                 if response.status_code == 200 and response.content:
                     asyncio.create_task(
-                        self._record_cost(self.provider, agent_id, response.content)
+                        self._record_cost(self.provider, agent_id, response.content,
+                                          session_id=session_id)
                     )
 
                 # Strip encoding headers: httpx auto-decompresses the body
@@ -1825,7 +1890,8 @@ class LLMProxy:
         if all_chunks:
             full_body = b"".join(all_chunks)
             asyncio.create_task(
-                self._record_cost(self.provider, agent_id, full_body)
+                self._record_cost(self.provider, agent_id, full_body,
+                                  session_id=session_id)
             )
 
         # Deliver buffered stream
@@ -1846,6 +1912,13 @@ class LLMProxy:
         """Stream through in real-time; record cost and scan after stream exhausts."""
         accumulated_text = ""
         all_chunks: list[bytes] = []
+
+        # Run identity for per-run ceilings — same derivation as the other paths.
+        try:
+            _req_body = json.loads(body) if body else None
+        except Exception:
+            _req_body = None
+        session_id = self._derive_session_id(_req_body) if _req_body else None
 
         async def stream_generator():
             nonlocal accumulated_text
@@ -1870,7 +1943,8 @@ class LLMProxy:
             if all_chunks:
                 full_body = b"".join(all_chunks)
                 asyncio.create_task(
-                    self._record_cost(self.provider, agent_id, full_body)
+                    self._record_cost(self.provider, agent_id, full_body,
+                                      session_id=session_id)
                 )
 
             # Scan accumulated text after stream completes (logging only)

@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 44
+CURRENT_SCHEMA_VERSION = 45
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -321,7 +321,10 @@ SCHEMA_DESCRIPTION = (
     "comes from the cloud enrollment response at runtime; "
     "v43: JIT tool access — jit_access_requests + jit_access_grants lifecycle tables and a "
     "`requestable` flag on synced_tool_rules (policy-marked soft denies an agent may request "
-    "time-boxed access to; hard denies stay non-requestable and instant-fail)"
+    "time-boxed access to; hard denies stay non-requestable and instant-fail); "
+    "v45: per-run cost enforcement — session_id on llm_cost_records (proxy run correlation), "
+    "run-limit settings on app_settings (max tool calls / cost / tokens per run, loop breaker), "
+    "and a trace_id index on tool_call_audit for the per-run counter"
 )
 
 # Migration SQL for v34 — redaction_events table.

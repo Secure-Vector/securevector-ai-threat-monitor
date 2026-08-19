@@ -608,7 +608,8 @@ async def get_overrides():
 
 
 @router.get("/tool-permissions/synced-overrides")
-async def get_synced_overrides(runtime: Optional[str] = None):
+async def get_synced_overrides(runtime: Optional[str] = None,
+                               session_id: Optional[str] = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -685,7 +686,19 @@ async def get_synced_overrides(runtime: Optional[str] = None):
 
         merged: list = []
 
-        # JIT grants first — a time-boxed allow a human approved in the local
+        # Per-run limits (#203) FIRST — ahead even of JIT grants, so a
+        # tool-specific grant can't accidentally pre-lift a run stop. The
+        # sanctioned lift is the run exemption (a tool_id='*' session grant),
+        # which run_limits consumes server-side by emitting no deny at all.
+        # Only evaluated when the hook identifies both runtime and session;
+        # with every control off (the default) this is a single settings read.
+        _rt = (runtime or "").strip() or None
+        _sid = (session_id or "").strip() or None
+        if _rt and _sid:
+            from securevector.app.services.run_limits import evaluate_run_limits
+            merged.extend(await evaluate_run_limits(db, _rt, _sid))
+
+        # JIT grants next — a time-boxed allow a human approved in the local
         # UI against a *requestable* deny. Emitted ahead of synced rows so the
         # hooks' first-seen-wins scan picks the grant over the deny it
         # overrides (grants only ever exist for requestable denies — the
@@ -708,6 +721,11 @@ async def get_synced_overrides(runtime: Optional[str] = None):
                 if jit_runtime else []
             )
             for g in grants:
+                # Run exemptions (tool_id='*', #203) are consumed server-side
+                # by run_limits and must NOT be emitted: a wildcard allow row
+                # would lift policy denies too, not just the run cap.
+                if g["tool_id"] == "*":
+                    continue
                 grant_base = {
                     "effect": "allow",
                     "priority": 150,  # above synced (100) — see note above
