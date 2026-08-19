@@ -234,6 +234,8 @@ class LLMProxy:
         self._tool_overrides_checked_at: float = 0
         self._synced_overrides: Optional[dict] = None
         self._synced_overrides_checked_at: float = 0
+        # session-scoped overrides (per-run limits ride them) — {sid: (map, ts)}
+        self._synced_overrides_by_session: dict = {}
         self._custom_tools_registry: Optional[dict] = None
         self._custom_tools_checked_at: float = 0
 
@@ -917,35 +919,62 @@ class LLMProxy:
 
         return self._tool_overrides or {}
 
-    async def _load_synced_overrides(self) -> dict:
+    async def _load_synced_overrides(self, session_id: "str | None" = None) -> dict:
         """Fetch cloud-pushed synced rules from SecureVector API (cached for 5s).
 
         Returns a dict mapping tool_id -> {effect, policy_name, policy_version, ...}
         suitable for the engine's `synced_overrides` parameter. Empty dict on
         any error or when the device has no synced bundle applied — preserves
         existing proxy behavior for non-enrolled installs.
+
+        ``session_id`` puts the run identity on the decision path (#203): the
+        server then evaluates per-run limits (tool-call cap, loop breaker) and
+        emits a wildcard ``tool_id='*'`` deny row when one trips. This is the
+        OpenClaw carve-out made real — the OpenClaw plugin cannot deny, so the
+        proxy is where those stops happen. Session-scoped results are cached
+        per session (same 5s TTL) so runs don't share stop state.
         """
         import time
         now = time.time()
-        if self._synced_overrides is not None and (now - self._synced_overrides_checked_at) < 5:
+        if session_id:
+            cached = self._synced_overrides_by_session.get(session_id)
+            if cached and (now - cached[1]) < 5:
+                return cached[0]
+        elif self._synced_overrides is not None and (now - self._synced_overrides_checked_at) < 5:
             return self._synced_overrides
 
         try:
+            params = {}
+            if self.integration:
+                params["runtime"] = self.integration
+            if session_id:
+                params["session_id"] = session_id
             client = await self.get_http_client()
             response = await client.get(
                 f"{self.securevector_url}/api/tool-permissions/synced-overrides",
-                params={"runtime": self.integration} if self.integration else None,
+                params=params or None,
                 timeout=3.0,
             )
             if response.status_code == 200:
                 rows = response.json().get("synced", [])
-                self._synced_overrides = {r["tool_id"]: r for r in rows if r.get("tool_id")}
-                self._synced_overrides_checked_at = now
-                return self._synced_overrides
+                result = {r["tool_id"]: r for r in rows if r.get("tool_id")}
+                if session_id:
+                    # bounded: drop stale entries so long-running proxies
+                    # don't accumulate one cache slot per conversation
+                    if len(self._synced_overrides_by_session) > 256:
+                        self._synced_overrides_by_session.clear()
+                    self._synced_overrides_by_session[session_id] = (result, now)
+                else:
+                    self._synced_overrides = result
+                    self._synced_overrides_checked_at = now
+                return result
         except Exception as e:
             if self.verbose:
                 logger.warning(f"[llm-proxy] Could not fetch synced overrides: {e}")
 
+        if session_id:
+            cached = self._synced_overrides_by_session.get(session_id)
+            return cached[0] if cached else {}
         return self._synced_overrides or {}
 
     def _load_essential_registry(self) -> dict:
@@ -1049,7 +1078,7 @@ class LLMProxy:
 
         registry = self._load_essential_registry()
         overrides = await self._load_tool_overrides()
-        synced_overrides = await self._load_synced_overrides()
+        synced_overrides = await self._load_synced_overrides(session_id)
         custom_registry = await self._load_custom_tools_registry()
 
         decisions = []
@@ -1423,7 +1452,10 @@ class LLMProxy:
                     print(f"[llm-proxy] 💸 RUN LIMIT — blocking: {run_msg}")
                     if session_id:
                         self._budget_cache.pop((agent_id, session_id), None)
-                    await self._audit_run_stop(session_id, run_msg)
+                    # Fire-and-forget, like every other audit write: a slow
+                    # local app must not delay the 429 on a path an agent may
+                    # be hammering in a loop.
+                    asyncio.create_task(self._audit_run_stop(session_id, run_msg))
                     return Response(
                         content=json.dumps({
                             "error": {

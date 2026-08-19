@@ -396,3 +396,48 @@ def test_overrides_endpoint_emits_run_limit_deny_first(tmp_path, monkeypatch):
             assert not any(r.get("source") == "run_limit" for r in res2["synced"])
     finally:
         _asyncio.run(db.disconnect())
+
+
+# --- OpenClaw carve-out: proxy-side enforcement ----------------------------
+
+def test_engine_wildcard_run_limit_stops_any_tool():
+    """The proxy's tool-permission engine honours the '*' run-limit deny —
+    this is what makes the OpenClaw carve-out real (its plugin cannot deny,
+    so the proxy is the enforcement point for the cap and loop breaker)."""
+    from securevector.core.tool_permissions.engine import evaluate_tool_call
+
+    row = {
+        "effect": "deny", "source": "run_limit", "policy_name": "Per-run limit",
+        "reason": f"{RUN_CAP_PREFIX}: this session has made 50 tool calls (limit 50). "
+                  "Approve continuation under Cost Settings to resume.",
+    }
+    d = evaluate_tool_call("some_mcp_tool", {}, synced_overrides={"*": row})
+    assert d.action == "block"
+    assert d.reason.startswith(RUN_CAP_PREFIX)  # operator-facing reason, verbatim
+
+    # a tool-specific allow cannot bypass the run stop (wildcard checked first)
+    d2 = evaluate_tool_call(
+        "bash", {},
+        synced_overrides={"*": row, "bash": {"effect": "allow", "policy_name": "p"}},
+    )
+    assert d2.action == "block"
+
+    # and without a wildcard row, behaviour is unchanged
+    d3 = evaluate_tool_call(
+        "bash", {}, synced_overrides={"bash": {"effect": "allow", "policy_name": "p"}}
+    )
+    assert d3.action == "allow"
+
+
+def test_proxy_overrides_fetch_carries_session_id():
+    """_load_synced_overrides must put the run identity on the decision path
+    and cache session-scoped results per session, not globally."""
+    import inspect
+
+    from securevector.integrations.openclaw_llm_proxy import LLMProxy
+
+    src = inspect.getsource(LLMProxy._load_synced_overrides)
+    assert "session_id" in src
+    assert "_synced_overrides_by_session" in src
+    eval_src = inspect.getsource(LLMProxy._evaluate_tool_permissions)
+    assert "_load_synced_overrides(session_id)" in eval_src
