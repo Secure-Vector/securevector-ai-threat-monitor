@@ -195,3 +195,19 @@ test('receipts are proof cards: prediction vs measured vs quality, no faulty com
   assert.match(svc, /below_noise/);
   assert.match(svc, /receipt_min_improvement/);
 });
+
+test('guardian 3d: vendored libs, CSP-safe module, assistant-only, SVG fallback', () => {
+  const fs2 = require('node:fs');
+  assert.ok(fs2.existsSync(path.join(WEB, 'js', 'vendor', 'three.module.min.js')));
+  assert.ok(fs2.existsSync(path.join(WEB, 'js', 'vendor', 'gsap.min.js')));
+  const g3d = read('js/components/guardian-3d.js');
+  assert.match(g3d, /from '\/js\/vendor\/three\.module\.min\.js'/); // self-hosted, never CDN
+  assert.match(g3d, /prefers-reduced-motion/);
+  assert.doesNotMatch(g3d, /https?:\/\//); // no network fetches anywhere
+  const ga = read('js/components/guardian-assistant.js');
+  assert.match(ga, /Guardian3D\.available\(\)/);
+  assert.match(ga, /if \(!this\._bot3d\) fab\.appendChild\(GuardianBot\.el/); // SVG fallback
+  const idx = read('index.html');
+  assert.match(idx, /type="module" src="\/js\/components\/guardian-3d\.js/);
+  assert.match(idx, /js\/vendor\/gsap\.min\.js/);
+});

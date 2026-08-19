@@ -18,6 +18,8 @@ const GuardianAssistant = {
     _panel: null,
     _fab: null,
 
+    _bot3d: null,
+
     mount() {
         if (this._fab || !window.GuardianBot) return;
         this._injectStyle();
@@ -26,8 +28,17 @@ const GuardianAssistant = {
         fab.className = 'sv-ga-fab';
         fab.title = 'Guardian: cost optimization, threats, secrets, blocked actions';
         fab.setAttribute('aria-label', 'Open Guardian');
-        fab.appendChild(GuardianBot.el({ state: 'idle', size: 92, label: '' }));
-        fab.addEventListener('click', () => this.toggle());
+        // Hero renderer when the machine can carry it: the real-3D Guardian
+        // (Three.js + GSAP, vendored) with pointer-tracked eyes and a wave.
+        // The SVG character remains the fallback — same figure, lighter.
+        if (window.Guardian3D && Guardian3D.available()) {
+            try { this._bot3d = Guardian3D.mount(fab, { size: 118 }); } catch (_) { this._bot3d = null; }
+        }
+        if (!this._bot3d) fab.appendChild(GuardianBot.el({ state: 'idle', size: 92, label: '' }));
+        fab.addEventListener('click', () => {
+            if (this._bot3d && !this._open) this._bot3d.wave(); // greets while the panel opens
+            this.toggle();
+        });
         document.body.appendChild(fab);
         this._fab = fab;
     },
@@ -109,9 +120,12 @@ const GuardianAssistant = {
         let rep = null;
         if (optStatus && optStatus.has_report) rep = await API.getOptimizerReport();
         // the FAB mirrors what the app is doing: scanning -> scan state
-        if (this._fab && window.GuardianBot) {
+        const scanning = !!(optStatus && optStatus.running);
+        if (this._bot3d) {
+            this._bot3d.setState(scanning ? 'scan' : 'idle');
+        } else if (this._fab && window.GuardianBot) {
             const fabBot = this._fab.querySelector('.sv-gbot');
-            if (fabBot) GuardianBot.set(fabBot, optStatus && optStatus.running ? 'scan' : 'idle');
+            if (fabBot) GuardianBot.set(fabBot, scanning ? 'scan' : 'idle');
         }
 
         body.textContent = '';
