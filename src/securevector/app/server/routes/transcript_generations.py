@@ -240,14 +240,21 @@ def build_generations(
     # the NEXT user turn belong to it (it made the calls).
     last_gen: Optional[dict] = None
     last_gen_ids: dict = {}
+    # Every emitted generation by requestId. Claude Code can interleave a
+    # tool_result USER record in the middle of one request's streamed records
+    # (interleaved tool use); the records after it carry the SAME requestId
+    # and the SAME usage. Without this map each split re-counted the request's
+    # tokens as a brand-new generation — ~3% inflation on real sessions.
+    emitted_rids: dict = {}
 
     def _flush() -> None:
         nonlocal cur, cur_out_parts, cur_tools, cur_tool_ids, cur_tool_calls, last_gen, last_gen_ids
         if cur is None:
             return
+        reopen = bool(cur.get("reopen"))
         out_text = "\n".join(p for p in cur_out_parts if p)
         gen = cur["gen"]
-        if store_text:
+        if store_text and not reopen:
             inp_prev, inp_trunc = _preview(cur["input_text"])
             out_prev, out_trunc = _preview(out_text)
             gen["input_preview"] = inp_prev
@@ -255,19 +262,34 @@ def build_generations(
             gen["input_truncated"] = inp_trunc
             gen["output_truncated"] = out_trunc
         if with_analysis:
-            gen["input_hash"] = _sha16(cur["input_text"])
-            gen["tool_calls"] = cur_tool_calls
+            if reopen:
+                if cur_tool_calls:
+                    gen["tool_calls"] = (gen.get("tool_calls") or []) + cur_tool_calls
+            else:
+                gen["input_hash"] = _sha16(cur["input_text"])
+                gen["tool_calls"] = cur_tool_calls
         # De-dupe tool names, preserving first-seen order (a tool called twice
         # in one turn shows once; token/cost stay on the run, not per tool).
+        # A reopened request keeps the tools it already declared.
         seen: set = set()
-        gen["tools_called"] = [t for t in cur_tools if not (t in seen or seen.add(t))]
+        base_tools = (gen.get("tools_called") or []) if reopen else []
+        gen["tools_called"] = [
+            t for t in list(base_tools) + cur_tools if not (t in seen or seen.add(t))
+        ]
+        ids_for_last = cur_tool_ids
         # Claude Code writes synthetic assistant records (system-injected turns)
         # with model "<synthetic>" and zero usage — not real API calls, so they
         # must not appear as LLM runs (they render as junk "0→0 tok" rows).
-        if gen.get("model") != "<synthetic>":
+        if not reopen and gen.get("model") != "<synthetic>":
             gens.append(gen)
+            if cur.get("rid"):
+                emitted_rids[cur["rid"]] = (gen, dict(cur_tool_ids))
+        elif reopen and cur.get("rid") in emitted_rids:
+            merged = {**emitted_rids[cur["rid"]][1], **cur_tool_ids}
+            emitted_rids[cur["rid"]] = (gen, merged)
+            ids_for_last = merged
         last_gen = gen
-        last_gen_ids = cur_tool_ids
+        last_gen_ids = ids_for_last
         cur = None
         cur_out_parts = []
         cur_tools = []
@@ -331,6 +353,28 @@ def build_generations(
                 # A missing requestId is treated as its own singleton group.
                 if cur is None or rid is None or cur["rid"] != rid:
                     _flush()
+                    if rid is not None and rid in emitted_rids:
+                        # Continuation of a request we already emitted (its
+                        # stream was split by an interleaved user record).
+                        # Reopen the SAME generation: its usage is already
+                        # counted once; only tools/stop_reason accumulate.
+                        cur = {
+                            "rid": rid,
+                            "input_text": last_user_text,
+                            "gen": emitted_rids[rid][0],
+                            "reopen": True,
+                        }
+                        cur_out_parts = []
+                        cur_out_parts.append(_text_of(msg.get("content")))
+                        cur_tools.extend(_tool_uses_of(msg.get("content")))
+                        for _i, _n in _tool_use_pairs(msg.get("content")):
+                            cur_tool_ids[_i] = _n
+                        if with_analysis:
+                            cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
+                        sr = msg.get("stop_reason")
+                        if sr:
+                            cur["gen"]["stop_reason"] = sr
+                        continue
                     cur = {
                         "rid": rid,
                         "input_text": last_user_text,

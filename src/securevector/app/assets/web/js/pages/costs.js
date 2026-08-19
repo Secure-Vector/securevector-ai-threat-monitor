@@ -2499,7 +2499,7 @@ const CostsPage = {
             '</div>' +
             '<div class="svo-buckets">' + this._optBucketRow('Prompt caching', b.cache, obs, mode) +
             this._optBucketRow('Context compaction', b.compaction, obs, mode) + '</div>' +
-            '<div class="svo-strip-foot"><span>Token counts are exact; dollar figures are list-price estimates and are labelled. Nothing here claims your invoice will change.</span>' +
+            '<div class="svo-strip-foot"><span>Token counts are exact; dollar figures are list-price estimates and are labelled. The modeled changes touch re-sent context only: model outputs are never altered. Nothing here claims your invoice will change.</span>' +
             '<button type="button" class="btn btn-secondary btn-sm svo-share">Share as image</button></div>';
         wrap.querySelector('.svo-share').addEventListener('click',
             (ev) => this._optShareCard(ev.currentTarget, rep, mode, null));
@@ -2734,7 +2734,11 @@ const CostsPage = {
                 '<span class="svo-tag svo-tag-measured" title="Measured from real sessions across like-for-like windows, not an estimate.">measured</span>' +
                 `<span class="svo-find-val">${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</span>` +
                 '</div>' +
-                `<div class="svo-find-ev">Before: ${r.before_sessions} sessions. After: ${r.after_sessions} sessions. Measured token movement is fact; any dollar reading of it stays an estimate.</div>` +
+                `<div class="svo-find-ev">Before: ${r.before_sessions} sessions. After: ${r.after_sessions} sessions.` +
+                (r.output_before_avg != null && r.output_after_avg != null
+                    ? ` Outcome check: output volume ${this._optFmtTok(r.output_before_avg)} → ${this._optFmtTok(r.output_after_avg)} avg tokens per session, so the saving did not come out of the model's answers.`
+                    : '') +
+                ' Measured token movement is fact; any dollar reading of it stays an estimate.</div>' +
                 '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" role="button" tabindex="0">Share as image</a></div>';
             row.querySelector('.svo-share-receipt').addEventListener('click',
                 (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));

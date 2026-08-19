@@ -740,10 +740,10 @@ class CostOptimizerService:
             for g in gens:
                 if g.get("model") and g["model"] not in pricing:
                     unpriced_models.add(g["model"])
-            buckets["cache"]["tokens"] += a["cache_bucket"]["tokens"]
-            buckets["cache"]["est_value_usd"] += a["cache_bucket"]["est_value_usd"]
-            buckets["compaction"]["tokens"] += a["compaction_bucket"]["tokens"]
-            buckets["compaction"]["est_value_usd"] += a["compaction_bucket"]["est_value_usd"]
+            # NOTE: bucket totals are accumulated at finding-append time
+            # below, NOT here — the strip must reconcile with the RENDERED
+            # findings list, so sub-noise-floor waste never enters the
+            # headline while its explanation is hidden.
             hit_reads += a["cache_hit"]["reads"]
             hit_fresh += a["cache_hit"]["fresh"]
 
@@ -758,6 +758,7 @@ class CostOptimizerService:
                 "started_at": times[0].isoformat() if times else None,
                 "ended_at": times[-1].isoformat() if times else None,
                 "prompt_tokens": a["observed"]["prompt_tokens"],
+                "output_tokens": a["observed"]["output_tokens"],
                 "hit_rate": self._hit_rate(a["cache_hit"]),
             })
 
@@ -782,6 +783,8 @@ class CostOptimizerService:
                 if seg["compaction_tokens"] and above_floor(
                     seg["compaction_tokens"], seg["compaction_value"] or None
                 ):
+                    buckets["compaction"]["tokens"] += seg["compaction_tokens"]
+                    buckets["compaction"]["est_value_usd"] += seg["compaction_value"]
                     findings.append({
                         **base, "type": "repeated_context", "bucket": "compaction",
                         "segment": si, "turns": seg["turns"],
@@ -837,15 +840,18 @@ class CostOptimizerService:
                     },
                 })
 
-            # 3. low cache utilisation (bucket: cache)
+            # 3. cache waste (bucket: cache). Renders whenever the avoidable
+            # tokens clear the noise floor — the published hit-rate threshold
+            # decides whether the wording says "chronic", not whether real
+            # waste is shown (hidden waste must never reach the strip).
             hr = self._hit_rate(a["cache_hit"])
             if (
-                hr is not None
-                and a["cache_hit"]["eligible_turns"] >= THRESHOLDS["cache_min_turns"]
-                and hr < THRESHOLDS["cache_hit_bad"]
+                a["cache_hit"]["eligible_turns"] >= THRESHOLDS["cache_min_turns"]
                 and above_floor(a["cache_bucket"]["tokens"],
                                 a["cache_bucket"]["est_value_usd"] or None)
             ):
+                buckets["cache"]["tokens"] += a["cache_bucket"]["tokens"]
+                buckets["cache"]["est_value_usd"] += a["cache_bucket"]["est_value_usd"]
                 findings.append({
                     **base, "type": "low_cache_utilization", "bucket": "cache",
                     "segment": None,
@@ -855,10 +861,13 @@ class CostOptimizerService:
                     "confidence": "high",
                     "evidence": {
                         "observed": (
-                            f"cache hit rate {hr:.0%} across {a['cache_hit']['eligible_turns']} "
-                            f"eligible turns (threshold {THRESHOLDS['cache_hit_bad']:.0%}); "
-                            f"carried context paid the full input rate instead of the "
-                            f"cache-read rate"
+                            (f"cache hit rate {hr:.0%} across {a['cache_hit']['eligible_turns']} "
+                             f"eligible turns, chronically below the {THRESHOLDS['cache_hit_bad']:.0%} threshold; "
+                             if hr is not None and hr < THRESHOLDS["cache_hit_bad"] else
+                             (f"cache hit rate {hr:.0%} across {a['cache_hit']['eligible_turns']} "
+                              f"eligible turns; " if hr is not None else ""))
+                            + "carried context paid the full input rate instead of the "
+                              "cache-read rate"
                         ),
                         "hit_rate": round(hr, 3),
                         "cache_churn_tokens": a["cache_churn_tokens"] or None,
@@ -1210,10 +1219,18 @@ class CostOptimizerService:
             improved = (a_val < b_val) if lower_better else (a_val > b_val)
             prior = resolved.get(t)
             if improved and t not in open_types:
+                def _avg_out(rows):
+                    vals = [r.get("output_tokens") for r in rows
+                            if r.get("output_tokens") is not None]
+                    return round(statistics.mean(vals)) if vals else None
                 receipt = {
                     "type": t, "metric": metric,
                     "before": round(b_val, 3), "after": round(a_val, 3),
                     "before_sessions": len(before), "after_sessions": len(after),
+                    # outcome check: optimization touches re-sent context, never
+                    # the model's answers — the receipt shows output volume held
+                    "output_before_avg": _avg_out(before),
+                    "output_after_avg": _avg_out(after),
                     "resolved_at": prior.get("resolved_at", now) if prior else now,
                     "measured": True,
                 }
