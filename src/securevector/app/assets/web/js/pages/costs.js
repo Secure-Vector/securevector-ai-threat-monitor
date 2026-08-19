@@ -2781,7 +2781,9 @@ const CostsPage = {
         const foot = document.createElement('div');
         foot.className = 'svo-foot';
         foot.innerHTML =
-            `<span class="svo-foot-meta">Scanned ${(rep.scanned && rep.scanned.claude_code) || 0} Claude Code and ${(rep.scanned && rep.scanned.codex) || 0} Codex sessions, last ${rep.window_days} days` +
+            `<span class="svo-foot-meta">Scanned ${(rep.scanned && rep.scanned.claude_code) || 0} Claude Code and ${(rep.scanned && rep.scanned.codex) || 0} Codex sessions` +
+            ((rep.scanned && rep.scanned.claude_code_subagents) ? ` plus ${rep.scanned.claude_code_subagents} subagent streams` : '') +
+            `, last ${rep.window_days} days` +
             ((rep.scanned && rep.scanned.sessions_capped) ? ', capped at ' + rep.scanned.caps.max_sessions_per_harness + ' per harness (disclosed, never silent)' : '') +
             '. Analysis is local; works offline.</span>' +
             '<span class="svo-foot-btns">' +

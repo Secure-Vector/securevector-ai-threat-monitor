@@ -270,3 +270,48 @@ def test_optimizer_is_pure_algorithm_no_model_calls():
                 leaf = n.split(".")[-1]
                 assert root not in BANNED, f"{mod.__name__} imports {n}"
                 assert leaf not in BANNED_LOCAL, f"{mod.__name__} imports {n}"
+
+
+def test_subagent_transcripts_are_counted(tmp_path, monkeypatch):
+    """Claude Code writes spawned agents to <session>/subagents/agent-*.jsonl.
+    That usage is real usage the account pays for — third-party counters
+    include it, so the scan must too, as its own stream (never merged into
+    the parent's sequence, which would corrupt segmentation)."""
+    import asyncio
+    import json as _json
+
+    import securevector.app.services.cost_optimizer as co
+
+    home = tmp_path / "claude"
+    slug = home / "projects" / "-x"
+    slug.mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-none"))
+    monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path / "data")
+    (tmp_path / "data").mkdir()
+
+    def _write(path, n, base_rid):
+        with path.open("w") as fh:
+            for i in range(n):
+                fh.write(_json.dumps({"type": "user", "message": {"role": "user", "content": f"q{i}"}}) + "\n")
+                fh.write(_json.dumps({
+                    "type": "assistant", "requestId": f"{base_rid}-{i}",
+                    "timestamp": f"2026-08-01T10:00:{i:02d}.000Z",
+                    "message": {"role": "assistant", "model": "claude-x",
+                                "usage": {"input_tokens": 1000, "output_tokens": 100},
+                                "content": [{"type": "text", "text": "a"}]}}) + "\n")
+
+    _write(slug / "sess-main.jsonl", 3, "main")
+    subdir = slug / "sess-main" / "subagents"
+    subdir.mkdir(parents=True)
+    _write(subdir / "agent-abc.jsonl", 5, "sub")
+
+    svc = co.CostOptimizerService()
+    report = asyncio.run(svc._scan(None, window_days=3650))
+    assert report["scanned"]["claude_code"] == 1
+    assert report["scanned"]["claude_code_subagents"] == 1
+    # 8 generations total: 3 main + 5 subagent, all counted exactly once
+    assert report["observed"]["input_tokens"] == 8 * 1000
+    assert report["observed"]["output_tokens"] == 8 * 100
+    sub = [s for s in report["session_summaries"] if ":" in s["session_id"]]
+    assert len(sub) == 1 and sub[0]["turns"] == 5

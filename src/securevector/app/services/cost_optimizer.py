@@ -684,7 +684,8 @@ class CostOptimizerService:
         self.progress = {"phase": "scanning", "done": 0, "total": len(sessions_meta)}
 
         all_sessions: list[dict] = []
-        scanned = {"claude_code": 0, "codex": 0}
+        scanned = {"claude_code": 0, "codex": 0, "claude_code_subagents": 0}
+        cutoff = time.time() - window_days * 86400
         for kind, sid, _path in sessions_meta:
             try:
                 if kind == "claude-code":
@@ -701,6 +702,34 @@ class CostOptimizerService:
                     "trace_id": derive_trace_id(kind, sid),
                 })
                 scanned["claude_code" if kind == "claude-code" else "codex"] += 1
+            # Subagent transcripts: Claude Code writes each spawned agent's
+            # stream to <session>/subagents/agent-*.jsonl. That usage is real
+            # usage the account pays for — third-party counters (ccusage)
+            # include it, and so must we. Each file is its OWN context stream,
+            # so it enters as its own session entry: merging it into the
+            # parent's generation sequence would corrupt segmentation.
+            if kind == "claude-code":
+                subdir = _path.parent / sid / "subagents"
+                if subdir.is_dir():
+                    for sp in sorted(subdir.glob("agent-*.jsonl")):
+                        try:
+                            if sp.stat().st_mtime < cutoff:
+                                continue
+                            sgens = build_generations(
+                                sid, store_text=False, with_analysis=True, path=sp)
+                        except Exception:  # noqa: BLE001
+                            sgens = []
+                        if sgens:
+                            all_sessions.append({
+                                "session_id": f"{sid}:{sp.stem}",
+                                "harness": kind,
+                                "gens": sgens,
+                                # subagent turns don't exist in the parent's
+                                # trace waterfall: no deep link, no cap note
+                                "trace_id": None,
+                                "subagent": True,
+                            })
+                            scanned["claude_code_subagents"] += 1
             self.progress["done"] += 1
             await asyncio.sleep(0)
 
@@ -774,7 +803,9 @@ class CostOptimizerService:
                 "session_id": sess["session_id"],
                 "harness": sess["harness"],
                 "trace_id": sess["trace_id"],
-                "beyond_trace_cap": len(gens) > TRACE_VIEW_CAP,
+                "beyond_trace_cap": (
+                    len(gens) > TRACE_VIEW_CAP and sess["trace_id"] is not None
+                ),
                 "session_turns": len(gens),
             }
 

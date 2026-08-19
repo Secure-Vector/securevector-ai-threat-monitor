@@ -203,7 +203,8 @@ def _preview(text: str) -> tuple[str, bool]:
 
 
 def build_generations(
-    session_id: str, *, store_text: bool, with_analysis: bool = False
+    session_id: str, *, store_text: bool, with_analysis: bool = False,
+    path: Optional[Path] = None,
 ) -> list[dict]:
     """Reconstruct Generation spans for one Claude Code session.
 
@@ -225,7 +226,10 @@ def build_generations(
     ``result_hash`` per tool_result. Hashes only, never text; off by default so
     the trace payload is unchanged for existing callers.
     """
-    path = _find_transcript(session_id)
+    # ``path`` override: subagent transcripts (<session>/subagents/agent-*.jsonl)
+    # share this exact record format but aren't discoverable by session id.
+    if path is None:
+        path = _find_transcript(session_id)
     if path is None:
         return []
 
