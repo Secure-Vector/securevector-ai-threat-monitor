@@ -2716,7 +2716,7 @@ const CostsPage = {
     _optReceipts(host, rep, mode) {
         const rec = rep.receipts || {};
         const resolved = rec.resolved || [];
-        const pending = (rec.pending || []).filter(p => p.status === 'insufficient');
+        const pending = rec.pending || [];
         if (!resolved.length && !pending.length) return;
         const sec = document.createElement('div');
         sec.className = 'svo-sec';
@@ -2728,17 +2728,36 @@ const CostsPage = {
             const row = document.createElement('div');
             row.className = 'svo-find svo-receipt';
             const label = this._OPT_TYPE_LABELS[r.type] || r.type;
+            // Prediction vs outcome: the frozen estimate this receipt is
+            // judged against, next to what the windows actually measured.
+            const pred = r.predicted;
+            const predLine = pred && (pred.tokens || pred.est_value_usd)
+                ? `<div class="svo-proof-row"><span class="svo-proof-k">Predicted</span>` +
+                  `<span>~${this._optFmtTok(pred.tokens)} tok back` +
+                  (pred.est_value_usd ? ` (≈$${pred.est_value_usd} est)` : '') +
+                  ', frozen when the finding first appeared</span></div>'
+                : '';
+            const q = (r.quality_before && r.quality_after) ? { b: r.quality_before, a: r.quality_after } : null;
+            const pct = (v) => v == null ? '–' : (v * 100).toFixed(1) + '%';
+            const qLine = q
+                ? '<div class="svo-proof-row"><span class="svo-proof-k">Output quality</span><span>' +
+                  `output ${this._optFmtTok(q.b.output_avg)} → ${this._optFmtTok(q.a.output_avg)} median/session · ` +
+                  `tool errors ${pct(q.b.tool_error_rate)} → ${pct(q.a.tool_error_rate)} · ` +
+                  `turns ${q.b.turns_avg ?? '–'} → ${q.a.turns_avg ?? '–'} · ` +
+                  `truncated answers ${pct(q.b.max_tokens_share)} → ${pct(q.a.max_tokens_share)}` +
+                  '</span></div>'
+                : '';
             row.innerHTML =
                 '<div class="svo-find-top">' +
                 `<span class="svo-find-type">${label}: resolved</span>` +
                 '<span class="svo-tag svo-tag-measured" title="Measured from real sessions across like-for-like windows, not an estimate.">measured</span>' +
                 `<span class="svo-find-val">${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)}</span>` +
                 '</div>' +
-                `<div class="svo-find-ev">Before: ${r.before_sessions} sessions. After: ${r.after_sessions} sessions.` +
-                (r.output_before_avg != null && r.output_after_avg != null
-                    ? ` Outcome check: output volume ${this._optFmtTok(r.output_before_avg)} → ${this._optFmtTok(r.output_after_avg)} avg tokens per session, so the saving did not come out of the model's answers.`
-                    : '') +
-                ' Measured token movement is fact; any dollar reading of it stays an estimate.</div>' +
+                predLine +
+                `<div class="svo-proof-row"><span class="svo-proof-k">Measured</span>` +
+                `<span>${this._esc(this._optMetricLabel(r.metric))} ${this._optMetricFmt(r.metric, r.before)} → ${this._optMetricFmt(r.metric, r.after)} across ${r.before_sessions} sessions before and ${r.after_sessions} after</span></div>` +
+                qLine +
+                '<div class="svo-find-ev">Quality figures are behavioral signals, medians across real same-harness sessions in comparable windows: failed tool calls, session length and truncated answers rise when an optimization hurts the work. Semantic output quality is not judged, and no model is involved. Measured token movement is fact; dollar readings stay estimates.</div>' +
                 '<div class="svo-find-meta"><a class="svo-view svo-share-receipt" role="button" tabindex="0">Share as image</a></div>';
             row.querySelector('.svo-share-receipt').addEventListener('click',
                 (ev) => this._optShareCard(ev.currentTarget, rep, mode, r));
@@ -2748,8 +2767,16 @@ const CostsPage = {
             const row = document.createElement('div');
             row.className = 'svo-pending';
             const label = this._OPT_TYPE_LABELS[p.type] || p.type;
-            row.textContent = `${label}: not enough sessions yet for a measured before/after ` +
-                `(${p.after_sessions}/${p.needed_sessions} sessions, ${p.after_days}/${p.needed_days} days).`;
+            // every non-resolution states its precise reason: a comparison we
+            // will not show is always explained, never silently absent
+            if (p.status === 'insufficient') {
+                row.textContent = `${label}: not enough sessions yet for a measured before/after ` +
+                    `(${p.after_sessions}/${p.needed_sessions} after, ${p.before_sessions ?? 0}/${p.needed_sessions} before, ${p.after_days}/${p.needed_days} days).`;
+            } else if (p.status === 'reopened') {
+                row.textContent = `${label}: previously resolved but the metric regressed; reopened with its history intact.`;
+            } else {
+                row.textContent = `${label}: ${p.reason}`;
+            }
             sec.appendChild(row);
         });
         host.appendChild(sec);
@@ -3034,6 +3061,8 @@ const CostsPage = {
 .svo-rec-k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary, #5eadb8); flex-shrink: 0; }
 .svo-rec-t { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
 .svo-receipt { border-color: color-mix(in srgb, var(--accent-primary, #5eadb8) 40%, transparent); }
+.svo-proof-row { display: flex; gap: 10px; align-items: baseline; margin-top: 7px; font-size: 12.5px; color: var(--text-secondary); }
+.svo-proof-row .svo-proof-k { flex-shrink: 0; width: 96px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
 .svo-pending { color: var(--text-muted); font-size: 12px; padding: 4px 2px; }
 .svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 18px; line-height: 1.5; }
 .svo-note { color: var(--text-muted); font-size: 12px; line-height: 1.5; }

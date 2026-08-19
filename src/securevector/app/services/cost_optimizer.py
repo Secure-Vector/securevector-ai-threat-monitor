@@ -92,7 +92,12 @@ THRESHOLDS = {
     "noise_floor_tokens": 50_000,    # findings below both floors are dropped
     "noise_floor_usd": 1.0,
     "receipt_min_days": 7,           # like-for-like receipt windows need
-    "receipt_min_sessions": 10,      # this much "after" evidence
+    "receipt_min_sessions": 10,      # this many sessions on EACH side
+    # a receipt is proof: it must never be a faulty comparison. Windows must
+    # hold comparable work (median session length within this factor) and the
+    # improvement must clear noise (this relative change) before we resolve.
+    "receipt_max_volume_skew": 3.0,
+    "receipt_min_improvement": 0.15,
 }
 
 # Tools whose repetition is normal polling, not a retry loop.
@@ -780,6 +785,10 @@ class CostOptimizerService:
             if len(times) >= 2:
                 mins = max((times[-1] - times[0]).total_seconds() / 60.0, 1.0)
                 rates_by_harness.setdefault(sess["harness"], []).append(len(gens) / mins)
+            res_total = sum(len(g.get("tool_results") or []) for g in gens)
+            res_errors = sum(
+                1 for g in gens for r in (g.get("tool_results") or []) if r.get("is_error"))
+            mt = sum(1 for g in gens if g.get("stop_reason") == "max_tokens")
             session_summaries.append({
                 "session_id": sess["session_id"],
                 "harness": sess["harness"],
@@ -789,6 +798,11 @@ class CostOptimizerService:
                 "prompt_tokens": a["observed"]["prompt_tokens"],
                 "output_tokens": a["observed"]["output_tokens"],
                 "hit_rate": self._hit_rate(a["cache_hit"]),
+                # behavioral quality signals — the honest, model-free proxies
+                # for "did the optimization hurt the work": failed tool calls,
+                # session length, and truncated answers all rise when it does
+                "tool_error_rate": (res_errors / res_total) if res_total else None,
+                "max_tokens_share": (mt / len(gens)) if gens else None,
             })
 
         floor_t = THRESHOLDS["noise_floor_tokens"]
@@ -1203,6 +1217,7 @@ class CostOptimizerService:
         now = _now_iso()
 
         open_types = {f["type"] for f in report["findings"]}
+        predicted = state.setdefault("predicted", {})
         # direction per metric: True = lower is better
         metric_map = {
             "low_cache_utilization": ("cache_hit_rate", False),
@@ -1211,9 +1226,25 @@ class CostOptimizerService:
             "retry_loop": ("retry_turns", True),
         }
         for t in open_types:
-            first_seen.setdefault(t, now)
+            if t not in first_seen:
+                first_seen[t] = now
+                # freeze the prediction the moment the finding type first
+                # appears: this is the number the receipt is later judged
+                # against, so it must never be recomputed after the fact
+                predicted[t] = {
+                    "tokens": sum(f.get("tokens_wasted") or 0
+                                  for f in report["findings"] if f["type"] == t),
+                    "est_value_usd": round(sum(f.get("est_value_usd") or 0
+                                               for f in report["findings"] if f["type"] == t), 2),
+                }
 
-        summaries = report.get("session_summaries", [])
+        # Receipts compare like-for-like or not at all: one harness (mixing
+        # harnesses lets a mix shift fake an improvement), symmetric minimum
+        # window sizes, comparable workloads, and an improvement that clears
+        # noise. Anything short of that stays PENDING with the precise reason
+        # — a faulty comparison must never render as proof.
+        summaries = [s for s in report.get("session_summaries", [])
+                     if s.get("harness") == "claude-code"]
         receipts_out = {"resolved": [], "pending": []}
         for t, (metric, lower_better) in metric_map.items():
             seen_at = first_seen.get(t)
@@ -1226,42 +1257,79 @@ class CostOptimizerService:
             if after:
                 ts = [_parse_ts(s["started_at"]) for s in after]
                 after_days = (max(ts) - min(ts)).total_seconds() / 86400
-            enough = (
-                len(after) >= THRESHOLDS["receipt_min_sessions"]
-                and after_days >= THRESHOLDS["receipt_min_days"]
-                and before
-            )
-            if not enough:
-                if t in open_types:
+
+            def _pend(status, reason):
+                if t in open_types or status != "insufficient":
                     receipts_out["pending"].append({
-                        "type": t,
-                        "status": "insufficient",
-                        "reason": "not enough sessions yet",
+                        "type": t, "status": status, "reason": reason,
+                        "before_sessions": len(before),
                         "after_sessions": len(after),
                         "after_days": round(after_days, 1),
                         "needed_sessions": THRESHOLDS["receipt_min_sessions"],
                         "needed_days": THRESHOLDS["receipt_min_days"],
                     })
+
+            if (len(after) < THRESHOLDS["receipt_min_sessions"]
+                    or after_days < THRESHOLDS["receipt_min_days"]
+                    or len(before) < THRESHOLDS["receipt_min_sessions"]):
+                _pend("insufficient", "not enough sessions yet")
                 continue
+            # comparable workloads: median session length within a bounded
+            # factor, else the metric moved because the WORK changed
+            b_turns = statistics.median(x["turns"] for x in before if x.get("turns"))
+            a_turns = statistics.median(x["turns"] for x in after if x.get("turns"))
+            if b_turns and a_turns:
+                skew = max(b_turns, a_turns) / max(1, min(b_turns, a_turns))
+                if skew > THRESHOLDS["receipt_max_volume_skew"]:
+                    _pend("not_comparable",
+                          f"the before/after windows hold different work "
+                          f"(median session length differs {skew:.1f}x); "
+                          f"no comparison will be shown")
+                    continue
             b_val = self._window_metric(metric, before)
             a_val = self._window_metric(metric, after)
             if b_val is None or a_val is None:
                 continue
-            improved = (a_val < b_val) if lower_better else (a_val > b_val)
+            # the improvement must clear noise before it may be called proof
+            rel = abs(a_val - b_val) / abs(b_val) if b_val else 0.0
+            direction_ok = (a_val < b_val) if lower_better else (a_val > b_val)
+            improved = direction_ok and rel >= THRESHOLDS["receipt_min_improvement"]
+            if direction_ok and not improved and t not in open_types:
+                _pend("below_noise",
+                      f"metric moved the right way but only {rel:.0%}, below the "
+                      f"{THRESHOLDS['receipt_min_improvement']:.0%} resolution "
+                      f"threshold; still watching")
+                continue
             prior = resolved.get(t)
             if improved and t not in open_types:
-                def _avg_out(rows):
-                    vals = [r.get("output_tokens") for r in rows
-                            if r.get("output_tokens") is not None]
-                    return round(statistics.mean(vals)) if vals else None
+                def _avg(rows, key, digits=0):
+                    vals = [r.get(key) for r in rows if r.get(key) is not None]
+                    if not vals:
+                        return None
+                    m = statistics.median(vals)  # outlier-robust, like the metric
+                    return round(m, digits) if digits else round(m)
+                def _quality(rows):
+                    return {
+                        "output_avg": _avg(rows, "output_tokens"),
+                        "turns_avg": _avg(rows, "turns"),
+                        "tool_error_rate": _avg(rows, "tool_error_rate", 4),
+                        "max_tokens_share": _avg(rows, "max_tokens_share", 4),
+                    }
                 receipt = {
                     "type": t, "metric": metric,
                     "before": round(b_val, 3), "after": round(a_val, 3),
                     "before_sessions": len(before), "after_sessions": len(after),
+                    # the promise this receipt is judged against, frozen when
+                    # the finding first appeared (always labelled estimate)
+                    "predicted": predicted.get(t),
                     # outcome check: optimization touches re-sent context, never
                     # the model's answers — the receipt shows output volume held
-                    "output_before_avg": _avg_out(before),
-                    "output_after_avg": _avg_out(after),
+                    "output_before_avg": _avg(before, "output_tokens"),
+                    "output_after_avg": _avg(after, "output_tokens"),
+                    # behavioral quality signals, measured, model-free: if the
+                    # optimization hurt the work these move the wrong way
+                    "quality_before": _quality(before),
+                    "quality_after": _quality(after),
                     "resolved_at": prior.get("resolved_at", now) if prior else now,
                     "measured": True,
                 }
@@ -1281,15 +1349,17 @@ class CostOptimizerService:
         return receipts_out
 
     def _window_metric(self, metric: str, sessions: list[dict]) -> Optional[float]:
+        # medians throughout: a single outlier session must never manufacture
+        # (or hide) a receipt
         if metric == "cache_hit_rate":
             vals = [s["hit_rate"] for s in sessions if s.get("hit_rate") is not None]
-            return statistics.mean(vals) if vals else None
+            return statistics.median(vals) if vals else None
         if metric == "avg_prompt_slope":
             vals = [
                 s["prompt_tokens"] / s["turns"] for s in sessions
                 if s.get("turns") and s.get("prompt_tokens")
             ]
-            return statistics.mean(vals) if vals else None
+            return statistics.median(vals) if vals else None
         # duplicate_turns / retry_turns are per-scan counts, not per-session —
         # approximate with turns-weighted presence; abstain (None) otherwise.
         return None

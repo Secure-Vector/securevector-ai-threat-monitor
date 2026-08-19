@@ -315,3 +315,96 @@ def test_subagent_transcripts_are_counted(tmp_path, monkeypatch):
     assert report["observed"]["output_tokens"] == 8 * 100
     sub = [s for s in report["session_summaries"] if ":" in s["session_id"]]
     assert len(sub) == 1 and sub[0]["turns"] == 5
+
+
+def test_receipt_proves_prediction_and_quality(tmp_path, monkeypatch):
+    """The full proof cycle: scan 1 freezes the prediction the moment a
+    finding type first appears; once like-for-like windows exist and the
+    metric improves, the receipt carries prediction (estimate), measured
+    movement (fact) and the behavioral quality panel (fact)."""
+    from datetime import datetime, timedelta, timezone
+
+    import securevector.app.services.cost_optimizer as co
+
+    monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path)
+    svc = co.CostOptimizerService()
+
+    # scan 1: a wasteful session -> repeated_context opens, prediction frozen
+    gens = [_gen(inp=5000 + 4000 * i, out=300, ts=_ts(i)) for i in range(16)]
+    rep1 = svc._analyze(
+        [{"session_id": "s1", "harness": "claude-code", "trace_id": "t1", "gens": gens}],
+        PRICING, 30, {"claude_code": 1, "codex": 0}, False)
+    assert any(f["type"] == "repeated_context" for f in rep1["findings"])
+    state = svc._read_state()
+    pred = state["predicted"]["repeated_context"]
+    assert pred["tokens"] == rep1["buckets"]["compaction"]["tokens"]
+
+    # scan 2: the finding type is gone; windows straddle first_seen with
+    # enough after-evidence -> resolve with the proof fields
+    seen = co._parse_ts(state["first_seen"]["repeated_context"])
+    def _sess(i, when, slope, out, err):
+        return {"session_id": f"w{i}", "harness": "claude-code",
+                "turns": 20, "prompt_tokens": slope * 20, "output_tokens": out,
+                "hit_rate": 0.9, "tool_error_rate": err, "max_tokens_share": 0.0,
+                "started_at": when.isoformat(), "ended_at": (when + timedelta(hours=1)).isoformat()}
+    before = [_sess(i, seen - timedelta(days=2 + i), 5000, 60000, 0.05) for i in range(10)]
+    after = [_sess(100 + i, seen + timedelta(days=1 + i), 1500, 61000, 0.03) for i in range(10)]
+    rep2 = {"findings": [], "session_summaries": before + after}
+    receipts = svc._update_receipts(rep2)
+    rec = next(r for r in receipts["resolved"] if r["type"] == "repeated_context")
+
+    assert rec["predicted"]["tokens"] == pred["tokens"]        # promise, frozen
+    assert rec["before"] > rec["after"]                        # measured, improved
+    assert rec["quality_before"]["output_avg"] == 60000        # outcome panel
+    assert rec["quality_after"]["output_avg"] == 61000
+    assert rec["quality_after"]["tool_error_rate"] == pytest.approx(0.03)
+    assert rec["measured"] is True
+
+
+def test_faulty_comparisons_never_resolve(tmp_path, monkeypatch):
+    """The proof surface's hard rule: a bad comparison is never shown.
+    Skewed workloads pend as not_comparable; noise-level improvements pend
+    as below_noise; a thin before-window pends as insufficient."""
+    from datetime import timedelta
+
+    import securevector.app.services.cost_optimizer as co
+
+    monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path)
+    svc = co.CostOptimizerService()
+    gens = [_gen(inp=5000 + 4000 * i, out=300, ts=_ts(i)) for i in range(16)]
+    svc._analyze(
+        [{"session_id": "s1", "harness": "claude-code", "trace_id": "t1", "gens": gens}],
+        PRICING, 30, {"claude_code": 1, "codex": 0}, False)
+    seen = co._parse_ts(svc._read_state()["first_seen"]["repeated_context"])
+
+    def _sess(i, when, slope, turns):
+        return {"session_id": f"w{i}", "harness": "claude-code",
+                "turns": turns, "prompt_tokens": slope * turns, "output_tokens": 50000,
+                "hit_rate": 0.9, "tool_error_rate": 0.03, "max_tokens_share": 0.0,
+                "started_at": when.isoformat(), "ended_at": (when + timedelta(hours=1)).isoformat()}
+
+    # (a) different work: after-sessions 10x shorter -> not_comparable
+    before = [_sess(i, seen - timedelta(days=2 + i), 5000, 200) for i in range(10)]
+    after = [_sess(100 + i, seen + timedelta(days=1 + i), 1500, 15) for i in range(10)]
+    out = svc._update_receipts({"findings": [], "session_summaries": before + after})
+    assert out["resolved"] == []
+    assert any(p["status"] == "not_comparable" for p in out["pending"])
+
+    # (b) improvement below the resolution threshold -> below_noise, no receipt
+    after2 = [_sess(200 + i, seen + timedelta(days=1 + i), 4800, 200) for i in range(10)]
+    out = svc._update_receipts({"findings": [], "session_summaries": before + after2})
+    assert out["resolved"] == []
+    assert any(p["status"] == "below_noise" for p in out["pending"])
+
+    # (c) thin before-window -> insufficient, even with plenty of after data
+    thin = before[:1] + after2
+    out = svc._update_receipts({"findings": [
+        {"type": "repeated_context", "tokens_wasted": 999999, "est_value_usd": 9}],
+        "session_summaries": thin})
+    assert out["resolved"] == []
+    assert any(p["status"] == "insufficient" for p in out["pending"])
+
+    # (d) codex sessions never enter the windows (mix shifts can fake gains)
+    mixed = before + [dict(x, harness="codex") for x in after]
+    out = svc._update_receipts({"findings": [], "session_summaries": mixed})
+    assert out["resolved"] == []

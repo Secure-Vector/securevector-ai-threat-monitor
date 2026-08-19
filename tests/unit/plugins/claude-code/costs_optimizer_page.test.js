@@ -179,3 +179,14 @@ test('cost summary redesign: hero strip, runtime card, fixed budget field', () =
   // token formatter reaches billions (real cache-read totals get there)
   assert.match(src, /toFixed\(1\)\}B/);
 });
+
+test('receipts are proof cards: prediction vs measured vs quality, no faulty comparisons', () => {
+  const src = read('js/pages/costs.js');
+  assert.match(src, /frozen when the finding first appeared/);
+  assert.match(src, /Output quality/);
+  assert.match(src, /median\/session/);
+  assert.match(src, /Semantic output quality is not judged, and no model is involved/);
+  // a comparison we will not show is always explained, never silently absent
+  assert.match(src, /not_comparable|no comparison will be shown/);
+  assert.match(src, /below_noise|reopened/);
+});
