@@ -148,3 +148,32 @@ test('guardian bot: original animated character, reduced-motion aware, wired in'
   const spot = read('js/components/optimizer-spotlight.js');
   assert.match(spot, /GuardianBot\.el/);
 });
+
+test('guardian assistant replaces the chat: FAB, triage rows, no TryItChat', () => {
+  const ga = read('js/components/guardian-assistant.js');
+  assert.match(ga, /GuardianAssistant/);
+  assert.match(ga, /Cost first\. Threats always\./);
+  assert.match(ga, /Blocked permission checks/);
+  const sidebar = read('js/components/sidebar.js');
+  assert.doesNotMatch(sidebar, /TryItChat/);
+  const css = read('css/styles.css');
+  assert.doesNotMatch(css, /tryit-chat/);
+  const app = read('js/app.js');
+  assert.match(app, /GuardianAssistant\.mount\(\)/);
+  const idx = read('index.html');
+  assert.match(idx, /guardian-assistant\.js/);
+});
+
+test('cost summary redesign: hero strip, runtime card, fixed budget field', () => {
+  const src = read('js/pages/costs.js');
+  assert.match(src, /_renderRuntimeTokensCard/);
+  assert.match(src, /Session Tokens by Runtime/);
+  assert.match(src, /svc-strip/);
+  // the budget bar must read the field the API actually returns
+  assert.match(src, /budget\.daily_budget_usd/);
+  assert.doesNotMatch(src, /budget\.budget_usd/);
+  // the four stacked pre-tab panels are gone
+  assert.doesNotMatch(src, /_renderCcCostGapNote/);
+  // token formatter reaches billions (real cache-read totals get there)
+  assert.match(src, /toFixed\(1\)\}B/);
+});

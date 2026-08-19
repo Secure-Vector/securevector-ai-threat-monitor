@@ -45,39 +45,10 @@ const CostsPage = {
             return;
         }
 
-        // Monitor mode: Cost Summary + Request History tabs only.
-
-        // Inline note: Claude Code plugin cost tracking is pending an
-        // upstream hook-API gap. Renders only when the plugin is
-        // installed and the user hasn't dismissed the note. Otherwise
-        // the empty-state below ("No cost data yet") would be confusing
-        // for CC-plugin-only users — they'd assume something's broken
-        // when actually it's an upstream limitation.
-        const ccNoteHost = document.createElement('div');
-        container.appendChild(ccNoteHost);
-        this._renderCcCostGapNote(ccNoteHost);
-
-        // Parallel Codex session-tokens panel — same shape, different
-        // colour accent, sourced from `~/.codex/sessions/*/*/*/
-        // rollout-*.jsonl`. Mirrors the CC card so a user running both
-        // agents sees two side-by-side reads of their token spend.
-        const codexNoteHost = document.createElement('div');
-        container.appendChild(codexNoteHost);
-        this._renderCodexCostGapNote(codexNoteHost);
-
-        // Copilot CLI session-tokens panel — third sibling of the CC and
-        // Codex cards (blue accent), sourced from
-        // `~/.copilot/session-state/<id>/events.jsonl` cumulative modelMetrics.
-        const copilotNoteHost = document.createElement('div');
-        container.appendChild(copilotNoteHost);
-        this._renderCopilotCostGapNote(copilotNoteHost);
-
-        // Hermes session-tokens panel — framework-shape sibling (amber
-        // accent), sourced from ~/.hermes/state.db (the store behind
-        // Hermes's own /insights). Renders only when session data exists.
-        const hermesNoteHost = document.createElement('div');
-        container.appendChild(hermesNoteHost);
-        this._renderHermesCostGapNote(hermesNoteHost);
+        // Monitor mode: the per-runtime session panels that used to stack
+        // here (four full-width cards before any tab content) now live as
+        // one compact card INSIDE Cost Summary — the Optimizer and History
+        // tabs start at the top of the page.
 
         // No `.tab-bar` class — see the same note on Tool Permissions.
         const tabs = document.createElement('div');
@@ -208,1161 +179,63 @@ const CostsPage = {
         else if (this.activeTab === 'history') await this._loadAndRenderHistory();
     },
 
-    /**
-     * Claude Code session-usage panel.
-     *
-     * Reads token aggregates from the local CC transcript files via
-     * ``/api/hooks/claude-code/token-usage``. The source is the same
-     * `~/.claude/projects/<slug>/<session>.jsonl` Claude Code's own
-     * `/cost` command reads — so tokens visibility doesn't depend on
-     * Anthropic adding `usage` to plugin hook events.
-     *
-     * Dollar cost is deliberately NOT computed for the Claude Code
-     * plugin. Most CC users are on flat-rate subscriptions (Max / Team
-     * / Enterprise) where a list-price equivalent would mislead, and
-     * we don't want SecureVector to take a position on Anthropic's
-     * pricing tables. The honest view is tokens; for cost, point users
-     * at their Anthropic console.
-     */
-    async _renderCcCostGapNote(host) {
-        let installed = false;
-        let usage = null;
-        try {
-            const [statusRes, usageRes] = await Promise.all([
-                fetch('/api/hooks/claude-code/status'),
-                fetch('/api/hooks/claude-code/token-usage'),
-            ]);
-            if (statusRes.ok) {
-                const s = await statusRes.json();
-                installed = !!(s && s.installed);
-            }
-            if (usageRes.ok) usage = await usageRes.json();
-        } catch { /* fail-quiet — panel is informational, not load-bearing */ }
-        if (!installed || !usage) return;
+    /** One compact card for per-runtime session tokens (replaces the four
+     *  stacked panels this page used to open with). Dollar cost is
+     *  deliberately not computed for plugin-guarded runtimes: most run on
+     *  flat-rate subscriptions where a list-price figure would mislead, so
+     *  tokens are the honest view and dollars live at the provider console.
+     *  Each row is gated on that runtime actually having session data. */
+    async _renderRuntimeTokensCard(host) {
+        const defs = [
+            { name: 'Claude Code', base: '/api/hooks/claude-code' },
+            { name: 'Codex', base: '/api/hooks/codex' },
+            { name: 'Copilot CLI', base: '/api/hooks/copilot-cli' },
+            { name: 'Hermes', base: '/api/hooks/hermes' },
+        ];
+        const rows = await Promise.all(defs.map(async (d) => {
+            try {
+                const res = await fetch(d.base + '/token-usage');
+                if (!res.ok) return null;
+                const u = await res.json();
+                const any = (u.sessions || 0) > 0 || (u.input_tokens || 0) > 0
+                    || (u.output_tokens || 0) > 0;
+                return any ? { name: d.name, u } : null;
+            } catch { return null; }
+        }));
+        const live = rows.filter(Boolean);
+        if (!live.length) return;
 
-        const fmt = n => (n || 0).toLocaleString();
-
-        const panel = document.createElement('div');
-        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
-        panel.dataset.svRuntimeAccent = '#8b949e'; // Claude Code — same hue as the observability pages
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
-        // Runtime identity dot — same colour the observability pages use for
-        // this runtime, replacing the old alert-looking left border.
-        const accentDot = document.createElement('span');
-        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
-            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
-        header.appendChild(accentDot);
-        const title = document.createElement('strong');
-        title.textContent = 'Claude Code · Session Tokens';
-        title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
-        header.appendChild(title);
-        const meta = document.createElement('span');
-        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto;';
-        const last = usage.last_activity ? new Date(usage.last_activity).toLocaleString() : 'no activity';
-        meta.textContent = `${usage.sessions} sessions · ${fmt(usage.turns_with_usage)} turns · last: ${last}`;
-        header.appendChild(meta);
-        panel.appendChild(header);
-
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
-        const tile = (label, value, sub) => {
-            const t = document.createElement('div');
-            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
-            const v = document.createElement('div');
-            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
-            v.textContent = value;
-            const l = document.createElement('div');
-            l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
-            l.textContent = label;
-            t.appendChild(v);
-            t.appendChild(l);
-            if (sub) {
-                const s = document.createElement('div');
-                s.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
-                s.textContent = sub;
-                t.appendChild(s);
-            }
-            return t;
-        };
-        grid.appendChild(tile('Input', fmt(usage.input_tokens), 'uncached'));
-        grid.appendChild(tile('Cache write', fmt(usage.cache_creation_input_tokens), 'higher rate'));
-        grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
-        grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated'));
-        panel.appendChild(grid);
-
-        // Cost row — "Not applicable" only. No explanatory copy.
-        const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
-
-        const costLabel = document.createElement('span');
-        costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
-        costLabel.textContent = 'Cost';
-        costRow.appendChild(costLabel);
-
-        const costValue = document.createElement('span');
-        costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Billed via your provider account';
-        costRow.appendChild(costValue);
-
-        const costHint = document.createElement('span');
-        costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
-        costRow.appendChild(costHint);
-
-        // Per-model details toggle — token breakdown only, no $.
-        if (Array.isArray(usage.by_model) && usage.by_model.length > 0) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.type = 'button';
-            detailsBtn.style.cssText = 'margin-left: auto; padding: 4px 10px; font-size: 11px; font-weight: 600; background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 999px; cursor: pointer; flex-shrink: 0;';
-            // Open-by-default — the per-model table is the most useful
-            // single read on this panel and shouldn't be hidden behind
-            // a click. The button stays as a collapse affordance for
-            // users who want to compact the row, but starts in the
-            // open state.
-            detailsBtn.textContent = `By model (${usage.by_model.length}) ▴`;
-            detailsBtn.setAttribute('aria-expanded', 'true');
-            costRow.appendChild(detailsBtn);
-
-            const detailsBox = document.createElement('div');
-            detailsBox.style.cssText = 'display: block; margin-top: 8px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-size: 11px;';
-            const table = document.createElement('table');
-            table.style.cssText = 'width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;';
-            const thead = document.createElement('thead');
-            const thr = document.createElement('tr');
-            ['Model', 'Turns', 'Input', 'Output', 'Cache write', 'Cache read'].forEach((h, i) => {
-                const th = document.createElement('th');
-                th.textContent = h;
-                th.style.cssText = 'text-align: ' + (i === 0 ? 'left' : 'right') + '; padding: 4px 8px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; border-bottom: 1px solid var(--border-default);';
-                thr.appendChild(th);
-            });
-            thead.appendChild(thr);
-            table.appendChild(thead);
-            const tbody = document.createElement('tbody');
-            usage.by_model.forEach(m => {
-                const tr = document.createElement('tr');
-                const cells = [
-                    { v: m.model, align: 'left' },
-                    { v: fmt(m.turns), align: 'right' },
-                    { v: fmt(m.input_tokens), align: 'right' },
-                    { v: fmt(m.output_tokens), align: 'right' },
-                    { v: fmt(m.cache_creation_input_tokens), align: 'right' },
-                    { v: fmt(m.cache_read_input_tokens), align: 'right' },
-                ];
-                cells.forEach(c => {
-                    const td = document.createElement('td');
-                    td.textContent = c.v;
-                    td.style.cssText = 'padding: 4px 8px; text-align: ' + c.align + '; color: var(--text-primary); border-bottom: 1px solid var(--border-default);';
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-            detailsBox.appendChild(table);
-
-            detailsBtn.addEventListener('click', () => {
-                const open = detailsBox.style.display !== 'none';
-                detailsBox.style.display = open ? 'none' : 'block';
-                detailsBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
-                detailsBtn.textContent = `By model (${usage.by_model.length}) ${open ? '▾' : '▴'}`;
-            });
-            panel.appendChild(costRow);
-            panel.appendChild(detailsBox);
-        } else {
-            panel.appendChild(costRow);
-        }
-
-        // 7-day token trend chart — mirrors the Tool Activity 7-day
-        // stacked-bar pattern (tool-permissions.js renderAuditSection).
-        // Each day shows stacked segments for the four token classes:
-        // input / output / cache write / cache read (read dominates so
-        // it usually fills most of the bar — that itself is signal).
-        if (Array.isArray(usage.daily)) {
-            const chartCard = document.createElement('div');
-            chartCard.style.cssText = 'margin-top: 12px; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
-
-            const chartTitle = document.createElement('div');
-            chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend: Last 7 Days';
-            chartCard.appendChild(chartTitle);
-
-            // Build full 7-day buckets in local-tz, filling sparse days
-            // with zeros so the chart x-axis is always 7 columns wide.
-            const buckets = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                const match = usage.daily.find(r => r.day === dateStr) || {};
-                buckets.push({
-                    label: (d.getMonth() + 1) + '/' + d.getDate(),
-                    day: dateStr,
-                    input: match.input_tokens || 0,
-                    output: match.output_tokens || 0,
-                    cacheWrite: match.cache_creation_input_tokens || 0,
-                    cacheRead: match.cache_read_input_tokens || 0,
-                    turns: match.turns || 0,
-                });
-            }
-            const maxVal = Math.max(
-                ...buckets.map(b => b.input + b.output + b.cacheWrite + b.cacheRead),
-                1,
-            );
-
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
-
-            buckets.forEach(bucket => {
-                const total = bucket.input + bucket.output + bucket.cacheWrite + bucket.cacheRead;
-                const col = document.createElement('div');
-                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-                col.title = `${bucket.label}\nTurns: ${fmt(bucket.turns)}\nInput: ${fmt(bucket.input)}\nOutput: ${fmt(bucket.output)}\nCache write: ${fmt(bucket.cacheWrite)}\nCache read: ${fmt(bucket.cacheRead)}`;
-
-                // Value label — abbreviated for big numbers (e.g. 1.2M)
-                const abbrev = (n) => {
-                    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-                    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-                    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-                    return String(n);
-                };
-                const valLbl = document.createElement('div');
-                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
-                valLbl.textContent = total > 0 ? abbrev(total) : '';
-                col.appendChild(valLbl);
-
-                const barArea = document.createElement('div');
-                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                const pctTotal = (total / maxVal) * 100;
-                if (pctTotal > 0) {
-                    // Bottom→top: cache read (muted, biggest) → cache
-                    // write (amber) → input (cyan) → output (teal).
-                    const stack = document.createElement('div');
-                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
-                    const seg = (color, weight) => {
-                        if (weight <= 0) return;
-                        const s = document.createElement('div');
-                        s.style.cssText = 'background: ' + color + '; flex: ' + weight + ';';
-                        stack.appendChild(s);
-                    };
-                    // Order in column-reverse: last appended = top.
-                    seg('#475569', bucket.cacheRead);   // muted slate
-                    seg('#64748b', bucket.cacheWrite);  // slate (light)
-                    seg('#5eadb8', bucket.input);       // teal
-                    seg('#8ccdd6', bucket.output);      // light teal
-                    barArea.appendChild(stack);
-                } else {
-                    const base = document.createElement('div');
-                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
-                    barArea.appendChild(base);
-                }
-                col.appendChild(barArea);
-
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
-                lbl.textContent = bucket.label;
-                col.appendChild(lbl);
-
-                wrap.appendChild(col);
-            });
-            // No tokens anywhere in the window → a friendly note beats seven
-            // empty columns (the blank chart read as "broken", not "quiet").
-            const windowTotal = buckets.reduce((s, b) =>
-                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
-                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
-            if (windowTotal === 0) {
-                const quiet = document.createElement('div');
-                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
-                    + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
-                chartCard.appendChild(quiet);
-            } else {
-                chartCard.appendChild(wrap);
-            }
-
-            // Legend — colours match the stack order.
-            const legend = document.createElement('div');
-            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
-            [
-                ['#8ccdd6', 'Output'],
-                ['#5eadb8', 'Input'],
-                ['#64748b', 'Cache write'],
-                ['#475569', 'Cache read'],
-            ].forEach(([color, label]) => {
-                const item = document.createElement('span');
-                item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
-                const dot = document.createElement('span');
-                dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
-                item.appendChild(dot);
-                item.appendChild(document.createTextNode(label));
-                legend.appendChild(item);
-            });
-            chartCard.appendChild(legend);
-
-            panel.appendChild(chartCard);
-        }
-
-        // Minimal footer disclaimer — single line, no in-row copy above.
-        const footer = document.createElement('div');
-        footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
-        footer.textContent = 'Source: local Claude Code transcripts. Refer to your Anthropic account for billing.';
-        panel.appendChild(footer);
-
-        host.appendChild(panel);
+        const fmt = (n) => this._fmtTokens(n || 0);
+        const card = document.createElement('div');
+        card.className = 'svc-card';
+        card.innerHTML =
+            '<div class="svc-card-head"><span class="svc-card-title">Session Tokens by Runtime</span>' +
+            '<span class="svc-pill" title="Exact token counts from local session data. Plugin-guarded runtimes bill through your provider subscription, so dollars live at the provider console.">tokens, exact</span></div>' +
+            '<div class="svc-rt-grid svc-rt-head">' +
+            '<span>Runtime</span><span>Sessions</span><span>Input</span>' +
+            '<span>Cache write</span><span>Cache read</span><span>Output</span><span>Last activity</span></div>';
+        live.forEach(({ name, u }) => {
+            const row = document.createElement('div');
+            row.className = 'svc-rt-grid';
+            const last = u.last_activity ? new Date(u.last_activity).toLocaleString() : 'no activity';
+            row.innerHTML =
+                '<span class="svc-rt-name"><i></i></span>' +
+                `<span class="svc-mono">${(u.sessions || 0).toLocaleString()}</span>` +
+                `<span class="svc-mono">${fmt(u.input_tokens)}</span>` +
+                `<span class="svc-mono">${fmt(u.cache_creation_input_tokens)}</span>` +
+                `<span class="svc-mono">${fmt(u.cache_read_input_tokens)}</span>` +
+                `<span class="svc-mono">${fmt(u.output_tokens)}</span>` +
+                '<span class="svc-rt-last"></span>';
+            row.querySelector('.svc-rt-name').appendChild(document.createTextNode(name));
+            row.querySelector('.svc-rt-last').textContent = last;
+            card.appendChild(row);
+        });
+        const foot = document.createElement('div');
+        foot.className = 'svc-card-foot';
+        foot.textContent = 'Read from local session files, same source as each tool\u2019s own usage view. The Optimizer tab explains where these tokens went.';
+        card.appendChild(foot);
+        host.appendChild(card);
     },
-
-    /**
-     * Codex session-tokens panel.
-     *
-     * Sources from `/api/hooks/codex/token-usage` which walks
-     * `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` and sums each
-     * rollout's `token_count` event_msg records. Mirrors the Claude
-     * Code panel's layout — only the title, accent colour (coral),
-     * footer attribution, and per-tile breakdown differ:
-     *
-     *   - No "cache write" tile (Codex has no cache-creation concept,
-     *     so it would always read 0 and waste vertical space).
-     *   - Adds a "Reasoning" tile (Codex separates reasoning_output
-     *     from regular output; CC has no equivalent).
-     *
-     * Cost is deliberately omitted — same rationale as the CC panel:
-     * most Codex users are on plan-based subscriptions where a
-     * list-price equivalent would mislead.
-     */
-    async _renderCodexCostGapNote(host) {
-        let installed = false;
-        let usage = null;
-        try {
-            const [statusRes, usageRes] = await Promise.all([
-                fetch('/api/hooks/codex/status'),
-                fetch('/api/hooks/codex/token-usage'),
-            ]);
-            if (statusRes.ok) {
-                const s = await statusRes.json();
-                installed = !!(s && s.installed);
-            }
-            if (usageRes.ok) usage = await usageRes.json();
-        } catch { /* fail-quiet — panel is informational, not load-bearing */ }
-        if (!installed || !usage) return;
-
-        const fmt = n => (n || 0).toLocaleString();
-
-        const panel = document.createElement('div');
-        // Neutral runtime dot — runtimes are labels, not statuses, and
-        // the Tool Permissions Codex category — visual consistency
-        // across every surface that surfaces Codex-attributed data.
-        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
-        panel.dataset.svRuntimeAccent = '#8b949e'; // Codex — same hue as the observability pages
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
-        // Runtime identity dot — same colour the observability pages use for
-        // this runtime, replacing the old alert-looking left border.
-        const accentDot = document.createElement('span');
-        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
-            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
-        header.appendChild(accentDot);
-        const title = document.createElement('strong');
-        title.textContent = 'Codex · Session Tokens';
-        title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
-        header.appendChild(title);
-        const meta = document.createElement('span');
-        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto;';
-        const last = usage.last_activity ? new Date(usage.last_activity).toLocaleString() : 'no activity';
-        meta.textContent = `${usage.sessions} sessions · ${fmt(usage.turns_with_usage)} turns · last: ${last}`;
-        header.appendChild(meta);
-        panel.appendChild(header);
-
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
-        const tile = (label, value, sub) => {
-            const t = document.createElement('div');
-            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
-            const v = document.createElement('div');
-            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
-            v.textContent = value;
-            const l = document.createElement('div');
-            l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
-            l.textContent = label;
-            t.appendChild(v);
-            t.appendChild(l);
-            if (sub) {
-                const s = document.createElement('div');
-                s.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
-                s.textContent = sub;
-                t.appendChild(s);
-            }
-            return t;
-        };
-        grid.appendChild(tile('Input', fmt(usage.input_tokens), 'uncached'));
-        grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
-        grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated'));
-        grid.appendChild(tile('Reasoning', fmt(usage.reasoning_output_tokens || 0), 'hidden reasoning output'));
-        panel.appendChild(grid);
-
-        // Cost row — "Not applicable" only. Same rationale as CC.
-        const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
-        const costLabel = document.createElement('span');
-        costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
-        costLabel.textContent = 'Cost';
-        costRow.appendChild(costLabel);
-        const costValue = document.createElement('span');
-        costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Billed via your provider account';
-        costRow.appendChild(costValue);
-        const costHint = document.createElement('span');
-        costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
-        costRow.appendChild(costHint);
-
-        // Per-model details — Codex sessions typically run a single
-        // model so this is usually a one-row table, but worth keeping
-        // the affordance for users who switch models mid-rollout.
-        if (Array.isArray(usage.by_model) && usage.by_model.length > 0) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.type = 'button';
-            detailsBtn.style.cssText = 'margin-left: auto; padding: 4px 10px; font-size: 11px; font-weight: 600; background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 999px; cursor: pointer; flex-shrink: 0;';
-            detailsBtn.textContent = `By model (${usage.by_model.length}) ▴`;
-            detailsBtn.setAttribute('aria-expanded', 'true');
-            costRow.appendChild(detailsBtn);
-
-            const detailsBox = document.createElement('div');
-            detailsBox.style.cssText = 'display: block; margin-top: 8px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-size: 11px;';
-            const table = document.createElement('table');
-            table.style.cssText = 'width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;';
-            const thead = document.createElement('thead');
-            const thr = document.createElement('tr');
-            ['Model', 'Turns', 'Input', 'Output', 'Cache read', 'Reasoning'].forEach((h, i) => {
-                const th = document.createElement('th');
-                th.textContent = h;
-                th.style.cssText = 'text-align: ' + (i === 0 ? 'left' : 'right') + '; padding: 4px 8px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; border-bottom: 1px solid var(--border-default);';
-                thr.appendChild(th);
-            });
-            thead.appendChild(thr);
-            table.appendChild(thead);
-            const tbody = document.createElement('tbody');
-            usage.by_model.forEach(m => {
-                const tr = document.createElement('tr');
-                const cells = [
-                    { v: m.model, align: 'left' },
-                    { v: fmt(m.turns), align: 'right' },
-                    { v: fmt(m.input_tokens), align: 'right' },
-                    { v: fmt(m.output_tokens), align: 'right' },
-                    { v: fmt(m.cache_read_input_tokens), align: 'right' },
-                    { v: fmt(m.reasoning_output_tokens || 0), align: 'right' },
-                ];
-                cells.forEach(c => {
-                    const td = document.createElement('td');
-                    td.textContent = c.v;
-                    td.style.cssText = 'padding: 4px 8px; text-align: ' + c.align + '; color: var(--text-primary); border-bottom: 1px solid var(--border-default);';
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-            detailsBox.appendChild(table);
-
-            detailsBtn.addEventListener('click', () => {
-                const open = detailsBox.style.display !== 'none';
-                detailsBox.style.display = open ? 'none' : 'block';
-                detailsBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
-                detailsBtn.textContent = `By model (${usage.by_model.length}) ${open ? '▾' : '▴'}`;
-            });
-            panel.appendChild(costRow);
-            panel.appendChild(detailsBox);
-        } else {
-            panel.appendChild(costRow);
-        }
-
-        // 7-day token trend — identical algorithm to CC's chart, but
-        // stack omits cache_write (Codex has none) and adds reasoning.
-        if (Array.isArray(usage.daily)) {
-            const chartCard = document.createElement('div');
-            chartCard.style.cssText = 'margin-top: 12px; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
-
-            const chartTitle = document.createElement('div');
-            chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend: Last 7 Days';
-            chartCard.appendChild(chartTitle);
-
-            const buckets = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                const match = usage.daily.find(r => r.day === dateStr) || {};
-                buckets.push({
-                    label: (d.getMonth() + 1) + '/' + d.getDate(),
-                    day: dateStr,
-                    input: match.input_tokens || 0,
-                    output: match.output_tokens || 0,
-                    cacheRead: match.cache_read_input_tokens || 0,
-                    reasoning: match.reasoning_output_tokens || 0,
-                    turns: match.turns || 0,
-                });
-            }
-            const maxVal = Math.max(
-                ...buckets.map(b => b.input + b.output + b.cacheRead + b.reasoning),
-                1,
-            );
-
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
-
-            buckets.forEach(bucket => {
-                const total = bucket.input + bucket.output + bucket.cacheRead + bucket.reasoning;
-                const col = document.createElement('div');
-                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-                col.title = `${bucket.label}\nTurns: ${fmt(bucket.turns)}\nInput: ${fmt(bucket.input)}\nOutput: ${fmt(bucket.output)}\nCache read: ${fmt(bucket.cacheRead)}\nReasoning: ${fmt(bucket.reasoning)}`;
-
-                const abbrev = (n) => {
-                    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-                    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-                    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-                    return String(n);
-                };
-                const valLbl = document.createElement('div');
-                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
-                valLbl.textContent = total > 0 ? abbrev(total) : '';
-                col.appendChild(valLbl);
-
-                const barArea = document.createElement('div');
-                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                const pctTotal = (total / maxVal) * 100;
-                if (pctTotal > 0) {
-                    const stack = document.createElement('div');
-                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
-                    const seg = (color, weight) => {
-                        if (weight <= 0) return;
-                        const s = document.createElement('div');
-                        s.style.cssText = 'background: ' + color + '; flex: ' + weight + ';';
-                        stack.appendChild(s);
-                    };
-                    // column-reverse: last appended = top
-                    seg('#475569', bucket.cacheRead);  // muted slate (biggest)
-                    seg('#5eadb8', bucket.input);      // teal
-                    seg('#8ccdd6', bucket.output);     // light teal
-                    seg('#34707a', bucket.reasoning);  // deep teal
-                    barArea.appendChild(stack);
-                } else {
-                    const base = document.createElement('div');
-                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
-                    barArea.appendChild(base);
-                }
-                col.appendChild(barArea);
-
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
-                lbl.textContent = bucket.label;
-                col.appendChild(lbl);
-
-                wrap.appendChild(col);
-            });
-            // No tokens anywhere in the window → a friendly note beats seven
-            // empty columns (the blank chart read as "broken", not "quiet").
-            const windowTotal = buckets.reduce((s, b) =>
-                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
-                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
-            if (windowTotal === 0) {
-                const quiet = document.createElement('div');
-                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
-                    + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
-                chartCard.appendChild(quiet);
-            } else {
-                chartCard.appendChild(wrap);
-            }
-
-            const legend = document.createElement('div');
-            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
-            [
-                ['#34707a', 'Reasoning'],
-                ['#8ccdd6', 'Output'],
-                ['#5eadb8', 'Input'],
-                ['#475569', 'Cache read'],
-            ].forEach(([color, label]) => {
-                const item = document.createElement('span');
-                item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
-                const dot = document.createElement('span');
-                dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
-                item.appendChild(dot);
-                item.appendChild(document.createTextNode(label));
-                legend.appendChild(item);
-            });
-            chartCard.appendChild(legend);
-
-            panel.appendChild(chartCard);
-        }
-
-        const footer = document.createElement('div');
-        footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
-        footer.textContent = 'Source: local Codex session rollouts. Refer to your OpenAI account for billing.';
-        panel.appendChild(footer);
-
-        host.appendChild(panel);
-    },
-
-    /**
-     * Copilot CLI session-tokens panel.
-     *
-     * Sources from `/api/hooks/copilot-cli/token-usage` which walks
-     * `~/.copilot/session-state/<id>/events.jsonl` and reads each session's
-     * final cumulative `modelMetrics` snapshot. Mirrors the CC / Codex
-     * panels — neutral runtime dot (runtimes are labels, not statuses;
-     * banner), and a "Cache write" tile instead of Codex's "Reasoning"
-     * (Copilot reports cacheWriteTokens; reasoning is folded into output).
-     *
-     * Cost is deliberately omitted — same rationale as the CC panel:
-     * Copilot users are on plan-based subscriptions where a list-price
-     * equivalent would mislead.
-     */
-    async _renderCopilotCostGapNote(host) {
-        let installed = false;
-        let usage = null;
-        try {
-            const [statusRes, usageRes] = await Promise.all([
-                fetch('/api/hooks/copilot-cli/status'),
-                fetch('/api/hooks/copilot-cli/token-usage'),
-            ]);
-            if (statusRes.ok) {
-                const s = await statusRes.json();
-                installed = !!(s && s.installed);
-            }
-            if (usageRes.ok) usage = await usageRes.json();
-        } catch { /* fail-quiet — panel is informational, not load-bearing */ }
-        if (!installed || !usage) return;
-
-        const fmt = n => (n || 0).toLocaleString();
-
-        const panel = document.createElement('div');
-        // Neutral runtime dot — same rationale as the other panels; the
-        // dashboard token-trend series — consistent across every surface
-        // that shows Copilot-attributed data.
-        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
-        panel.dataset.svRuntimeAccent = '#8b949e'; // Copilot CLI
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
-        // Runtime identity dot — same colour the observability pages use for
-        // this runtime, replacing the old alert-looking left border.
-        const accentDot = document.createElement('span');
-        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
-            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
-        header.appendChild(accentDot);
-        const title = document.createElement('strong');
-        title.textContent = 'Copilot CLI · Session Tokens';
-        title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
-        header.appendChild(title);
-        const meta = document.createElement('span');
-        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto;';
-        const last = usage.last_activity ? new Date(usage.last_activity).toLocaleString() : 'no activity';
-        meta.textContent = `${usage.sessions} sessions · ${fmt(usage.turns_with_usage)} turns · last: ${last}`;
-        header.appendChild(meta);
-        panel.appendChild(header);
-
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
-        const tile = (label, value, sub) => {
-            const t = document.createElement('div');
-            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
-            const v = document.createElement('div');
-            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
-            v.textContent = value;
-            const l = document.createElement('div');
-            l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
-            l.textContent = label;
-            t.appendChild(v);
-            t.appendChild(l);
-            if (sub) {
-                const s = document.createElement('div');
-                s.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
-                s.textContent = sub;
-                t.appendChild(s);
-            }
-            return t;
-        };
-        grid.appendChild(tile('Input', fmt(usage.input_tokens), 'prompt side'));
-        grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
-        grid.appendChild(tile('Cache write', fmt(usage.cache_creation_input_tokens), 'cache priming'));
-        grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated (incl. reasoning)'));
-        panel.appendChild(grid);
-
-        // Cost row — "Not applicable" only. Same rationale as CC / Codex.
-        const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
-        const costLabel = document.createElement('span');
-        costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
-        costLabel.textContent = 'Cost';
-        costRow.appendChild(costLabel);
-        const costValue = document.createElement('span');
-        costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Billed via your provider account';
-        costRow.appendChild(costValue);
-        const costHint = document.createElement('span');
-        costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'SecureVector sees this runtime\u2019s tokens, not dollars: proxied spend appears in Cost Summary below';
-        costRow.appendChild(costHint);
-
-        // Per-model details — Copilot sessions frequently switch models
-        // (`/model`), so this is genuinely a multi-row table.
-        if (Array.isArray(usage.by_model) && usage.by_model.length > 0) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.type = 'button';
-            detailsBtn.style.cssText = 'margin-left: auto; padding: 4px 10px; font-size: 11px; font-weight: 600; background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 999px; cursor: pointer; flex-shrink: 0;';
-            detailsBtn.textContent = `By model (${usage.by_model.length}) ▴`;
-            detailsBtn.setAttribute('aria-expanded', 'true');
-            costRow.appendChild(detailsBtn);
-
-            const detailsBox = document.createElement('div');
-            detailsBox.style.cssText = 'display: block; margin-top: 8px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-size: 11px;';
-            const table = document.createElement('table');
-            table.style.cssText = 'width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;';
-            const thead = document.createElement('thead');
-            const thr = document.createElement('tr');
-            ['Model', 'Turns', 'Input', 'Output', 'Cache read', 'Cache write'].forEach((h, i) => {
-                const th = document.createElement('th');
-                th.textContent = h;
-                th.style.cssText = 'text-align: ' + (i === 0 ? 'left' : 'right') + '; padding: 4px 8px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; border-bottom: 1px solid var(--border-default);';
-                thr.appendChild(th);
-            });
-            thead.appendChild(thr);
-            table.appendChild(thead);
-            const tbody = document.createElement('tbody');
-            usage.by_model.forEach(m => {
-                const tr = document.createElement('tr');
-                const cells = [
-                    { v: m.model, align: 'left' },
-                    { v: fmt(m.turns), align: 'right' },
-                    { v: fmt(m.input_tokens), align: 'right' },
-                    { v: fmt(m.output_tokens), align: 'right' },
-                    { v: fmt(m.cache_read_input_tokens), align: 'right' },
-                    { v: fmt(m.cache_creation_input_tokens), align: 'right' },
-                ];
-                cells.forEach(c => {
-                    const td = document.createElement('td');
-                    td.textContent = c.v;
-                    td.style.cssText = 'padding: 4px 8px; text-align: ' + c.align + '; color: var(--text-primary); border-bottom: 1px solid var(--border-default);';
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-            detailsBox.appendChild(table);
-
-            detailsBtn.addEventListener('click', () => {
-                const open = detailsBox.style.display !== 'none';
-                detailsBox.style.display = open ? 'none' : 'block';
-                detailsBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
-                detailsBtn.textContent = `By model (${usage.by_model.length}) ${open ? '▾' : '▴'}`;
-            });
-            panel.appendChild(costRow);
-            panel.appendChild(detailsBox);
-        } else {
-            panel.appendChild(costRow);
-        }
-
-        // 7-day token trend — same algorithm as the CC / Codex charts;
-        // stack swaps Codex's reasoning segment for cache write.
-        if (Array.isArray(usage.daily)) {
-            const chartCard = document.createElement('div');
-            chartCard.style.cssText = 'margin-top: 12px; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
-
-            const chartTitle = document.createElement('div');
-            chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend: Last 7 Days';
-            chartCard.appendChild(chartTitle);
-
-            const buckets = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                const match = usage.daily.find(r => r.day === dateStr) || {};
-                buckets.push({
-                    label: (d.getMonth() + 1) + '/' + d.getDate(),
-                    day: dateStr,
-                    input: match.input_tokens || 0,
-                    output: match.output_tokens || 0,
-                    cacheRead: match.cache_read_input_tokens || 0,
-                    cacheWrite: match.cache_creation_input_tokens || 0,
-                    turns: match.turns || 0,
-                });
-            }
-            const maxVal = Math.max(
-                ...buckets.map(b => b.input + b.output + b.cacheRead + b.cacheWrite),
-                1,
-            );
-
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
-
-            buckets.forEach(bucket => {
-                const total = bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
-                const col = document.createElement('div');
-                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-                col.title = `${bucket.label}\nTurns: ${fmt(bucket.turns)}\nInput: ${fmt(bucket.input)}\nOutput: ${fmt(bucket.output)}\nCache read: ${fmt(bucket.cacheRead)}\nCache write: ${fmt(bucket.cacheWrite)}`;
-
-                const abbrev = (n) => {
-                    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-                    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-                    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-                    return String(n);
-                };
-                const valLbl = document.createElement('div');
-                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
-                valLbl.textContent = total > 0 ? abbrev(total) : '';
-                col.appendChild(valLbl);
-
-                const barArea = document.createElement('div');
-                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                const pctTotal = (total / maxVal) * 100;
-                if (pctTotal > 0) {
-                    const stack = document.createElement('div');
-                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
-                    const seg = (color, weight) => {
-                        if (weight <= 0) return;
-                        const s = document.createElement('div');
-                        s.style.cssText = 'background: ' + color + '; flex: ' + weight + ';';
-                        stack.appendChild(s);
-                    };
-                    // column-reverse: last appended = top
-                    seg('#475569', bucket.cacheRead);   // muted slate (biggest)
-                    seg('#5eadb8', bucket.input);       // teal
-                    seg('#8ccdd6', bucket.output);      // light teal
-                    seg('#64748b', bucket.cacheWrite);  // slate (light) — cache priming
-                    barArea.appendChild(stack);
-                } else {
-                    const base = document.createElement('div');
-                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
-                    barArea.appendChild(base);
-                }
-                col.appendChild(barArea);
-
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
-                lbl.textContent = bucket.label;
-                col.appendChild(lbl);
-
-                wrap.appendChild(col);
-            });
-            // No tokens anywhere in the window → a friendly note beats seven
-            // empty columns (the blank chart read as "broken", not "quiet").
-            const windowTotal = buckets.reduce((s, b) =>
-                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
-                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
-            if (windowTotal === 0) {
-                const quiet = document.createElement('div');
-                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
-                    + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
-                chartCard.appendChild(quiet);
-            } else {
-                chartCard.appendChild(wrap);
-            }
-
-            const legend = document.createElement('div');
-            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
-            [
-                ['#64748b', 'Cache write'],
-                ['#8ccdd6', 'Output'],
-                ['#5eadb8', 'Input'],
-                ['#475569', 'Cache read'],
-            ].forEach(([color, label]) => {
-                const item = document.createElement('span');
-                item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
-                const dot = document.createElement('span');
-                dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
-                item.appendChild(dot);
-                item.appendChild(document.createTextNode(label));
-                legend.appendChild(item);
-            });
-            chartCard.appendChild(legend);
-
-            panel.appendChild(chartCard);
-        }
-
-        const footer = document.createElement('div');
-        footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
-        footer.textContent = 'Source: local Copilot CLI session logs. Refer to your GitHub Copilot account for billing.';
-        panel.appendChild(footer);
-
-        host.appendChild(panel);
-    },
-
-    async _renderHermesCostGapNote(host) {
-        // Framework shape: no plugin/status endpoint — the panel gates on
-        // actual Hermes session data existing in ~/.hermes/state.db.
-        let usage = null;
-        try {
-            const usageRes = await fetch('/api/hooks/hermes/token-usage');
-            if (usageRes.ok) usage = await usageRes.json();
-        } catch { /* fail-quiet — panel is informational, not load-bearing */ }
-        if (!usage || !(usage.sessions > 0)) return;
-
-        const fmt = n => (n || 0).toLocaleString();
-
-        const panel = document.createElement('div');
-        // Neutral runtime dot — same rationale as the other panels; the
-        // dashboard token-trend series — consistent across every surface
-        // that shows Hermes-attributed data.
-        panel.style.cssText = 'margin-bottom: 14px; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;';
-        panel.dataset.svRuntimeAccent = '#8b949e'; // Hermes
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 10px;';
-        // Runtime identity dot — same colour the observability pages use for
-        // this runtime, replacing the old alert-looking left border.
-        const accentDot = document.createElement('span');
-        accentDot.style.cssText = 'width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: '
-            + (panel.dataset.svRuntimeAccent || 'var(--accent-primary)') + ';';
-        header.appendChild(accentDot);
-        const title = document.createElement('strong');
-        title.textContent = 'Hermes · Session Tokens';
-        title.style.cssText = 'font-size: 13px; color: var(--text-primary);';
-        header.appendChild(title);
-        const meta = document.createElement('span');
-        meta.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-left: auto;';
-        const last = usage.last_activity ? new Date(usage.last_activity).toLocaleString() : 'no activity';
-        meta.textContent = `${usage.sessions} sessions · ${fmt(usage.turns_with_usage)} turns · last: ${last}`;
-        header.appendChild(meta);
-        panel.appendChild(header);
-
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;';
-        const tile = (label, value, sub) => {
-            const t = document.createElement('div');
-            t.style.cssText = 'padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent); border-radius: 10px;';
-            const v = document.createElement('div');
-            v.style.cssText = 'font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1.2; font-variant-numeric: tabular-nums;';
-            v.textContent = value;
-            const l = document.createElement('div');
-            l.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.4px;';
-            l.textContent = label;
-            t.appendChild(v);
-            t.appendChild(l);
-            if (sub) {
-                const s = document.createElement('div');
-                s.style.cssText = 'font-size: 10px; color: var(--text-muted); margin-top: 2px;';
-                s.textContent = sub;
-                t.appendChild(s);
-            }
-            return t;
-        };
-        grid.appendChild(tile('Input', fmt(usage.input_tokens), 'prompt side'));
-        grid.appendChild(tile('Cache read', fmt(usage.cache_read_input_tokens), 'discounted'));
-        grid.appendChild(tile('Cache write', fmt(usage.cache_creation_input_tokens), 'cache priming'));
-        grid.appendChild(tile('Output', fmt(usage.output_tokens), 'generated (incl. reasoning)'));
-        panel.appendChild(grid);
-
-        // Cost row — token counts only here; Hermes's own /insights estimates
-        // spend from its pricing table, so we don't double-report a number.
-        const costRow = document.createElement('div');
-        costRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 2px 0; border-top: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);';
-        const costLabel = document.createElement('span');
-        costLabel.style.cssText = 'font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0;';
-        costLabel.textContent = 'Cost';
-        costRow.appendChild(costLabel);
-        const costValue = document.createElement('span');
-        costValue.style.cssText = 'font-size: 14px; font-weight: 600; color: var(--text-secondary);';
-        costValue.textContent = 'Billed via your provider account';
-        costRow.appendChild(costValue);
-        const costHint = document.createElement('span');
-        costHint.style.cssText = 'font-size: 11px; color: var(--text-muted); line-height: 1.4;';
-        costHint.textContent = 'Hermes /insights holds its own cost estimate: proxied spend appears in Cost Summary below';
-        costRow.appendChild(costHint);
-
-        // Per-model details — Hermes sessions switch models freely
-        // (per-session `model` column), so this is genuinely a multi-row table.
-        if (Array.isArray(usage.by_model) && usage.by_model.length > 0) {
-            const detailsBtn = document.createElement('button');
-            detailsBtn.type = 'button';
-            detailsBtn.style.cssText = 'margin-left: auto; padding: 4px 10px; font-size: 11px; font-weight: 600; background: transparent; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: 999px; cursor: pointer; flex-shrink: 0;';
-            detailsBtn.textContent = `By model (${usage.by_model.length}) ▴`;
-            detailsBtn.setAttribute('aria-expanded', 'true');
-            costRow.appendChild(detailsBtn);
-
-            const detailsBox = document.createElement('div');
-            detailsBox.style.cssText = 'display: block; margin-top: 8px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px; font-size: 11px;';
-            const table = document.createElement('table');
-            table.style.cssText = 'width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;';
-            const thead = document.createElement('thead');
-            const thr = document.createElement('tr');
-            ['Model', 'Turns', 'Input', 'Output', 'Cache read', 'Cache write'].forEach((h, i) => {
-                const th = document.createElement('th');
-                th.textContent = h;
-                th.style.cssText = 'text-align: ' + (i === 0 ? 'left' : 'right') + '; padding: 4px 8px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; border-bottom: 1px solid var(--border-default);';
-                thr.appendChild(th);
-            });
-            thead.appendChild(thr);
-            table.appendChild(thead);
-            const tbody = document.createElement('tbody');
-            usage.by_model.forEach(m => {
-                const tr = document.createElement('tr');
-                const cells = [
-                    { v: m.model, align: 'left' },
-                    { v: fmt(m.turns), align: 'right' },
-                    { v: fmt(m.input_tokens), align: 'right' },
-                    { v: fmt(m.output_tokens), align: 'right' },
-                    { v: fmt(m.cache_read_input_tokens), align: 'right' },
-                    { v: fmt(m.cache_creation_input_tokens), align: 'right' },
-                ];
-                cells.forEach(c => {
-                    const td = document.createElement('td');
-                    td.textContent = c.v;
-                    td.style.cssText = 'padding: 4px 8px; text-align: ' + c.align + '; color: var(--text-primary); border-bottom: 1px solid var(--border-default);';
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-            detailsBox.appendChild(table);
-
-            detailsBtn.addEventListener('click', () => {
-                const open = detailsBox.style.display !== 'none';
-                detailsBox.style.display = open ? 'none' : 'block';
-                detailsBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
-                detailsBtn.textContent = `By model (${usage.by_model.length}) ${open ? '▾' : '▴'}`;
-            });
-            panel.appendChild(costRow);
-            panel.appendChild(detailsBox);
-        } else {
-            panel.appendChild(costRow);
-        }
-
-        // 7-day token trend — same algorithm as the CC / Codex charts;
-        // stack swaps Codex's reasoning segment for cache write.
-        if (Array.isArray(usage.daily)) {
-            const chartCard = document.createElement('div');
-            chartCard.style.cssText = 'margin-top: 12px; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 6px;';
-
-            const chartTitle = document.createElement('div');
-            chartTitle.style.cssText = 'font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;';
-            chartTitle.textContent = 'Token Trend: Last 7 Days';
-            chartCard.appendChild(chartTitle);
-
-            const buckets = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date();
-                d.setDate(d.getDate() - i);
-                const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                const match = usage.daily.find(r => r.day === dateStr) || {};
-                buckets.push({
-                    label: (d.getMonth() + 1) + '/' + d.getDate(),
-                    day: dateStr,
-                    input: match.input_tokens || 0,
-                    output: match.output_tokens || 0,
-                    cacheRead: match.cache_read_input_tokens || 0,
-                    cacheWrite: match.cache_creation_input_tokens || 0,
-                    turns: match.turns || 0,
-                });
-            }
-            const maxVal = Math.max(
-                ...buckets.map(b => b.input + b.output + b.cacheRead + b.cacheWrite),
-                1,
-            );
-
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'display: flex; align-items: stretch; gap: 6px; height: 120px;';
-
-            buckets.forEach(bucket => {
-                const total = bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
-                const col = document.createElement('div');
-                col.style.cssText = 'flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0;';
-                col.title = `${bucket.label}\nTurns: ${fmt(bucket.turns)}\nInput: ${fmt(bucket.input)}\nOutput: ${fmt(bucket.output)}\nCache read: ${fmt(bucket.cacheRead)}\nCache write: ${fmt(bucket.cacheWrite)}`;
-
-                const abbrev = (n) => {
-                    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-                    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-                    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-                    return String(n);
-                };
-                const valLbl = document.createElement('div');
-                valLbl.style.cssText = 'height: 16px; font-size: 10px; color: var(--text-secondary); text-align: center; line-height: 16px;';
-                valLbl.textContent = total > 0 ? abbrev(total) : '';
-                col.appendChild(valLbl);
-
-                const barArea = document.createElement('div');
-                barArea.style.cssText = 'flex: 1; width: 80%; position: relative; border-radius: 3px 3px 0 0; overflow: hidden;';
-
-                const pctTotal = (total / maxVal) * 100;
-                if (pctTotal > 0) {
-                    const stack = document.createElement('div');
-                    stack.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: ' + pctTotal + '%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden;';
-                    const seg = (color, weight) => {
-                        if (weight <= 0) return;
-                        const s = document.createElement('div');
-                        s.style.cssText = 'background: ' + color + '; flex: ' + weight + ';';
-                        stack.appendChild(s);
-                    };
-                    // column-reverse: last appended = top
-                    seg('#475569', bucket.cacheRead);   // muted slate (biggest)
-                    seg('#5eadb8', bucket.input);       // teal
-                    seg('#8ccdd6', bucket.output);      // light teal
-                    seg('#64748b', bucket.cacheWrite);  // slate (light) — cache priming
-                    barArea.appendChild(stack);
-                } else {
-                    const base = document.createElement('div');
-                    base.style.cssText = 'position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border-default);';
-                    barArea.appendChild(base);
-                }
-                col.appendChild(barArea);
-
-                const lbl = document.createElement('div');
-                lbl.style.cssText = 'height: 18px; font-size: 10px; color: var(--text-muted); text-align: center; line-height: 18px; white-space: nowrap;';
-                lbl.textContent = bucket.label;
-                col.appendChild(lbl);
-
-                wrap.appendChild(col);
-            });
-            // No tokens anywhere in the window → a friendly note beats seven
-            // empty columns (the blank chart read as "broken", not "quiet").
-            const windowTotal = buckets.reduce((s, b) =>
-                s + (b.input || 0) + (b.output || 0) + (b.cacheRead || 0)
-                  + (b.cacheWrite || 0) + (b.reasoning || 0), 0);
-            if (windowTotal === 0) {
-                const quiet = document.createElement('div');
-                quiet.style.cssText = 'height: 120px; display: flex; align-items: center; justify-content: center; '
-                    + 'font-size: 12px; color: var(--text-muted);';
-                quiet.textContent = 'No token activity in the last 7 days: sessions will chart here as they run.';
-                chartCard.appendChild(quiet);
-            } else {
-                chartCard.appendChild(wrap);
-            }
-
-            const legend = document.createElement('div');
-            legend.style.cssText = 'display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap;';
-            [
-                ['#64748b', 'Cache write'],
-                ['#8ccdd6', 'Output'],
-                ['#5eadb8', 'Input'],
-                ['#475569', 'Cache read'],
-            ].forEach(([color, label]) => {
-                const item = document.createElement('span');
-                item.style.cssText = 'display: flex; align-items: center; gap: 5px;';
-                const dot = document.createElement('span');
-                dot.style.cssText = 'width: 10px; height: 10px; border-radius: 2px; background: ' + color + '; flex-shrink: 0;';
-                item.appendChild(dot);
-                item.appendChild(document.createTextNode(label));
-                legend.appendChild(item);
-            });
-            chartCard.appendChild(legend);
-
-            panel.appendChild(chartCard);
-        }
-
-        const footer = document.createElement('div');
-        footer.style.cssText = 'margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-default); font-size: 10px; color: var(--text-muted); line-height: 1.4;';
-        footer.textContent = 'Source: Hermes state.db (~/.hermes). Refer to your model-provider account for billing.';
-        panel.appendChild(footer);
-
-        host.appendChild(panel);
-    },
-
-    // ==================== Overview Tab (Summary only) ====================
 
     async _loadAndRenderOverview() {
         const content = document.getElementById('costs-tab-content');
@@ -1384,6 +257,7 @@ const CostsPage = {
             return;
         }
 
+        this._optInjectStyle(); // svc-* overview styles ride the same sheet
         const isFirstRender = !document.getElementById('sv-costs-cards');
 
         if (isFirstRender) {
@@ -1399,23 +273,46 @@ const CostsPage = {
             cardsEl.id = 'sv-costs-cards';
             content.appendChild(cardsEl);
 
-            const chartContainer = document.createElement('div');
-            chartContainer.id = 'sv-costs-chart';
-            content.appendChild(chartContainer);
-            await this._initCostChart(chartContainer);
+            // Placeholder host: sits directly under the (hidden) spend strip
+            // when there's no proxy traffic, above the runtime tokens.
+            const placeholderHost = document.createElement('div');
+            placeholderHost.id = 'sv-costs-placeholder-host';
+            content.appendChild(placeholderHost);
 
-            // Manual refresh button for chart only
+            // Per-runtime session tokens (rendered once; not on the poll path)
+            const runtimesEl = document.createElement('div');
+            runtimesEl.id = 'sv-costs-runtimes';
+            content.appendChild(runtimesEl);
+            this._renderRuntimeTokensCard(runtimesEl);
+
+            // Daily-spend chart, framed with a proper section header
+            const chartSection = document.createElement('div');
+            chartSection.id = 'sv-costs-chart';
+            chartSection.className = 'svc-card';
+            const chartHead = document.createElement('div');
+            chartHead.className = 'svc-card-head';
+            chartHead.innerHTML =
+                '<span class="svc-card-title">Daily Spend</span>' +
+                '<span class="svc-pill" title="Metered through the SecureVector proxy.">metered</span>';
             const refreshBtn = document.createElement('button');
-            refreshBtn.style.cssText = 'display: block; margin: -8px 0 12px auto; background: none; border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-secondary); cursor: pointer; padding: 3px 10px; font-size: 11px;';
-            refreshBtn.textContent = '↻ Refresh chart';
+            refreshBtn.id = 'sv-costs-chart-refresh';
+            refreshBtn.type = 'button';
+            refreshBtn.className = 'btn btn-secondary btn-sm';
+            refreshBtn.style.cssText = 'margin-left:auto;';
+            refreshBtn.textContent = 'Refresh';
+            chartHead.appendChild(refreshBtn);
+            chartSection.appendChild(chartHead);
+            const chartContainer = document.createElement('div');
+            chartSection.appendChild(chartContainer);
+            content.appendChild(chartSection);
+            await this._initCostChart(chartContainer);
             refreshBtn.addEventListener('click', async () => {
-                refreshBtn.textContent = '↻ Refreshing…';
+                refreshBtn.textContent = 'Refreshing…';
                 refreshBtn.disabled = true;
                 await this._loadAndRenderChart(chartContainer);
-                refreshBtn.textContent = '↻ Refresh chart';
+                refreshBtn.textContent = 'Refresh';
                 refreshBtn.disabled = false;
             });
-            content.appendChild(refreshBtn);
 
             const guardianEl = document.createElement('div');
             guardianEl.id = 'sv-costs-guardian';
@@ -1443,20 +340,14 @@ const CostsPage = {
         const proxyHasData = (
             (totals.total_requests || 0) > 0
             || (totals.today_spend_usd || 0) > 0
-            || (totals.month_spend_usd || 0) > 0
-            || (totals.input_tokens || 0) > 0
-            || (totals.output_tokens || 0) > 0
+            || (totals.monthly_cost_usd || 0) > 0
+            || (totals.total_input_tokens || 0) > 0
+            || (totals.total_output_tokens || 0) > 0
         );
         const ids = ['sv-costs-cards', 'sv-costs-chart', 'sv-costs-agents'];
         ids.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = proxyHasData ? '' : 'none';
-        });
-        // Refresh button only makes sense alongside the chart.
-        Array.from(content.querySelectorAll('button')).forEach(b => {
-            if (b.textContent.trim().startsWith('↻ Refresh chart')) {
-                b.style.display = proxyHasData ? '' : 'none';
-            }
         });
         // Inline placeholder when there's no proxy traffic. The CC
         // panel above already explains the "token sessions only"
@@ -1485,9 +376,9 @@ const CostsPage = {
                 placeholder.appendChild(line2);
                 const line3 = document.createElement('div');
                 line3.style.cssText = 'color: var(--text-muted); font-size: 11.5px; line-height: 1.55; max-width: 560px; margin: 0 auto;';
-                line3.textContent = 'Plugin-guarded runtimes (like Claude Code) don’t use the proxy: their token usage lives in the session panels above.';
+                line3.textContent = 'Plugin-guarded runtimes (like Claude Code) don’t use the proxy: their token usage lives in the Session Tokens card below.';
                 placeholder.appendChild(line3);
-                content.appendChild(placeholder);
+                (document.getElementById('sv-costs-placeholder-host') || content).appendChild(placeholder);
             } else {
                 placeholder.style.display = '';
             }
@@ -1501,12 +392,15 @@ const CostsPage = {
         if (!el) return;
         el.textContent = '';
         const budget = this.budgetData;
-        if (!budget || !budget.budget_usd) return;
+        // NOTE: the API field is daily_budget_usd — this bar used to read
+        // budget_usd and therefore never rendered at all.
+        const limit = budget && budget.daily_budget_usd;
+        if (!limit) return;
 
         const todaySpend = (this.summaryData && this.summaryData.totals && this.summaryData.totals.today_spend_usd) || 0;
-        const pct = budget.budget_usd > 0 ? Math.min(todaySpend / budget.budget_usd, 1) : 0;
+        const pct = limit > 0 ? Math.min(todaySpend / limit, 1) : 0;
         const pctDisplay = Math.round(pct * 100);
-        const isOver = todaySpend >= budget.budget_usd;
+        const isOver = todaySpend >= limit;
         const isWarn = pct >= 0.8;
         const barColor = isOver ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
 
@@ -1515,7 +409,7 @@ const CostsPage = {
 
         const label = document.createElement('span');
         label.style.cssText = 'color: var(--text-secondary); white-space: nowrap;';
-        label.textContent = `Daily budget: $${todaySpend.toFixed(4)} / $${budget.budget_usd.toFixed(2)} (${pctDisplay}%)`;
+        label.textContent = `Daily budget: $${todaySpend.toFixed(4)} / $${limit.toFixed(2)} (${pctDisplay}%)`;
         bar.appendChild(label);
 
         const track = document.createElement('div');
@@ -1542,35 +436,22 @@ const CostsPage = {
         if (!el) return;
         el.textContent = '';
         const totals = (this.summaryData && this.summaryData.totals) || {};
-        const cardsRow = document.createElement('div');
-        cardsRow.className = 'stats-grid';
-        const cardDefs = [
-            { label: 'Today\'s Spend', value: `$${(totals.today_spend_usd || 0).toFixed(4)}`, sub: 'Resets at midnight' },
-            { label: 'Monthly Cost', value: `$${(totals.monthly_cost_usd || 0).toFixed(4)}`, sub: 'This billing month' },
-            { label: 'Total Requests', value: (totals.total_requests || 0).toLocaleString() },
-            { label: 'Input Tokens', value: this._fmtTokens(totals.total_input_tokens || 0) },
-            { label: 'Output Tokens', value: this._fmtTokens(totals.total_output_tokens || 0) },
-        ];
-        cardDefs.forEach(({ label, value, sub }) => {
-            const card = document.createElement('div');
-            card.className = 'stat-card';
-            const val = document.createElement('div');
-            val.className = 'stat-value';
-            val.textContent = value;
-            const lbl = document.createElement('div');
-            lbl.className = 'stat-label';
-            lbl.textContent = label;
-            card.appendChild(val);
-            card.appendChild(lbl);
-            if (sub) {
-                const subEl = document.createElement('div');
-                subEl.style.cssText = 'font-size: 10px; color: var(--text-secondary); opacity: 0.7; margin-top: 2px;';
-                subEl.textContent = sub;
-                card.appendChild(subEl);
-            }
-            cardsRow.appendChild(card);
-        });
-        el.appendChild(cardsRow);
+        const usd = (v) => '$' + ((v || 0) < 1 ? (v || 0).toFixed(4) : (v || 0).toFixed(2));
+        // One strip, same visual language as the Optimizer's comparison: the
+        // metered figures lead (they are invoices-in-motion, not estimates),
+        // each cell one number with its label under it.
+        const strip = document.createElement('div');
+        strip.className = 'svc-strip';
+        strip.innerHTML =
+            '<div class="svc-strip-head"><span class="svo-eyebrow">Metered proxy spend</span>' +
+            '<span class="svc-pill" title="Recorded per request as agents route through the SecureVector proxy. These are metered figures, not estimates.">metered</span></div>' +
+            '<div class="svc-strip-row">' +
+            `<div class="svc-cell"><div class="svc-v">${usd(totals.today_spend_usd)}</div><div class="svc-l">today · resets midnight</div></div>` +
+            `<div class="svc-cell"><div class="svc-v">${usd(totals.monthly_cost_usd)}</div><div class="svc-l">this month</div></div>` +
+            `<div class="svc-cell"><div class="svc-v">${(totals.total_requests || 0).toLocaleString()}</div><div class="svc-l">requests</div></div>` +
+            `<div class="svc-cell"><div class="svc-v">${this._fmtTokens(totals.total_input_tokens || 0)} <span class="svc-arrow">→</span> ${this._fmtTokens(totals.total_output_tokens || 0)}</div><div class="svc-l">tokens in → out</div></div>` +
+            '</div>';
+        el.appendChild(strip);
     },
 
     _updateGuardianAlerts() {
@@ -1636,18 +517,18 @@ const CostsPage = {
             el.appendChild(warn);
         }
 
-        const sectionTitle = document.createElement('h3');
-        sectionTitle.style.cssText = 'margin: 1.5rem 0 0.75rem; font-size: 15px; color: var(--text-primary);';
+        const sectionTitle = document.createElement('div');
+        sectionTitle.className = 'svo-sec-h';
+        sectionTitle.style.cssText = 'margin: 20px 0 10px;';
         sectionTitle.textContent = 'Per-Agent Breakdown';
         el.appendChild(sectionTitle);
 
         if (agents.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '💰';
-            const t = document.createElement('div'); t.className = 'empty-title'; t.textContent = 'No cost data yet';
-            const m = document.createElement('div'); m.className = 'empty-message'; m.textContent = 'Costs are recorded automatically as agents route requests through the SecureVector proxy.';
-            empty.appendChild(icon); empty.appendChild(t); empty.appendChild(m);
+            const t = document.createElement('div'); t.className = 'empty-state-title'; t.textContent = 'No cost data yet';
+            const m = document.createElement('div'); m.className = 'empty-state-text'; m.textContent = 'Costs are recorded automatically as agents route requests through the SecureVector proxy.';
+            empty.appendChild(t); empty.appendChild(m);
             el.appendChild(empty);
             return;
         }
@@ -3263,6 +2144,7 @@ const CostsPage = {
     // ==================== Helpers ====================
 
     _fmtTokens(n) {
+        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
         if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
         if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
         return n.toString();
@@ -4117,6 +2999,25 @@ const CostsPage = {
 .svo-ask-p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 6px 0 12px; max-width: 680px; }
 .svo-ask-btns { display: flex; gap: 8px; }
 .svo-sec { display: flex; flex-direction: column; gap: 10px; }
+.svc-card { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 20px; margin-bottom: 14px; }
+.svc-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.svc-card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); }
+.svc-card-foot { font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
+.svc-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); border: 1px solid var(--border-light); border-radius: 9999px; padding: 2px 10px; cursor: help; }
+.svc-strip { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 18px 22px; margin-bottom: 14px; }
+.svc-strip-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.svc-strip-row { display: flex; gap: 28px; flex-wrap: wrap; }
+.svc-cell { min-width: 130px; }
+.svc-v { font-family: var(--font-mono, monospace); font-size: 26px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.svc-arrow { color: var(--text-muted); font-weight: 400; }
+.svc-l { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.svc-rt-grid { display: grid; grid-template-columns: minmax(110px, 1.3fr) repeat(5, minmax(76px, 1fr)) minmax(120px, 1.1fr); gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--border-default); font-size: 12.5px; color: var(--text-secondary); }
+.svc-rt-head { border-top: none; padding-top: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-muted); }
+.svc-rt-name { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 600; }
+.svc-rt-name i { width: 8px; height: 8px; border-radius: 50%; background: #8b949e; flex-shrink: 0; }
+.svc-rt-last { font-size: 11px; color: var(--text-muted); }
+.svc-mono { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .svc-rt-grid { grid-template-columns: minmax(100px, 1.2fr) repeat(3, 1fr); } .svc-rt-grid span:nth-child(4), .svc-rt-grid span:nth-child(5), .svc-rt-grid span:nth-child(7) { display: none; } }
 .svo-typebar { display: flex; gap: 8px; flex-wrap: wrap; }
 .svo-typechip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
   background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px;
