@@ -9,7 +9,7 @@
  */
 
 const CostsPage = {
-    activeTab: 'overview',
+    activeTab: 'optimizer',
     mode: 'monitor',
     summaryData: null,
     pricingData: null,
@@ -3512,6 +3512,7 @@ const CostsPage = {
         const consented = !!st.consented_at;
         host.innerHTML =
             '<div class="svo-hero">' +
+            '<div class="svo-hero-bot"></div>' +
             '<div class="svo-eyebrow">Runs entirely on this machine</div>' +
             '<h2 class="svo-h">Find out why your sessions cost what they did.</h2>' +
             '<p class="svo-p">Cost tracking answers how much. The Optimizer reads the session transcripts already on this device and answers <b>why</b>: repeated context, cache misses, retry loops, duplicate requests, each finding named to the exact session and turn that produced it.</p>' +
@@ -3535,6 +3536,10 @@ const CostsPage = {
             `<button type="button" class="btn btn-primary svo-go">${consented ? 'Scan my sessions' : 'Agree and scan'}</button>` +
             '</div><div class="svo-err" hidden></div></div>';
 
+        const botHost = host.querySelector('.svo-hero-bot');
+        if (botHost && window.GuardianBot) {
+            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 92, label: 'Guardian, idle' }));
+        }
         host.querySelectorAll('.svo-winbtn').forEach(b => b.addEventListener('click', () => {
             this._optWindow = Number(b.dataset.days) || 30;
             host.querySelectorAll('.svo-winbtn').forEach(x => x.classList.toggle('on', x === b));
@@ -3556,10 +3561,16 @@ const CostsPage = {
         const p = st.progress || {};
         const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
         host.innerHTML =
-            '<div class="svo-hero"><div class="svo-eyebrow">Scanning locally</div>' +
+            '<div class="svo-hero" style="text-align:center;">' +
+            '<div class="svo-scan-bot"></div>' +
+            '<div class="svo-eyebrow">Scanning locally</div>' +
             `<h2 class="svo-h">Reading ${p.total || '…'} sessions on this machine.</h2>` +
-            '<div class="svo-prog"><div class="svo-prog-fill" style="width:' + pct + '%"></div></div>' +
-            `<p class="svo-p">${p.done || 0} of ${p.total || '?'} sessions analyzed. Nothing leaves the device.</p></div>`;
+            '<div class="svo-prog" style="max-width:420px;margin-left:auto;margin-right:auto;"><div class="svo-prog-fill" style="width:' + pct + '%"></div></div>' +
+            `<p class="svo-p" style="margin-left:auto;margin-right:auto;">${p.done || 0} of ${p.total || '?'} sessions analyzed. Nothing leaves the device.</p></div>`;
+        const botHost = host.querySelector('.svo-scan-bot');
+        if (botHost && window.GuardianBot) {
+            botHost.appendChild(GuardianBot.el({ state: 'scan', size: 110, label: 'Guardian, scanning' }));
+        }
         this._optPoll = setTimeout(() => {
             if (this.activeTab === 'optimizer') this._loadAndRenderOptimizer();
         }, 1200);
@@ -3696,23 +3707,74 @@ const CostsPage = {
         sec.className = 'svo-sec';
         if (!findings.length) {
             const scannedAny = (rep.scanned && (rep.scanned.claude_code || rep.scanned.codex));
-            sec.innerHTML = '<div class="svo-ok">' + (scannedAny
+            const ok = document.createElement('div');
+            ok.className = 'svo-ok';
+            if (window.GuardianBot) {
+                ok.appendChild(GuardianBot.el({
+                    state: scannedAny ? 'ok' : 'idle', size: 64,
+                    label: scannedAny ? 'Guardian, all clear' : 'Guardian, idle',
+                }));
+            }
+            const okText = document.createElement('span');
+            okText.textContent = scannedAny
                 ? 'No material waste above the noise floor in this window. The comparison above still shows the observed totals.'
-                : 'No agent sessions found in this window. Run some sessions, then rescan.') + '</div>';
+                : 'No agent sessions found in this window. Run some sessions, then rescan.';
+            ok.appendChild(okText);
+            sec.appendChild(ok);
             host.appendChild(sec);
             return;
         }
         const h = document.createElement('div');
         h.className = 'svo-sec-h';
-        h.textContent = 'Findings, ranked by estimated value';
+        h.textContent = `Findings, ranked by estimated value (${findings.length})`;
         sec.appendChild(h);
+
+        // Digest-first: a by-type summary bar answers "where did the waste
+        // go?" in one glance and doubles as a filter. The wall of cards is
+        // the drill-down, not the landing view.
+        const byType = new Map();
+        findings.forEach(f => {
+            const t = byType.get(f.type) || { count: 0, tokens: 0, value: 0 };
+            t.count += 1;
+            t.tokens += f.tokens_wasted || 0;
+            t.value += f.est_value_usd || 0;
+            byType.set(f.type, t);
+        });
+        const chips = document.createElement('div');
+        chips.className = 'svo-typebar';
+        const mkChip = (label, sub, key, active) => {
+            const c = document.createElement('button');
+            c.type = 'button';
+            c.className = 'svo-typechip' + (active ? ' on' : '');
+            c.innerHTML = '<b></b><span></span>';
+            c.querySelector('b').textContent = label;
+            c.querySelector('span').textContent = sub;
+            c.addEventListener('click', async () => {
+                this._optTypeFilter = key;
+                this._optShowAllFindings = false;
+                await this._loadAndRenderOptimizer();
+            });
+            return c;
+        };
+        const activeType = this._optTypeFilter || null;
+        chips.appendChild(mkChip('All', String(findings.length), null, !activeType));
+        [...byType.entries()]
+            .sort((a, b) => b[1].tokens - a[1].tokens)
+            .forEach(([type, agg]) => {
+                chips.appendChild(mkChip(
+                    this._OPT_TYPE_LABELS[type] || type,
+                    `${agg.count} · ${this._optFmtTok(agg.tokens)} tok`,
+                    type, activeType === type));
+            });
+        sec.appendChild(chips);
 
         // The ranking is the product; a wall of hundreds of cards is not.
         // Long-running agent sessions can legitimately produce hundreds of
-        // per-segment findings, so render the top of the ranking and expand
-        // on demand.
+        // per-segment findings, so filter by the chip bar, then render the
+        // top of the ranking and expand on demand.
         const FINDINGS_PAGE = 30;
-        const shown = this._optShowAllFindings ? findings : findings.slice(0, FINDINGS_PAGE);
+        const filtered = activeType ? findings.filter(f => f.type === activeType) : findings;
+        const shown = this._optShowAllFindings ? filtered : filtered.slice(0, FINDINGS_PAGE);
         shown.forEach(f => {
             const v = this._optValue(f.tokens_wasted, f.est_value_usd, mode);
             const row = document.createElement('div');
@@ -3756,12 +3818,12 @@ const CostsPage = {
             });
             sec.appendChild(row);
         });
-        if (!this._optShowAllFindings && findings.length > FINDINGS_PAGE) {
+        if (!this._optShowAllFindings && filtered.length > FINDINGS_PAGE) {
             const more = document.createElement('button');
             more.type = 'button';
             more.className = 'btn btn-secondary btn-sm';
             more.style.cssText = 'align-self: flex-start;';
-            more.textContent = `Show all ${findings.length} findings`;
+            more.textContent = `Show all ${filtered.length}${activeType ? ' of this type' : ' findings'}`;
             more.addEventListener('click', async () => {
                 this._optShowAllFindings = true;
                 await this._loadAndRenderOptimizer();
@@ -3858,6 +3920,7 @@ const CostsPage = {
         foot.querySelector('.svo-rescan').addEventListener('click', async () => {
             try {
                 this._optShowAllFindings = false; // a fresh scan restarts at the top slice
+                this._optTypeFilter = null;
                 await API.runOptimizer({ window_days: rep.window_days || this._optWindow });
                 await this._loadAndRenderOptimizer();
             } catch (e) { if (window.Toast) Toast.error('Could not start the scan: ' + e.message); }
@@ -4011,7 +4074,10 @@ const CostsPage = {
         st.id = 'sv-optimizer-style';
         st.textContent = `
 #sv-optimizer { display: flex; flex-direction: column; gap: 16px; }
-.svo-hero { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 28px; }
+.svo-hero { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 28px; position: relative; }
+.svo-hero-bot { position: absolute; top: 24px; right: 32px; }
+@media (max-width: 860px) { .svo-hero-bot { display: none; } }
+.svo-scan-bot { display: flex; justify-content: center; margin-bottom: 4px; }
 .svo-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent-primary, #5eadb8); }
 .svo-h { font-family: var(--font-display, inherit); font-size: 24px; margin: 10px 0 8px; color: var(--text-primary); }
 .svo-p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; max-width: 720px; }
@@ -4051,6 +4117,15 @@ const CostsPage = {
 .svo-ask-p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 6px 0 12px; max-width: 680px; }
 .svo-ask-btns { display: flex; gap: 8px; }
 .svo-sec { display: flex; flex-direction: column; gap: 10px; }
+.svo-typebar { display: flex; gap: 8px; flex-wrap: wrap; }
+.svo-typechip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px;
+  padding: 7px 12px; cursor: pointer; text-align: left; }
+.svo-typechip b { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.svo-typechip span { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
+.svo-typechip.on { border-color: var(--accent-primary, #5eadb8);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary, #5eadb8) 8%, transparent); }
+.svo-typechip.on b { color: var(--accent-primary, #5eadb8); }
 .svo-sec-h { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); padding-top: 6px; }
 .svo-find { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 18px; }
 .svo-find-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -4072,7 +4147,7 @@ const CostsPage = {
 .svo-rec-t { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
 .svo-receipt { border-color: color-mix(in srgb, var(--accent-primary, #5eadb8) 40%, transparent); }
 .svo-pending { color: var(--text-muted); font-size: 12px; padding: 4px 2px; }
-.svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; }
+.svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 18px; line-height: 1.5; }
 .svo-note { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .svo-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 2px 20px; }
 .svo-foot-meta { color: var(--text-muted); font-size: 12px; max-width: 680px; }

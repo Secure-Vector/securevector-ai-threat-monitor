@@ -117,3 +117,34 @@ test('no finding surfaces on the dashboard', () => {
   const dash = read('js/pages/dashboard.js');
   assert.doesNotMatch(dash, /cost-optimizer|Optimizer finding/);
 });
+
+test('optimizer is the landing tab; order stays Overview-Optimizer-History', () => {
+  const app = read('js/app.js');
+  assert.match(app, /costs:\s*\{ render: \(c\) => \{ CostsPage\.mode = 'monitor';\s*CostsPage\.activeTab = 'optimizer'/);
+});
+
+test('dashboard carries the optimizer tile, outside the hero strip', () => {
+  const dash = read('js/pages/dashboard.js');
+  assert.match(dash, /_renderOptimizerTile/);
+  assert.match(dash, /never\s+in the hero strip/);
+  assert.match(dash, /modeled estimate/i);
+});
+
+test('findings digest: by-type filter chips over the ranked list', () => {
+  const src = read('js/pages/costs.js');
+  assert.match(src, /svo-typebar/);
+  assert.match(src, /_optTypeFilter/);
+});
+
+test('guardian bot: original animated character, reduced-motion aware, wired in', () => {
+  const bot = read('js/components/guardian-bot.js');
+  assert.match(bot, /prefers-reduced-motion: no-preference/);
+  assert.match(bot, /GuardianBot/);
+  assert.doesNotMatch(bot, /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+  const idx = read('index.html');
+  assert.match(idx, /guardian-bot\.js/);
+  const costs = read('js/pages/costs.js');
+  assert.match(costs, /GuardianBot\.el/);
+  const spot = read('js/components/optimizer-spotlight.js');
+  assert.match(spot, /GuardianBot\.el/);
+});

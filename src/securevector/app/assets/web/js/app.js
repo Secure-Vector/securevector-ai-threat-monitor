@@ -68,7 +68,9 @@ const App = {
         'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
         // Kept routable as an alias: opens Threat Monitor on the Secrets facet.
         'redactions':        { render: (c) => { ThreatsPage.activeFacet = 'secrets'; return ThreatsPage.render(c); } },
-        costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
+        // Optimizer is the landing tab (user decision, v5.2.0): the page opens on
+        // why-it-cost rather than how-much; Overview stays first in the tab order.
+        costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'optimizer'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,
         'skill-scanner':     { render: (c) => { SkillScannerPage.activeTab = 'scanner';     return SkillScannerPage.render(c); } },
