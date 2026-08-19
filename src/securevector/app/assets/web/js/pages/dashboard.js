@@ -1140,7 +1140,7 @@ const DashboardPage = {
             if (window.GuardianBot) {
                 card.appendChild(GuardianBot.el({
                     state: rep && (rep.findings || []).length ? 'idle' : 'ok',
-                    size: 54, label: 'Guardian',
+                    size: 70, label: 'Guardian',
                 }));
             }
             const col = document.createElement('div');

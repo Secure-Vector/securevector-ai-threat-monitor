@@ -26,7 +26,7 @@ const GuardianAssistant = {
         fab.className = 'sv-ga-fab';
         fab.title = 'Guardian: cost optimization, threats, secrets, blocked actions';
         fab.setAttribute('aria-label', 'Open Guardian');
-        fab.appendChild(GuardianBot.el({ state: 'idle', size: 64, label: '' }));
+        fab.appendChild(GuardianBot.el({ state: 'idle', size: 92, label: '' }));
         fab.addEventListener('click', () => this.toggle());
         document.body.appendChild(fab);
         this._fab = fab;
@@ -63,7 +63,7 @@ const GuardianAssistant = {
             '</div>' +
             '<div class="sv-ga-body"><div class="sv-ga-loading">Looking around…</div></div>';
         panel.querySelector('.sv-ga-headbot')
-            .appendChild(GuardianBot.el({ state: 'idle', size: 40, label: '' }));
+            .appendChild(GuardianBot.el({ state: 'idle', size: 50, label: '' }));
         panel.querySelector('.sv-ga-close').addEventListener('click', () => this.close());
         document.body.appendChild(panel);
         this._panel = panel;

@@ -2420,7 +2420,7 @@ const CostsPage = {
 
         const botHost = host.querySelector('.svo-hero-bot');
         if (botHost && window.GuardianBot) {
-            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 92, label: 'Guardian, idle' }));
+            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 116, label: 'Guardian, idle' }));
         }
         host.querySelectorAll('.svo-winbtn').forEach(b => b.addEventListener('click', () => {
             this._optWindow = Number(b.dataset.days) || 30;
@@ -2451,7 +2451,7 @@ const CostsPage = {
             `<p class="svo-p" style="margin-left:auto;margin-right:auto;">${p.done || 0} of ${p.total || '?'} sessions analyzed. Nothing leaves the device.</p></div>`;
         const botHost = host.querySelector('.svo-scan-bot');
         if (botHost && window.GuardianBot) {
-            botHost.appendChild(GuardianBot.el({ state: 'scan', size: 110, label: 'Guardian, scanning' }));
+            botHost.appendChild(GuardianBot.el({ state: 'scan', size: 132, label: 'Guardian, scanning' }));
         }
         this._optPoll = setTimeout(() => {
             if (this.activeTab === 'optimizer') this._loadAndRenderOptimizer();
@@ -2593,7 +2593,7 @@ const CostsPage = {
             ok.className = 'svo-ok';
             if (window.GuardianBot) {
                 ok.appendChild(GuardianBot.el({
-                    state: scannedAny ? 'ok' : 'idle', size: 64,
+                    state: scannedAny ? 'ok' : 'idle', size: 80,
                     label: scannedAny ? 'Guardian, all clear' : 'Guardian, idle',
                 }));
             }

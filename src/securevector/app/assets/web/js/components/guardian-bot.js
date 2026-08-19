@@ -88,7 +88,7 @@ const GuardianBot = {
         wrap.innerHTML =
             '<svg viewBox="0 0 64 72" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
             // ground shadow (blurred; its own layer so the bob plays against it)
-            '<ellipse class="gb-shadow" cx="32" cy="67" rx="12.5" ry="2.5" filter="url(#gb3d-soft)"/>' +
+            '<ellipse class="gb-shadow" cx="32" cy="67" rx="15" ry="2.6" filter="url(#gb3d-soft)"/>' +
             '<g class="gb-body">' +
             // antenna: short and cute, with a glowing teal bead
             '<line class="gb-stem" x1="32" y1="10.5" x2="32" y2="14.5" stroke-width="2.2"/>' +
@@ -121,6 +121,14 @@ const GuardianBot = {
             '<g class="gb-beam"><line x1="22" y1="22.5" x2="22" y2="33.5" stroke="#5eadb8" ' +
             'stroke-width="4.5" opacity="0.5" filter="url(#gb3d-glow)"/>' +
             '<line x1="22" y1="22.5" x2="22" y2="33.5" stroke="#bfe6ea" stroke-width="1.8"/></g>' +
+            // arms: floating capsules with mitten hands, hung off the
+            // shoulders (drawn before the body so they tuck behind its edge)
+            '<g class="gb-arm gb-arm-l">' +
+            '<rect class="gb-pod" x="13" y="45" width="5.4" height="11" rx="2.7" transform="rotate(14 15.7 45)"/>' +
+            '<circle class="gb-pod gb-hand" cx="13.4" cy="57.2" r="3.1"/></g>' +
+            '<g class="gb-arm gb-arm-r">' +
+            '<rect class="gb-pod" x="45.6" y="45" width="5.4" height="11" rx="2.7" transform="rotate(-14 48.3 45)"/>' +
+            '<circle class="gb-pod gb-hand" cx="50.6" cy="57.2" r="3.1"/></g>' +
             // shield body: soft-shouldered, with a lit crest and keel
             '<path class="gb-pod" d="M20.5 45.5q11.5 -4.6 23 0v6.5c0 7 -5.3 11.3 -11.5 13.8c-6.2 -2.5 -11.5 -6.8 -11.5 -13.8z"/>' +
             '<path class="gb-ridge" d="M21.5 45.2q10.5 -4 21 0" stroke-width="1.4" fill="none"/>' +
@@ -182,6 +190,9 @@ const GuardianBot = {
   .sv-gbot-scan .gb-beam { animation: gb-sweep 1.6s ease-in-out infinite; }
   .sv-gbot-scan .gb-tip-halo { animation: gb-pulse 0.9s ease-in-out infinite; }
   .sv-gbot-ok .gb-body { animation: gb-bob 4s ease-in-out infinite, gb-nod 0.9s ease-in-out 1; }
+  .sv-gbot .gb-arm-l { animation: gb-armsway 4s ease-in-out infinite; transform-origin: 16px 45px; }
+  .sv-gbot .gb-arm-r { animation: gb-armsway 4s ease-in-out infinite reverse; transform-origin: 48px 45px; }
+  .sv-gbot-ok .gb-arm-r { animation: gb-wave 1.1s ease-in-out 1, gb-armsway 4s ease-in-out 1.1s infinite reverse; }
 }
 @keyframes gb-sway { 0%, 100% { transform: rotateY(-7deg); } 50% { transform: rotateY(7deg); } }
 @keyframes gb-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
@@ -196,6 +207,8 @@ const GuardianBot = {
   70%, 80% { transform: translate(0.15px, -0.7px); }
 }
 @keyframes gb-sweep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(20px); } }
+@keyframes gb-armsway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3.5deg); } }
+@keyframes gb-wave { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-38deg); } 55% { transform: rotate(-18deg); } 75% { transform: rotate(-34deg); } }
 @keyframes gb-nod { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } 70% { transform: translateY(-1px); } }
 `;
         document.head.appendChild(st);

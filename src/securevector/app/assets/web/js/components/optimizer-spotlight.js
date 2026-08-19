@@ -134,7 +134,7 @@ const OptimizerSpotlight = {
 
         const botHost = modal.querySelector('.sv-spot-bot');
         if (botHost && window.GuardianBot) {
-            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 46, label: 'Guardian' }));
+            botHost.appendChild(GuardianBot.el({ state: 'idle', size: 58, label: 'Guardian' }));
         }
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
