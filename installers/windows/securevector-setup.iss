@@ -47,7 +47,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startupicon"; Description: "Start SecureVector when Windows starts"; GroupDescription: "Startup:"
 
 [Files]
-Source: "..\..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; PyInstaller --onedir output (dist/SecureVector[/ -dev]/*)
+Source: "..\..\dist\{#MyAppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\src\securevector\rules\*"; DestDir: "{app}\rules"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\src\securevector\app\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -56,24 +57,28 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "
 Name: "{group}\{#MyAppName} (OpenClaw Proxy)"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--web --proxy openclaw"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--minimized"; Tasks: startupicon
+; Autostart is HKCU Run only (matches in-app enable/disable). Do not also
+; write a Startup-folder shortcut — that would double-launch on login.
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
-; Add to Windows Firewall exception
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"" --minimized"; Flags: uninsdeletevalue; Tasks: startupicon
+; Login-start via HKCU Run, same value name as in-app autostart
+; (securevector.app.utils.platform.AUTOSTART_APP_NAME).
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "SecureVector Threat Monitor"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startupicon
 
 [Code]
-// Custom code to handle service registration
+// netsh advfirewall needs admin. This installer is per-user
+// (PrivilegesRequired=lowest) so skip the rule when not elevated
+// rather than failing the install. The app listens on 127.0.0.1 by
+// default, so a firewall exception is usually unnecessary.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
-  if CurStep = ssPostInstall then
+  if (CurStep = ssPostInstall) and IsAdmin then
   begin
-    // Create firewall rule for the API server
     Exec('netsh', 'advfirewall firewall add rule name="{#MyAppName}" dir=in action=allow program="' + ExpandConstant('{app}\{#MyAppExeName}') + '" enable=yes', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
@@ -82,9 +87,8 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
 begin
-  if CurUninstallStep = usPostUninstall then
+  if (CurUninstallStep = usPostUninstall) and IsAdmin then
   begin
-    // Remove firewall rule
     Exec('netsh', 'advfirewall firewall delete rule name="{#MyAppName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

@@ -15,6 +15,7 @@ Options:
     --mode MODE       Proxy mode: analyze (log only) or block (stop threats)
     --revert-proxy    Undo OpenClaw setup (restore original files)
     --debug           Enable debug logging
+    --no-tray         Disable system tray; window close quits immediately
     --version         Show version and exit
 
 Examples:
@@ -122,7 +123,7 @@ def start_server(host: str, port: int, ready_event: threading.Event) -> None:
     )
 
 
-def run_desktop(host: str, port: int, debug: bool) -> None:
+def run_desktop(host: str, port: int, debug: bool, no_tray: bool = False) -> None:
     """Run the application with a native desktop window."""
     import os
     import webview
@@ -159,14 +160,45 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         # Navigate to the main app
         window.load_url(f"http://{host}:{port}")
 
+    tray_enabled = False
+    if not no_tray:
+        try:
+            from securevector.app.utils.tray import start_tray
+
+            def _show_from_tray() -> None:
+                try:
+                    window.show()
+                    window.restore()
+                except Exception:
+                    logger.exception("Failed to restore window from tray")
+
+            tray_enabled = start_tray(
+                assets_path=assets_path,
+                on_show=_show_from_tray,
+            )
+        except Exception:
+            logger.exception("System tray setup failed; close will quit")
+            tray_enabled = False
+
     def on_closing():
-        # macOS hang on Cmd+Q / window-close: pywebview's Cocoa run loop
-        # waits for the daemon uvicorn thread to drain, but uvicorn's
-        # event loop holds long-lived connections (SSE/keepalive) and
-        # never returns. Short-circuit with os._exit so the process dies
-        # immediately when the window closes — there is no per-process
-        # state to flush (DB writes are committed inline; logs are best-
-        # effort).
+        # With a tray: hide instead of quit so the monitor keeps running.
+        # Returning False cancels the close (pywebview). Quit from the tray
+        # menu still hard-exits.
+        #
+        # Without a tray (Linux, --no-tray, or pystray missing): keep the
+        # Cmd+Q hang fix from PR #72. pywebview's Cocoa run loop otherwise
+        # waits for the daemon uvicorn thread to drain, but uvicorn holds
+        # long-lived connections (SSE/keepalive) and never returns.
+        # os._exit dies immediately — DB writes are committed inline.
+        if tray_enabled:
+            try:
+                from securevector.app.utils.tray import quit_requested
+                if quit_requested():
+                    os._exit(0)
+                window.hide()
+                return False
+            except Exception:
+                os._exit(0)
         os._exit(0)
 
     window.events.closing += on_closing
@@ -1501,6 +1533,12 @@ Examples:
         help="Enable debug logging",
     )
     parser.add_argument(
+        "--no-tray",
+        action="store_true",
+        dest="no_tray",
+        help="Disable system tray; window close quits immediately",
+    )
+    parser.add_argument(
         "--version",
         action="store_true",
         help="Show version and exit",
@@ -1860,7 +1898,7 @@ Examples:
         else:
             run_web(args.host, args.port)
     else:
-        run_desktop(args.host, args.port, args.debug)
+        run_desktop(args.host, args.port, args.debug, no_tray=args.no_tray)
 
 
 if __name__ == "__main__":

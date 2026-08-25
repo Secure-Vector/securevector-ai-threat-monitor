@@ -85,7 +85,9 @@ jobs:
           if [ "${{ env.IS_DEVELOP }}" != "true" ]; then
             WINDOWED_FLAG="--windowed"
           fi
-          pyinstaller --noconfirm --onefile $WINDOWED_FLAG \
+          # TODO: Authenticode-sign the Windows installer when a cert is available. Ship unsigned until then.
+          # TODO: ARM64 Windows (and universal2 macOS) installers are not built yet.
+          pyinstaller --noconfirm --onedir $WINDOWED_FLAG \
             --name "SecureVector${{ steps.version.outputs.suffix }}" \
             --icon "src/securevector/app/assets/favicon.ico" \
             --add-data "src/securevector/rules;securevector/rules" \
@@ -98,6 +100,10 @@ jobs:
             --hidden-import webview.platforms.winforms \
             --hidden-import clr \
             --hidden-import pythonnet \
+            --hidden-import pystray \
+            --hidden-import pystray._win32 \
+            --hidden-import PIL \
+            --hidden-import PIL.Image \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops \
@@ -256,6 +262,10 @@ jobs:
             --add-data "models/guardian.runtime.json.gz:models" \
             --collect-all svguardian \
             --hidden-import webview \
+            --hidden-import pystray \
+            --hidden-import pystray._darwin \
+            --hidden-import PIL \
+            --hidden-import PIL.Image \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops \

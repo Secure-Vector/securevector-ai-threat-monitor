@@ -66,6 +66,10 @@ setup(
             "sqlalchemy>=2.0.0",  # Database ORM
             "watchdog>=3.0.0",  # File watching for hot-reload
             "platformdirs>=3.0.0",  # Cross-platform paths
+            # System tray (Mac + Windows desktop shell). Marker-gated so Linux
+            # CI / --web installs do not pull pystray backends.
+            'pystray>=0.19.0; sys_platform == "win32" or sys_platform == "darwin"',
+            'Pillow>=10.0.0; sys_platform == "win32" or sys_platform == "darwin"',
             "keyring>=23.0.0",  # Secure credential storage (OS keychain)
             "httpx>=0.24.0",  # Async HTTP client for cloud API
             "websockets>=12.0",  # WebSocket proxy for OpenClaw integration
@@ -112,6 +116,8 @@ setup(
             "sqlalchemy>=2.0.0",
             "watchdog>=3.0.0",
             "platformdirs>=3.0.0",
+            'pystray>=0.19.0; sys_platform == "win32" or sys_platform == "darwin"',
+            'Pillow>=10.0.0; sys_platform == "win32" or sys_platform == "darwin"',
             "psutil>=5.8",
             "memory-profiler>=0.60",
             'eval_type_backport>=0.2.0; python_version<"3.10"',
