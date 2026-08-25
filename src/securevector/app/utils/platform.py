@@ -146,7 +146,16 @@ AUTOSTART_APP_NAME = "SecureVector Threat Monitor"
 
 
 def _get_executable_path() -> str:
-    """Get the path to the securevector-app executable."""
+    """Get the path to the SecureVector executable for login-start.
+
+    Packaged (PyInstaller) builds must start the frozen binary itself
+    (``sys.executable`` — the .exe or .app bootloader). Pip installs still
+    resolve the ``securevector-app`` console script.
+    """
+    # PyInstaller / frozen desktop build: the real app is this process.
+    if getattr(sys, "frozen", False):
+        return sys.executable
+
     # When installed via pip, the entry point script is in the Python scripts dir
     if sys.platform == "win32":
         # On Windows, look for securevector-app.exe in Scripts folder
@@ -231,6 +240,10 @@ def _enable_autostart_windows() -> bool:
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     exe_path = _get_executable_path()
 
+    # HKCU Run values are a raw command line; quote so paths with spaces work.
+    if not exe_path.startswith('"'):
+        exe_path = f'"{exe_path}"'
+
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
         winreg.SetValueEx(key, AUTOSTART_APP_NAME, 0, winreg.REG_SZ, exe_path)
     return True
@@ -274,6 +287,8 @@ def _enable_autostart_macos() -> bool:
     plist_path.parent.mkdir(parents=True, exist_ok=True)
 
     exe_path = _get_executable_path()
+    from xml.sax.saxutils import escape as _xml_escape
+    exe_path_xml = _xml_escape(exe_path)
 
     # Create plist content
     plist_content = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -284,7 +299,7 @@ def _enable_autostart_macos() -> bool:
     <string>io.securevector.threatmonitor</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{exe_path}</string>
+        <string>{exe_path_xml}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
