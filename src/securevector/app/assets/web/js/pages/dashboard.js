@@ -1152,7 +1152,7 @@ const DashboardPage = {
 
             if (rep && rep.observed) {
                 const mode = (st.prefs && (st.prefs.billing_mode || st.prefs.billing_mode_derived)) || null;
-                const obs = rep.observed, mod = rep.modeled || {};
+                const obs = rep.observed, mod = rep.modeled_lossless || rep.modeled || {};
                 const lead = mode === 'api' && obs.est_cost_usd != null
                     ? `≈${fmtUsd(obs.est_cost_usd)} → ≈${fmtUsd(mod.est_cost_usd)}`
                     : `${fmtTok(obs.total_tokens)} → ${fmtTok(mod.total_tokens)} tok`;
@@ -1160,7 +1160,7 @@ const DashboardPage = {
                 big.style.cssText = 'font-family:var(--font-mono,monospace);font-size:19px;font-weight:700;' +
                     'color:var(--text-primary);font-variant-numeric:tabular-nums;margin:2px 0;';
                 big.textContent = lead;
-                big.title = 'Observed window vs the modeled figure under the recommended changes. Modeled estimate at list price, never an invoice claim.';
+                big.title = 'Observed window vs the modeled figure under the lossless fixes only (trimmed tool results and caching, nothing dropped). Modeled estimate at list price, never an invoice claim.';
                 col.appendChild(big);
                 const n = (rep.findings || []).length;
                 const top = (rep.findings || [])[0];

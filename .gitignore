@@ -279,3 +279,4 @@ scratch_*
 
 # Local marketing/scratch drafts — never commit to this public repo
 cloud-subscriber-feedback-email.md
+.claude/summaries/

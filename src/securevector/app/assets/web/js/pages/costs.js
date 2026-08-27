@@ -68,6 +68,7 @@ const CostsPage = {
             if (document.hidden) return;
             if (this.activeTab === 'overview') await this._loadAndRenderOverview();
             else if (this.activeTab === 'history') await this._loadAndRenderHistory();
+            else if (this.activeTab === 'optimizer') await this._refreshOptSessions();
         }, getPollInterval());
     },
 
@@ -360,7 +361,7 @@ const CostsPage = {
             if (!placeholder) {
                 placeholder = document.createElement('div');
                 placeholder.id = 'sv-proxy-cost-placeholder';
-                placeholder.style.cssText = 'padding: 28px 24px; margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; text-align: center;';
+                placeholder.style.cssText = 'padding: 28px 24px; margin-bottom: 14px; background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; text-align: center;';
                 placeholder.textContent = '';
                 const icon = document.createElement('div');
                 icon.innerHTML = '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--text-muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>';
@@ -762,16 +763,29 @@ const CostsPage = {
             empty.className = 'empty-state';
             const icon = document.createElement('div');
             icon.className = 'empty-icon';
-            icon.textContent = '📋';
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" ' +
+                'stroke="var(--text-muted)" stroke-width="1.6" stroke-linecap="round" ' +
+                'stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>';
             const t = document.createElement('div');
             t.className = 'empty-title';
-            t.textContent = 'No records found';
+            t.textContent = 'No metered requests yet';
             const m = document.createElement('div');
             m.className = 'empty-message';
-            m.textContent = 'Request records appear here as agents use the proxy.';
+            m.textContent = 'This table lists requests billed through the SecureVector proxy. '
+                + 'Plugin runtimes like Claude Code do not use the proxy: their per-request '
+                + 'history lives in Traces, and their token totals in Cost Summary.';
+            const go = document.createElement('button');
+            go.type = 'button';
+            go.className = 'btn btn-secondary btn-sm';
+            go.style.marginTop = '10px';
+            go.textContent = 'View session requests in Traces';
+            go.addEventListener('click', () => {
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
+            });
             empty.appendChild(icon);
             empty.appendChild(t);
             empty.appendChild(m);
+            empty.appendChild(go);
             container.appendChild(empty);
             return;
         }
@@ -2178,7 +2192,29 @@ const CostsPage = {
             `<option value=""${prefs.recommend_enabled == null ? ' selected' : ''}>Not decided (ask when findings exist)</option>` +
             `<option value="1"${prefs.recommend_enabled === true ? ' selected' : ''}>On: findings state what to change</option>` +
             `<option value="0"${prefs.recommend_enabled === false ? ' selected' : ''}>Off: detect only</option>` +
-            '</select></label></div>';
+            '</select></label></div>' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin:16px 0 2px;">Live advisor</div>' +
+            '<div style="color:var(--text-muted);font-size:12px;line-height:1.5;margin-bottom:10px;">The Guardian watches live sessions on this machine and speaks up when tokens are being wasted and when it is time to compact. Advisory only: fixes go to your clipboard, nothing is ever sent into a session.</div>' +
+            '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end;">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Watch live sessions' +
+            '<select class="filter-select" id="svo-pref-live">' +
+            `<option value="1"${prefs.live_advisor_enabled !== false ? ' selected' : ''}>On (default)</option>` +
+            `<option value="0"${prefs.live_advisor_enabled === false ? ' selected' : ''}>Off</option>` +
+            '</select></label>' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);">Advisor sounds' +
+            '<select class="filter-select" id="svo-pref-sounds">' +
+            `<option value="1"${prefs.live_sounds_enabled !== false ? ' selected' : ''}>On: a short beep on act-now nudges</option>` +
+            `<option value="0"${prefs.live_sounds_enabled === false ? ' selected' : ''}>Off: badge and bubble only</option>` +
+            '</select></label>' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);" title="Context fill percentages for the three compact nudges: heads-up, act now, last call.">Compact nudges at (% full)' +
+            '<span style="display:flex;gap:6px;">' +
+            `<input class="filter-input" style="width:64px" id="svo-pref-st1" type="number" min="10" max="95" value="${Number(prefs.stage_heads_up || 60)}">` +
+            `<input class="filter-input" style="width:64px" id="svo-pref-st2" type="number" min="10" max="98" value="${Number(prefs.stage_act_now || 75)}">` +
+            `<input class="filter-input" style="width:64px" id="svo-pref-st3" type="number" min="10" max="99" value="${Number(prefs.stage_last_call || 90)}">` +
+            '</span></label>' +
+            '<label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary);" title="A single tool result larger than this (about, in tokens) triggers the trim alert.">Big tool result (tokens)' +
+            `<input class="filter-input" style="width:96px" id="svo-pref-big" type="number" min="200" max="100000" value="${Number(prefs.big_result_tokens || 2000)}">` +
+            '</label></div>';
         card.querySelector('#svo-pref-mode').addEventListener('change', async (ev) => {
             const v = ev.target.value;
             if (!v) return; // "not set" is the absence of a choice, not a write
@@ -2190,6 +2226,24 @@ const CostsPage = {
             if (v === '') return;
             try { await API.setOptimizerPrefs({ recommend_enabled: v === '1' }); }
             catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        });
+        card.querySelector('#svo-pref-live').addEventListener('change', async (ev) => {
+            try { await API.setOptimizerPrefs({ live_advisor_enabled: ev.target.value === '1' }); }
+            catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        });
+        card.querySelector('#svo-pref-sounds').addEventListener('change', async (ev) => {
+            try { await API.setOptimizerPrefs({ live_sounds_enabled: ev.target.value === '1' }); }
+            catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+        });
+        const stageField = { 'svo-pref-st1': 'stage_heads_up', 'svo-pref-st2': 'stage_act_now',
+            'svo-pref-st3': 'stage_last_call', 'svo-pref-big': 'big_result_tokens' };
+        Object.entries(stageField).forEach(([id, key]) => {
+            card.querySelector('#' + id).addEventListener('change', async (ev) => {
+                const n = parseInt(ev.target.value, 10);
+                if (!Number.isFinite(n)) return;
+                try { await API.setOptimizerPrefs({ [key]: n }); }
+                catch (e) { if (window.Toast) Toast.error('Could not save: ' + e.message); }
+            });
         });
         host.appendChild(card);
     },
@@ -2353,8 +2407,14 @@ const CostsPage = {
         }
         if (st.running) { this._optScanning(host, st); return; }
         if (!st.has_report) { this._optConsent(host, st); return; }
-        const rep = await API.getOptimizerReport();
+        const [rep, act, liveData] = await Promise.all([
+            API.getOptimizerReport(),
+            API.getOptimizerSessions(30),
+            API.getOptimizerLive(),
+        ]);
         if (!rep) { this._optConsent(host, st); return; }
+        this._optActivity = act;
+        this._optLive = liveData;
         this._optReportView(host, rep, st);
     },
 
@@ -2454,6 +2514,14 @@ const CostsPage = {
         const mode = this._optMode(st, rep);
         host.textContent = '';
         host.appendChild(this._optStrip(rep, mode));
+        // Live first: what is still fixable NOW, told with the same data the
+        // Guardian bot speaks from, so the page and the bot agree.
+        const liveSec = this._optLiveSec();
+        if (liveSec) host.appendChild(liveSec);
+        // What happened after the last few copies. A fix that never got pasted
+        // saved nothing, so the loop has to close somewhere the user can see.
+        const fixSec = this._optFixesSec();
+        if (fixSec) host.appendChild(fixSec);
         if (!mode && !(st.prefs && st.prefs.billing_mode)) this._optBillingAsk(host, st);
 
         // Proof leads: a measured receipt is the feature's strongest artifact,
@@ -2464,21 +2532,51 @@ const CostsPage = {
         if (findings.length && (prefs.recommend_enabled == null)) {
             this._optRecommendAsk(host);
         }
+        // Sessions are the unit users think in: live ones first (still
+        // fixable NOW), then recent ones as patterns. The trim ledger and
+        // the practices scorecard are informative depth, so they sit below
+        // the sessions; the findings-by-type wall stays the last drill-down,
+        // collapsed by default. There is deliberately no separate "do this
+        // first" digest: it restated what the session cards and the wall
+        // already rank, and a page that says everything twice reads huge.
+        this._optSessionsSec(host, rep, st);
+        const ba = this._optBeforeAfter(rep, mode);
+        if (ba) host.appendChild(ba);
+        const ledger = this._optTrimLedger(rep, mode);
+        if (ledger) host.appendChild(ledger);
+        const playbook = this._optPlaybook(rep, mode);
+        if (playbook) host.appendChild(playbook);
         this._optFindings(host, rep, st);
-        this._optReceipts(host, rep, mode, 'pending');
-        this._optFootnotes(host, rep);
         this._optFooter(host, rep);
+        // Guardian deep link: an advisory click lands on its session row.
+        if (this._pendingScrollSid) {
+            const sid = this._pendingScrollSid;
+            this._pendingScrollSid = null;
+            requestAnimationFrame(() => {
+                const el = host.querySelector('[data-sid="' + CSS.escape(sid) + '"]')
+                    || host.querySelector('[data-live-sid="' + CSS.escape(sid) + '"]');
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('svo-flash');
+                setTimeout(() => el.classList.remove('svo-flash'), 2600);
+            });
+        }
     },
 
-    /** The with/without comparison strip: observed next to the modeled figure
-     *  under the achievable counterfactuals. Derived, never computed here —
-     *  both figures come straight off the report (dollars: observed minus
-     *  both lower-bound buckets; tokens: observed minus the compaction
-     *  bucket only, since cache waste changes the rate, not the token
-     *  volume), so this strip and the findings list cannot disagree. */
+    /** The with/without comparison strip: observed next to the modeled
+     *  lossless figure (trim + caching, nothing dropped). Derived, never
+     *  computed here: both figures come straight off the report, so this
+     *  strip and the findings list cannot disagree. The full-compaction
+     *  figure (rep.modeled) is a ceiling and only appears as the Session
+     *  length row plus the note, never as the headline promise. */
     _optStrip(rep, mode) {
         const obs = rep.observed || {};
-        const mod = rep.modeled || {};
+        // The headline promises the lossless counterfactual only (trim +
+        // caching, nothing dropped). The full-compaction figure stays a
+        // ceiling, surfaced in the Session length row and the note, never
+        // as the promise. Older persisted reports lack modeled_lossless;
+        // fall back to the full figure until a rescan.
+        const mod = rep.modeled_lossless || rep.modeled || {};
         const b = rep.buckets || {};
         const wrap = document.createElement('div');
         wrap.className = 'svo-strip';
@@ -2489,33 +2587,320 @@ const CostsPage = {
             ? obs.est_cost_usd - mod.est_cost_usd : null;
         const saved = this._optValue(savedTok, savedUsd, mode);
         const headline = mode === 'subscription'
-            ? 'usage headroom you could get back'
-            : 'estimated avoidable spend in the window';
+            ? 'headroom back with nothing dropped'
+            : 'avoidable spend, lossless fixes only';
+        const split = this._optBucketSplit(rep);
+        const trimV = this._optValue(split.trim.tokens, split.trim.est_value_usd, mode);
+        const sessV = this._optValue(split.sess.tokens, split.sess.est_value_usd, mode);
+        let note = '';
+        if (split.trim.tokens > 0) {
+            note = '<div class="svo-strip-note">The headline counts only lossless fixes: ' +
+                `<b>${trimV.lead}</b> of oversized tool results re-billed on every later turn (itemized by tool right below, and under each session with the turn that produced each one) plus cheaper caching rates. ` +
+                `A further <b>${sessV.lead}</b> sits in long sessions re-sending their history; recovering it takes ending or splitting those sessions (fresh session, state note, or subagents). Treat that as a ceiling, not a promise.</div>`;
+        } else if (split.sess.tokens > 0) {
+            note = `<div class="svo-strip-note">No lossless trim opportunities were found in this window. A further <b>${sessV.lead}</b> sits in long sessions re-sending their history; recovering it takes ending or splitting those sessions (fresh session, state note, or subagents). Treat it as a ceiling, not a promise.</div>`;
+        }
         wrap.innerHTML =
-            '<div class="svo-strip-head"><span class="svo-eyebrow">With and without these changes</span>' +
+            '<div class="svo-strip-head"><span class="svo-eyebrow">What your sessions used, and what they could have used</span>' +
             '<span class="svo-strip-label" title="Modeled from the lower-bound waste buckets below. List-price estimate, not an invoice.">modeled estimate</span></div>' +
             '<div class="svo-strip-row">' +
-            `<div class="svo-strip-cell"><div class="svo-strip-v">${from.lead}</div><div class="svo-strip-l">observed, last ${rep.window_days} days${from.sub ? ' · ' + from.sub : ''}</div></div>` +
+            `<div class="svo-strip-cell"><div class="svo-strip-v">${from.lead}</div><div class="svo-strip-l">actually used, last ${rep.window_days} days${from.sub ? ' · ' + from.sub : ''}</div></div>` +
             '<div class="svo-strip-arrow">→</div>' +
-            `<div class="svo-strip-cell"><div class="svo-strip-v svo-accent">${to.lead}</div><div class="svo-strip-l">with these changes${to.sub ? ' · ' + to.sub : ''}</div></div>` +
+            `<div class="svo-strip-cell"><div class="svo-strip-v svo-accent">${to.lead}</div><div class="svo-strip-l">with the lossless fixes applied: trimmed tool results and caching${to.sub ? ' · ' + to.sub : ''}</div></div>` +
             `<div class="svo-strip-cell svo-strip-save"><div class="svo-strip-v">${saved.lead}</div><div class="svo-strip-l">${headline}${saved.sub ? ' · ' + saved.sub : ''}</div></div>` +
             '</div>' +
-            '<div class="svo-buckets">' + this._optBucketRow('Prompt caching', b.cache, obs, mode) +
-            this._optBucketRow('Context compaction', b.compaction, obs, mode) + '</div>' +
-            '<div class="svo-strip-foot"><span>Token counts are exact; dollar figures are list-price estimates and are labelled. The modeled changes touch re-sent context only: model outputs are never altered. Nothing here claims your invoice will change.</span>' +
-            '<button type="button" class="btn btn-secondary btn-sm svo-share">Share as image</button></div>';
+            '<div class="svo-buckets">' +
+            this._optBucketRow('Trim tool results at the source', split.trim, obs, mode, 'lossless',
+                'Oversized tool results this scan caught being re-billed on later turns. Trimming them where they are produced loses nothing.') +
+            this._optBucketRow('Prompt caching', b.cache, obs, mode, 'lossless',
+                'Context re-billed at the full input rate because the stable prefix was not cache-friendly. Fixing it changes the rate, not the content.') +
+            this._optBucketRow('Session length', split.sess, obs, mode, 'quality tradeoff',
+                'History long sessions re-send every turn. Only ending or splitting those sessions (fresh session, state note, subagents) recovers it.',
+                'Not in the headline above: getting this back costs context, not just tokens.') +
+            '</div>' +
+            // The method and the caveats matter, but they are a second read:
+            // as always-on prose they cost a third of the card's height and
+            // pushed the actual numbers up against the fold. One click away,
+            // never further.
+            '<div class="svo-strip-foot">' +
+            '<button type="button" class="svo-strip-why" aria-expanded="false">How this number is built</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm svo-share">Share as image</button></div>' +
+            `<div class="svo-strip-more"${this._optStripMoreOpen ? '' : ' hidden'}>` + note +
+            '<div class="svo-strip-caveat">Token counts are exact; dollar figures are list-price estimates and are labelled. The modeled changes touch re-sent context only: model outputs are never altered. Nothing here claims your invoice will change.</div></div>';
         wrap.querySelector('.svo-share').addEventListener('click',
             (ev) => this._optShareCard(ev.currentTarget, rep, mode, null));
+        const why = wrap.querySelector('.svo-strip-why');
+        const setMore = (open) => {
+            this._optStripMoreOpen = open;
+            wrap.querySelector('.svo-strip-more').toggleAttribute('hidden', !open);
+            why.setAttribute('aria-expanded', String(open));
+            why.textContent = open ? 'Hide how this is built' : 'How this number is built';
+        };
+        setMore(!!this._optStripMoreOpen);
+        why.addEventListener('click', () => setMore(!this._optStripMoreOpen));
+        // Daily shape of the window total, so "already billed, window total"
+        // has a silhouette. Exact per-day token sums from the scan.
+        const daily = rep.daily || [];
+        if (daily.length > 1) {
+            const w = 560, h = 42, max = Math.max(...daily.map(d => d.tokens), 1);
+            const step = w / (daily.length - 1);
+            const pts = daily.map((d, i) =>
+                `${(i * step).toFixed(1)},${(h - 3 - (d.tokens / max) * (h - 8)).toFixed(1)}`).join(' ');
+            const spark = document.createElement('div');
+            spark.className = 'svo-spark';
+            spark.innerHTML =
+                `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+                `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>` +
+                `<span>tokens per day across the window · peak ${this._optFmtTok(max)} on ${
+                    this._esc((daily.find(d => d.tokens === max) || {}).date || '')}</span>`;
+            wrap.appendChild(spark);
+        }
         return wrap;
     },
 
-    _optBucketRow(label, bucket, obs, mode) {
-        if (!bucket) return '';
+    /** Split the compaction bucket by the kind of fix it takes. The scan
+     *  attributes part of it to specific oversized tool results re-billed on
+     *  later turns (tool_result_carry findings): that share is recoverable
+     *  losslessly by trimming at the source. Only the remainder genuinely
+     *  requires session hygiene (fresh session, state note, subagents). */
+    _optBucketSplit(rep) {
+        const comp = (rep.buckets && rep.buckets.compaction) || { tokens: 0, est_value_usd: 0 };
+        let carryTok = 0, carryUsd = 0;
+        (rep.findings || []).forEach(f => {
+            if (f.type !== 'tool_result_carry') return;
+            carryTok += f.tokens_wasted || 0;
+            carryUsd += f.est_value_usd || 0;
+        });
+        const trimTok = Math.min(carryTok, comp.tokens || 0);
+        const trimUsd = Math.min(carryUsd, comp.est_value_usd || 0);
+        return {
+            trim: { tokens: trimTok, est_value_usd: trimUsd },
+            sess: {
+                tokens: Math.max(0, (comp.tokens || 0) - trimTok),
+                est_value_usd: Math.max(0, (comp.est_value_usd || 0) - trimUsd),
+            },
+        };
+    },
+
+    /** The trim ledger: every oversized tool result the scan caught, rolled
+     *  up by the tool that produced it, each row a before → after token
+     *  story (result size → excerpt) with what re-billing it actually cost.
+     *  Observed numbers only: sizes, turns and totals come straight off the
+     *  carry findings; the excerpt figure is a stated modeling assumption. */
+    _OPT_EXCERPT_TOK: 2000,
+
+    _optTrimLedger(rep, mode) {
+        const carries = (rep.findings || []).filter(
+            f => f.type === 'tool_result_carry' && f.tool != null);
+        if (!carries.length) return null;
+        const byTool = new Map();
+        carries.forEach(f => {
+            const k = f.tool || 'tool';
+            const t = byTool.get(k) || { tool: k, n: 0, biggest: 0, rebilled: 0, tok: 0, usd: 0 };
+            t.n += 1;
+            t.biggest = Math.max(t.biggest, f.result_tokens_est || 0);
+            t.rebilled += f.carried_turns || 0;
+            t.tok += f.tokens_wasted || 0;
+            t.usd += f.est_value_usd || 0;
+            byTool.set(k, t);
+        });
+        const rows = [...byTool.values()].sort((a, b) => b.tok - a.tok);
+        const maxTok = rows[0].tok || 1;
+        const shown = rows.slice(0, 8);
+        const card = document.createElement('div');
+        card.className = 'svo-trim';
+        card.innerHTML =
+            '<div class="svo-trim-head"><span class="svo-sess-h"><span>Where trimming pays</span>' +
+            `<span class="svo-chip">${carries.length} oversized results, by tool</span></span></div>` +
+            '<p class="svo-trim-p">Each result below entered context whole and was re-billed on every later turn of its session. ' +
+            `The after figure models the same result trimmed to a ${(this._OPT_EXCERPT_TOK / 1000).toFixed(0)}K-token excerpt (head, tail, or grep matches) before it entered context. ` +
+            `<button type="button" class="svo-copyfix" data-fix="tool_result_carry" title="${this._esc(this._OPT_COPYFIX_TITLE)}">Copy trim request</button></p>` +
+            '<div class="svo-trim-rows">' + shown.map(t => {
+                const avoid = this._optValue(t.tok, t.usd, mode);
+                const pct = Math.max(3, Math.round((t.tok / maxTok) * 100));
+                const ba = t.biggest > this._OPT_EXCERPT_TOK
+                    ? `biggest ${this._optFmtTok(t.biggest)} tok <span class="svo-trim-arrow">→</span> ~${this._optFmtTok(this._OPT_EXCERPT_TOK)} tok excerpt`
+                    : `already excerpt-sized (biggest ${this._optFmtTok(t.biggest)} tok); the cost is the re-billing`;
+                return '<div class="svo-trim-row">' +
+                    `<span class="svo-trim-tool">${this._esc(t.tool)}</span>` +
+                    `<span class="svo-trim-n">${t.n} result${t.n === 1 ? '' : 's'}</span>` +
+                    `<span class="svo-trim-ba">${ba}</span>` +
+                    `<span class="svo-trim-turns">re-billed on ${t.rebilled.toLocaleString()} turns</span>` +
+                    `<span class="svo-bucket-bar"><span style="width:${pct}%"></span></span>` +
+                    `<span class="svo-trim-v">${avoid.lead}${avoid.sub ? ' · ' + avoid.sub : ''} avoidable</span>` +
+                    '</div>';
+            }).join('') + '</div>' +
+            (rows.length > shown.length
+                ? `<div class="svo-trim-more">${rows.length - shown.length} more tools below the top 8, all listed under their sessions.</div>`
+                : '');
+        const cbtn = card.querySelector('.svo-copyfix');
+        if (cbtn) cbtn.addEventListener('click', () =>
+            this._optCopyText(cbtn, this._optFixSnippet('tool_result_carry', null).text,
+                { type: 'tool_result_carry', label: 'Copy trim request' }));
+        return this._optCollapsible(card, '_optTrimOpen');
+    },
+
+    /** Tooltip for a collecting receipt: when the comparison unlocks. */
+    _optEta(p) {
+        const sLeft = Math.max(0, (p.needed_sessions || 0) - (p.after_sessions || 0));
+        const dLeft = Math.max(0, (p.needed_days || 0) - (p.after_days || 0));
+        const parts = [];
+        if (sLeft > 0) parts.push(`${sLeft} more session${sLeft === 1 ? '' : 's'}`);
+        if (dLeft > 0) parts.push(`about ${dLeft % 1 ? dLeft.toFixed(1) : dLeft} more day${dLeft <= 1 ? '' : 's'} of use`);
+        const when = parts.length ? `Available after ${parts.join(' and ')}` : 'Available on the next rescan';
+        return `${when} (needs ${p.needed_sessions} sessions and ${p.needed_days} days on the after side). No number is shown until then: a thin after side would be a guess, not a measurement.`;
+    },
+
+    /** Collapse wiring for the informative depth cards: header stays as a
+     *  one-line summary, the body opens on demand. State persists across
+     *  re-renders within the tab so an opened card stays open. */
+    _optCollapsible(card, stateKey) {
+        const open = this[stateKey] === true;
+        const head = card.querySelector('.svo-trim-head');
+        const body = document.createElement('div');
+        while (head.nextSibling) body.appendChild(head.nextSibling);
+        card.appendChild(body);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'svo-sess-toggle';
+        const set = (on) => {
+            body.style.display = on ? '' : 'none';
+            btn.textContent = on ? 'Hide' : 'Show';
+        };
+        set(open);
+        btn.addEventListener('click', () => {
+            this[stateKey] = !(this[stateKey] === true);
+            set(this[stateKey]);
+        });
+        head.appendChild(btn);
+        return card;
+    },
+
+    /** Before vs after: the follow-through on applied recommendations,
+     *  living with the sessions so avoidable totals and their outcome read
+     *  together. Resolved types show the measured movement; the rest show
+     *  exactly how much of the after side has been collected, because a
+     *  thin after side would be a guess, not a measurement. */
+    _optBeforeAfter(rep, mode) {
+        const rec = rep.receipts || {};
+        const resolved = rec.resolved || [];
+        const pending = rec.pending || [];
+        if (!resolved.length && !pending.length) return null;
+        const name = (t) => this._OPT_TYPE_LABELS[t] || t;
+        const rows = [];
+        resolved.forEach(r => {
+            rows.push('<div class="svo-play-row">' +
+                `<span class="svo-play-n">${this._esc(name(r.type))}</span>` +
+                `<span class="svo-play-w">${this._esc(this._optMetricLabel(r.metric))}: ${this._optMetricFmt(r.metric, r.before)} before <span class="svo-trim-arrow">→</span> ${this._optMetricFmt(r.metric, r.after)} after · ${r.before_sessions} sessions vs ${r.after_sessions}, like-for-like</span>` +
+                '<span class="svo-play-chip ok" title="Measured from real sessions on both sides of the change. Never an estimate.">measured</span></div>');
+        });
+        pending.forEach(p => {
+            if (p.status === 'insufficient') {
+                const sPct = Math.min(100, Math.round(((p.after_sessions || 0) / (p.needed_sessions || 1)) * 100));
+                rows.push('<div class="svo-play-row">' +
+                    `<span class="svo-play-n">${this._esc(name(p.type))}</span>` +
+                    `<span class="svo-play-w">after side filling: ${p.after_sessions || 0} of ${p.needed_sessions} sessions · ${p.after_days ?? 0} of ${p.needed_days} days ` +
+                    `<span class="svo-bucket-bar svo-ba-bar"><span style="width:${Math.max(sPct, 2)}%"></span></span></span>` +
+                    `<span class="svo-play-chip na" title="${this._esc(this._optEta(p))}">collecting</span></div>`);
+            } else {
+                rows.push('<div class="svo-play-row">' +
+                    `<span class="svo-play-n">${this._esc(name(p.type))}</span>` +
+                    `<span class="svo-play-w">${this._esc(p.reason || '')}</span>` +
+                    `<span class="svo-play-chip na">${this._esc(p.status)}</span></div>`);
+            }
+        });
+        const card = document.createElement('div');
+        card.className = 'svo-trim svo-ba';
+        card.innerHTML =
+            '<div class="svo-trim-head"><span class="svo-sess-h"><span>Before vs after your change</span>' +
+            `<span class="svo-chip">${resolved.length} measured · ${pending.length} collecting</span></span></div>` +
+            '<p class="svo-trim-p">Every cause is re-measured on real sessions after you apply a change. Keep working and rescan: new sessions land on the after side, and the comparison appears the moment both sides are comparable.</p>' +
+            `<div class="svo-play-rows">${rows.join('')}</div>`;
+        // With nothing measured yet this card is a progress note, not a
+        // result, so it collapses to one line like the other depth cards.
+        // The first resolved receipt is the page's strongest artifact and
+        // keeps the card open on its own.
+        if (!resolved.length) return this._optCollapsible(card, '_optBaOpen');
+        return card;
+    },
+
+    /** Industry playbook, scored on the user's own data. Each practice is
+     *  the standard advice for LLM cost control, but instead of quoting it
+     *  as a blog list, every row is checked against this report's findings:
+     *  a practice either shows measured waste here or reads healthy. */
+    _optPlaybook(rep, mode) {
+        const findings = rep.findings || [];
+        const sumFor = (types) => {
+            let tok = 0, usd = 0;
+            findings.forEach(f => {
+                if (!types.includes(f.type)) return;
+                tok += f.tokens_wasted || 0;
+                usd += f.est_value_usd || 0;
+            });
+            return { tok, usd };
+        };
+        const rows = [
+            { name: 'Cache the stable prefix', types: ['low_cache_utilization'],
+              why: 'Cache reads bill at roughly a tenth of fresh input. Keep the system prompt and tool definitions byte-stable so the prefix stays cacheable.' },
+            { name: 'Trim tool results at the source', types: ['tool_result_carry'],
+              why: 'Only the excerpt a turn needs should enter context. A full dump is re-billed on every later turn of the session.' },
+            { name: 'Keep sessions short and stateful', types: ['repeated_context'],
+              why: 'Re-sent context grows with every turn. Finish the task, write a short state note, and continue in a fresh session.' },
+            { name: 'Right-size the model per task', types: ['model_right_sizing'],
+              why: 'Route easy work (classification, extraction, small edits) to a smaller model and keep the frontier model for hard reasoning.' },
+            { name: 'Never pay for the same call twice', types: ['duplicate_llm'],
+              why: 'Deduplicate identical requests and cache repeat answers at the application layer.' },
+            { name: 'Cap and shape outputs', types: ['excessive_output'],
+              why: 'Set max_tokens and ask for the answer, not a recap. Output tokens are the most expensive tokens.' },
+            { name: 'Stop failure loops early', types: ['retry_loop', 'abnormal_loop'],
+              why: 'Every retry re-bills the full context. Back off, change the plan, or surface the error instead of re-asking.' },
+        ];
+        if (mode === 'api') {
+            rows.push({ name: 'Batch what nobody is waiting for', types: null,
+                why: 'Non-interactive work (evals, backfills, bulk summaries) runs at half price on batch endpoints. Local transcripts cannot show whether you already use them.' });
+        }
+        let hits = 0;
+        const body = rows.map(r => {
+            let chip;
+            if (!r.types) {
+                chip = '<span class="svo-play-chip na" title="This practice lives outside the transcripts SecureVector can read locally.">beyond local visibility</span>';
+            } else {
+                const agg = sumFor(r.types);
+                if (agg.tok > 0) {
+                    hits += 1;
+                    const v = this._optValue(agg.tok, agg.usd, mode);
+                    chip = `<span class="svo-play-chip hit" title="Findings of this kind exist in your last scan; the amount is what they add up to. The matching rows under All findings each carry the fix and a copy-paste request.">seen here · ${v.lead}</span>`;
+                } else {
+                    chip = '<span class="svo-play-chip ok" title="The last scan found no waste of this kind.">looks healthy</span>';
+                }
+            }
+            return '<div class="svo-play-row">' +
+                `<span class="svo-play-n">${this._esc(r.name)}</span>` +
+                `<span class="svo-play-w">${this._esc(r.why)}</span>` +
+                chip + '</div>';
+        }).join('');
+        const scored = rows.filter(r => r.types).length;
+        const card = document.createElement('div');
+        card.className = 'svo-trim svo-play';
+        card.innerHTML =
+            '<div class="svo-trim-head"><span class="svo-sess-h"><span>Good practice, scored on your data</span>' +
+            `<span class="svo-chip">${hits} of ${scored} need attention</span></span></div>` +
+            '<p class="svo-trim-p">The standard playbook for LLM cost control, checked against your own transcripts from the last scan instead of quoted as generic advice.</p>' +
+            `<div class="svo-play-rows">${body}</div>`;
+        return this._optCollapsible(card, '_optPlayOpen');
+    },
+
+    _optBucketRow(label, bucket, obs, mode, nature, tip, caption) {
+        if (!bucket || !bucket.tokens) return '';
         const total = obs.total_tokens || 1;
         const pct = Math.min(100, Math.round((bucket.tokens / total) * 100));
         const v = this._optValue(bucket.tokens, bucket.est_value_usd, mode);
-        return '<div class="svo-bucket"><span class="svo-bucket-l">' + label + '</span>' +
-            '<span class="svo-bucket-bar"><span style="width:' + Math.max(pct, bucket.tokens ? 2 : 0) + '%"></span></span>' +
+        const tag = nature
+            ? `<span class="svo-bucket-tag${nature === 'quality tradeoff' ? ' warn' : ''}">${nature}</span>`
+            : '';
+        const cap = caption ? `<span class="svo-bucket-cap">${this._esc(caption)}</span>` : '';
+        return `<div class="svo-bucket"><span class="svo-bucket-l"${tip ? ` title="${this._esc(tip)}"` : ''}>` + label + tag + cap + '</span>' +
+            '<span class="svo-bucket-bar"><span style="width:' + Math.max(pct, 2) + '%"></span></span>' +
             `<span class="svo-bucket-v">${v.lead}${v.sub ? ' · ' + v.sub : ''}</span></div>`;
     },
 
@@ -2563,6 +2948,11 @@ const CostsPage = {
 
     // ---------------- findings ----------------
 
+    // The finding types the headline's lossless counterfactual subtracts.
+    // Keep in step with `modeled_lossless` in cost_optimizer.py: anything
+    // outside this set is real waste but is not what the headline promises.
+    _OPT_LOSSLESS_TYPES: { tool_result_carry: 1, low_cache_utilization: 1 },
+
     _OPT_TYPE_LABELS: {
         repeated_context: 'Repeated context',
         tool_result_carry: 'Tool-result carry',
@@ -2572,6 +2962,563 @@ const CostsPage = {
         excessive_output: 'Excessive output',
         abnormal_loop: 'Abnormal loop shape',
         model_right_sizing: 'Model right-sizing',
+    },
+
+    /** Sessions view: one card per agent session, live first. Joins three
+     *  local sources by session id: the activity sweep (live or stale, and
+     *  the context size a live session is re-sending right now), the last
+     *  scan's session summaries (tokens, turns), and the scan's findings
+     *  (why it cost what it did + what to change). Subagent streams
+     *  (sid:agent-*) fold into their parent session's card. */
+    /** Live-status refresh between full renders: updates the context-now
+     *  figure on live cards in place, and only re-renders the tab when a
+     *  session actually starts or stops (so expanded cards stay expanded). */
+    async _refreshOptSessions() {
+        // The live band must stay as current as the Guardian bot: both read
+        // the same endpoint, so the page and the bot never disagree. It
+        // refreshes independently of the sessions list, which discovers over
+        // a different window and could in principle be absent.
+        await this._refreshLiveBand();
+        const sec = document.getElementById('svo-sessions-sec');
+        if (!sec) return;
+        const act = await API.getOptimizerSessions(30);
+        if (!act || !act.sessions) return;
+        this._optActivity = act;
+        const liveNow = new Set(act.sessions.filter(x => x.active).map(x => x.session_id));
+        const cards = [...sec.querySelectorAll('.svo-sess-card')];
+        const changed = cards.some(c =>
+            (c.dataset.live === '1') !== liveNow.has(c.dataset.sid));
+        if (changed) { await this._loadAndRenderOptimizer(); return; }
+        act.sessions.forEach(x => {
+            if (!x.active || x.context_tokens_now == null) return;
+            const card = sec.querySelector(`.svo-sess-card[data-sid="${CSS.escape(x.session_id)}"]`);
+            const fact = card && card.querySelector('.svo-accent-t');
+            if (fact) fact.textContent =
+                `re-sending ${this._optFmtTok(x.context_tokens_now)} tok each turn`;
+        });
+    },
+
+    _optSessionsSec(host, rep, st) {
+        const mode = this._optMode(st, rep);
+        const recOn = !!(st.prefs && st.prefs.recommend_enabled);
+        const act = (this._optActivity && this._optActivity.sessions) || [];
+        if (!act.length) return;
+
+        const summaries = new Map();
+        (rep.session_summaries || []).forEach(x => summaries.set(x.session_id, x));
+        const findsBySid = new Map();
+        (rep.findings || []).forEach(f => {
+            if (!f.session_id) return;
+            const parent = String(f.session_id).split(':')[0];
+            if (!findsBySid.has(parent)) findsBySid.set(parent, []);
+            findsBySid.get(parent).push(f);
+        });
+
+        const rows = act.map(a => {
+            const sid = a.session_id;
+            let turns = 0, promptTok = 0, outTok = 0, streams = 0;
+            summaries.forEach((x, key) => {
+                if (key === sid || key.startsWith(sid + ':')) {
+                    turns += x.turns || 0;
+                    promptTok += x.prompt_tokens || 0;
+                    outTok += x.output_tokens || 0;
+                    streams += 1;
+                }
+            });
+            const finds = findsBySid.get(sid) || [];
+            const wasted = finds.reduce((n, f) => n + (f.tokens_wasted || 0), 0);
+            const value = finds.reduce((n, f) => n + (f.est_value_usd || 0), 0);
+            // Same set the row displays, so the order and the number agree.
+            const lossless = finds.reduce(
+                (n, f) => n + (this._OPT_LOSSLESS_TYPES[f.type] ? (f.tokens_wasted || 0) : 0), 0);
+            return { a, sid, turns, promptTok, outTok, streams, finds, wasted, value, lossless,
+                     scanned: streams > 0 };
+        });
+
+        const live = rows.filter(r => r.a.active);
+        const stale = rows.filter(r => !r.a.active)
+            .sort((x, y) => (y.lossless - x.lossless) || (y.wasted - x.wasted));
+
+        const sec = document.createElement('div');
+        sec.className = 'svo-sec';
+        sec.id = 'svo-sessions-sec';
+
+        const h = document.createElement('div');
+        h.className = 'svo-sec-h svo-sess-h';
+        h.innerHTML = '<span>Sessions</span>' +
+            (live.length ? `<span class="svo-chip svo-chip-live">${live.length} live</span>` : '') +
+            `<span class="svo-chip" title="Ordered by the lossless waste in each session: the part you can trim with nothing dropped.">${stale.length} recent, most fixable first</span>`;
+        sec.appendChild(h);
+
+        // One list, one pattern: every session is a collapsible row.
+        // Agent numbers follow recency (Agent #1 is the newest), matching
+        // how the Agent Map numbers sessions. Every row starts closed when
+        // the live band is up: the band already tells the live story in
+        // full, and opening the same sessions again here repeated half a
+        // screen of identical guidance. With the band off, live rows still
+        // open so the act-now step is never hidden behind a click.
+        const bandShown = !!(this._optLive && this._optLive.enabled !== false
+            && (this._optLive.sessions || []).length);
+        const ordered = [...live, ...stale];
+        const list = document.createElement('div');
+        list.className = 'svo-sess-list';
+        const PAGE = 8 + live.length;
+        const shown = this._optShowAllSessions ? ordered : ordered.slice(0, PAGE);
+        shown.forEach((r, i) => list.appendChild(
+            this._optSessionRow(r, rep, mode, recOn, r.a.active, i + 1,
+                r.a.active && !bandShown)));
+        if (!this._optShowAllSessions && ordered.length > PAGE) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'svo-sess-more';
+            more.textContent = `Show all ${ordered.length} sessions`;
+            more.addEventListener('click', async () => {
+                this._optShowAllSessions = true;
+                await this._loadAndRenderOptimizer();
+            });
+            list.appendChild(more);
+        }
+        sec.appendChild(list);
+        host.appendChild(sec);
+    },
+
+    /** One row per session, live or recent: a click toggles the inline
+     *  story (why it cost what it did, what to change). `autoOpen` decides
+     *  the starting state, so live rows stay closed while the live band is
+     *  saying the same thing; agent numbers follow recency. */
+    _optSessionRow(r, rep, mode, recOn, isLive, num, autoOpen) {
+        const { a, sid, finds } = r;
+        const wrap = document.createElement('div');
+        wrap.className = 'svo-sess-rowwrap' + (isLive ? ' live' : '');
+        wrap.dataset.sid = sid;
+        wrap.dataset.live = isLive ? '1' : '0';
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'svo-sess-row';
+        // One "avoidable" number per row used to sum both buckets, so a row
+        // could read 3.8B while the page headline promised 143.8M: the row was
+        // 26x the whole page and looked authoritative. Split it the way the
+        // strip does, and the two reconcile: the lossless figures across rows
+        // are what the headline counts.
+        // Only the types the headline's lossless counterfactual actually
+        // subtracts, so a row's figure and the strip's promise are the same
+        // quantity. Duplicate calls and retry loops are real waste, but their
+        // tokens_wasted is the repeat turn's whole prompt, which overlaps the
+        // re-sent context already counted below: adding them here would make
+        // the rows sum past the headline again. They stay visible as their own
+        // count, and in full when the row is open.
+        const QT = 'repeated_context';
+        let lossTok = 0, lossUsd = 0, histTok = 0, histUsd = 0, otherN = 0;
+        (finds || []).forEach(f => {
+            if (f.type === QT) { histTok += f.tokens_wasted || 0; histUsd += f.est_value_usd || 0; }
+            else if (this._OPT_LOSSLESS_TYPES[f.type]) {
+                lossTok += f.tokens_wasted || 0; lossUsd += f.est_value_usd || 0;
+            } else { otherN += 1; }
+        });
+        const lossV = this._optValue(lossTok, lossUsd, mode);
+        const histV = this._optValue(histTok, histUsd, mode);
+        // "3.7B tok" says how much but not whether that is a lot. The share of
+        // the session's own traffic is the anchor that makes it readable.
+        const sessTotal = (r.promptTok || 0) + (r.outTok || 0);
+        const histPct = histTok > 0 && sessTotal > 0
+            ? Math.min(99, Math.max(1, Math.round((histTok / sessTotal) * 100)))
+            : null;
+        const status = isLive
+            ? '<span class="svo-live-badge">LIVE</span>'
+            : `<span class="svo-sess-row-when">ended ${this._esc(this._optAgo(a.last_activity))}</span>`;
+        const liveFact = isLive && a.context_tokens_now != null
+            ? `<span class="svo-sess-row-ctx svo-accent-t" title="Input plus cache tokens on the newest turn: the context this session re-sends with every message.">re-sending ${this._optFmtTok(a.context_tokens_now)} tok/turn</span>`
+            : `<span class="svo-sess-row-turns">${r.scanned ? r.turns.toLocaleString() + ' turns' : 'not scanned yet'}</span>`;
+        row.innerHTML =
+            '<span class="svo-sess-row-chev"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
+            `<span class="svo-sess-row-num">Agent #${num}</span>` +
+            `<span class="svo-sess-row-id" title="Session ${this._esc(sid)}">${this._esc(String(sid).slice(0, 8))}…</span>` +
+            `<span class="svo-sess-row-h">${this._esc(a.harness || '')}</span>` +
+            status + liveFact +
+            `<span class="svo-sess-row-waste" title="${this._esc(
+                lossTok > 0
+                    ? 'Lossless: oversized tool results re-billed on later turns, plus caching. This is the part the headline above counts. Open the row for each cause and its fix.'
+                    : (!r.scanned
+                        ? 'This session started after the last scan. Rescan to include it.'
+                        : otherN > 0
+                            ? 'Nothing here is counted in the headline, but this session has findings of other kinds, such as duplicate or retried calls. Open the row to see them.'
+                            : 'No waste found in this session.'))}">${
+                lossTok > 0 ? 'lossless ' + lossV.lead
+                    : (!r.scanned ? 'not in last scan'
+                        : otherN > 0
+                            ? otherN + (otherN === 1 ? ' other finding' : ' other findings')
+                            : 'clean')}</span>` +
+            `<span class="svo-sess-row-hist"${histTok > 0 ? ' title="' + this._esc(
+                'Context this session re-sent as history' + (histPct != null ? ', ' + histPct + '% of everything it sent and received' : '')
+                + '. Not counted in the headline: recovering it means ending or splitting the session, not a lossless fix.') + '"' : ''}>${
+                histTok > 0 ? 'session length ' + histV.lead : ''}</span>`;
+        wrap.appendChild(row);
+
+        const buildPanel = () => {
+            const panel = document.createElement('div');
+            panel.className = 'svo-sess-panel';
+            const why = this._optSessionWhy(r, mode, recOn, isLive);
+            if (why) panel.appendChild(why);
+            else {
+                const none = document.createElement('div');
+                none.className = 'svo-sess-hint';
+                none.textContent = r.scanned
+                    ? 'Nothing avoidable above the noise floor in this session.'
+                    : 'This session started after the last scan. Rescan to analyze it.';
+                panel.appendChild(none);
+            }
+            return panel;
+        };
+        const setOpen = (open) => {
+            let panel = wrap.querySelector('.svo-sess-panel');
+            if (open && !panel) { panel = buildPanel(); wrap.appendChild(panel); }
+            if (panel) panel.style.display = open ? '' : 'none';
+            row.setAttribute('aria-expanded', String(open));
+            wrap.classList.toggle('open', open);
+        };
+        row.addEventListener('click', () => {
+            const panel = wrap.querySelector('.svo-sess-panel');
+            setOpen(!(panel && panel.style.display !== 'none'));
+        });
+        setOpen(!!autoOpen); // see _optSessionsSec: the live band opens instead
+        return wrap;
+    },
+
+    /** The per-session story: why it cost what it did (top causes with
+     *  amounts) and what to change (deduped by cause). Live sessions lead
+     *  with the act-now step. */
+    _optSessionWhy(r, mode, recOn, isLive) {
+        const byType = new Map();
+        r.finds.forEach(f => {
+            const t = byType.get(f.type) || { tokens: 0, value: 0, rec: null };
+            t.tokens += f.tokens_wasted || 0;
+            t.value += f.est_value_usd || 0;
+            if (!t.rec && f.recommendation && f.recommendation.change) {
+                t.rec = f.recommendation;
+            }
+            byType.set(f.type, t);
+        });
+        const top = [...byType.entries()].sort((a, b) => b[1].tokens - a[1].tokens).slice(0, 3);
+        if (!top.length && !isLive) return null;
+
+        const box = document.createElement('div');
+        box.className = 'svo-sess-why';
+        const items = [];
+
+        if (isLive && r.a.context_tokens_now != null && r.a.context_tokens_now >= 60000
+            && r.a.harness === 'claude-code') {
+            items.push('<div class="svo-sess-act"><span class="svo-rec-k">Act now</span>' +
+                `<span class="svo-rec-t">This session is live and re-sends about ${this._optFmtTok(r.a.context_tokens_now)} tokens of context with every turn. Cheapest for quality: finish this task and continue in a fresh session, or save a short state note and restart from it.</span>` +
+                `<button type="button" class="svo-copyfix" data-fix="repeated_context" title="${this._esc(this._OPT_COPYFIX_TITLE)}">Copy state note</button></div>`);
+        }
+
+        // why: top causes with their share of this session's avoidable tokens
+        if (top.length) {
+            const maxTok = top[0][1].tokens || 1;
+            items.push('<div class="svo-sess-part">Why it cost what it did' +
+                '<span class="svo-spent-tag" title="These totals are what this session already spent across the whole window. They are receipts, not gauges: compacting or fixing a habit lowers the live tokens-per-turn figure above, it does not refund what was billed.">already billed, window total</span></div>');
+            top.forEach(([type, agg]) => {
+                const v = this._optValue(agg.tokens, agg.value, mode);
+                const label = this._esc(this._OPT_TYPE_LABELS[type] || type);
+                const pct = Math.max(4, Math.round((agg.tokens / maxTok) * 100));
+                items.push('<div class="svo-sess-cause">' +
+                    `<span class="svo-sess-cause-n">${label}</span>` +
+                    `<span class="svo-sess-cause-bar"><span style="width:${pct}%"></span></span>` +
+                    `<span class="svo-sess-cause-v">${v.lead}${v.sub ? ' · ' + v.sub : ''}</span>` +
+                    '</div>');
+            });
+        }
+
+        // what to change: one sentence per cause, deduped
+        const recs = top.map(([type, agg]) => (agg.rec ? { type, rec: agg.rec } : null)).filter(Boolean);
+        if (recs.length && recOn) {
+            items.push('<div class="svo-sess-part">What to change</div>');
+            recs.forEach(({ type, rec }) => {
+                const snip = this._optFixSnippet(type, null);
+                items.push('<div class="svo-sess-rec">' +
+                    `<span class="svo-sess-rec-c">${this._esc(rec.change)}</span>` +
+                    (rec.how ? `<span class="svo-sess-rec-kv"><b>How</b>${this._esc(rec.how)}</span>` : '') +
+                    (rec.risk ? `<span class="svo-sess-rec-kv"><b>Risk</b>${this._esc(rec.risk)}</span>` : '') +
+                    (snip ? `<button type="button" class="svo-copyfix" data-fix="${this._esc(type)}" title="${this._esc(this._OPT_COPYFIX_TITLE)}">${snip.label}</button>` : '') +
+                    '</div>');
+            });
+        } else if (top.length && !recOn) {
+            items.push('<div class="svo-sess-hint">Turn on recommendations above to see the suggested change for each cause.</div>');
+        }
+        if (recs.length && recOn) {
+            items.push('<div class="svo-sess-note">SecureVector recommends from what it observed in this transcript. Reviewing and applying any change is yours to decide: nothing is executed for you.</div>');
+        }
+        box.innerHTML = items.join('');
+        box.querySelectorAll('.svo-copyfix').forEach(btn => {
+            const snip = this._optFixSnippet(btn.dataset.fix, null);
+            if (snip) btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._optCopyText(btn, snip.text,
+                    { type: btn.dataset.fix, session_id: r.sid, label: snip.label });
+            });
+        });
+        return box;
+    },
+
+    _optAgo(iso) {
+        const t = Date.parse(iso || '');
+        if (!Number.isFinite(t)) return '';
+        const mins = Math.max(1, Math.round((Date.now() - t) / 60000));
+        if (mins < 60) return mins + 'm ago';
+        const hrs = Math.round(mins / 60);
+        if (hrs < 48) return hrs + 'h ago';
+        return Math.round(hrs / 24) + 'd ago';
+    },
+
+    // ---------------- live right now: the page tells the bot's story ----------
+
+    /** Copy-paste fix for a live advisory. Shares texts with the findings
+     *  snippets where the cause is the same; live-only causes get their own.
+     *  Clipboard only, always: the human is the only writer into a session. */
+    _optLiveFix(type, a) {
+        a = a || {};
+        if (type === 'tool_result_carry') {
+            return this._optFixSnippet('tool_result_carry',
+                { tool: a.tool, result_tokens_est: a.tokens });
+        }
+        const stateNote = this._optFixSnippet('repeated_context', {}).text;
+        if (type === 'duplicate_calls') {
+            return {
+                label: 'Copy dedupe request',
+                text: `The same ${a.tool || 'tool'} call ran ${a.count || 'several'} times with identical input. Reuse the earlier result instead of calling again, and tell me before repeating any call with the same input.`,
+            };
+        }
+        if (type === 'failure_loop') {
+            return {
+                label: 'Copy stop-loop request',
+                text: 'Stop retrying the failing command. State what failed, what you already tried, and propose a different approach before running anything else. Repeated failing runs bill the full context on every attempt.',
+            };
+        }
+        if (type === 'compact_act_now' || type === 'compact_last_call') {
+            return {
+                label: 'Copy state note + compact step',
+                text: stateNote + '\n\nAfter the note is written I will type: /compact keep the current task, the decisions made, the files in flight, and the exact next step. Drop everything else. If I am switching to an unrelated task instead, I will use /clear.',
+            };
+        }
+        return { label: 'Copy state note template', text: stateNote };
+    },
+
+    _optLiveAdvText(a) {
+        if (a.type === 'tool_result_carry') {
+            return `A tool result of about ${this._optFmtTok(a.tokens || 0)} tokens from ${a.tool || 'a tool'} just entered this context. Every later turn re-bills it.`;
+        }
+        if (a.type === 'resend_growth') {
+            return `Context re-sent per turn grew from ${this._optFmtTok(a.from_tokens || 0)} to ${this._optFmtTok(a.to_tokens || 0)} tokens.`;
+        }
+        if (a.type === 'duplicate_calls') {
+            return `The same ${a.tool || 'tool'} call ran ${a.count} times in a row.`;
+        }
+        if (a.type === 'failure_loop') {
+            return `${a.streak} tool calls failed back to back: this session is paying to fail repeatedly.`;
+        }
+        if (a.type === 'long_session') {
+            return 'Long session: its whole history is re-billed on every turn.';
+        }
+        return '';
+    },
+
+    /** Re-read the live endpoint and patch the band in place. A session
+     *  appearing or leaving, or a compact stage or advisory changing, needs
+     *  the full rebuild; fill percent and re-send rate patch without one. */
+    async _refreshLiveBand() {
+        const live = await API.getOptimizerLive();
+        if (!live) return;
+        const prev = this._optLive;
+        this._optLive = live;
+        const band = document.querySelector('.svo-liveband');
+        const now = live.sessions || [];
+        const before = (prev && prev.sessions) || [];
+        const key = (arr) => arr.map(s => s.session_id + ':' + (s.compact_stage || '')
+            + ':' + (s.advisories || []).map(a => a.type).sort().join(',')).join('|');
+        if (!band || key(now) !== key(before)) {
+            await this._loadAndRenderOptimizer();
+            return;
+        }
+        now.forEach((s) => {
+            const row = band.querySelector(
+                `.svo-live-row[data-live-sid="${CSS.escape(s.session_id)}"]`);
+            if (!row) return;
+            const pct = s.fill_pct != null ? Math.min(100, s.fill_pct) : null;
+            const label = row.querySelector('.svo-live-top span');
+            if (label && pct != null) {
+                label.textContent = `${Math.round(pct)}% of a ${this._optFmtTok(s.context_window || 200000)} token window, re-sending ${this._optFmtTok(s.context_tokens_now || 0)} tok/turn`;
+            }
+            const fill = row.querySelector('.svo-live-fill i');
+            if (fill && pct != null) fill.style.width = pct + '%';
+        });
+    },
+
+    /** "Fixes you copied" band: the follow-through on every copy button on
+     *  this page. Three states, and the difference between them is the whole
+     *  point: copied is certain, pasted is read from the local transcript, and
+     *  worked is measured. Nothing here is celebrated on a paste alone. */
+    _optFixesSec() {
+        const fixes = (this._optLive && this._optLive.fixes) || null;
+        const rows = (fixes && fixes.recent) || [];
+        if (!rows.length) return null;
+        const card = document.createElement('div');
+        card.className = 'svo-trim';
+        const worked = rows.filter(f => f.status === 'worked').length;
+        const head = document.createElement('div');
+        head.className = 'svo-trim-head';
+        head.innerHTML = '<span class="svo-sess-h" style="display:inline-flex">' +
+            '<span>Fixes you copied</span>' +
+            (worked ? `<span class="svo-chip">${worked} verified</span>` : '') +
+            '</span>' +
+            '<span class="svo-live-note" title="SecureVector looks for the copied text in the transcript on this device, then re-measures what the advice was about. A fix is only called verified once the number moves.">measured, not assumed</span>';
+        card.appendChild(head);
+        rows.forEach(f => {
+            const row = document.createElement('div');
+            row.className = 'svo-live-item';
+            const t = document.createElement('span');
+            t.textContent = this._optFixLine(f);
+            row.appendChild(t);
+            card.appendChild(row);
+        });
+        const note = document.createElement('div');
+        note.className = 'svo-sess-note';
+        note.textContent = 'Nothing is executed for you. SecureVector only reads '
+            + 'the transcripts already on this machine to see whether a fix you '
+            + 'pasted changed anything.';
+        card.appendChild(note);
+        return card;
+    },
+
+    /** One line per copied fix, in the state it actually reached. Wording is
+     *  deliberately flat for the states that are not wins: an unused fix is
+     *  the user's call, not a failure to point out. */
+    _optFixLine(f) {
+        const label = f.label || this._optFixName(f.type);
+        const who = f.session_id
+            ? `Agent ${String(f.session_id).slice(0, 8)}…` : 'a session';
+        const before = (f.before || {}).context_tokens;
+        const after = (f.after || {}).context_tokens;
+        switch (f.status) {
+            case 'worked':
+                return before && after && after < before
+                    ? `${label}: worked. Context in ${who} went from `
+                        + `${this._fmtTokens(before)} to ${this._fmtTokens(after)} tokens.`
+                    : `${label}: worked. The ${this._optFixName(f.type)} has not `
+                        + `come back in ${who}.`;
+            case 'pasted':
+                return `${label}: pasted into ${who}. Watching the next few turns.`;
+            case 'copied':
+                return `${label}: copied, not pasted yet.`;
+            case 'no_paste':
+                return `${label}: copied, never pasted. No harm done.`;
+            case 'auto_compacted':
+                return `${label}: context in ${who} came down, but auto-compact `
+                    + 'did it. Not counting that one as yours.';
+            default:
+                return `${label}: pasted, but the numbers have not moved yet.`;
+        }
+    },
+
+    _optFixName(type) {
+        switch (type) {
+            case 'tool_result_carry': return 'oversized tool result';
+            case 'duplicate_calls': return 'repeated tool call';
+            case 'failure_loop': return 'failure loop';
+            case 'resend_growth': return 'context resend growth';
+            case 'repeated_context': return 're-sent context';
+            case 'excessive_output': return 'over-long output';
+            default:
+                return type && type.indexOf('compact') === 0
+                    ? 'full context window' : 'flagged problem';
+        }
+    },
+
+    /** "Live right now" band: same data the Guardian speaks from, so the bot
+     *  and the page never tell different stories. Compact staging follows the
+     *  practice the design doc records: advice at task boundaries, state note
+     *  first, and never a savings figure on a compact nudge. */
+    _optLiveSec() {
+        const live = this._optLive;
+        if (!live || live.enabled === false || !(live.sessions || []).length) return null;
+        const card = document.createElement('div');
+        card.className = 'svo-trim svo-liveband';
+        const head = document.createElement('div');
+        head.className = 'svo-trim-head';
+        head.innerHTML = '<span class="svo-sess-h" style="display:inline-flex">' +
+            '<span>Live right now</span>' +
+            `<span class="svo-chip svo-chip-live">${live.sessions.length} session${live.sessions.length === 1 ? '' : 's'}</span></span>` +
+            '<span class="svo-live-note" title="Read from the transcript tail on this machine, refreshed while the session runs. Everything here is advisory: fixes are copied to your clipboard, never sent into a session.">live gauge, not a receipt</span>';
+        card.appendChild(head);
+        // The sessions list numbers live sessions first, in activity order:
+        // matching that here keeps one session from having two names.
+        const liveIds = ((this._optActivity && this._optActivity.sessions) || [])
+            .filter(a => a.active).map(a => a.session_id);
+        const stageLine = {
+            heads_up: 'Heads-up: finish the current step, write a state note, then compact.',
+            act_now: 'Act now: compact at the next stopping point, before quality drops.',
+            last_call: 'Last call: auto-compact is imminent and will pick its own moment. Compact now.',
+        };
+        // an advisor session with no activity row has no number: it sorts last
+        const rank = (x) => { const i = liveIds.indexOf(x.session_id); return i < 0 ? 1e6 : i; };
+        const ordered = [...live.sessions].sort((x, y) => rank(x) - rank(y));
+        for (const s of ordered) {
+            const row = document.createElement('div');
+            row.className = 'svo-live-row';
+            row.dataset.liveSid = s.session_id;
+            const pct = s.fill_pct != null ? Math.min(100, s.fill_pct) : null;
+            const stage = s.compact_stage || 'quiet';
+            const top = document.createElement('div');
+            top.className = 'svo-live-top';
+            top.innerHTML = '<b></b><span></span>';
+            const num = liveIds.indexOf(s.session_id) + 1;
+            const shortId = String(s.session_id || '').slice(0, 8) + '…';
+            top.querySelector('b').textContent = num > 0
+                ? `Agent #${num} · ${shortId}` : `Session ${shortId}`;
+            top.querySelector('span').textContent = pct != null
+                ? `${Math.round(pct)}% of a ${this._optFmtTok(s.context_window || 200000)} token window, re-sending ${this._optFmtTok(s.context_tokens_now || 0)} tok/turn`
+                : 'context size unknown yet';
+            row.appendChild(top);
+            if (pct != null) {
+                const bar = document.createElement('div');
+                bar.className = 'svo-live-fill';
+                bar.innerHTML = '<i></i>';
+                bar.querySelector('i').style.width = pct + '%';
+                row.appendChild(bar);
+            }
+            const items = [];
+            if (stage !== 'quiet') items.push({ type: 'compact_' + stage, text: stageLine[stage] });
+            (s.advisories || []).forEach(a => items.push({ type: a.type, data: a, text: this._optLiveAdvText(a) }));
+            if (!items.length) {
+                const ok = document.createElement('div');
+                ok.className = 'svo-live-item';
+                ok.innerHTML = '<span>Looks healthy: nothing worth interrupting for.</span>';
+                row.appendChild(ok);
+            }
+            for (const it of items) {
+                const item = document.createElement('div');
+                item.className = 'svo-live-item';
+                const t = document.createElement('span');
+                t.textContent = it.text;
+                item.appendChild(t);
+                const fix = this._optLiveFix(it.type, it.data);
+                if (fix) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'svo-copyfix';
+                    btn.title = this._OPT_COPYFIX_TITLE;
+                    btn.textContent = fix.label;
+                    btn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        this._optCopyText(btn, fix.text,
+                            { type: it.type, session_id: s.session_id, label: fix.label });
+                    });
+                    item.appendChild(btn);
+                }
+                row.appendChild(item);
+            }
+            card.appendChild(row);
+        }
+        return card;
     },
 
     _optFindings(host, rep, st) {
@@ -2593,10 +3540,32 @@ const CostsPage = {
             host.appendChild(sec);
             return;
         }
-        const h = document.createElement('div');
-        h.className = 'svo-sec-h';
-        h.textContent = `Findings, ranked by estimated value (${findings.length})`;
+        // Collapsed by default: the session cards above already tell the
+        // story per session; this is the full ranking for people who want
+        // to work the list by type.
+        const open = this._optFindingsOpen === true;
+        // Lossless first: the ranking mirrors the strip. Session-length
+        // findings (repeated_context) are real observations but their fix
+        // is a quality tradeoff, so they sink below every lossless item
+        // instead of burying the list under one mechanism.
+        const QT_TYPES = new Set(['repeated_context']);
+        const ranked = [
+            ...findings.filter(f => !QT_TYPES.has(f.type)),
+            ...findings.filter(f => QT_TYPES.has(f.type)),
+        ];
+        const h = document.createElement('button');
+        h.type = 'button';
+        h.className = 'svo-sec-h svo-sec-toggle';
+        h.setAttribute('aria-expanded', String(open));
+        h.innerHTML = '<span class="svo-sess-h" style="display:inline-flex"><span>All findings</span>' +
+            `<span class="svo-chip">${findings.length} · lossless first, then quality tradeoffs</span></span>` +
+            `<span class="svo-sec-chev">${open ? 'Hide' : 'Show'}</span>`;
+        h.addEventListener('click', async () => {
+            this._optFindingsOpen = !open;
+            await this._loadAndRenderOptimizer();
+        });
         sec.appendChild(h);
+        if (!open) { host.appendChild(sec); return; }
 
         // Digest-first: a by-type summary bar answers "where did the waste
         // go?" in one glance and doubles as a filter. The wall of cards is
@@ -2628,7 +3597,8 @@ const CostsPage = {
         const activeType = this._optTypeFilter || null;
         chips.appendChild(mkChip('All', String(findings.length), null, !activeType));
         [...byType.entries()]
-            .sort((a, b) => b[1].tokens - a[1].tokens)
+            .sort((a, b) =>
+                (QT_TYPES.has(a[0]) - QT_TYPES.has(b[0])) || (b[1].tokens - a[1].tokens))
             .forEach(([type, agg]) => {
                 chips.appendChild(mkChip(
                     this._OPT_TYPE_LABELS[type] || type,
@@ -2642,10 +3612,11 @@ const CostsPage = {
         // per-segment findings, so filter by the chip bar, then render the
         // top of the ranking and expand on demand.
         const FINDINGS_PAGE = 30;
-        const filtered = activeType ? findings.filter(f => f.type === activeType) : findings;
+        const filtered = activeType ? ranked.filter(f => f.type === activeType) : ranked;
         const shown = this._optShowAllFindings ? filtered : filtered.slice(0, FINDINGS_PAGE);
         shown.forEach(f => {
             const v = this._optValue(f.tokens_wasted, f.est_value_usd, mode);
+            const snip = (recOn && f.recommendation) ? this._optFixSnippet(f.type, f) : null;
             const row = document.createElement('div');
             row.className = 'svo-find';
             const label = this._OPT_TYPE_LABELS[f.type] || f.type;
@@ -2663,6 +3634,7 @@ const CostsPage = {
                 `<span class="svo-conf svo-conf-${conf}" title="Detector confidence: ${conf}">${conf}</span>` +
                 (f.potential_only ? '<span class="svo-tag" title="Flagged for review only; the long outputs may be intentional.">potential</span>' : '') +
                 (f.observation_only ? '<span class="svo-tag" title="An observation with no verdict: evaluate before acting.">observation</span>' : '') +
+                (QT_TYPES.has(f.type) ? '<span class="svo-bucket-tag warn" title="Recovering this means ending or splitting the session; it is a ceiling, not a lossless fix.">quality tradeoff</span>' : '') +
                 `<span class="svo-find-val" title="Token counts are exact; dollar values are list-price estimates.">${v.lead}${v.sub ? ' <i>' + v.sub + '</i>' : ''}</span>` +
                 '</div>' +
                 `<div class="svo-find-ev">${this._esc((f.evidence && f.evidence.observed) || '')}</div>` +
@@ -2675,7 +3647,9 @@ const CostsPage = {
                 '</div>' +
                 (recOn && f.recommendation
                     ? '<div class="svo-rec"><span class="svo-rec-k">Change</span>' +
-                      `<span class="svo-rec-t">${this._esc(this._optBenefitFirst(f, mode))}</span></div>`
+                      `<span class="svo-rec-t">${this._esc(this._optBenefitFirst(f, mode))}</span>` +
+                      (snip ? `<button type="button" class="svo-copyfix" title="${this._esc(this._OPT_COPYFIX_TITLE)}">${snip.label}</button>` : '') +
+                      '</div>'
                     : '');
             const view = row.querySelector('.svo-view');
             if (view) view.addEventListener('click', () => {
@@ -2684,6 +3658,12 @@ const CostsPage = {
                 const sample = f.evidence && f.evidence.sample_turns && f.evidence.sample_turns[0];
                 if (sample && sample.request_id) AgentRunsPage._pendingGenRid = sample.request_id;
                 if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('agent-runs');
+            });
+            const copyBtn = row.querySelector('.svo-copyfix');
+            if (copyBtn && snip) copyBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._optCopyText(copyBtn, snip.text,
+                    { type: f.type, label: snip.label });
             });
             sec.appendChild(row);
         });
@@ -2702,6 +3682,81 @@ const CostsPage = {
         host.appendChild(sec);
     },
 
+    _OPT_COPYFIX_TITLE: 'Copies a ready-to-paste request to your clipboard. You paste it into the session yourself; SecureVector never sends anything to a session.',
+
+    /** Paste-ready fix snippets, one per finding type where pasting a
+     *  request into the session actually helps. The human stays the only
+     *  writer into the session: this only fills the clipboard. */
+    _optFixSnippet(type, f) {
+        if (type === 'repeated_context') {
+            return {
+                label: 'Copy state note template',
+                text: 'Pause here. Write a short state note to STATE.md so a fresh session can continue this work: the task in one line, decisions already made, files in flight with their paths, and the exact next step. Keep it under 40 lines and do not copy transcript history into it.',
+            };
+        }
+        if (type === 'tool_result_carry') {
+            const tool = f && f.tool ? String(f.tool) : null;
+            const big = f && f.result_tokens_est ? this._optFmtTok(f.result_tokens_est) : null;
+            return {
+                label: 'Copy trim request',
+                text: 'From now on, keep tool results small: search first, then read only the specific line ranges you need, and keep any single tool result under about 2K tokens. Oversized results stay in context and are re-billed on every later turn.'
+                    + (tool && big ? ` In this session, ${tool} results reached about ${big} tokens.` : ''),
+            };
+        }
+        if (type === 'duplicate_llm') {
+            return {
+                label: 'Copy dedupe request',
+                text: 'Before repeating any request or tool call with the same input, reuse the earlier result instead. If a retry is genuinely needed, say why first. Identical requests re-bill the full context each time.',
+            };
+        }
+        if (type === 'excessive_output') {
+            return {
+                label: 'Copy brevity request',
+                text: 'From now on, keep responses brief: answer directly, do not restate files or code back to me, and end after the answer without a recap.',
+            };
+        }
+        return null;
+    },
+
+    /** Clipboard write with a textarea fallback, plus button feedback.
+     *  `meta` (type, session_id, label) starts the follow-through clock: the
+     *  service looks for this text in a local transcript and then measures
+     *  whether it changed anything. Recording is best effort and never blocks
+     *  or fails the copy itself. */
+    async _optCopyText(btn, text, meta) {
+        let ok = false;
+        try {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+        } catch (_) { /* fall through to the textarea path */ }
+        if (!ok) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position: fixed; opacity: 0;';
+            document.body.appendChild(ta);
+            ta.select();
+            try { ok = document.execCommand('copy'); } catch (_) { /* stays false */ }
+            ta.remove();
+        }
+        if (ok && meta && meta.type) {
+            API.optimizerFixCopied({
+                type: meta.type,
+                text,
+                session_id: meta.session_id || null,
+                label: meta.label || null,
+            });
+        }
+        const prev = btn.textContent;
+        btn.textContent = ok ? 'Copied, paste it into your session' : 'Copy failed';
+        btn.classList.add('on');
+        btn.disabled = true;
+        setTimeout(() => {
+            btn.textContent = prev;
+            btn.classList.remove('on');
+            btn.disabled = false;
+        }, 1800);
+    },
+
     /** Recommendation phrasing: the benefit leads, in the billing mode's
      *  leading unit, then the change and its evidence. */
     _optBenefitFirst(f, mode) {
@@ -2711,7 +3766,10 @@ const CostsPage = {
                 ? `Saves ≈${this._optFmtUsd(f.est_value_usd)} of the observed window (estimate). `
                 : `Gets back ~${this._optFmtTok(f.tokens_wasted)} tokens in the observed window. `)
             : '';
-        return benefit + ((f.recommendation && f.recommendation.change) || '');
+        const rec = f.recommendation || {};
+        return benefit + (rec.change || '')
+            + (rec.how ? ' How: ' + rec.how : '')
+            + (rec.risk ? ' Risk: ' + rec.risk : '');
     },
 
     // ---------------- receipts ----------------
@@ -2778,20 +3836,25 @@ const CostsPage = {
         h.className = 'svo-sec-h';
         h.textContent = 'Receipts in waiting';
         sec.appendChild(h);
-        pending.forEach(p => {
+        // every non-resolution is explained, never silently absent, but the
+        // waiting list reads as one sentence, not a wall of raw counters
+        const name = (p) => this._OPT_TYPE_LABELS[p.type] || p.type;
+        const insuff = pending.filter(p => p.status === 'insufficient');
+        if (insuff.length) {
             const row = document.createElement('div');
             row.className = 'svo-pending';
-            const label = this._OPT_TYPE_LABELS[p.type] || p.type;
-            // every non-resolution states its precise reason: a comparison we
-            // will not show is always explained, never silently absent
-            if (p.status === 'insufficient') {
-                row.textContent = `${label}: not enough sessions yet for a measured before/after ` +
-                    `(${p.after_sessions}/${p.needed_sessions} after, ${p.before_sessions ?? 0}/${p.needed_sessions} before, ${p.after_days}/${p.needed_days} days).`;
-            } else if (p.status === 'reopened') {
-                row.textContent = `${label}: previously resolved but the metric regressed; reopened with its history intact.`;
-            } else {
-                row.textContent = `${label}: ${p.reason}`;
-            }
+            const need = insuff[0].needed_sessions;
+            row.textContent = 'A before/after is only shown once it is measured: ' +
+                `${need} comparable sessions on each side. Still collecting for ` +
+                insuff.map(name).join(', ').toLowerCase() + '.';
+            sec.appendChild(row);
+        }
+        pending.filter(p => p.status !== 'insufficient').forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'svo-pending';
+            row.textContent = p.status === 'reopened'
+                ? `${name(p)}: previously resolved but the metric regressed; reopened with its history intact.`
+                : `${name(p)}: ${p.reason}`;
             sec.appendChild(row);
         });
         host.appendChild(sec);
@@ -2819,18 +3882,34 @@ const CostsPage = {
         host.appendChild(div);
     },
 
+    /** One quiet card for everything meta: what was scanned, where the
+     *  detectors abstain, and which measured receipts are still collecting.
+     *  Replaces the loose lines of text that used to trail the page. */
     _optFooter(host, rep) {
-        const foot = document.createElement('div');
-        foot.className = 'svo-foot';
-        foot.innerHTML =
-            `<span class="svo-foot-meta">Scanned ${(rep.scanned && rep.scanned.claude_code) || 0} Claude Code and ${(rep.scanned && rep.scanned.codex) || 0} Codex sessions` +
+        const name = (t) => this._OPT_TYPE_LABELS[t] || t;
+        const rows = [];
+        rows.push(['Scope',
+            `Scanned ${(rep.scanned && rep.scanned.claude_code) || 0} Claude Code and ${(rep.scanned && rep.scanned.codex) || 0} Codex sessions` +
             ((rep.scanned && rep.scanned.claude_code_subagents) ? ` plus ${rep.scanned.claude_code_subagents} subagent streams` : '') +
             `, last ${rep.window_days} days` +
             ((rep.scanned && rep.scanned.sessions_capped) ? ', capped at ' + rep.scanned.caps.max_sessions_per_harness + ' per harness (disclosed, never silent)' : '') +
-            '. Analysis is local; works offline.</span>' +
+            '. Analysis runs locally and works offline.']);
+        const notes = rep.capability_notes || [];
+        if (notes.length) {
+            rows.push(['Limits', notes.map(n => `${n.harness}: ${n.reason}`).join(' ')]);
+        }
+
+        const foot = document.createElement('div');
+        foot.className = 'svo-about';
+        foot.innerHTML =
+            '<div class="svo-about-head"><span class="svo-about-t">About this scan</span>' +
             '<span class="svo-foot-btns">' +
+            (rep.generated_at ? `<span class="svo-scan-age" title="Findings and totals are a snapshot from this scan. Sessions and turns after it are not counted until you rescan.">scanned ${this._esc(this._optAgo(rep.generated_at) || 'just now')}</span>` : '') +
             '<button type="button" class="btn btn-secondary btn-sm svo-rescan">Rescan</button>' +
-            '<button type="button" class="btn btn-secondary btn-sm svo-del">Delete report</button></span>';
+            '<button type="button" class="btn btn-secondary btn-sm svo-del">Delete report</button></span></div>' +
+            rows.map(([k, v]) =>
+                `<div class="svo-about-row"><span class="svo-about-k">${k}</span><span>${this._esc(v)}</span></div>`
+            ).join('');
         foot.querySelector('.svo-rescan').addEventListener('click', async () => {
             try {
                 this._optShowAllFindings = false; // a fresh scan restarts at the top slice
@@ -2905,7 +3984,7 @@ const CostsPage = {
             ctx.fillStyle = '#0e1218';
             ctx.fillText(tag, 76, 424);
         } else {
-            const obs = rep.observed || {}, mod = rep.modeled || {}, b = rep.buckets || {};
+            const obs = rep.observed || {}, mod = rep.modeled_lossless || rep.modeled || {}, b = rep.buckets || {};
             const from = this._optValue(obs.total_tokens, obs.est_cost_usd, mode);
             const to = this._optValue(mod.total_tokens, mod.est_cost_usd, mode);
             ctx.fillStyle = '#eef2f7';
@@ -2920,13 +3999,14 @@ const CostsPage = {
             ctx.fillStyle = '#aeb7c2';
             ctx.font = disp(24, 500);
             ctx.fillText(mode === 'subscription'
-                ? 'observed usage, and what it models to with the recommended changes'
-                : 'observed window, and its modeled figure with the recommended changes', 60, 288);
+                ? 'observed usage, and what it models to with lossless fixes only'
+                : 'observed window, and its modeled figure with lossless fixes only', 60, 288);
 
+            const split = this._optBucketSplit(rep);
             const total = obs.total_tokens || 1;
             let y = 370;
-            [['Prompt caching', b.cache], ['Context compaction', b.compaction]].forEach(([label, bucket]) => {
-                if (!bucket) return;
+            [['Trim tool results', split.trim], ['Prompt caching', b.cache], ['Session length', split.sess]].forEach(([label, bucket]) => {
+                if (!bucket || !bucket.tokens) return;
                 const pct = Math.min(100, Math.round((bucket.tokens / total) * 100));
                 ctx.fillStyle = '#aeb7c2';
                 ctx.font = disp(20, 500);
@@ -2987,7 +4067,7 @@ const CostsPage = {
         const st = document.createElement('style');
         st.id = 'sv-optimizer-style';
         st.textContent = `
-#sv-optimizer { display: flex; flex-direction: column; gap: 16px; }
+#sv-optimizer { display: flex; flex-direction: column; gap: 12px; }
 .svo-hero { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px; padding: 28px; position: relative; }
 .svo-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent-primary, #5eadb8); }
 .svo-h { font-family: var(--font-display, inherit); font-size: 24px; margin: 10px 0 8px; color: var(--text-primary); }
@@ -3018,11 +4098,16 @@ const CostsPage = {
 .svo-strip-save { margin-left: auto; text-align: right; }
 .svo-buckets { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
 .svo-bucket { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.svo-bucket-l { width: 160px; color: var(--text-secondary); }
+.svo-bucket-l { width: 250px; flex-shrink: 0; color: var(--text-secondary); }
+.svo-bucket-cap { display: block; font-size: 11px; color: var(--text-muted); line-height: 1.35; margin-top: 2px; }
 .svo-bucket-bar { flex: 1; height: 8px; border-radius: 9999px; background: var(--bg-secondary); overflow: hidden; }
 .svo-bucket-bar span { display: block; height: 100%; background: var(--accent-primary, #5eadb8); }
 .svo-bucket-v { font-family: var(--font-mono, monospace); color: var(--text-secondary); white-space: nowrap; }
-.svo-strip-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 16px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.svo-strip-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 12px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.svo-strip-why { background: none; border: none; padding: 0; font: inherit; color: var(--text-muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.svo-strip-why:hover { color: var(--text-secondary); }
+.svo-strip-more { margin-top: 10px; border-top: 1px solid var(--border-default); padding-top: 10px; }
+.svo-strip-caveat { font-size: 11px; color: var(--text-muted); line-height: 1.55; margin-top: 8px; }
 .svo-ask { background: var(--bg-card); border-left: 3px solid var(--accent-primary, #5eadb8); border-radius: 0 10px 10px 0; padding: 16px 20px; }
 .svo-ask-t { font-weight: 600; color: var(--text-primary); font-size: 14px; }
 .svo-ask-p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 6px 0 12px; max-width: 680px; }
@@ -3057,6 +4142,151 @@ const CostsPage = {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary, #5eadb8) 8%, transparent); }
 .svo-typechip.on b { color: var(--accent-primary, #5eadb8); }
 .svo-sec-h { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); padding-top: 6px; }
+.svo-sec-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left; padding: 6px 0 0; }
+.svo-sec-toggle:hover .svo-sec-chev { color: var(--accent-primary); }
+.svo-sec-chev { font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0;
+  color: var(--text-muted); }
+/* session cards: live first, why-it-cost + what-to-change per session */
+.svo-sess-card { background: var(--bg-card); border: 1px solid var(--border-default);
+  border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.svo-sess-card.live { border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent); }
+.svo-sess-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.svo-sess-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.svo-sess-h { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-muted); }
+.svo-live-badge { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--accent-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  border-radius: 999px; padding: 2px 9px; animation: svo-live-pulse 2.2s ease-in-out infinite; }
+@keyframes svo-live-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .svo-live-badge { animation: none; } }
+.svo-stale-badge { font-size: 11px; color: var(--text-muted); }
+.svo-sess-spacer { flex: 1; }
+.svo-sess-toggle { background: none; border: 1px solid var(--border-default); border-radius: 8px;
+  color: var(--text-secondary); font-size: 11px; padding: 3px 10px; cursor: pointer; }
+.svo-sess-toggle:hover { border-color: var(--accent-primary); }
+.svo-sess-facts { display: flex; gap: 14px; flex-wrap: wrap; }
+.svo-sess-fact { font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--text-secondary); }
+.svo-sess-waste { color: var(--text-primary); font-weight: 700; }
+.svo-accent-t { color: var(--accent-primary); font-weight: 700; }
+.svo-sess-why { display: flex; flex-direction: column; gap: 6px; }
+.svo-sess-act { background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+  border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: baseline; }
+.svo-sess-cause { display: grid; grid-template-columns: 150px minmax(60px, 220px) auto;
+  gap: 2px 12px; padding: 6px 2px; align-items: baseline; }
+.svo-sess-cause-n { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.svo-sess-cause-v { font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--text-secondary); }
+.svo-sess-cause-r { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-muted); line-height: 1.45; }
+.svo-sess-hint { font-size: 11px; color: var(--text-muted); }
+.svo-spent-tag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; margin-left: 8px;
+  padding: 1px 6px; border-radius: 999px; background: var(--bg-secondary);
+  color: var(--text-muted); border: 1px dashed var(--border-default); white-space: nowrap;
+  text-transform: none; cursor: help; vertical-align: middle; }
+.svo-scan-age { font-size: 11px; color: var(--text-muted); align-self: center;
+  margin-right: 10px; cursor: help; font-family: var(--font-mono, monospace); }
+.svo-ba-bar { width: 90px; height: 5px; vertical-align: middle; margin-left: 6px; }
+.svo-trim-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.svo-sess-finds { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border-default); padding-top: 8px; }
+.svo-sess-find { display: flex; gap: 10px; align-items: baseline; font-size: 11.5px; }
+.svo-sess-find-ev { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svo-sess-find-more { font-size: 11px; color: var(--text-muted); padding-top: 2px; }
+.svo-sess-list { background: var(--bg-card); border: 1px solid var(--border-default);
+  border-radius: 12px; overflow: hidden; }
+.svo-sess-rowwrap + .svo-sess-rowwrap { border-top: 1px solid var(--border-default); }
+.svo-sess-row { display: grid; width: 100%;
+  grid-template-columns: 18px 72px 84px 92px 96px 1fr auto auto;
+  gap: 10px; align-items: center; padding: 7px 14px;
+  background: none; border: none; cursor: pointer; text-align: left;
+  color: var(--text-primary); }
+.svo-sess-row > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.svo-sess-row-num { font-size: 11.5px; font-weight: 700; letter-spacing: 0.2px;
+  color: var(--text-primary); }
+.svo-live-badge, .svo-sess-row-when { justify-self: start; }
+.svo-sess-row:hover { background: var(--bg-secondary); }
+.svo-sess-row-id { font-family: var(--font-mono, monospace); font-size: 12px; font-weight: 700;
+  color: var(--text-primary); }
+.svo-sess-row-h, .svo-sess-row-when, .svo-sess-row-turns { font-size: 11px; color: var(--text-muted); }
+.svo-sess-row-waste { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700;
+  color: var(--text-secondary); justify-self: end; white-space: nowrap; }
+.svo-sess-row-hist { font-family: var(--font-mono, monospace); font-size: 11px;
+  color: var(--text-muted); justify-self: end; white-space: nowrap; }
+.svo-sess-row-chev { display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 6px; color: var(--text-muted);
+  justify-self: start; transition: transform 0.18s ease, color 0.18s ease; }
+.svo-sess-row:hover .svo-sess-row-chev { color: var(--text-primary); }
+.svo-sess-row[aria-expanded="true"] .svo-sess-row-chev { transform: rotate(90deg); color: var(--accent-primary); }
+.svo-sess-rowwrap.open { background: color-mix(in srgb, var(--bg-secondary) 45%, transparent); }
+@media (prefers-reduced-motion: reduce) { .svo-sess-row-chev { transition: none; } }
+.svo-sess-panel { padding: 2px 14px 10px; }
+.svo-sess-part { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--text-muted); padding: 6px 0 2px; }
+.svo-sess-h { display: flex; align-items: center; gap: 8px; }
+.svo-chip { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: none;
+  padding: 1px 8px; border-radius: 999px; background: var(--bg-secondary);
+  color: var(--text-secondary); border: 1px solid var(--border-default); }
+.svo-chip-live { color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent); }
+.svo-sess-note { font-size: 10.5px; color: var(--text-muted); line-height: 1.5;
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-default); }
+.svo-sess-rec-c { display: block; font-weight: 600; color: var(--text-primary); }
+.svo-sess-rec-kv { display: block; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+.svo-sess-rec-kv b { color: var(--text-secondary); font-weight: 700; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-right: 6px; }
+.svo-bucket-tag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; margin-left: 8px;
+  padding: 1px 6px; border-radius: 999px; background: var(--bg-secondary);
+  color: var(--text-muted); border: 1px solid var(--border-default); white-space: nowrap; }
+.svo-bucket-tag.warn { color: var(--text-secondary); border-style: dashed; }
+.svo-strip-note { font-size: 11px; color: var(--text-secondary); line-height: 1.55;
+  padding: 8px 10px; border-radius: 8px; background: var(--bg-secondary); margin-top: 4px; }
+.svo-trim { background: var(--bg-card); border: 1px solid var(--border-default);
+  border-radius: 12px; padding: 14px 18px; margin-top: 14px; }
+.svo-trim-p { font-size: 11px; color: var(--text-muted); line-height: 1.55; margin: 6px 0 10px; }
+.svo-trim-rows { display: flex; flex-direction: column; }
+.svo-trim-row { display: grid; align-items: center; gap: 10px; padding: 6px 0;
+  grid-template-columns: minmax(80px, 130px) 64px minmax(180px, 1fr) auto minmax(90px, 150px) auto;
+  border-top: 1px solid var(--border-default); }
+.svo-trim-row > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.svo-trim-tool { font-family: var(--font-mono, monospace); font-size: 12px; font-weight: 700;
+  color: var(--text-primary); }
+.svo-trim-n, .svo-trim-turns { font-size: 11px; color: var(--text-muted); }
+.svo-trim-ba { font-size: 11.5px; color: var(--text-secondary); }
+.svo-trim-arrow { color: var(--accent-primary); }
+.svo-trim-v { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700;
+  color: var(--text-secondary); justify-self: end; }
+.svo-trim-more { font-size: 10.5px; color: var(--text-muted); padding-top: 8px; }
+.svo-play-rows { display: flex; flex-direction: column; }
+.svo-play-row { display: grid; grid-template-columns: minmax(170px, 220px) 1fr auto;
+  gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border-default); }
+.svo-play-n { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.svo-play-w { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+.svo-play-chip { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-default);
+  color: var(--text-secondary); background: var(--bg-secondary); justify-self: end; cursor: help;
+  font-family: var(--font-mono, monospace); }
+.svo-play-chip.hit { border-style: dashed; color: var(--text-primary); }
+.svo-play-chip.ok { color: var(--accent-primary, #5eadb8);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent); }
+.svo-play-chip.na { color: var(--text-muted); }
+@media (max-width: 900px) { .svo-play-row { grid-template-columns: 1fr auto; }
+  .svo-play-w { display: none; } }
+@media (max-width: 900px) { .svo-trim-row { grid-template-columns: minmax(80px, 130px) 1fr auto; }
+  .svo-trim-n, .svo-trim-turns, .svo-trim-row .svo-bucket-bar { display: none; } }
+.svo-sess-cause-bar { display: inline-block; height: 5px; border-radius: 3px;
+  background: var(--bg-secondary); overflow: hidden; align-self: center; }
+.svo-sess-cause-bar span { display: block; height: 100%; border-radius: 3px;
+  background: var(--accent-primary); opacity: 0.75; }
+.svo-sess-rec { font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+  padding: 3px 0 3px 14px; position: relative; }
+.svo-sess-rec::before { content: ''; position: absolute; left: 0; top: 10px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); opacity: 0.8; }
+@media (max-width: 1180px) { .svo-sess-row-hist { display: none; } }
+@media (max-width: 900px) { .svo-sess-row { grid-template-columns: 18px 72px 1fr auto auto; }
+  .svo-sess-row-h, .svo-sess-row-turns, .svo-sess-row-ctx { display: none; } }
+.svo-sess-more { width: 100%; background: none; border: none;
+  border-top: 1px solid var(--border-default); color: var(--text-secondary);
+  font-size: 11.5px; padding: 9px; cursor: pointer; }
+.svo-sess-more:hover { color: var(--accent-primary); }
 .svo-find { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 18px; }
 .svo-find-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .svo-find-type { font-weight: 600; color: var(--text-primary); font-size: 14px; }
@@ -3075,6 +4305,15 @@ const CostsPage = {
 .svo-rec { display: flex; gap: 10px; align-items: baseline; margin-top: 10px; border-top: 1px dashed var(--border-default); padding-top: 10px; }
 .svo-rec-k { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent-primary, #5eadb8); flex-shrink: 0; }
 .svo-rec-t { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.svo-copyfix { margin-left: auto; flex-shrink: 0; align-self: center; background: none;
+  border: 1px solid var(--border-default); border-radius: 6px; padding: 3px 9px;
+  color: var(--accent-primary, #5eadb8); font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; }
+.svo-copyfix:hover { border-color: var(--accent-primary, #5eadb8);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
+.svo-copyfix.on { color: var(--text-primary); border-style: dashed; }
+.svo-copyfix:disabled { cursor: default; }
+.svo-sess-rec .svo-copyfix { display: inline-block; margin-left: 0; margin-top: 4px; }
 .svo-proof { background: var(--bg-card); border: 2px solid color-mix(in srgb, var(--accent-primary, #5eadb8) 55%, transparent);
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-primary, #5eadb8) 8%, transparent);
   border-radius: 14px; padding: 20px 24px; }
@@ -3095,8 +4334,35 @@ const CostsPage = {
 .svo-ok { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 10px; padding: 18px; color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 18px; line-height: 1.5; }
 .svo-note { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .svo-foot { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 2px 20px; }
+.svo-about { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: 12px;
+  padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 7px; margin-bottom: 20px; }
+.svo-about-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.svo-about-t { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-secondary); }
+.svo-about-row { display: grid; grid-template-columns: 72px 1fr; gap: 10px;
+  font-size: 11.5px; color: var(--text-muted); line-height: 1.55; }
+.svo-about-k { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-secondary); padding-top: 2px; }
 .svo-foot-meta { color: var(--text-muted); font-size: 12px; max-width: 680px; }
 .svo-foot-btns { display: flex; gap: 8px; }
+.svo-liveband { border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-light)); }
+.svo-live-note { font-size: 10.5px; color: var(--text-muted); }
+.svo-live-row { border-top: 1px solid var(--border-light); padding: 9px 0 2px; margin-top: 8px; }
+.svo-live-top { display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12px; color: var(--text-primary); }
+.svo-live-top b { font-weight: 600; }
+.svo-live-top span { color: var(--text-muted); font-size: 11px; text-align: right; }
+.svo-live-fill { height: 4px; border-radius: 2px; margin-top: 6px; overflow: hidden;
+  background: color-mix(in srgb, var(--border-light) 60%, transparent); }
+.svo-live-fill i { display: block; height: 100%; border-radius: 2px; background: var(--text-muted); }
+.svo-live-item { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  margin-top: 7px; font-size: 11.5px; color: var(--text-secondary); line-height: 1.45; }
+.svo-top3-row span { color: var(--text-primary); }
+.svo-spark { margin-top: 10px; color: var(--text-muted); }
+.svo-spark svg { display: block; width: 100%; height: 42px; color: var(--text-muted); }
+.svo-spark span { font-size: 10.5px; }
+.svo-flash { outline: 1px solid var(--accent-primary); border-radius: 10px;
+  transition: outline-color 600ms ease; }
 `;
         document.head.appendChild(st);
     },

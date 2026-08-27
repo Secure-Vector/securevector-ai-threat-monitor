@@ -76,7 +76,7 @@ const OptimizerSpotlight = {
         let headline, rows, previewTag;
         if (real) {
             const rep = real.rep;
-            const obs = rep.observed || {}, mod = rep.modeled || {};
+            const obs = rep.observed || {}, mod = rep.modeled_lossless || rep.modeled || {};
             const savedTok = (obs.total_tokens || 0) - (mod.total_tokens || 0);
             const savedUsd = obs.est_cost_usd != null && mod.est_cost_usd != null
                 ? obs.est_cost_usd - mod.est_cost_usd : null;

@@ -890,6 +890,25 @@ const API = {
         return this.request('/api/cost-optimizer/report').catch(() => null);
     },
 
+    async getOptimizerSessions(windowDays = 30) {
+        return this.request(`/api/cost-optimizer/sessions?window_days=${windowDays}`)
+            .catch(() => null);
+    },
+
+    async getOptimizerLive() {
+        return this.request('/api/cost-optimizer/live').catch(() => null);
+    },
+
+    /** Tell the service a fix went to the clipboard, so the next live sweep
+     *  can look for the paste and then measure whether it changed anything.
+     *  Best effort: the copy itself must never fail because of this. */
+    async optimizerFixCopied(payload) {
+        return this.request('/api/cost-optimizer/fix-copied', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        }).catch(() => null);
+    },
+
     async runOptimizer(payload) {
         return this.request('/api/cost-optimizer/run', {
             method: 'POST',

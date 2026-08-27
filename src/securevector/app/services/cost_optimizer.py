@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import statistics
 import time
 from datetime import datetime, timedelta, timezone
@@ -59,6 +60,10 @@ REPORT_VERSION = 1
 # Scan caps — disclosed in report["scanned"], never silent.
 MAX_SESSIONS_PER_HARNESS = 300
 DEFAULT_WINDOW_DAYS = 30
+
+# A transcript touched this recently is a LIVE session: the agent is (or was
+# seconds ago) mid-conversation, so its next turns can still be made cheaper.
+ACTIVE_SESSION_SECONDS = 300
 
 # The traces waterfall keeps only the most recent N generations; findings that
 # reference turns beyond it must say so (acceptance #5).
@@ -570,6 +575,441 @@ def detect_right_sizing(all_sessions: list[dict], pricing: dict) -> Optional[dic
 # the service
 # ---------------------------------------------------------------------------
 
+def _tail_context_tokens(path: Path, tail_bytes: int = 262144) -> Optional[int]:
+    """Context size being re-sent RIGHT NOW by a live claude-code session:
+    the newest assistant record's input + cache-read + cache-write tokens.
+    Reads only the file tail — cheap enough to run on every activity poll.
+    Pure local file read; nothing leaves the machine."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            fh.seek(max(0, size - tail_bytes))
+            chunk = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in reversed(chunk.splitlines()):
+        line = line.strip()
+        if not line or '"usage"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # first line of the tail window is usually truncated
+        usage = (rec.get("message") or {}).get("usage") if isinstance(rec, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        ctx = (
+            (usage.get("input_tokens") or 0)
+            + (usage.get("cache_read_input_tokens") or 0)
+            + (usage.get("cache_creation_input_tokens") or 0)
+        )
+        if ctx > 0:
+            return int(ctx)
+    return None
+
+
+# -- live advisor (Guardian) --------------------------------------------------
+# Tail-only analysis of LIVE claude-code transcripts so the Guardian can speak
+# up while a session is still running. Pure local file reads; nothing leaves
+# the machine, and nothing is ever written into a session. Advisory only:
+# every alert the UI renders ends in a copy-paste fix the human applies.
+
+LIVE_THRESHOLD_DEFAULTS = {
+    "big_result_tokens": 2000,      # single tool result worth calling out
+    "resend_floor_tokens": 50000,   # ignore resend growth below this
+    "duplicate_calls": 3,           # identical calls within the recent window
+    "failure_streak": 4,            # consecutive error tool results
+    "long_session_turns": 200,
+    "long_session_hours": 3,
+    "stage_heads_up": 60,           # context fill %: gentle nudge
+    "stage_act_now": 75,            # context fill %: compact at next stop
+    "stage_last_call": 90,          # context fill %: auto-compact imminent
+}
+
+
+def _context_window(model: Optional[str]) -> int:
+    """Model-name fallback for the fill % denominator. Unknown models assume
+    200K, the common window for current Anthropic models; a [1m] suffix marks
+    the long-context window. Evidence beats this lookup: see
+    _effective_ceiling."""
+    if model and "[1m]" in model:
+        return 1_000_000
+    return 200_000
+
+
+def _compact_boundaries(records: list[dict]) -> list[tuple[int, str, int]]:
+    """(index, trigger, pre_tokens) for every harness compaction in the tail.
+    Read from the record, never inferred: Claude Code writes a system record
+    with subtype "compact_boundary" whose compactMetadata carries the trigger
+    ("auto" / "manual" / "refusal") and preTokens, the context size at the
+    moment compaction fired."""
+    out: list[tuple[int, str, int]] = []
+    for i, rec in enumerate(records):
+        if rec.get("type") == "system" and rec.get("subtype") == "compact_boundary":
+            meta = rec.get("compactMetadata") or {}
+            try:
+                pre = int(meta.get("preTokens") or 0)
+            except (TypeError, ValueError):
+                pre = 0
+            out.append((i, str(meta.get("trigger") or ""), pre))
+    return out
+
+
+def _effective_ceiling(model: Optional[str], records: list[dict],
+                       ctx_peak: int) -> int:
+    """The fill-% denominator, from evidence before assumption.
+
+    1. An auto-triggered compact_boundary's preTokens IS the effective
+       ceiling: the harness demonstrably compacts there, and autocompact is
+       user-configurable per session (e.g. 600K on a 1M window), so the
+       model's max is the wrong number whenever the two differ. The most
+       recent auto trigger wins, because the setting can change mid-session.
+    2. Otherwise the model-name lookup, raised to the observed context peak
+       when the peak disproves it: a session once read "118% full" because
+       the lookup said 200K and the session said otherwise. Fill therefore
+       never exceeds 100.
+    """
+    auto = [pre for _, trig, pre in _compact_boundaries(records)
+            if trig == "auto" and pre > 0]
+    if auto:
+        return max(auto[-1], 1)
+    return max(_context_window(model), ctx_peak, 1)
+
+
+def _tail_records(path: Path, tail_bytes: int = 524288) -> list[dict]:
+    """Parsed JSONL records from the file tail, oldest first. The first line
+    of the tail window is usually truncated; its JSON error skips it."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            fh.seek(max(0, size - tail_bytes))
+            chunk = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    records: list[dict] = []
+    for line in chunk.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict):
+            records.append(rec)
+    return records
+
+
+def _usage_ctx(rec: dict) -> int:
+    usage = (rec.get("message") or {}).get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    return int(
+        (usage.get("input_tokens") or 0)
+        + (usage.get("cache_read_input_tokens") or 0)
+        + (usage.get("cache_creation_input_tokens") or 0)
+    )
+
+
+def _content_items(rec: dict, kind: str) -> list[dict]:
+    content = (rec.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return []
+    return [c for c in content if isinstance(c, dict) and c.get("type") == kind]
+
+
+def _approx_tokens(value) -> int:
+    """Chars/4 estimate, the same heuristic the scan uses for tool results."""
+    try:
+        text = value if isinstance(value, str) else json.dumps(value)
+    except (TypeError, ValueError):
+        text = str(value)
+    return max(0, len(text) // 4)
+
+
+def _estimate_turns(path: Path, probe_bytes: int = 262144) -> Optional[int]:
+    """Turn estimate from the file tail: average record length over the last
+    256KB, extrapolated to the file size. The live endpoint stays tail-bounded
+    (no full scan) however large the transcript grows; the long-session check
+    only needs the order of magnitude, not an exact count."""
+    try:
+        size = path.stat().st_size
+        if size == 0:
+            return 0
+        with path.open("rb") as fh:
+            fh.seek(max(0, size - probe_bytes))
+            chunk = fh.read(probe_bytes)
+    except OSError:
+        return None
+    if size <= probe_bytes:
+        return chunk.count(b"\n")
+    lines = chunk.count(b"\n")
+    if lines <= 1:
+        return None  # one enormous record: no usable average
+    avg = len(chunk) / lines
+    return int(size / avg)
+
+
+def _first_timestamp(path: Path) -> Optional[str]:
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(16384).decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in head.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict) and rec.get("timestamp"):
+            return str(rec["timestamp"])
+    return None
+
+
+def analyze_live_tail(records: list[dict], thresholds: Optional[dict] = None) -> dict:
+    """Waste flags + compact staging for ONE live session, from tail records.
+
+    Token counts taken from usage records are exact (they are what was
+    billed); tool-result sizes are chars/4 estimates and the UI labels them
+    "about". Compact staging follows the practice the design doc records:
+    stage the advice (heads-up at 60%, act-now at 75%, last-call at 90%),
+    never attach a savings figure to a compact nudge, and always pair it
+    with a state-note-first workflow.
+    """
+    th = dict(LIVE_THRESHOLD_DEFAULTS)
+    th.update({k: v for k, v in (thresholds or {}).items()
+               if isinstance(v, (int, float)) and not isinstance(v, bool)})
+    # The three stages must ascend whatever the user typed in Settings:
+    # an inverted set would stage advice backwards.
+    th["stage_heads_up"], th["stage_act_now"], th["stage_last_call"] = sorted(
+        (th["stage_heads_up"], th["stage_act_now"], th["stage_last_call"]))
+
+    model = None
+    ctx_series: list[int] = []
+    for rec in records:
+        msg = rec.get("message") or {}
+        if msg.get("model"):
+            model = msg["model"]
+        ctx = _usage_ctx(rec)
+        if ctx > 0:
+            ctx_series.append(ctx)
+
+    advisories: list[dict] = []
+    ctx_now = ctx_series[-1] if ctx_series else None
+    window = _effective_ceiling(model, records, max(ctx_series, default=0))
+    fill_pct = round(100.0 * ctx_now / window, 1) if ctx_now else None
+
+    # 1. Oversized tool result in the recent turns
+    tool_names: dict[str, str] = {}
+    for rec in records:
+        for item in _content_items(rec, "tool_use"):
+            if item.get("id"):
+                tool_names[item["id"]] = item.get("name") or "tool"
+    biggest_tokens, biggest_tool = 0, None
+    for rec in records:
+        for item in _content_items(rec, "tool_result"):
+            tok = _approx_tokens(item.get("content"))
+            if tok > biggest_tokens:
+                biggest_tokens = tok
+                biggest_tool = tool_names.get(item.get("tool_use_id") or "", "tool")
+    if biggest_tokens > th["big_result_tokens"]:
+        advisories.append({
+            "type": "tool_result_carry",
+            "tokens": biggest_tokens,
+            "tool": biggest_tool,
+        })
+
+    # 2. Context resend growth across the tail window
+    if len(ctx_series) >= 2:
+        first, last = ctx_series[0], ctx_series[-1]
+        if last > th["resend_floor_tokens"] and last >= 2 * max(1, first):
+            advisories.append({
+                "type": "resend_growth",
+                "from_tokens": first,
+                "to_tokens": last,
+            })
+
+    # 3. Duplicate identical tool calls in the recent window
+    recent_calls: list[tuple] = []
+    for rec in records:
+        for item in _content_items(rec, "tool_use"):
+            try:
+                key = (item.get("name"),
+                       json.dumps(item.get("input"), sort_keys=True))
+            except (TypeError, ValueError):
+                key = (item.get("name"), None)
+            recent_calls.append(key)
+    recent_calls = recent_calls[-10:]
+    for key in set(recent_calls):
+        # Polling a background command or re-reading a file is normal work,
+        # not waste: the same exclusion detect_retry_loops already applies.
+        if key[0] in IDEMPOTENT_TOOLS:
+            continue
+        if key[0] and recent_calls.count(key) >= th["duplicate_calls"]:
+            advisories.append({
+                "type": "duplicate_calls",
+                "tool": key[0],
+                "count": recent_calls.count(key),
+            })
+            break
+
+    # 4. Failure loop: consecutive tool results that errored
+    streak = best_streak = 0
+    for rec in records:
+        items = _content_items(rec, "tool_result")
+        if not items:
+            continue
+        if any(item.get("is_error") for item in items):
+            streak += 1
+            best_streak = max(best_streak, streak)
+        else:
+            streak = 0
+    if best_streak >= th["failure_streak"]:
+        advisories.append({"type": "failure_loop", "streak": best_streak})
+
+    # 5. Compact staging from context fill
+    stage = "quiet"
+    if fill_pct is not None:
+        if fill_pct >= th["stage_last_call"]:
+            stage = "last_call"
+        elif fill_pct >= th["stage_act_now"]:
+            stage = "act_now"
+        elif fill_pct >= th["stage_heads_up"]:
+            stage = "heads_up"
+
+    return {
+        "model": model,
+        "context_tokens_now": ctx_now,
+        "context_window": window,
+        "fill_pct": fill_pct,
+        "compact_stage": stage,
+        "advisories": advisories,
+    }
+
+
+# ------------------------------------------------------------ fix follow-up --
+# What happens after "Copy" is the whole point of the Optimizer: a fix that
+# never gets pasted saved nothing. We track three deliberately distinct states:
+#
+#   copied  - certain. We put the text on the clipboard ourselves.
+#   pasted  - the text turned up as a user turn in a local transcript.
+#   worked  - the condition that triggered the advice is gone, measured.
+#
+# Only "worked" is ever celebrated. Saying "you optimized" on the strength of a
+# paste would be exactly the modelled-as-measured overclaim the rest of this
+# module refuses to make. Detection reads the same local transcripts the live
+# advisor already tails: no clipboard reads, no keystroke watching, nothing
+# written into a session.
+
+FIX_PASTE_WINDOW_SECONDS = 30 * 60       # stop looking for the paste
+FIX_VERIFY_WINDOW_SECONDS = 2 * 60 * 60  # stop looking for the payoff
+FIX_TAIL_SECONDS = 3 * 60 * 60           # transcripts recent enough to check
+FIX_MIN_RECORDS_AFTER = 4                # judge nothing before this much work
+FIX_CONTEXT_DROP = 0.65                  # a compact has to actually drop context
+FIX_WIN_FRESH_SECONDS = 60 * 60          # how long a win stays in the payload
+FIX_HISTORY_MAX = 40
+
+# Fixes whose payoff is "context got smaller", not "the flag went away".
+CONTEXT_FIXES = {"repeated_context", "compact", "resend_growth", "long_session"}
+
+
+def _norm_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def fix_fingerprint(text: str) -> str:
+    """Privacy-safe handle for a snippet *we* generated. Derived only from our
+    own copy templates, never from anything the user wrote."""
+    return _norm_text(text)[:120]
+
+
+def _user_text(rec: dict) -> str:
+    if rec.get("type") != "user":
+        return ""
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            str(c.get("text") or "") for c in content
+            if isinstance(c, dict) and c.get("type") == "text")
+    return ""
+
+
+def _looks_pasted(user_text: str, fingerprint: str) -> bool:
+    """Substring match first; word overlap as the fallback so a fix the user
+    trimmed or topped-and-tailed before pasting still counts."""
+    hay = _norm_text(user_text)
+    if not hay or not fingerprint:
+        return False
+    if fingerprint in hay:
+        return True
+    words = {w for w in fingerprint.split() if len(w) > 3}
+    if len(words) < 5:
+        return False
+    hits = sum(1 for w in words if w in hay)
+    return hits / len(words) >= 0.7
+
+
+def find_paste(records: list[dict], fingerprint: str,
+               after: Optional[datetime]) -> Optional[int]:
+    """Index of the first user turn at or after `after` carrying the copied
+    text, or None if the user never pasted it into this session."""
+    for idx, rec in enumerate(records):
+        text = _user_text(rec)
+        if not text:
+            continue
+        if after is not None:
+            ts = _parse_ts(rec.get("timestamp"))
+            if ts is not None and ts < after:
+                continue
+        if _looks_pasted(text, fingerprint):
+            return idx
+    return None
+
+
+def fix_metrics(snapshot: dict) -> dict:
+    """The slice of a live snapshot a fix is judged on."""
+    return {
+        "context_tokens": snapshot.get("context_tokens_now"),
+        "fill_pct": snapshot.get("fill_pct"),
+        "advisories": sorted({a.get("type") for a in snapshot.get("advisories") or []
+                              if a.get("type")}),
+    }
+
+
+def fix_worked(fix_type: str, before: dict, after: dict) -> bool:
+    """Did the thing we complained about actually stop? Measured, per type."""
+    before = before or {}
+    after = after or {}
+    # Compact nudges arrive staged (compact_heads_up / _act_now / _last_call);
+    # all of them are judged the same way, on context actually shrinking.
+    if fix_type in CONTEXT_FIXES or fix_type.startswith("compact"):
+        was = before.get("context_tokens") or 0
+        now = after.get("context_tokens") or 0
+        return bool(was and now and now <= was * FIX_CONTEXT_DROP)
+    return fix_type not in set(after.get("advisories") or [])
+
+
+def fix_brief(fix: dict) -> dict:
+    """UI-facing view. Carries numbers and status, never snippet text."""
+    return {
+        "id": fix.get("id"),
+        "type": fix.get("type"),
+        "label": fix.get("label"),
+        "session_id": fix.get("session_id"),
+        "status": fix.get("status"),
+        "copied_at": fix.get("copied_at"),
+        "pasted_at": fix.get("pasted_at"),
+        "resolved_at": fix.get("resolved_at"),
+        "before": fix.get("baseline"),
+        "after": fix.get("after"),
+    }
+
+
 class CostOptimizerService:
     """Background transcript scan -> findings + comparison strip + receipts."""
 
@@ -601,7 +1041,10 @@ class CostOptimizerService:
 
     def set_prefs(self, **updates) -> dict:
         prefs = self.get_prefs()
-        allowed = {"billing_mode", "recommend_enabled"}
+        allowed = {"billing_mode", "recommend_enabled",
+                   "live_advisor_enabled", "live_sounds_enabled",
+                   "stage_heads_up", "stage_act_now", "stage_last_call",
+                   "big_result_tokens"}
         for key, value in updates.items():
             if key in allowed:
                 prefs[key] = value
@@ -636,6 +1079,271 @@ class CostOptimizerService:
             return data if isinstance(data, dict) else None
         except (OSError, json.JSONDecodeError):
             return None
+
+    def session_activity(self, window_days: int = DEFAULT_WINDOW_DAYS) -> dict:
+        """Live/stale status per session in the window — a stat() sweep over
+        the same transcript discovery the scan uses, plus a tail parse of
+        each LIVE claude-code file for the context size being re-sent now.
+        No model calls, no network: pure local filesystem reads."""
+        now = time.time()
+        rows: dict[str, dict] = {}
+        for kind, sid, path in InstantAuditService._discover(window_days):
+            try:
+                mt = path.stat().st_mtime
+            except OSError:
+                continue
+            active = (now - mt) <= ACTIVE_SESSION_SECONDS
+            row = {
+                "session_id": sid,
+                "harness": kind,
+                "active": active,
+                "last_activity": datetime.fromtimestamp(mt, tz=timezone.utc)
+                    .isoformat(),
+            }
+            if kind == "claude-code" and (now - mt) <= 3600:
+                # Live files: the context being re-sent right now. Recently
+                # ended files: the size the session FINISHED at, which is what
+                # the Guardian's end-of-session recap talks about.
+                ctx = _tail_context_tokens(path)
+                if ctx is not None:
+                    row["context_tokens_now" if active else "context_tokens_last"] = ctx
+            rows[sid] = row
+        return {
+            "generated_at": _now_iso(),
+            "active_window_seconds": ACTIVE_SESSION_SECONDS,
+            "sessions": sorted(rows.values(),
+                               key=lambda r: r["last_activity"], reverse=True),
+        }
+
+    def live_advisor(self) -> dict:
+        """Per-live-session waste flags + compact staging for the Guardian.
+        Only claude-code transcripts are tail-parseable; other harnesses show
+        in session_activity but not here. Advisory only: nothing is ever
+        sent into a session."""
+        prefs = self.get_prefs()
+        thresholds = {k: prefs[k] for k in LIVE_THRESHOLD_DEFAULTS if k in prefs}
+        merged = dict(LIVE_THRESHOLD_DEFAULTS)
+        merged.update({k: v for k, v in thresholds.items()
+                       if isinstance(v, (int, float)) and not isinstance(v, bool)})
+        enabled = prefs.get("live_advisor_enabled", True)
+        now = time.time()
+        sessions: list[dict] = []
+        if enabled:
+            for kind, sid, path in InstantAuditService._discover(7):
+                if kind != "claude-code":
+                    continue
+                try:
+                    mt = path.stat().st_mtime
+                except OSError:
+                    continue
+                if (now - mt) > ACTIVE_SESSION_SECONDS:
+                    continue
+                records = _tail_records(path)
+                if not records:
+                    continue
+                row = analyze_live_tail(records, thresholds)
+                row["session_id"] = sid
+                row["harness"] = kind
+                row["last_activity"] = datetime.fromtimestamp(
+                    mt, tz=timezone.utc).isoformat()
+                turns = _estimate_turns(path)
+                hours = None
+                started = _first_timestamp(path)
+                if started:
+                    ts = _parse_ts(started)
+                    if ts:
+                        hours = round(
+                            (datetime.now(timezone.utc) - ts).total_seconds()
+                            / 3600, 1)
+                if ((turns or 0) > merged["long_session_turns"]
+                        or (hours or 0) > merged["long_session_hours"]):
+                    row["advisories"].append({
+                        "type": "long_session",
+                        # Estimated from the file tail, never an exact count:
+                        # the UI must not present it as one.
+                        "turns_est": turns,
+                        "hours": hours,
+                    })
+                row["turns_est"] = turns
+                row["active_hours"] = hours
+                sessions.append(row)
+        # Follow-through runs even when the advisor is off: a fix copied
+        # before the user muted the Guardian still deserves its receipt.
+        try:
+            fixes = self._advance_fixes(merged)
+        except Exception:  # never let follow-through break the advisor
+            logger.debug("could not advance copied fixes")
+            fixes = {"pending": [], "wins": [], "recent": [], "verified": 0}
+        return {
+            "generated_at": _now_iso(),
+            "enabled": bool(enabled),
+            "sounds_enabled": bool(prefs.get("live_sounds_enabled", True)),
+            "poll_seconds": 45,
+            "thresholds": merged,
+            "sessions": sorted(sessions,
+                               key=lambda r: r["last_activity"], reverse=True),
+            "fixes": fixes,
+        }
+
+    # -- fix follow-through ---------------------------------------------------
+
+    def record_fix_copied(self, fix_type: str, fingerprint: str,
+                          session_id: Optional[str] = None,
+                          label: Optional[str] = None) -> dict:
+        """Remember that a fix went to the clipboard so later sweeps can look
+        for it. Stores a fingerprint of our own template, never user text."""
+        state = self._read_state()
+        fixes = [f for f in state.get("fixes", []) if isinstance(f, dict)]
+        now = _now_iso()
+        entry = None
+        for f in fixes:
+            # Re-copying the same fix restarts its clock rather than stacking a
+            # second pending row that can never resolve.
+            if (f.get("type") == fix_type
+                    and f.get("session_id") == session_id
+                    and f.get("status") in ("copied", "pasted")):
+                f.update(copied_at=now, fingerprint=fingerprint,
+                         status="copied", pasted_at=None, baseline=None,
+                         after=None, label=label or f.get("label"))
+                entry = f
+                break
+        if entry is None:
+            entry = {
+                "id": f"{fix_type}-{int(time.time() * 1000)}",
+                "type": fix_type,
+                "label": label,
+                "session_id": session_id,
+                "fingerprint": fingerprint,
+                "status": "copied",
+                "copied_at": now,
+                "pasted_at": None,
+                "resolved_at": None,
+                "baseline": None,
+                "after": None,
+            }
+            fixes.append(entry)
+        state["fixes"] = fixes[-FIX_HISTORY_MAX:]
+        self._write_state(state)
+        return fix_brief(entry)
+
+    def _fix_tails(self) -> dict:
+        """Tail records for transcripts touched recently enough that a fix
+        copied in the last couple of hours could still show up in them."""
+        now = time.time()
+        tails: dict[str, list[dict]] = {}
+        for kind, sid, path in InstantAuditService._discover(7):
+            if kind != "claude-code":
+                continue
+            try:
+                if (now - path.stat().st_mtime) > FIX_TAIL_SECONDS:
+                    continue
+            except OSError:
+                continue
+            records = _tail_records(path)
+            if records:
+                tails[sid] = records
+        return tails
+
+    def _advance_fixes(self, thresholds: dict) -> dict:
+        """Move pending fixes along: copied -> pasted -> worked. Fixes that go
+        nowhere expire quietly; the Guardian never scolds for an unused fix."""
+        state = self._read_state()
+        fixes = [f for f in state.get("fixes", []) if isinstance(f, dict)]
+        if not fixes:
+            return {"pending": [], "wins": [], "recent": [], "verified": 0}
+        pending = [f for f in fixes if f.get("status") in ("copied", "pasted")]
+        if pending:
+            tails = self._fix_tails()
+            now = time.time()
+            for fix in pending:
+                try:
+                    self._advance_fix(fix, tails, thresholds, now)
+                except Exception:  # one bad row must not break the sweep
+                    logger.debug("could not advance fix %s", fix.get("id"))
+            state["fixes"] = fixes[-FIX_HISTORY_MAX:]
+            self._write_state(state)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=FIX_WIN_FRESH_SECONDS)
+        wins = []
+        for f in fixes:
+            if f.get("status") != "worked":
+                continue
+            ts = _parse_ts(f.get("resolved_at"))
+            if ts is not None and ts >= cutoff:
+                wins.append(fix_brief(f))
+        return {
+            "pending": [fix_brief(f) for f in fixes
+                        if f.get("status") in ("copied", "pasted")],
+            "wins": wins,
+            "recent": [fix_brief(f) for f in fixes[-8:]][::-1],
+            "verified": sum(1 for f in fixes if f.get("status") == "worked"),
+        }
+
+    def _advance_fix(self, fix: dict, tails: dict, thresholds: dict,
+                     now: float) -> None:
+        copied = _parse_ts(fix.get("copied_at"))
+        age = now - (copied.timestamp() if copied else now)
+        fingerprint = fix.get("fingerprint") or ""
+
+        if fix.get("status") == "copied":
+            sid = fix.get("session_id")
+            # A fix copied off the findings wall has no session yet: it binds
+            # to whichever live session the user actually pastes it into.
+            pool = ([(sid, tails[sid])] if sid in tails
+                    else [] if sid else list(tails.items()))
+            for cand_sid, records in pool:
+                idx = find_paste(records, fingerprint, copied)
+                if idx is None:
+                    continue
+                fix["session_id"] = cand_sid
+                fix["pasted_at"] = records[idx].get("timestamp") or _now_iso()
+                fix["status"] = "pasted"
+                # Baseline is measured at the moment the fix went in, not at
+                # the moment it was copied: that is the honest "before".
+                fix["baseline"] = fix_metrics(
+                    analyze_live_tail(records[:idx + 1], thresholds))
+                return
+            if age > FIX_PASTE_WINDOW_SECONDS:
+                fix["status"] = "no_paste"
+                fix["resolved_at"] = _now_iso()
+            return
+
+        records = tails.get(fix.get("session_id"))
+        if records is None:
+            if age > FIX_VERIFY_WINDOW_SECONDS:
+                fix["status"] = "no_change"
+                fix["resolved_at"] = _now_iso()
+            return
+        idx = find_paste(records, fingerprint, copied)
+        # If the paste has scrolled out of the tail window, everything still in
+        # the tail is by definition after it.
+        after = records[idx + 1:] if idx is not None else records
+        if len(after) < FIX_MIN_RECORDS_AFTER:
+            if age > FIX_VERIFY_WINDOW_SECONDS:
+                fix["status"] = "no_change"
+                fix["resolved_at"] = _now_iso()
+            return
+        post = fix_metrics(analyze_live_tail(after, thresholds))
+        ftype = fix.get("type") or ""
+        if fix_worked(ftype, fix.get("baseline") or {}, post):
+            # A context drop the harness caused is not the user's win. If an
+            # auto-triggered compact_boundary sits in the records after the
+            # paste, the numbers moved on their own; celebrating them would
+            # be the exact overclaim this feature exists to refuse. A manual
+            # compact after the paste stays creditable: running /compact is
+            # what the pasted fix asks for.
+            harness_did_it = (
+                (ftype in CONTEXT_FIXES or ftype.startswith("compact"))
+                and any(trig == "auto"
+                        for _, trig, _ in _compact_boundaries(after)))
+            fix["status"] = "auto_compacted" if harness_did_it else "worked"
+            fix["after"] = post
+            fix["resolved_at"] = _now_iso()
+        elif age > FIX_VERIFY_WINDOW_SECONDS:
+            fix["status"] = "no_change"
+            fix["after"] = post
+            fix["resolved_at"] = _now_iso()
 
     def delete_report(self) -> bool:
         try:
@@ -758,6 +1466,11 @@ class CostOptimizerService:
         findings: list[dict] = []
         hit_reads = hit_fresh = 0
         session_summaries: list[dict] = []
+        # Per-day observed prompt+output tokens across all sessions: the shape
+        # behind the "already billed, window total" number. Exact counts from
+        # usage records, bucketed by the generation's own timestamp (UTC).
+        daily: dict[str, int] = {}
+        window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
 
         # per-agent (per-harness) loop baselines from history
         rates_by_harness: dict[str, list[float]] = {}
@@ -781,6 +1494,12 @@ class CostOptimizerService:
             hit_reads += a["cache_hit"]["reads"]
             hit_fresh += a["cache_hit"]["fresh"]
 
+            for g in gens:
+                ts = _parse_ts(g.get("called_at"))
+                if ts and ts >= window_start:
+                    day = ts.date().isoformat()
+                    daily[day] = daily.get(day, 0) + prompt_tokens(g) \
+                        + int(g.get("output_tokens") or 0)
             times = [t for t in (_parse_ts(g.get("called_at")) for g in gens) if t]
             if len(times) >= 2:
                 mins = max((times[-1] - times[0]).total_seconds() / 60.0, 1.0)
@@ -849,10 +1568,19 @@ class CostOptimizerService:
                         },
                         "recommendation": {
                             "change": (
-                                f"Compact this session's context: keep the last "
-                                f"{THRESHOLDS['compaction_keep_turns']} turns plus a summary of at most "
-                                f"{THRESHOLDS['compaction_summary_tokens']} tokens. This is a quality "
-                                f"tradeoff, not a free win — dropped context is dropped."
+                                "Shrink the context this session re-sends every turn, "
+                                "without dropping what the agent still needs."
+                            ),
+                            "how": (
+                                "Finish the task and start the next one in a fresh "
+                                "session; or write a short state note to a file and "
+                                "restart from it; or move heavy file exploration to "
+                                "subagents so only their summary enters context."
+                            ),
+                            "risk": (
+                                "A state note that skips a decision loses it; keep the "
+                                "note to what the next session genuinely needs (task, "
+                                "files in flight, next step)."
                             ),
                         },
                     })
@@ -867,6 +1595,12 @@ class CostOptimizerService:
                     "segment": None, "turns": [c["turn"]],
                     "tokens_wasted": c["carry_tokens"],
                     "est_value_usd": self._rounded(c["est_value_usd"]),
+                    # structured fields for the per-tool trim ledger: which
+                    # tool produced the result, how big it was, how many
+                    # turns re-billed it (the evidence string stays prose)
+                    "tool": c["tool"],
+                    "result_tokens_est": c["result_tokens_est"],
+                    "carried_turns": c["carried_turns"],
                     "confidence": "medium",
                     "evidence": {
                         "observed": (
@@ -877,10 +1611,16 @@ class CostOptimizerService:
                         "sample_turns": self._sample_turns(gens, [c["turn"], c["turn"]]),
                     },
                     "recommendation": {
-                        "change": (
-                            "Trim or summarize this tool result before it enters context "
-                            "(head/tail the file read, aggregate the command output) — "
-                            "every later turn pays for it again."
+                        "change": "Trim or summarize large tool results before they enter context.",
+                        "how": (
+                            "Read files with offset/limit instead of whole, pipe command "
+                            "output through head, tail or grep, and ask the agent to keep "
+                            "excerpts, not dumps. Every later turn pays for the full "
+                            "result again."
+                        ),
+                        "risk": (
+                            "An over-trimmed result can hide the exact line a later turn "
+                            "needs, forcing a re-read."
                         ),
                     },
                 })
@@ -919,13 +1659,14 @@ class CostOptimizerService:
                         "sample_turns": self._sample_turns(gens, [0, len(gens) - 1]),
                     },
                     "recommendation": {
-                        "change": (
-                            "Stabilize the prompt prefix: keep static context (system "
-                            "prompt, tool definitions, reference files) byte-identical "
-                            "across turns so the provider can serve it at the cache-read "
-                            "rate. Diff the first turns where reads collapse to find the "
-                            "drifting block."
+                        "change": "Stabilize the prompt prefix so carried context bills at the cache-read rate.",
+                        "how": (
+                            "Keep static context (system prompt, tool definitions, "
+                            "reference files) byte-identical across turns, and diff the "
+                            "first turns where cache reads collapse to find the drifting "
+                            "block."
                         ),
+                        "risk": "None. A stable prefix changes nothing about the answers.",
                     },
                 })
 
@@ -967,10 +1708,12 @@ class CostOptimizerService:
                             "sample_turns": self._sample_turns(gens, [turns[0], turns[-1]]),
                         },
                         "recommendation": {
-                            "change": (
-                                "Fail fast: after two identical failures, change the "
-                                "arguments or stop — each retry re-bills the whole context."
+                            "change": "Fail fast instead of retrying the same failing call.",
+                            "how": (
+                                "After two identical failures, change the arguments or "
+                                "stop; each retry re-bills the whole context."
                             ),
+                            "risk": "None. Stopping a failing retry loop costs nothing.",
                         },
                     })
 
@@ -1005,8 +1748,12 @@ class CostOptimizerService:
                             "sample_turns": self._sample_turns(gens, [turns[0], turns[-1]]),
                         },
                         "recommendation": {
-                            "change": "Deduplicate the request at the harness layer — the "
-                                      "identical input produced an identical bill.",
+                            "change": "Deduplicate the request at the harness layer.",
+                            "how": (
+                                "Guard or cache the call site that fired twice: identical "
+                                "input produced an identical bill."
+                            ),
+                            "risk": "None when the inputs are truly identical.",
                         },
                     })
 
@@ -1037,11 +1784,13 @@ class CostOptimizerService:
                             "sample_turns": self._sample_turns(gens, [0, len(gens) - 1]),
                         },
                         "recommendation": {
-                            "change": (
-                                "Review this session's loop: the shape (rate + repetition) "
-                                "is the cost axis of a runaway run. Consider the per-run "
-                                "caps under Cost Settings once enforcement ships."
+                            "change": "Review this session's loop shape.",
+                            "how": (
+                                "The rate plus repetition pattern is the cost axis of a "
+                                "runaway run; consider the per-run caps under Cost "
+                                "Settings once enforcement ships."
                             ),
+                            "risk": "None. This is a review step; nothing changes until you act.",
                         },
                     })
 
@@ -1080,9 +1829,14 @@ class CostOptimizerService:
                                                        [hit["turn"], hit["turn"]]),
                 },
                 "recommendation": {
-                    "change": (
-                        "Potential only: cap or tighten the output for this call shape "
-                        "if the long answers aren't intentional."
+                    "change": "Potential only: cap or tighten the output for this call shape.",
+                    "how": (
+                        "Set max_tokens on the request, or ask the agent for shorter "
+                        "answers, if the long answers are not intentional."
+                    ),
+                    "risk": (
+                        "A cap can truncate an answer mid-thought. Set it above your "
+                        "longest wanted reply."
                     ),
                 },
             })
@@ -1110,11 +1864,13 @@ class CostOptimizerService:
                 "confidence": "low", "observation_only": True,
                 "evidence": {"observed": obs, "sample_turns": rs["sample_turns"]},
                 "recommendation": {
-                    "change": (
-                        "Run an evaluation before changing anything: routing these calls "
-                        "to a cheaper family model trades quality for cost, and this "
-                        "finding carries no verdict on that tradeoff."
+                    "change": "Run an evaluation before changing any model routing.",
+                    "how": (
+                        "Compare quality on a sample of these calls before routing them "
+                        "to a cheaper family model; this finding carries no verdict on "
+                        "that tradeoff."
                     ),
+                    "risk": "Quality regression if you reroute without measuring first.",
                 },
             })
 
@@ -1130,6 +1886,31 @@ class CostOptimizerService:
                 observed["est_cost_usd"]
                 - buckets["cache"]["est_value_usd"]
                 - buckets["compaction"]["est_value_usd"],
+            )),
+        }
+
+        # The lossless counterfactual: only changes that drop no context —
+        # trimming the oversized tool results the carry findings attribute
+        # (a slice of the compaction bucket) plus cache-rate fixes. This is
+        # the figure the UI headline promises; the full `modeled` figure
+        # above additionally assumes compacting every long session and is
+        # presented as a ceiling, never as the promise.
+        carry_tok = min(
+            sum(f["tokens_wasted"] for f in findings if f["type"] == "tool_result_carry"),
+            buckets["compaction"]["tokens"],
+        )
+        carry_usd = min(
+            sum((f["est_value_usd"] or 0.0) for f in findings
+                if f["type"] == "tool_result_carry"),
+            buckets["compaction"]["est_value_usd"],
+        )
+        modeled_lossless = {
+            "total_tokens": max(0, observed["total_tokens"] - carry_tok),
+            "est_cost_usd": self._rounded(max(
+                0.0,
+                observed["est_cost_usd"]
+                - buckets["cache"]["est_value_usd"]
+                - carry_usd,
             )),
         }
 
@@ -1196,11 +1977,13 @@ class CostOptimizerService:
                 },
             },
             "modeled": modeled,
+            "modeled_lossless": modeled_lossless,
             "findings": findings,
             "capability_notes": capability_notes,
             "metrics": metrics,
             "thresholds": THRESHOLDS,
             "session_summaries": session_summaries,
+            "daily": [{"date": d, "tokens": daily[d]} for d in sorted(daily)],
         }
         report["receipts"] = self._update_receipts(report)
         return report

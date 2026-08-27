@@ -3,8 +3,8 @@
  *
  * Three.js (vendored, MIT) builds the figure from primitives — no external
  * model files, no third-party art: capsule-ish head with a glossy dark
- * visor, emissive eyes, teal antenna bead, extruded shield body, capsule
- * arms with mitten hands. GSAP (vendored, GreenSock standard license)
+ * visor, emissive eyes and ear pods.
+ * GSAP (vendored, GreenSock standard license)
  * drives the life: idle bob and sway, blinks, pointer-tracked head and
  * eyes, and a wave gesture on demand.
  *
@@ -18,6 +18,16 @@
 import * as THREE from '/js/vendor/three.module.min.js';
 
 const TEAL = 0x5eadb8;
+// Theme counterpoint, mirroring the SVG bot: light shell on dark themes,
+// dark slate shell on the light theme. Read live so theme switches retint
+// the materials in place (see applyTheme in mount()).
+const SHELL_ON_DARK = 0xe8eef4;
+const SHELL_ON_LIGHT = 0x54626f;
+// The shared state vocabulary. GuardianBot (2D) carries the same names, so
+// nothing a state expresses is lost when WebGL is unavailable.
+const STATES = ['idle', 'scan', 'listening', 'concerned', 'ok'];
+const isLightTheme = () =>
+    (document.documentElement.getAttribute('data-theme') || '') === 'light';
 const REDUCED = window.matchMedia
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -44,22 +54,36 @@ function glowTexture(inner, outer) {
     return tex;
 }
 
+/** Resolve a gaze target to a viewport point. Accepts an element, a CSS
+ *  selector, or a {x, y} client point. Returns null when the target is
+ *  missing or has no box, so a caused look at something that is not on
+ *  screen is a no-op rather than a stare into a corner. */
+function pointOf(target) {
+    if (!target) return null;
+    let t = target;
+    if (typeof t === 'string') t = document.querySelector(t);
+    if (t && t.nodeType === 1) {
+        const r = t.getBoundingClientRect();
+        if (!r.width && !r.height) return null;
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    if (t && typeof t.x === 'number' && typeof t.y === 'number') return t;
+    return null;
+}
+
 function buildGuardian() {
     const root = new THREE.Group();
     const body = new THREE.Group(); // everything that bobs
     root.add(body);
 
     const shell = new THREE.MeshPhysicalMaterial({
-        color: 0xe8eef4, roughness: 0.32, metalness: 0.05,
+        color: isLightTheme() ? SHELL_ON_LIGHT : SHELL_ON_DARK,
+        roughness: 0.32, metalness: 0.05,
         clearcoat: 1.0, clearcoatRoughness: 0.22,
     });
     const dark = new THREE.MeshPhysicalMaterial({
         color: 0x10161e, roughness: 0.12, metalness: 0.1,
         clearcoat: 1.0, clearcoatRoughness: 0.08,
-    });
-    const tealGlow = new THREE.MeshStandardMaterial({
-        color: TEAL, emissive: TEAL, emissiveIntensity: 1.6,
-        roughness: 0.4,
     });
     const eyeMat = new THREE.MeshStandardMaterial({
         color: 0xffffff, emissive: 0xf2f7fb, emissiveIntensity: 1.35,
@@ -84,18 +108,6 @@ function buildGuardian() {
     const earR = earL.clone();
     earR.position.x = 1.34;
     headGroup.add(earL, earR);
-    // antenna
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.42, 12), shell);
-    stem.position.set(0, 1.12, 0);
-    const bead = new THREE.Mesh(new THREE.SphereGeometry(0.14, 24, 16), tealGlow);
-    bead.position.set(0, 1.4, 0);
-    const beadHalo = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowTexture('rgba(94,173,184,0.85)', 'rgba(94,173,184,0)'),
-        transparent: true, depthWrite: false,
-    }));
-    beadHalo.scale.set(0.85, 0.85, 1);
-    beadHalo.position.copy(bead.position);
-    headGroup.add(stem, bead, beadHalo);
 
     // eyes: emissive pills inside the visor, each with a soft halo
     const eyes = new THREE.Group();
@@ -117,71 +129,36 @@ function buildGuardian() {
     const eyeR = mkEye(0.42);
     eyes.add(eyeL, eyeR);
     headGroup.add(eyes);
-    headGroup.position.y = 1.02;
+    headGroup.position.y = 0;
     body.add(headGroup);
-    // neck: the head sits ON the body, not above it
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.35, 20), dark);
-    neck.position.y = 0.12;
-    body.add(neck);
-
-    // shield body: the product mark, extruded with a bevel
-    const shieldShape = new THREE.Shape();
-    shieldShape.moveTo(-0.85, 0.55);
-    shieldShape.quadraticCurveTo(0, 0.88, 0.85, 0.55);
-    shieldShape.lineTo(0.85, 0.02);
-    shieldShape.bezierCurveTo(0.85, -0.62, 0.45, -1.02, 0, -1.22);
-    shieldShape.bezierCurveTo(-0.45, -1.02, -0.85, -0.62, -0.85, 0.02);
-    shieldShape.closePath();
-    const shield = new THREE.Mesh(new THREE.ExtrudeGeometry(shieldShape, {
-        depth: 0.5, bevelEnabled: true, bevelThickness: 0.14,
-        bevelSize: 0.12, bevelSegments: 5, curveSegments: 24,
-    }), shell);
-    shield.position.set(0, -0.5, -0.25);
-    body.add(shield);
-    // keel: the mark's center line, faint teal
-    const keel = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.85, 6, 10),
-        new THREE.MeshStandardMaterial({
-            color: TEAL, emissive: TEAL, emissiveIntensity: 0.35, roughness: 0.5,
-        }));
-    keel.position.set(0, -0.82, 0.42);
-    body.add(keel);
-
-    // arms: capsules with mitten hands, pivoted at the shoulders
-    const mkArm = (side) => {
-        const pivot = new THREE.Group();
-        pivot.position.set(1.0 * side, -0.3, 0);
-        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.5, 8, 16), shell);
-        arm.position.set(0.16 * side, -0.42, 0);
-        arm.rotation.z = -0.28 * side;
-        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.19, 24, 16), shell);
-        hand.position.set(0.28 * side, -0.78, 0);
-        pivot.add(arm, hand);
-        body.add(pivot);
-        return pivot;
-    };
-    const armL = mkArm(-1);
-    const armR = mkArm(1);
 
     // ground shadow: a dark radial sprite (cheap, no shadow maps)
     const shadow = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowTexture('rgba(0,0,0,0.42)', 'rgba(0,0,0,0)'),
         transparent: true, depthWrite: false,
     }));
-    shadow.scale.set(2.2, 0.55, 1);
-    shadow.position.y = -2.15;
+    shadow.scale.set(2.1, 0.5, 1);
+    shadow.position.y = -1.55;
     root.add(shadow);
 
-    return { root, body, headGroup, eyes, eyeL, eyeR, bead, beadHalo, armL, armR, shadow };
+    return { root, body, headGroup, eyes, eyeL, eyeR, shadow, shell, dark };
 }
 
 const Guardian3D = {
     available: () => webglAvailable(),
 
     /** Mount the hero Guardian into `el`. Returns a controller:
-     *  { wave(), setState('idle'|'scan'), dispose() }. */
+     *  {
+     *    look(target, {hold}),   caused gaze at an element / selector / point
+     *    react('blocked'|'ok'),  one-shot reaction to something that happened
+     *    setState(name),         persistent posture, see STATES
+     *    glance(), wave(),       idle beat, and the greeting
+     *    celebrate(),          the 270-degree win spin, puffs and all
+     *    dispose(),
+     *  } */
     mount(el, opts = {}) {
         const size = Number(opts.size) || 128;
-        const W = size, H = Math.round(size * 1.18);
+        const W = size, H = Math.round(size * 0.94);
         const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(W, H);
@@ -191,8 +168,8 @@ const Guardian3D = {
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 30);
-        camera.position.set(0, 0.4, 8.5);
-        camera.lookAt(0, -0.08, 0);
+        camera.position.set(0, 0.16, 6.6);
+        camera.lookAt(0, -0.04, 0);
 
         // studio lighting: warm key upper-left, cool teal rim right, soft fill
         scene.add(new THREE.AmbientLight(0xdfe8f0, 0.75));
@@ -208,28 +185,62 @@ const Guardian3D = {
 
         const G = buildGuardian();
         scene.add(G.root);
+        // Retint on theme switches: the app stamps data-theme on <html>.
+        const applyTheme = () => {
+            G.shell.color.setHex(isLightTheme() ? SHELL_ON_LIGHT : SHELL_ON_DARK);
+        };
+        applyTheme();
+        const themeObs = new MutationObserver(() => {
+            applyTheme();
+            if (REDUCED) renderer.render(scene, camera); // static frame retints too
+        });
+        themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         G.root.rotation.x = 0.04;
-        G.root.position.y = -0.12;
+        G.root.position.y = 0.1;
 
         const gsap = window.gsap;
         const tweens = [];
         let raf = null;
         let disposed = false;
-        const state = { scan: false };
+        const state = { scan: false, name: 'idle' };
+
+        // ---- stillness ---------------------------------------------------
+        // Idle motion used to run on infinite yoyo tweens, so the bot moved
+        // identically whether the machine was quiet or an agent had just been
+        // blocked. Perpetual motion is a screensaver: it makes movement mean
+        // nothing. The idle drive is procedural instead, scaled by `life`,
+        // which decays to a floor after QUIET_MS of nothing happening. Once
+        // it has settled, ANY movement is a signal that something real
+        // occurred, and that contrast is what reads as attention. Every
+        // caused motion below calls wake().
+        const LIFE_FLOOR = 0.14;   // asleep, never switched off
+        const QUIET_MS = 6000;     // how long "nothing happened" lasts
+        const life = { v: 1 };
+        let lastEvent = performance.now();
+        let lifeTween = null;
+        const wake = () => {
+            lastEvent = performance.now();
+            if (!gsap || REDUCED || life.v > 0.98) return;
+            if (lifeTween) lifeTween.kill();
+            lifeTween = gsap.to(life, { v: 1, duration: 0.35, ease: 'power2.out' });
+        };
+        const settleCheck = () => {
+            if (!gsap || REDUCED) return;
+            if (performance.now() - lastEvent < QUIET_MS) return;
+            if (life.v <= LIFE_FLOOR + 0.01) return;
+            if (lifeTween) lifeTween.kill();
+            lifeTween = gsap.to(life, { v: LIFE_FLOOR, duration: 2.6, ease: 'sine.inOut' });
+        };
 
         if (gsap && !REDUCED) {
-            // idle life: bob against the shadow, slow sway, blinks, pulse
-            tweens.push(gsap.to(G.body.position, { y: 0.09, duration: 2, ease: 'sine.inOut', yoyo: true, repeat: -1 }));
-            tweens.push(gsap.to(G.root.rotation, { y: 0.16, duration: 4.5, ease: 'sine.inOut', yoyo: true, repeat: -1 }));
-            tweens.push(gsap.to(G.shadow.scale, { x: 1.9, duration: 2, ease: 'sine.inOut', yoyo: true, repeat: -1 }));
+            // The blink survives the settle. A still character that blinks
+            // reads as calm; one that never blinks reads as frozen.
             [G.eyeL, G.eyeR].forEach(e => {
                 const blink = gsap.timeline({ repeat: -1, repeatDelay: 4.6 });
                 blink.to(e.scale, { y: 0.08, duration: 0.09, ease: 'power2.in' })
                      .to(e.scale, { y: 1, duration: 0.14, ease: 'power2.out' });
                 tweens.push(blink);
             });
-            tweens.push(gsap.to(G.bead.material, { emissiveIntensity: 0.5, duration: 1.3, yoyo: true, repeat: -1, ease: 'sine.inOut' }));
-            tweens.push(gsap.to(G.beadHalo.material, { opacity: 0.35, duration: 1.3, yoyo: true, repeat: -1, ease: 'sine.inOut' }));
         }
 
         // pointer tracking: the head (and eyes, slightly more) follow the
@@ -237,8 +248,15 @@ const Guardian3D = {
         const yawTo = gsap && !REDUCED ? gsap.quickTo(G.headGroup.rotation, 'y', { duration: 0.5, ease: 'power3.out' }) : null;
         const pitchTo = gsap && !REDUCED ? gsap.quickTo(G.headGroup.rotation, 'x', { duration: 0.5, ease: 'power3.out' }) : null;
         const eyesTo = gsap && !REDUCED ? gsap.quickTo(G.eyes.position, 'x', { duration: 0.4, ease: 'power3.out' }) : null;
+        let lastMove = -1e9;
+        // While a caused gaze is holding, the cursor must not drag the head
+        // off its target: a deliberate look outranks ambient tracking.
+        let gazeUntil = 0;
         const onMove = (ev) => {
             if (disposed || !yawTo) return;
+            if (performance.now() < gazeUntil) return;
+            lastMove = performance.now();
+            wake();
             const r = renderer.domElement.getBoundingClientRect();
             const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
             const dx = (ev.clientX - cx) / window.innerWidth;
@@ -249,8 +267,23 @@ const Guardian3D = {
         };
         if (yawTo) window.addEventListener('mousemove', onMove, { passive: true });
 
+        // The idle drive ASSIGNS these every frame, so any tween that writes
+        // the same properties is wiped before it can be seen. One-shot moves
+        // therefore tween these offsets, and the drive adds them in.
+        const pose = { spin: 0, hop: 0 };
+
+        const t0 = performance.now();
         const render = () => {
             if (disposed) return;
+            if (gsap && !REDUCED) {
+                settleCheck();
+                const t = (performance.now() - t0) / 1000;
+                const a = life.v;
+                // same amplitudes the yoyo tweens used, now gated by `life`
+                G.body.position.y = (Math.sin(t * 1.85) * 0.5 + 0.5) * 0.03 * a + pose.hop;
+                G.root.rotation.y = (Math.sin(t * 0.9) * 0.5 + 0.5) * 0.05 * a + pose.spin;
+                G.shadow.scale.x = 2.1 - (Math.sin(t * 1.85) * 0.5 + 0.5) * 0.05 * a;
+            }
             renderer.render(scene, camera);
             raf = requestAnimationFrame(render);
         };
@@ -259,19 +292,76 @@ const Guardian3D = {
 
         return {
             el: renderer.domElement,
-            wave() {
-                if (!gsap || REDUCED) return 0;
+            /** Idle glance: the sentinel looks off to one side and back.
+             *  Small on purpose, and skipped while the cursor is live, since
+             *  the head is already tracking it and a second motion would
+             *  fight it. This is the only unprompted movement. */
+            /** Caused gaze: point the head at something real on the page.
+             *  `target` is an element, a selector, or a {x, y} client point.
+             *  Unlike cursor tracking this is deliberate — it snaps, holds,
+             *  then returns — so a blocked call or a first-time destination
+             *  pulls the Guardian's attention a beat before the user's.
+             *  Returns the sequence length in ms, or 0 if it did not run. */
+            look(target, opts = {}) {
+                if (!gsap || REDUCED || disposed) return 0;
+                const pt = pointOf(target);
+                if (!pt) return 0;
+                wake();
+                const r = renderer.domElement.getBoundingClientRect();
+                const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                const dx = (pt.x - cx) / Math.max(1, window.innerWidth);
+                const dy = (pt.y - cy) / Math.max(1, window.innerHeight);
+                const hold = Math.max(0, Number(opts.hold) || 1100);
+                gazeUntil = performance.now() + hold + 700;
                 const tl = gsap.timeline();
-                tl.to(G.armR.rotation, { z: -2.1, duration: 0.28, ease: 'power2.out' })
-                  .to(G.armR.rotation, { z: -1.5, duration: 0.16, yoyo: true, repeat: 3, ease: 'sine.inOut' })
-                  .to(G.armR.rotation, { z: 0, duration: 0.3, ease: 'power2.in' });
+                tl.to(G.headGroup.rotation, {
+                    y: THREE.MathUtils.clamp(dx * 1.9, -0.5, 0.5),
+                    x: THREE.MathUtils.clamp(dy * 0.9, -0.2, 0.28),
+                    duration: 0.26, ease: 'power4.out',
+                })
+                  .to(G.eyes.position, {
+                      x: THREE.MathUtils.clamp(dx * 0.6, -0.18, 0.18),
+                      duration: 0.2, ease: 'power3.out',
+                  }, '<')
+                  .to({}, { duration: hold / 1000 })
+                  .to(G.headGroup.rotation, { y: 0, x: 0, duration: 0.7, ease: 'sine.inOut' })
+                  .to(G.eyes.position, { x: 0, duration: 0.5, ease: 'power2.out' }, '<');
                 return tl.duration() * 1000;
             },
+            glance() {
+                if (!gsap || REDUCED || state.scan) return 0;
+                if (performance.now() - lastMove < 4000) return 0;
+                if (performance.now() < gazeUntil) return 0;
+                wake();
+                const dir = Math.random() < 0.5 ? -1 : 1;
+                const tl = gsap.timeline();
+                tl.to(G.headGroup.rotation, { y: dir * 0.3, x: -0.04, duration: 0.55, ease: 'sine.inOut' })
+                  .to(G.eyes.position, { x: dir * 0.1, duration: 0.4, ease: 'power2.out' }, '<')
+                  .to(G.headGroup.rotation, { y: 0, x: 0, duration: 0.8, ease: 'sine.inOut' }, '+=0.5')
+                  .to(G.eyes.position, { x: 0, duration: 0.5, ease: 'power2.out' }, '<');
+                return tl.duration() * 1000;
+            },
+            wave() {
+                if (!gsap || REDUCED) return 0;
+                wake();
+                // no arms on a head-only sentinel: a friendly nod
+                const tl = gsap.timeline();
+                tl.to(G.headGroup.rotation, { x: 0.2, duration: 0.22, ease: 'power2.out' })
+                  .to(G.headGroup.rotation, { x: -0.06, duration: 0.16, yoyo: true, repeat: 3, ease: 'sine.inOut' })
+                  .to(G.headGroup.rotation, { x: 0, duration: 0.26, ease: 'power2.in' });
+                return tl.duration() * 1000;
+            },
+            /** Persistent posture. Every state is legible from silhouette and
+             *  luminance alone: none of them depends on hue, because colour
+             *  in this product means security state and nothing else. */
             setState(s) {
-                state.scan = s === 'scan';
+                const name = STATES.indexOf(s) >= 0 ? s : 'idle';
+                state.name = name;
+                state.scan = name === 'scan';
                 if (!gsap || REDUCED) return;
-                // scanning: the bead works harder and the eyes cool toward teal
-                gsap.to(G.bead.material, { emissiveIntensity: state.scan ? 2.6 : 1.6, duration: 0.4 });
+                wake();
+                // scanning: the eyes cool toward teal and burn brighter
+                gsap.to(G.eyeL.children[0].material, { emissiveIntensity: state.scan ? 2.0 : 1.35, duration: 0.4 });
                 [G.eyeL, G.eyeR].forEach(e => {
                     const m = e.children[0].material;
                     gsap.to(m.emissive, {
@@ -279,11 +369,87 @@ const Guardian3D = {
                         b: state.scan ? 0.9 : 0.98, duration: 0.4,
                     });
                 });
+                // listening: a head tilt, the universal "go on" posture.
+                gsap.to(G.headGroup.rotation, {
+                    z: name === 'listening' ? 0.14 : 0,
+                    duration: 0.5, ease: 'power2.out',
+                });
+                // concerned: leans in and narrows its eyes. No red, no glow.
+                const worried = name === 'concerned';
+                gsap.to(G.body.rotation, { x: worried ? 0.11 : 0, duration: 0.6, ease: 'power2.out' });
+                [G.eyeL, G.eyeR].forEach(e => {
+                    gsap.to(e.scale, { y: worried ? 0.62 : 1, duration: 0.45, ease: 'power2.out' });
+                });
+            },
+            /** One-shot reactions. These are the moments that must be caused
+             *  by something real: a denial, or a clean result. */
+            react(kind) {
+                if (!gsap || REDUCED || disposed) return 0;
+                wake();
+                const tl = gsap.timeline();
+                if (kind === 'blocked') {
+                    // a sharp refusal, then a deliberate beat of stillness.
+                    // The pause is the point: it is what a decision looks like.
+                    tl.to(G.headGroup.rotation, { y: -0.26, duration: 0.1, ease: 'power4.out' })
+                      .to(G.headGroup.rotation, { y: 0.22, duration: 0.12, ease: 'power2.inOut' })
+                      .to(G.headGroup.rotation, { y: 0, duration: 0.14, ease: 'power2.out' })
+                      .to(G.body.rotation, { x: 0.08, duration: 0.18, ease: 'power2.out' }, '<')
+                      .to({}, { duration: 0.75 })
+                      .to(G.body.rotation, { x: 0, duration: 0.6, ease: 'sine.inOut' });
+                } else if (kind === 'ok') {
+                    // the eyes squash into arcs: the 2D bot's `ok` face,
+                    // which never made it into three dimensions until now
+                    [G.eyeL, G.eyeR].forEach((e, i) => {
+                        tl.to(e.scale, { y: 0.42, x: 1.18, duration: 0.22, ease: 'power2.out' }, i ? '<' : 0)
+                          .to(e.scale, { y: 1, x: 1, duration: 0.3, ease: 'power2.inOut' }, '>+0.5');
+                    });
+                    tl.to(G.headGroup.rotation, { x: 0.1, duration: 0.22, ease: 'power2.out' }, 0)
+                      .to(G.headGroup.rotation, { x: 0, duration: 0.4, ease: 'sine.inOut' }, '>+0.3');
+                } else {
+                    return 0;
+                }
+                gazeUntil = performance.now() + tl.duration() * 1000;
+                return tl.duration() * 1000;
+            },
+            /** The one showy moment in the whole product: a full 270-degree
+             *  turn inside a ring of drifting puffs. Reserved for a verified
+             *  win, because a celebration that fires on nothing teaches the
+             *  user to ignore it.
+             *
+             *  Colour note: the Guardian's own materials never change here.
+             *  Hue on the bot means security state, so the colour lives
+             *  entirely in the transient puffs, which carry no state at all
+             *  and are gone in under two seconds. */
+            /** The one showy moment in the whole product: a full turn on the
+             *  vertical axis, then a short unwind back to front. Reserved for
+             *  a verified win, because a celebration that fires on nothing
+             *  teaches the user to ignore it.
+             *
+             *  The colour half of this lives in the DOM, not here. A ring of
+             *  puffs drawn in the scene sits at the edge of a 94px canvas and
+             *  gets clipped to nothing, so the assistant draws it around the
+             *  button instead and this method owns only the spin. */
+            celebrate() {
+                if (!gsap || REDUCED || disposed) return 0;
+                wake();
+                const tl = gsap.timeline({
+                    onComplete: () => { pose.spin = 0; pose.hop = 0; },
+                });
+                // 270 degrees, then home: stopping three-quarters round and
+                // easing back reads as a flourish, where a flat 360 just looks
+                // like a dropped frame.
+                pose.spin = 0;
+                tl.to(pose, { spin: Math.PI * 1.5, duration: 1.05, ease: 'power2.inOut' }, 0)
+                  .to(pose, { spin: Math.PI * 2, duration: 0.45, ease: 'power2.out' }, 1.15);
+                tl.to(pose, { hop: 0.16, duration: 0.34, ease: 'power2.out' }, 0)
+                  .to(pose, { hop: 0, duration: 0.5, ease: 'bounce.out' }, 0.34);
+                return tl.duration() * 1000;
             },
             dispose() {
                 disposed = true;
                 if (raf) cancelAnimationFrame(raf);
                 tweens.forEach(t => t.kill && t.kill());
+                themeObs.disconnect();
                 window.removeEventListener('mousemove', onMove);
                 renderer.dispose();
                 renderer.domElement.remove();
