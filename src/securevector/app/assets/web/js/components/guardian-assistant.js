@@ -75,7 +75,6 @@ const GuardianAssistant = {
         const fab = document.createElement('button');
         fab.type = 'button';
         fab.className = 'sv-ga-fab';
-        fab.dataset.tip = 'Drag me anywhere and drop me where you want. Click to open.';
         fab.setAttribute('aria-label', 'Open Guardian');
         // Hero renderer when the machine can carry it: the real-3D Guardian
         // (Three.js + GSAP, vendored) with pointer-tracked eyes and a wave.
@@ -915,7 +914,7 @@ const GuardianAssistant = {
             noun: 'traces',
             what: 'A trace is one agent run end to end, and the rows inside it are the model calls it made, in order.',
             look: 'The turn where tokens jump is usually where a tool result got large.',
-            cta: 'Show me the costly turns', page: 'costs', tab: 'optimizer',
+            cta: 'Show me the costliest trace', act: 'costliest-trace',
         },
         threats: {
             noun: 'threats',
@@ -1020,7 +1019,7 @@ const GuardianAssistant = {
         const spoke = this._speak({
             text: `Looks like you are digging into ${b.noun}. Short version: `
                 + `${b.what} ${b.look} Or ignore me and carry on.`,
-            cta: b.cta, page: b.page, tab: b.tab, mood: 'none',
+            cta: b.cta, page: b.page, tab: b.tab, act: b.act, mood: 'none',
         });
         if (spoke) {
             this._orientCount += 1;
@@ -1031,6 +1030,50 @@ const GuardianAssistant = {
                 else if (this._bot) this._bot.setState('idle');
             }, 4200);
         }
+    },
+
+    /** CTA actions that answer on the page the user is already on. A promise
+     *  like "show me the costliest trace" made while the user is looking at
+     *  traces must resolve HERE, not by dumping them on the Optimizer tab. */
+    async _act(name) {
+        if (name !== 'costliest-trace') return;
+        // The trace list carries no token numbers; session totals live only in
+        // the Optimizer report. Join the two on session_id and rank.
+        let sums = null;
+        try {
+            const rep = await API.request('/api/cost-optimizer/report');
+            sums = new Map((rep && rep.session_summaries || []).map(
+                (x) => [x.session_id, (x.prompt_tokens || 0) + (x.output_tokens || 0)]));
+        } catch (_) { /* no scan yet */ }
+        const runs = (window.AgentRunsPage && AgentRunsPage.runs) || [];
+        let best = null, bestTok = -1;
+        runs.forEach((r) => {
+            const t = sums && sums.get(r.session_id);
+            if (t != null && t > bestTok) { bestTok = t; best = r; }
+        });
+        if (!best) {
+            // Nothing rankable: no report, or none of these traces map to a
+            // scanned session. Say so instead of silently doing nothing.
+            this._speak({
+                text: 'I cannot rank these traces yet: no Cost Optimizer scan covers them. '
+                    + 'Run a scan and ask me again.',
+                cta: 'Open the Optimizer', page: 'costs', tab: 'optimizer', mood: 'none',
+            });
+            return;
+        }
+        if (window.AgentRunsPage && AgentRunsPage.selectRun) {
+            AgentRunsPage.selectRun(best.trace_id, { refresh: true }); // never accordion-collapse
+        }
+        const row = document.querySelector(`.ar-run[data-trace="${best.trace_id}"]`);
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + 'B'
+            : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
+            : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(Math.round(n || 0));
+        this._speak({
+            text: `This one. Its session billed ${fmt(bestTok)} tokens, the most of any trace `
+                + 'listed here. The turn where tokens jump is usually the one to read first.',
+            cta: 'Why it cost that', page: 'costs', tab: 'optimizer', mood: 'none',
+        });
     },
 
     // ---------------------------------------------------------- personality --
@@ -1312,7 +1355,7 @@ const GuardianAssistant = {
     THOUGHT_GAP_MS: 5 * 60 * 1000,   // first thought 5 min after the last word
     THOUGHT_SETTLE_MS: 2 * 60 * 1000,
 
-    _speak({ text, cta, page, tab, mood }) {
+    _speak({ text, cta, page, tab, mood, act }) {
         if (this._quiet() || !this._fab) return false;
         this._lastEventAt = Date.now(); // something happened; the shift is not quiet
         if (this._bubbleEl && this._bubbleEl.isConnected) return false; // one at a time
@@ -1332,6 +1375,7 @@ const GuardianAssistant = {
         go.textContent = cta || 'Open';
         go.addEventListener('click', () => {
             this._hideBubble();
+            if (act) { this._act(act); return; } // in-place: the answer is on THIS page
             if (tab && window.CostsPage) CostsPage._pendingTab = tab;
             if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
         });
@@ -1818,13 +1862,6 @@ body.sv-ga-on #page-content { padding-bottom: 128px; }
    the page, which reads as a smudge; this reads as out of the way. */
 .sv-ga-fab.sv-ga-ghost { opacity: 0.14; }
 .sv-ga-fab.sv-ga-away { opacity: 0 !important; pointer-events: none; }
-.sv-ga-fab::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px);
-  transform: translateX(-50%); white-space: nowrap; pointer-events: none;
-  background: var(--bg-card, #12171e); color: var(--text-secondary, #9fb0bf);
-  border: 1px solid var(--border-light, #303844); border-radius: 8px;
-  font-size: 11px; padding: 5px 9px; opacity: 0; transition: opacity 160ms ease; }
-.sv-ga-fab:hover::after { opacity: 1; }
-.sv-ga-fab.sv-ga-drag::after { opacity: 0; }
 .sv-ga-fab:focus-visible { outline: 2px solid var(--accent-primary, #5eadb8); border-radius: 12px; }
 .sv-ga-panel { position: fixed; right: 22px; bottom: 100px; z-index: 899;
   width: 340px; max-width: calc(100vw - 44px); max-height: 70vh; overflow-y: auto;

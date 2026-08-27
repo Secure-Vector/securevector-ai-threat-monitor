@@ -163,7 +163,7 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
   const calls = [...a.matchAll(/this\._react\(/g)];
   assert.equal(calls.length, 1, 'the Guardian must react from exactly one call site');
   assert.match(a, /BUBBLE_COOLDOWN_MS/);
-  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood })'));
+  const speak = a.slice(a.indexOf('_speak({ text, cta, page, tab, mood, act })'));
   assert.match(speak.slice(0, 400), /if \(this\._bubbleEl && this\._bubbleEl\.isConnected\) return false;/);
 });
 
@@ -171,7 +171,7 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=11/);
   assert.match(html, /guardian-3d\.js\?v=16/);
-  assert.match(html, /guardian-assistant\.js\?v=37/);
+  assert.match(html, /guardian-assistant\.js\?v=39/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -278,8 +278,11 @@ test('the Guardian docks: it never relocates itself onto the page', () => {
     'nothing may target arbitrary viewport points');
   // the only automatic movement left is getting off text
   assert.match(a, /this\._unstick\(\);\s*\n\s*\}, this\.WANDER_MS\);/);
-  // drag-to-pin still works: docking is the default, not a cage
-  assert.match(a, /Drag me anywhere and drop me where you want/);
+  // drag-to-pin still works: docking is the default, not a cage. The hover
+  // hint that used to prove this is gone (people can see a draggable
+  // character), so assert the capability itself.
+  assert.match(a, /\.sv-ga-fab \{ cursor: grab; touch-action: none; \}/);
+  assert.match(a, /\.sv-ga-fab\.sv-ga-drag \{ cursor: grabbing;/);
 });
 
 test('a pinned bot still gets off the text, without losing the pin', () => {
@@ -403,6 +406,13 @@ test('the win lap spins 270 degrees and its colour carries no meaning', () => {
 
 test('the bot has a theme-aware halo and a bigger stage', () => {
   const a = read(ASSISTANT);
+  // no hover hint: a draggable, clickable character needs no instructions,
+  // and the hint sat inside the fab's drop-shadow, so the halo lit the
+  // tooltip instead of the bot
+  assert.ok(!a.includes('Drag me anywhere'), 'no drag tooltip on the bot');
+  assert.ok(!a.includes('attr(data-tip)'), 'no tooltip pseudo-element');
+  // the lap ring still owns ::after
+  assert.match(a, /\.sv-ga-fab\.sv-ga-lap::after, \.sv-ga-fab\.sv-ga-puffs::after \{/);
   // 104 up from 94: at 94 the bot read as an icon, not a character
   assert.match(a, /Guardian3D\.mount\(fab, \{ size: 104 \}\)/);
   assert.match(a, /GuardianBot\.el\(\{ state: 'idle', size: 84, label: '' \}\)/);
@@ -557,4 +567,21 @@ test('the page-aware offer is an offer, not an interception', () => {
   // is on screen could be wrong, an explanation of the view cannot be
   const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage()'));
   assert.ok(!/\$\{/.test(briefs), 'briefs must be static copy, not interpolated data');
+});
+
+test('the traces-page CTA answers on the traces page, not on the Optimizer', () => {
+  const a = read(ASSISTANT);
+  // "Show me the costliest trace", offered while the user is looking at
+  // traces, must resolve in place. Shipping them to another page breaks the
+  // promise the button text makes.
+  const brief = a.slice(a.indexOf("'agent-runs': {"), a.indexOf("threats: {"));
+  assert.match(brief, /act: 'costliest-trace'/);
+  assert.ok(!/page: 'costs'/.test(brief), 'traces brief must not navigate to costs');
+  // The action selects the trace on this page (no accordion-collapse on
+  // re-click), and when nothing is rankable it says so instead of going mute.
+  assert.match(a, /_act\(name\)/);
+  assert.match(a, /selectRun\(best\.trace_id, \{ refresh: true \}\)/);
+  assert.match(a, /cannot rank these traces yet/);
+  // The bubble handler runs the action INSTEAD of navigating.
+  assert.match(a, /if \(act\) \{ this\._act\(act\); return; \}/);
 });
