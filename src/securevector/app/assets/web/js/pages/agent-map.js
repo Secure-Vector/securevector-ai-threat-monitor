@@ -27,7 +27,7 @@ const OUTCOME_COLOR = { blocked: '#ef4444', log_only: '#64748b', allow: '#10b981
 // palette below.
 // v5: harnesses are all "yours" — brand teal for every harness node;
 // security state colors the RING, not the node identity.
-const HARNESS_FIXED = { 'claude-code': '#5eadb8', 'codex': '#5eadb8', 'openclaw': '#5eadb8', 'cursor': '#5eadb8' };
+const HARNESS_FIXED = { 'claude-code': '#5eadb8', 'codex': '#5eadb8', 'openclaw': '#5eadb8', 'cursor': '#5eadb8', 'opencode': '#5eadb8' };
 const HARNESS_PALETTE = ['#5eadb8'];
 const TOOL_FILL = '#64748b';      // built-in tool — neutral slate
 const TOOL_FILL_EXT = '#e08a3c';  // external MCP / plugin — warm amber gear

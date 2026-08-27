@@ -270,6 +270,12 @@ def chat_with_protection(user_input):
             isCopilotCli: true,
             defaultProvider: 'openai'
         },
+        'proxy-opencode': {
+            name: 'OpenCode',
+            description: 'OpenCode agent, real-time policy enforcement + tamper-evident audit for built-in and MCP tool calls',
+            isOpenCode: true,
+            defaultProvider: 'anthropic'
+        },
         'proxy-cursor': {
             name: 'Cursor',
             description: 'Cursor IDE agent, real-time policy enforcement + tamper-evident audit for shell, MCP, file edits, and prompts',
@@ -339,6 +345,9 @@ def chat_with_protection(user_input):
             } else if (integration.isCopilotCli) {
                 // GitHub Copilot CLI: Plugin card only (host-native plugin, no proxy/block-mode)
                 container.appendChild(this.createCopilotCliPluginCard());
+            } else if (integration.isOpenCode) {
+                // OpenCode: Plugin card only (in-process ESM plugin, no proxy/block-mode)
+                container.appendChild(this.createOpenCodePluginCard());
             } else if (integration.isCursor) {
                 // Cursor: Plugin card only (native .cursor-plugin install, no proxy/block-mode)
                 container.appendChild(this.createCursorPluginCard());
@@ -1618,6 +1627,264 @@ def chat_with_protection(user_input):
             { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=copilot-cli' },
             { name: 'Prompt-Injection Scan', desc: 'userPromptSubmitted + task input → /analyze' },
             { name: 'Fail-Open on App Down', desc: 'Explicit allow + exit 0 (Copilot hooks fail closed)' },
+        ];
+        for (const f of features) {
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 8px 10px; background: var(--bg-tertiary); border-radius: 6px;';
+            const fn = document.createElement('div');
+            fn.style.cssText = 'font-size: 12px; font-weight: 600;';
+            fn.textContent = f.name;
+            const fd = document.createElement('div');
+            fd.style.cssText = 'font-size: 11px; color: var(--text-secondary); margin-top: 2px;';
+            fd.textContent = f.desc;
+            item.appendChild(fn);
+            item.appendChild(fd);
+            featuresGrid.appendChild(item);
+        }
+        content.appendChild(featuresGrid);
+
+        card.appendChild(content);
+        return card;
+    },
+
+    createOpenCodePluginCard() {
+        // SecureVector Guard for OpenCode — host-native, IN-PROCESS plugin.
+        // Unlike the subprocess-hook harnesses there is no host store to copy
+        // into: OpenCode imports the plugin directory in place, so the staged
+        // tree at ~/.securevector/staging/opencode-plugin/ IS the install.
+        // Registration is one absolute path appended to the "plugin" array in
+        // ~/.config/opencode/opencode.json; presence there IS enablement.
+        // Falls back to the `opencode plugin <dir>` command only when OpenCode
+        // is not detected on this machine.
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--bg-card); border: 2px solid var(--accent-primary); border-radius: 8px; margin-bottom: 16px; overflow: hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px; border-bottom: 1px solid var(--border-default);';
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight: 600; font-size: 15px;';
+        title.textContent = 'SecureVector Guard for OpenCode';
+        header.appendChild(title);
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-top: 4px;';
+        subtitle.textContent = 'Real-time policy enforcement and tamper-evident audit for tool calls';
+        header.appendChild(subtitle);
+        card.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 14px;';
+
+        const installBtn = document.createElement('button');
+        installBtn.id = 'install-opencode-plugin-btn';
+        installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+        installBtn.textContent = 'Install Plugin';
+
+        const uninstallBtn = document.createElement('button');
+        uninstallBtn.id = 'uninstall-opencode-plugin-btn';
+        uninstallBtn.style.cssText = 'background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-default); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; display: none;';
+        uninstallBtn.textContent = 'Uninstall';
+
+        const statusPill = document.createElement('span');
+        statusPill.id = 'opencode-plugin-status';
+        statusPill.setAttribute('role', 'status');
+        statusPill.setAttribute('aria-live', 'polite');
+        statusPill.setAttribute('aria-atomic', 'true');
+        statusPill.style.cssText = 'font-size: 12px; color: var(--text-secondary);';
+        statusPill.textContent = 'Checking...';
+
+        btnRow.appendChild(installBtn);
+        btnRow.appendChild(uninstallBtn);
+        btnRow.appendChild(statusPill);
+        content.appendChild(btnRow);
+
+        const resultArea = document.createElement('div');
+        resultArea.id = 'opencode-plugin-result';
+        resultArea.style.cssText = 'display: none; padding: 12px 14px; border-radius: 6px; font-size: 12px; line-height: 1.6; margin-bottom: 14px;';
+        content.appendChild(resultArea);
+
+        const commandsWrap = document.createElement('div');
+        commandsWrap.id = 'opencode-plugin-commands';
+        commandsWrap.style.cssText = 'display: none; margin-bottom: 16px;';
+        const commandsHeading = document.createElement('div');
+        commandsHeading.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 4px;';
+        commandsHeading.textContent = 'Install command: run in your terminal';
+        commandsWrap.appendChild(commandsHeading);
+        const commandsSubhead = document.createElement('div');
+        commandsSubhead.style.cssText = 'font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.45;';
+        commandsSubhead.textContent = 'Click Install Plugin to stage the files, then run this command to install the plugin into OpenCode and start a new session.';
+        commandsWrap.appendChild(commandsSubhead);
+        content.appendChild(commandsWrap);
+
+        const buildCommandBlock = (text) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;';
+            const pre = document.createElement('code');
+            pre.style.cssText = 'flex: 1; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-default); border-radius: 6px; font-family: monospace; font-size: 12px; user-select: all; overflow-x: auto;';
+            pre.textContent = text;
+            const copyBtn = document.createElement('button');
+            copyBtn.style.cssText = 'padding: 6px 12px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-default); color: var(--text-primary); cursor: pointer; font-size: 12px;';
+            copyBtn.textContent = 'Copy';
+            copyBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyBtn.textContent = 'Copied';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+                } catch {
+                    copyBtn.textContent = 'Copy failed';
+                }
+            };
+            wrap.appendChild(pre);
+            wrap.appendChild(copyBtn);
+            return wrap;
+        };
+
+        const renderCommands = (commands) => {
+            while (commandsWrap.childNodes.length > 2) commandsWrap.removeChild(commandsWrap.lastChild);
+            for (const cmd of commands || []) commandsWrap.appendChild(buildCommandBlock(cmd));
+            commandsWrap.style.display = (commands && commands.length) ? '' : 'none';
+        };
+
+        const setStatusPill = (state, opts = {}) => {
+            statusPill.textContent = '';
+            const span = document.createElement('strong');
+            if (state === 'installed') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Installed & enabled · start a new OpenCode session';
+            } else if (state === 'staged') {
+                span.style.color = 'var(--success)';
+                span.textContent = 'Staged · run the install command below';
+            } else if (state === 'not-staged') {
+                statusPill.style.color = 'var(--text-secondary)';
+                span.style.fontWeight = '400';
+                span.textContent = 'Not staged';
+            } else if (state === 'error') {
+                span.style.color = 'var(--error)';
+                span.textContent = opts.message || 'Status unknown';
+            } else {
+                span.style.fontWeight = '400';
+                span.textContent = 'Checking...';
+            }
+            statusPill.appendChild(span);
+        };
+
+        const showResult = (kind, message) => {
+            resultArea.style.display = 'block';
+            resultArea.textContent = '';
+            if (kind === 'success') {
+                resultArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                resultArea.style.border = '1px solid var(--success)';
+            } else if (kind === 'warning') {
+                resultArea.style.background = 'rgba(255, 152, 0, 0.1)';
+                resultArea.style.border = '1px solid var(--warning)';
+            } else {
+                resultArea.style.background = 'rgba(244, 67, 54, 0.1)';
+                resultArea.style.border = '1px solid var(--error)';
+            }
+            resultArea.style.color = 'var(--text-primary)';
+            resultArea.textContent = message;
+        };
+
+        const commandsFor = (stagingDir) => [`opencode plugin "${stagingDir}"`];
+
+        installBtn.onclick = async () => {
+            installBtn.disabled = true;
+            const wasReinstall = installBtn.textContent === 'Reinstall Plugin';
+            installBtn.textContent = wasReinstall ? 'Reinstalling...' : 'Installing...';
+            try {
+                const res = await fetch('/api/hooks/opencode/install', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    if (result.auto_installed) {
+                        // Registered in OpenCode's config — no command needed.
+                        showResult('success', `Installed and enabled in OpenCode (${result.files.length} files at ${result.install_path}). ${result.next_step || ''}`.trim());
+                        renderCommands([]);
+                        setStatusPill('installed');
+                    } else {
+                        // OpenCode not detected — staged only; surface the install command.
+                        showResult('warning', `Plugin staged at ${result.staging_dir} (${result.files.length} files). ${result.next_step || ''}`.trim());
+                        renderCommands(result.commands && result.commands.length ? result.commands : commandsFor(result.staging_dir));
+                        setStatusPill('staged');
+                    }
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    showResult('error', 'Install failed. Check the threat-monitor server logs.');
+                    installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+                }
+            } catch (e) {
+                showResult('error', 'Failed to reach the SecureVector server.');
+                installBtn.textContent = wasReinstall ? 'Reinstall Plugin' : 'Install Plugin';
+            }
+            installBtn.disabled = false;
+        };
+
+        uninstallBtn.onclick = async () => {
+            uninstallBtn.disabled = true;
+            uninstallBtn.textContent = 'Uninstalling...';
+            try {
+                const res = await fetch('/api/hooks/opencode/uninstall', { method: 'POST' });
+                const result = await res.json();
+                if (result.ok) {
+                    showResult('warning', 'Plugin removed from OpenCode (deregistered from opencode.json and the staged tree deleted). Start a new OpenCode session to drop the hooks.');
+                    renderCommands([]);
+                    setStatusPill('not-staged');
+                    installBtn.textContent = 'Install Plugin';
+                    uninstallBtn.style.display = 'none';
+                } else {
+                    showResult('error', 'Uninstall failed.');
+                }
+            } catch {
+                showResult('error', 'Failed to reach the SecureVector server.');
+            }
+            uninstallBtn.disabled = false;
+            uninstallBtn.textContent = 'Uninstall';
+        };
+
+        // Initial status check. `auto_installed`+`enabled` mean we wrote into
+        // OpenCode's config "plugin" array; `installed` (staged) without them is
+        // the CLI-absent fallback where the user must run the install command.
+        setTimeout(async () => {
+            try {
+                const res = await fetch('/api/hooks/opencode/status');
+                const status = await res.json();
+                if (status.auto_installed) {
+                    setStatusPill('installed');
+                    renderCommands([]);
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.installed) {
+                    setStatusPill('staged');
+                    renderCommands(commandsFor(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else if (status.files_present && status.files_present.length > 0) {
+                    setStatusPill('staged', { message: 'Partially staged' });
+                    renderCommands(commandsFor(status.staging_dir));
+                    installBtn.textContent = 'Reinstall Plugin';
+                    uninstallBtn.style.display = '';
+                } else {
+                    setStatusPill('not-staged');
+                }
+            } catch {
+                setStatusPill('error');
+            }
+        }, 0);
+
+        const featuresLabel = document.createElement('div');
+        featuresLabel.style.cssText = 'font-weight: 600; font-size: 13px; margin-bottom: 10px;';
+        featuresLabel.textContent = 'Capabilities (v5.2)';
+        content.appendChild(featuresLabel);
+
+        const featuresGrid = document.createElement('div');
+        featuresGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
+        const features = [
+            { name: 'Tool Permissions', desc: 'Allow / deny, cloud-pushed rules (tool.execute.before)' },
+            { name: 'Tamper-Evident Audit', desc: 'SHA-256 hash chain · runtime_kind=opencode' },
+            { name: 'Prompt-Injection Scan', desc: 'chat.message + tool responses → /analyze' },
+            { name: 'Fail-Open on App Down', desc: 'Every hook catches; only a real deny throws' },
         ];
         for (const f of features) {
             const item = document.createElement('div');
@@ -3423,7 +3690,7 @@ def chat_with_protection(user_input):
         const slug = (integrationId || '').replace('proxy-', '');
         const ep = engineUrl || 'https://<your-engine-endpoint>';
         const isSdk = !!integration.sdkPackage;
-        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenClaw;
+        const isPlugin = integration.isClaudeCode || integration.isCodex || integration.isCopilotCli || integration.isCursor || integration.isOpenCode || integration.isOpenClaw;
 
         const details = document.createElement('details');
         details.style.cssText = 'margin-bottom: 16px;';

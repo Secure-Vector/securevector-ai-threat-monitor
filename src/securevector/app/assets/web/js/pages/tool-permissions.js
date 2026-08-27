@@ -348,7 +348,7 @@ const ToolPermissionsPage = {
             scopeSel = document.createElement('select');
             scopeSel.className = 'filter-select';
             scopeSel.style.cssText = 'width:100%;margin-bottom:8px;';
-            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['mcp', 'MCP only']]
+            [['', 'All runtimes'], ['claude-code', 'Claude Code only'], ['codex', 'Codex only'], ['copilot-cli', 'GitHub Copilot CLI only'], ['cursor', 'Cursor only'], ['openclaw', 'OpenClaw only'], ['langchain', 'LangChain only'], ['langgraph', 'LangGraph only'], ['crewai', 'CrewAI only'], ['hermes', 'Hermes only'], ['opencode', 'OpenCode only'], ['mcp', 'MCP only']]
                 .forEach(([v, t]) => {
                     const o = document.createElement('option');
                     o.value = v; o.textContent = t;
@@ -1719,6 +1719,7 @@ const ToolPermissionsPage = {
             codex: 'Codex',
             copilot_cli: 'GitHub Copilot CLI',
             cursor: 'Cursor',
+            opencode: 'OpenCode',
             hermes: 'Hermes',
             communication: 'Communication',
             project_management: 'Project Management',
@@ -1743,6 +1744,7 @@ const ToolPermissionsPage = {
             codex: BRAND_ACCENT,
             copilot_cli: BRAND_ACCENT,
             cursor: BRAND_ACCENT,
+            opencode: BRAND_ACCENT,
             hermes: BRAND_ACCENT,
             communication: BRAND_ACCENT,
             project_management: BRAND_ACCENT,
@@ -1763,6 +1765,7 @@ const ToolPermissionsPage = {
             'copilot_cli',    // GitHub Copilot CLI built-in tools (bash / view / edit / …)
             'cursor',         // Cursor agent tools (shell / read / write / edit / …)
             'hermes',         // Hermes (hermes-agent) built-in tools (terminal / execute_code / …)
+            'opencode',       // OpenCode built-in tools (bash / read / write / webfetch / …)
             'browser_automation',
             'communication',
             'project_management',

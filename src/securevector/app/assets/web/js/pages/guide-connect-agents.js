@@ -31,6 +31,7 @@ const GuideConnectAgentsPage = {
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
         { id: 'cursor', route: 'B', label: 'Cursor', guide: 'guide-cursor', integration: 'proxy-cursor', slug: 'cursor' },
+        { id: 'opencode', route: 'B', label: 'OpenCode', guide: 'guide-opencode', integration: 'proxy-opencode', slug: 'opencode' },
         { id: 'openclaw', route: 'B', label: 'OpenClaw', guide: 'guide-openclaw', integration: 'proxy-openclaw', slug: 'openclaw' },
     ],
 
@@ -651,7 +652,7 @@ const GuideConnectAgentsPage = {
             const body = document.createElement('div'); body.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.6;';
             body.appendChild(document.createTextNode('SecureVector will check this device (' + osName + ') to show what’s running. It reads, locally:'));
             const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0; padding-left: 18px;';
-            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.openclaw): which are installed',
+            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.config/opencode, ~/.openclaw): which are installed',
              'Their session files: to count sessions and recent activity',
              'SecureVector’s own tool-call audit: to list active agents/frameworks'].forEach(li => { const l = document.createElement('li'); l.style.cssText = 'margin-bottom: 3px;'; l.textContent = li; ul.appendChild(l); });
             body.appendChild(ul);

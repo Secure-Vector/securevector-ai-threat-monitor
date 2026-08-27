@@ -23,6 +23,7 @@
 | **OpenAI Codex** *(CLI 0.133+)* | Native plugin | `codex` |
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
+| **OpenCode** *(1.18+)* | Native plugin — in-process ES module, no subprocess hooks | `opencode` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
 | **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
 | **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |

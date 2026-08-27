@@ -123,6 +123,7 @@ const Sidebar = {
             { id: 'proxy-codex', label: 'Codex' },
             { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'proxy-cursor', label: 'Cursor' },
+            { id: 'proxy-opencode', label: 'OpenCode' },
             { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
             { header: 'Frameworks' },
             { id: 'proxy-langchain', label: 'LangChain' },
@@ -154,6 +155,7 @@ const Sidebar = {
             { id: 'guide-codex', label: 'Codex' },
             { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
             { id: 'guide-cursor', label: 'Cursor' },
+            { id: 'guide-opencode', label: 'OpenCode' },
             { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
             { header: 'Framework SDKs' },
             { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI · Hermes' },
@@ -972,6 +974,33 @@ const Sidebar = {
         copilotPluginBanner.addEventListener('click', () => this.navigate('proxy-copilot-cli'));
         statusStack.appendChild(copilotPluginBanner);
 
+        // OpenCode plugin indicator — same compact pattern as the CC, Codex
+        // and Copilot banners; polls /api/hooks/opencode/status.
+        //
+        // Neutral dot (v5) — bottom-section plugin rows each take a distinct
+        // hue so a stack stays readable: CC purple · Codex coral · Copilot
+        // blue · OpenCode amber · proxy cyan · SIEM green.
+        const opencodePluginBanner = document.createElement('button');
+        opencodePluginBanner.type = 'button';
+        opencodePluginBanner.id = 'opencode-plugin-active-banner';
+        opencodePluginBanner.className = 'proxy-banner-pulse';
+        opencodePluginBanner.setAttribute('aria-label', 'Open OpenCode plugin settings');
+        opencodePluginBanner.style.cssText = 'display: none; margin: 8px 12px 0; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: transparent; border: 1px solid var(--border-default); align-items: center; gap: 6px; transition: background 0.15s; font: inherit; text-align: left; color: inherit; width: calc(100% - 24px);';
+        opencodePluginBanner.addEventListener('mouseenter', () => { opencodePluginBanner.style.background = 'var(--bg-hover)'; });
+        opencodePluginBanner.addEventListener('mouseleave', () => { opencodePluginBanner.style.background = 'transparent'; });
+        const opencodeDot = document.createElement('span');
+        opencodeDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #d99a2b; flex-shrink: 0;';
+        opencodeDot.setAttribute('aria-hidden', 'true');
+        opencodePluginBanner.appendChild(opencodeDot);
+        const opencodeText = document.createElement('span');
+        opencodeText.id = 'opencode-plugin-banner-text';
+        opencodeText.setAttribute('aria-live', 'polite');
+        opencodeText.setAttribute('aria-atomic', 'true');
+        opencodeText.style.cssText = 'font-size: 11px; font-weight: 500; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        opencodePluginBanner.appendChild(opencodeText);
+        opencodePluginBanner.addEventListener('click', () => this.navigate('proxy-opencode'));
+        statusStack.appendChild(opencodePluginBanner);
+
         // SIEM Forwarder active indicator — mirrors the proxy banner
         // styling so both stack cleanly when on together. Visible only
         // when the master toggle is enabled AND at least one destination
@@ -1011,6 +1040,7 @@ const Sidebar = {
                     this.checkClaudeCodePluginStatus();
                     this.checkCodexPluginStatus();
                     this.checkCopilotPluginStatus();
+                    this.checkOpenCodePluginStatus();
                 }
             });
         }
@@ -1036,6 +1066,7 @@ const Sidebar = {
         this.checkClaudeCodePluginStatus();
         this.checkCodexPluginStatus();
         this.checkCopilotPluginStatus();
+        this.checkOpenCodePluginStatus();
     },
 
     toggleCollapse() {
@@ -1564,6 +1595,39 @@ const Sidebar = {
             const visible = banner.style.display !== 'none';
             const delay = visible ? 10000 : 2000;
             setTimeout(() => this.checkCopilotPluginStatus(), delay);
+        }
+    },
+
+    async checkOpenCodePluginStatus() {
+        // Sidebar "OpenCode plugin" indicator. Mirrors the CC/Codex/Copilot
+        // pollers — same three states (Active / Installed, not enabled /
+        // Staged), same cadence (2s while hidden, 10s once visible). The
+        // OpenCode /status route reports installed from the staged tree and
+        // enabled from the "plugin" array in ~/.config/opencode/opencode.json.
+        const banner = document.getElementById('opencode-plugin-active-banner');
+        const textEl = document.getElementById('opencode-plugin-banner-text');
+        if (!banner || !textEl) return;
+        try {
+            const res = await fetch('/api/hooks/opencode/status');
+            const status = res.ok ? await res.json() : null;
+            if (!status || !status.installed) {
+                banner.style.display = 'none';
+            } else if (status.auto_installed && status.enabled) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'OpenCode plugin \u00b7 Active';
+            } else if (status.auto_installed) {
+                banner.style.display = 'flex';
+                textEl.textContent = 'OpenCode plugin \u00b7 Installed, not enabled';
+            } else {
+                banner.style.display = 'flex';
+                textEl.textContent = 'OpenCode plugin \u00b7 Staged';
+            }
+        } catch (_) { /* ignore */ }
+        if (document.visibilityState === 'visible'
+            && document.getElementById('opencode-plugin-active-banner')) {
+            const visible = banner.style.display !== 'none';
+            const delay = visible ? 10000 : 2000;
+            setTimeout(() => this.checkOpenCodePluginStatus(), delay);
         }
     },
 

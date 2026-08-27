@@ -1364,8 +1364,12 @@ def _handle_plugin_command(args) -> None:
         from securevector.app.server.routes import hooks_cursor as mod
         handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
         result = asyncio.run(handler())
+    elif name == "opencode":
+        from securevector.app.server.routes import hooks_opencode as mod
+        handler = mod.install_plugin if action == "install" else mod.uninstall_plugin
+        result = asyncio.run(handler())
     else:
-        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor.", file=sys.stderr)
+        print(f"Unknown plugin: {name}. Supported: claude-code, openclaw, codex, copilot-cli, cursor, opencode.", file=sys.stderr)
         sys.exit(1)
 
     # Response models are Pydantic — serialise consistently.
@@ -1558,16 +1562,16 @@ Examples:
     parser.add_argument(
         "--install-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode"],
         metavar="NAME",
-        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, or cursor) and exit",
+        help="Install a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, or opencode) and exit",
     )
     parser.add_argument(
         "--uninstall-plugin",
         type=str,
-        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor"],
+        choices=["claude-code", "openclaw", "codex", "copilot-cli", "cursor", "opencode"],
         metavar="NAME",
-        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, or cursor) and exit",
+        help="Uninstall a SecureVector Guard plugin (claude-code, openclaw, codex, copilot-cli, cursor, or opencode) and exit",
     )
 
     args = parser.parse_args()

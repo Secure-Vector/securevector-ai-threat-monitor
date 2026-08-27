@@ -97,3 +97,35 @@ def test_manifest_and_package_data_include_cursor_plugin():
         'setup.py package_data is missing explicit "plugins/cursor/.cursor-plugin/*" '
         "(the `**/*` glob skips the dot-dir, dropping the manifest)"
     )
+
+
+def test_manifest_and_package_data_include_opencode_plugin():
+    """The OpenCode plugin's non-Python assets must ship in the wheel.
+
+    This one matters more than most: OpenCode imports the staged directory as
+    an ES module, and `package.json` is what makes that directory resolvable as
+    a plugin target at all (src/plugin/shared.ts::resolvePathPluginTarget). If
+    packaging drops it, the install route stages an unimportable tree and
+    OpenCode fails with "missing package.json or index file" — the OpenCode
+    flavour of the "staging produced 0 files" install-route 500.
+    """
+    manifest = (REPO / "MANIFEST.in").read_text()
+    assert re.search(r"recursive-include\s+src/securevector/plugins/opencode\s+\*", manifest), (
+        "MANIFEST.in is missing: recursive-include src/securevector/plugins/opencode *"
+    )
+    setup_py = (REPO / "setup.py").read_text()
+    assert "plugins/opencode/**/*" in setup_py, (
+        'setup.py package_data is missing "plugins/opencode/**/*"'
+    )
+
+
+def test_opencode_plugin_tree_intact_on_disk():
+    """Every file the OpenCode install handler stages must exist in source."""
+    from securevector.app.server.routes.hooks_opencode import PLUGIN_FILES as OC_FILES
+
+    tree = REPO / "src" / "securevector" / "plugins" / "opencode"
+    for rel in OC_FILES:
+        assert (tree / rel).is_file(), f"missing OpenCode plugin file: {rel}"
+    # package.json is load-bearing for module resolution — assert it explicitly
+    # so a future file-list edit can't quietly drop it.
+    assert "package.json" in OC_FILES
