@@ -12,6 +12,7 @@
 - **Control everything — permissions + JIT.** Allow / deny / ask at agent runtime. Blocked tools become just-in-time requests: approve for 15 minutes, an hour, or one session — grants expire on their own.
 - **Audit the past — Instant Agent Audit.** Opt-in scan of session history already on disk: destructive commands, plaintext secrets, estimated spend.
 - **Catch the threats — 72 rules + Guardian ML.** OWASP LLM Top 10 + 28 agent-attack chains, detected while the agent is still running. Offline ML catches what regex misses. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
+- **Cut the spend — Cost / Token Optimizer.** A local scan of your own transcripts shows why sessions cost what they did and what to change, with copyable fixes whose impact is measured, not modeled. The Guardian assistant surfaces the advice in the moment it helps.
 - **Prove it** — every tool call in a SHA-256 hash-chained log; blocked actions get a per-rule evidence ledger.
 - **Apache 2.0, no signup, 100% local** — `pip install` and you're covered in 60 seconds. Nothing leaves your machine.
 
@@ -56,14 +57,14 @@
 
 <br>
 
-> **What's new in v5.1.0**
-> - **Agent Egress Governance** — a destination policy enforced at the Guard tool boundary, outside the agent's context. Reads are recorded; unambiguous write classes (package publish, metadata endpoint, drop sites) are denied by default. Three presets: Baseline, Hardened, Contained. Works across all five Guard runtimes.
-> - **Blast-radius inventory** — the distinct external hosts your agents actually reached, with write counts and first/last seen.
-> - **Scope-expansion alerting** — flags sessions whose egress *shape* looks like scanning (many novel hosts, fast), the pattern destination rules can't see. Alert-only, baseline-aware, published thresholds.
-> - **Counterfactual policy replay** — preview exactly what a stricter preset would have blocked against your own recorded traffic before enabling it.
-> - **Local detections light up the cloud console** — enrolled devices forward metadata-only rule verdicts, so machines whose protection runs entirely locally no longer read as zero in the cloud Overview. Blocked/detected status reflects the actual enforcement outcome, never just the verdict.
+> **What's new in v5.2.0**
+> - **Cost / Token Optimizer** — Cost Tracking answers *how much*; the Optimizer answers *why* and *what to change*. An opt-in local scan partitions each session's waste into cache waste and compaction waste, with eight detectors emitting ranked findings that deep-link to the exact turns in Traces. Findings are attributable or absent.
+> - **Impact receipts, not claims** — copy a fix, and the Optimizer watches your local transcripts for it being pasted, then re-measures. *Copied* is certain, *pasted* is read from the transcript, *worked* is measured — and only measured wins are celebrated.
+> - **Per-run limits** — opt-in tool-call caps, a loop breaker, and per-run cost/token ceilings, enforced on the existing deny rails with an audit row and a one-click, time-boxed "let this run continue" exemption. Everything ships off.
+> - **The Guardian assistant grows up** — the ambient character now docks instead of wandering, reacts in a register that matches the event, names the agent its advice is about, offers a two-sentence orientation of whatever you just opened, answers on the page you are already on, and keeps a strict one-clock restraint policy so it never becomes noise. Advisory only: it never types into a session or edits your files.
+> - **An honest fill gauge** — context-fill percentage now comes from evidence in the transcript (compact boundaries, observed peaks), so it can never read "118% full" again, and autocompact's work is never credited as yours.
 >
-> **Previously:** v5.0.0 shipped Traces with redacted replay and audit PDF export, JIT tool access requests, Instant Agent Audit, the Runtime Connect Wizard, the Observe / Govern / Connect experience revamp, and the one-click cloud trial.
+> **Previously:** v5.1.0 shipped Agent Egress Governance, blast-radius inventory, scope-expansion alerting, counterfactual policy replay, and local detections lighting up the cloud console.
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
 
@@ -90,7 +91,7 @@ pip install securevector-ai-monitor[app]
 securevector-app --web
 ```
 
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-v5.1.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-5.1.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/securevector_5.1.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/securevector-5.1.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-5.1.0-macOS.dmg)
+**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-v5.2.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector_5.2.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector-5.2.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-macOS.dmg)
 
 **Step 2 — Open the app**
 
@@ -184,6 +185,22 @@ Scan agent skills and tool packages before installing. Static analysis across 10
 <td valign="top">
 
 Per-agent, per-model token and USD spend in real time, with daily budget auto-stop. Plugins read session transcripts locally for a 7-day input/output/cache trend per runtime — no cloud round-trip, no token data leaves your machine.
+
+</td>
+</tr>
+<tr>
+<th align="left">Cost / Token Optimizer</th>
+<th align="left">Guardian Assistant</th>
+</tr>
+<tr>
+<td valign="top">
+
+Opt-in local scan that explains the spend: cache waste vs compaction waste, eight detectors with ranked findings that deep-link to the exact turns in Traces, and impact receipts that only resolve when the metric actually moved — measured, never just modeled. Optional per-run limits (tool-call caps, loop breaker, cost/token ceilings) enforce on the existing deny rails; everything ships off.
+
+</td>
+<td valign="top">
+
+An ambient character that docks in the corner and speaks only when it helps: context-fill warnings naming the exact agent, copyable fixes whose follow-through is measured from your local transcripts, and a two-sentence orientation of whatever you just opened — answered on the page you are already on. Advisory only: it never types into a session and never edits your files.
 
 </td>
 </tr>
@@ -465,17 +482,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v5.1.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-v5.1.0-Windows-Setup.exe) |
-| macOS | [SecureVector-5.1.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-5.1.0-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-5.1.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SecureVector-5.1.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_5.1.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/securevector_5.1.0_amd64.deb) |
-| Linux (RPM) | [securevector-5.1.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/securevector-5.1.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v5.2.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-v5.2.0-Windows-Setup.exe) |
+| macOS | [SecureVector-5.2.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-5.2.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_5.2.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector_5.2.0_amd64.deb) |
+| Linux (RPM) | [securevector-5.2.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector-5.2.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.1.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
