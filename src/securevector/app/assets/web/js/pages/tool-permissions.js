@@ -2100,6 +2100,9 @@ const ToolPermissionsPage = {
             cnt.style.cssText = 'font-size: 10px; font-weight: 500; padding: 1px 6px; background: ' + (isActive ? (accentColor ? 'color-mix(in srgb, ' + accentColor + ' 18%, transparent)' : 'rgba(94,173,184,0.18)') : 'var(--bg-tertiary)') + '; color: ' + (isActive ? (accentColor || '#5eadb8') : 'var(--text-muted)') + '; border-radius: 999px;';
             cnt.textContent = String(count);
             tab.appendChild(cnt);
+            // The count pill's text runs into the label for assistive tech
+            // ("OpenCode11"), so give the tab an explicit accessible name.
+            tab.setAttribute('aria-label', label + ', ' + count + (count === 1 ? ' tool' : ' tools'));
             tab.addEventListener('click', () => {
                 this._activeCategory = key;
                 // Switching to the Cloud tab clears the hero "Local
