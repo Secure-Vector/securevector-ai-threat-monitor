@@ -252,6 +252,46 @@ CURSOR_BUILTINS: list[tuple[str, str, str]] = [
     ("task",   "admin", "Launch a Cursor subagent."),
 ]
 
+# OpenCode built-ins. Tool ids read from the ``Tool.define("<id>", …)`` call in
+# each ``packages/opencode/src/tool/*.ts`` at opencode 1.18.23
+# (anomalyco/opencode). Lowercase single tokens, a namespace of their own.
+#
+# NOTE the shell tool is exposed as ``bash``, not ``shell``: opencode's
+# ``src/tool/shell/id.ts`` pins ``ToolID = "bash"`` "for compatibility with
+# existing plugins, users, and saved permissions", with a note that it is to be
+# renamed in opencode 2.0. Re-check on a major upgrade.
+#
+# KEEP IN LOCKSTEP with BUILTIN_TOOLS in
+# ``src/securevector/plugins/opencode/lib/normalize.js`` — enforced by
+# tests/unit/app/test_tool_permissions_builtins.py. That list is doubly
+# load-bearing there: OpenCode gives MCP tools no prefix, so "not a built-in"
+# is the only way the plugin can recognise an MCP tool.
+OPENCODE_BUILTINS: list[tuple[str, str, str]] = [
+    # Shell execution
+    ("bash",        "admin", "Run a shell command."),
+    # Filesystem
+    ("read",        "read",  "Read a file's contents."),
+    ("write",       "write", "Write a new file."),
+    ("edit",        "write", "Make string replacements in a file."),
+    ("apply_patch", "write", "Apply a patch to one or more files."),
+    ("glob",        "read",  "Match files by glob pattern."),
+    ("grep",        "read",  "Search file contents (ripgrep)."),
+    # Network / search
+    ("webfetch",    "admin", "Fetch the contents of a URL."),
+    ("websearch",   "admin", "Search the web."),
+    # Agents / skills / planning
+    ("task",        "admin", "Delegate work to a subagent."),
+    ("skill",       "admin", "Invoke a skill."),
+    ("todowrite",   "write", "Update the session todo list."),
+    ("question",    "read",  "Ask the user a question."),
+    # Experimental / flag-gated. Present only when the matching runtime flag is
+    # on; governing them unconditionally is harmless (a name OpenCode never
+    # emits simply never matches).
+    ("lsp",         "read",  "Query the language server (experimental)."),
+    ("plan_exit",   "write", "Exit plan mode (experimental)."),
+    ("execute",     "admin", "Run generated code in code-mode (experimental)."),
+]
+
 # Hermes (NousResearch hermes-agent) built-ins — the framework-shape sibling
 # of LangChain, governed via the securevector-sdk-hermes package rather than
 # a hook plugin. Names are Hermes's own snake_case registry names, extracted
@@ -528,6 +568,27 @@ async def list_essential_tools():
                 "name": name,
                 "provider": "GitHub Copilot CLI",
                 "category": "copilot_cli",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
+        # OpenCode built-ins. Lowercase, its own namespace (bash, read, write,
+        # webfetch, …), surfaced under category "opencode". Omitted only when
+        # the registry already claims the name.
+        for name, risk, description in OPENCODE_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "OpenCode",
+                "category": "opencode",
                 "risk": risk,
                 "default_permission": "allow",
                 "description": description,
@@ -849,6 +910,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
         builtin_ids.update(name for name, _r, _d in CURSOR_BUILTINS)
         builtin_ids.update(name for name, _r, _d in HERMES_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in OPENCODE_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,

@@ -191,6 +191,7 @@ const CostsPage = {
             { name: 'Claude Code', base: '/api/hooks/claude-code' },
             { name: 'Codex', base: '/api/hooks/codex' },
             { name: 'Copilot CLI', base: '/api/hooks/copilot-cli' },
+            { name: 'OpenCode', base: '/api/hooks/opencode' },
             { name: 'Hermes', base: '/api/hooks/hermes' },
         ];
         const rows = await Promise.all(defs.map(async (d) => {
@@ -2394,28 +2395,45 @@ const CostsPage = {
         if (!content) return;
         this._optInjectStyle();
         if (this._optPoll) { clearTimeout(this._optPoll); this._optPoll = null; }
+        // The live poll re-renders this whole tab when a session flips
+        // between live and idle. Wiping the DOM collapses the document, and
+        // the browser clamps the reader's scroll back to the top mid-read.
+        // Hold the old height while the new content is fetched, then put
+        // the scroll back exactly where it was.
+        const scroller = content.closest('.page-content') || document.scrollingElement;
+        const keepScroll = scroller ? scroller.scrollTop : 0;
+        const keepH = content.offsetHeight;
+        if (keepH) content.style.minHeight = keepH + 'px';
         content.textContent = '';
         const host = document.createElement('div');
         host.id = 'sv-optimizer';
         content.appendChild(host);
 
-        const st = await API.getOptimizerStatus();
-        if (!st) {
-            host.innerHTML = '<div class="empty-state"><div class="empty-state-title">Optimizer unavailable</div>' +
-                '<div class="empty-state-text">The local server did not answer. The Optimizer runs entirely on this machine, no cloud is involved.</div></div>';
-            return;
+        try {
+            const st = await API.getOptimizerStatus();
+            if (!st) {
+                host.innerHTML = '<div class="empty-state"><div class="empty-state-title">Optimizer unavailable</div>' +
+                    '<div class="empty-state-text">The local server did not answer. The Optimizer runs entirely on this machine, no cloud is involved.</div></div>';
+                return;
+            }
+            if (st.running) { this._optScanning(host, st); return; }
+            if (!st.has_report) { this._optConsent(host, st); return; }
+            const [rep, act, liveData] = await Promise.all([
+                API.getOptimizerReport(),
+                API.getOptimizerSessions(30),
+                API.getOptimizerLive(),
+            ]);
+            if (!rep) { this._optConsent(host, st); return; }
+            this._optActivity = act;
+            this._optLive = liveData;
+            this._optReportView(host, rep, st);
+        } finally {
+            content.style.minHeight = '';
+            if (scroller && keepScroll) {
+                scroller.scrollTop = Math.min(
+                    keepScroll, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+            }
         }
-        if (st.running) { this._optScanning(host, st); return; }
-        if (!st.has_report) { this._optConsent(host, st); return; }
-        const [rep, act, liveData] = await Promise.all([
-            API.getOptimizerReport(),
-            API.getOptimizerSessions(30),
-            API.getOptimizerLive(),
-        ]);
-        if (!rep) { this._optConsent(host, st); return; }
-        this._optActivity = act;
-        this._optLive = liveData;
-        this._optReportView(host, rep, st);
     },
 
     _optMode(st, rep) {
@@ -2518,10 +2536,6 @@ const CostsPage = {
         // Guardian bot speaks from, so the page and the bot agree.
         const liveSec = this._optLiveSec();
         if (liveSec) host.appendChild(liveSec);
-        // What happened after the last few copies. A fix that never got pasted
-        // saved nothing, so the loop has to close somewhere the user can see.
-        const fixSec = this._optFixesSec();
-        if (fixSec) host.appendChild(fixSec);
         if (!mode && !(st.prefs && st.prefs.billing_mode)) this._optBillingAsk(host, st);
 
         // Proof leads: a measured receipt is the feature's strongest artifact,
@@ -2540,8 +2554,10 @@ const CostsPage = {
         // first" digest: it restated what the session cards and the wall
         // already rank, and a page that says everything twice reads huge.
         this._optSessionsSec(host, rep, st);
-        const ba = this._optBeforeAfter(rep, mode);
-        if (ba) host.appendChild(ba);
+        // What happened after the last few copies. A fix that never got pasted
+        // saved nothing, so the loop has to close somewhere the user can see.
+        const fixSec = this._optFixesSec();
+        if (fixSec) host.appendChild(fixSec);
         const ledger = this._optTrimLedger(rep, mode);
         if (ledger) host.appendChild(ledger);
         const playbook = this._optPlaybook(rep, mode);
@@ -2773,54 +2789,6 @@ const CostsPage = {
             set(this[stateKey]);
         });
         head.appendChild(btn);
-        return card;
-    },
-
-    /** Before vs after: the follow-through on applied recommendations,
-     *  living with the sessions so avoidable totals and their outcome read
-     *  together. Resolved types show the measured movement; the rest show
-     *  exactly how much of the after side has been collected, because a
-     *  thin after side would be a guess, not a measurement. */
-    _optBeforeAfter(rep, mode) {
-        const rec = rep.receipts || {};
-        const resolved = rec.resolved || [];
-        const pending = rec.pending || [];
-        if (!resolved.length && !pending.length) return null;
-        const name = (t) => this._OPT_TYPE_LABELS[t] || t;
-        const rows = [];
-        resolved.forEach(r => {
-            rows.push('<div class="svo-play-row">' +
-                `<span class="svo-play-n">${this._esc(name(r.type))}</span>` +
-                `<span class="svo-play-w">${this._esc(this._optMetricLabel(r.metric))}: ${this._optMetricFmt(r.metric, r.before)} before <span class="svo-trim-arrow">→</span> ${this._optMetricFmt(r.metric, r.after)} after · ${r.before_sessions} sessions vs ${r.after_sessions}, like-for-like</span>` +
-                '<span class="svo-play-chip ok" title="Measured from real sessions on both sides of the change. Never an estimate.">measured</span></div>');
-        });
-        pending.forEach(p => {
-            if (p.status === 'insufficient') {
-                const sPct = Math.min(100, Math.round(((p.after_sessions || 0) / (p.needed_sessions || 1)) * 100));
-                rows.push('<div class="svo-play-row">' +
-                    `<span class="svo-play-n">${this._esc(name(p.type))}</span>` +
-                    `<span class="svo-play-w">after side filling: ${p.after_sessions || 0} of ${p.needed_sessions} sessions · ${p.after_days ?? 0} of ${p.needed_days} days ` +
-                    `<span class="svo-bucket-bar svo-ba-bar"><span style="width:${Math.max(sPct, 2)}%"></span></span></span>` +
-                    `<span class="svo-play-chip na" title="${this._esc(this._optEta(p))}">collecting</span></div>`);
-            } else {
-                rows.push('<div class="svo-play-row">' +
-                    `<span class="svo-play-n">${this._esc(name(p.type))}</span>` +
-                    `<span class="svo-play-w">${this._esc(p.reason || '')}</span>` +
-                    `<span class="svo-play-chip na">${this._esc(p.status)}</span></div>`);
-            }
-        });
-        const card = document.createElement('div');
-        card.className = 'svo-trim svo-ba';
-        card.innerHTML =
-            '<div class="svo-trim-head"><span class="svo-sess-h"><span>Before vs after your change</span>' +
-            `<span class="svo-chip">${resolved.length} measured · ${pending.length} collecting</span></span></div>` +
-            '<p class="svo-trim-p">Every cause is re-measured on real sessions after you apply a change. Keep working and rescan: new sessions land on the after side, and the comparison appears the moment both sides are comparable.</p>' +
-            `<div class="svo-play-rows">${rows.join('')}</div>`;
-        // With nothing measured yet this card is a progress note, not a
-        // result, so it collapses to one line like the other depth cards.
-        // The first resolved receipt is the page's strongest artifact and
-        // keeps the card open on its own.
-        if (!resolved.length) return this._optCollapsible(card, '_optBaOpen');
         return card;
     },
 
@@ -3400,9 +3368,13 @@ const CostsPage = {
         const after = (f.after || {}).context_tokens;
         switch (f.status) {
             case 'worked':
+                // "your compact" appears only when a manual compact boundary
+                // was seen in the transcript after the paste: measured fact,
+                // same honesty rule as everything else on this band.
                 return before && after && after < before
                     ? `${label}: worked. Context in ${who} went from `
-                        + `${this._fmtTokens(before)} to ${this._fmtTokens(after)} tokens.`
+                        + `${this._fmtTokens(before)} to ${this._fmtTokens(after)} tokens`
+                        + (f.compacted === 'manual' ? ' after your compact.' : '.')
                     : `${label}: worked. The ${this._optFixName(f.type)} has not `
                         + `come back in ${who}.`;
             case 'pasted':
@@ -4184,7 +4156,6 @@ const CostsPage = {
   text-transform: none; cursor: help; vertical-align: middle; }
 .svo-scan-age { font-size: 11px; color: var(--text-muted); align-self: center;
   margin-right: 10px; cursor: help; font-family: var(--font-mono, monospace); }
-.svo-ba-bar { width: 90px; height: 5px; vertical-align: middle; margin-left: 6px; }
 .svo-trim-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .svo-sess-finds { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border-default); padding-top: 8px; }
 .svo-sess-find { display: flex; gap: 10px; align-items: baseline; font-size: 11.5px; }

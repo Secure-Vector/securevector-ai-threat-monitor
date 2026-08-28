@@ -72,6 +72,11 @@ const GuardianAssistant = {
     mount() {
         if (this._fab || !window.GuardianBot || this._hidden()) return;
         this._injectStyle();
+        // The accent palette lives in the SVG bot's stylesheet. When the 3D
+        // hero renders the FAB that sheet is never injected on its own, and
+        // the accent variable would resolve empty, so inject it explicitly.
+        if (GuardianBot._injectStyle) GuardianBot._injectStyle();
+        this._applyAccent();
         const fab = document.createElement('button');
         fab.type = 'button';
         fab.className = 'sv-ga-fab';
@@ -422,14 +427,32 @@ const GuardianAssistant = {
     close() {
         this._open = false;
         if (this._panel) this._panel.classList.remove('open');
-        if (this._fab) this._fab.classList.remove('sv-ga-away');
+        if (this._outsideClose) {
+            document.removeEventListener('pointerdown', this._outsideClose, true);
+            this._outsideClose = null;
+        }
     },
 
     async open() {
         this._open = true;
         if (!this._panel) this._build();
         this._panel.classList.add('open');
-        if (this._fab) this._fab.classList.add('sv-ga-away');
+        // Click-away closes the card, like every other popover in the app.
+        // Capture phase, so a click that a page handler swallows still
+        // counts; the fab is exempt because its own click toggles.
+        if (!this._outsideClose) {
+            this._outsideClose = (ev) => {
+                const t = ev.target;
+                if (!this._open || !t || !t.closest) return;
+                if ((this._panel && this._panel.contains(t))
+                    || (this._fab && this._fab.contains(t))) return;
+                this.close();
+            };
+            document.addEventListener('pointerdown', this._outsideClose, true);
+        }
+        // The bot stays visible while the panel is open: the panel sits
+        // above it, and hiding it made every reaction fire on an invisible
+        // character -- a verified-fix lap deserves an audience.
         // Default behaviour is to follow the bot. Once the user has dragged
         // the panel somewhere, that wins: _placeNear would otherwise snap it
         // straight back to the bot on every open and the drag would look
@@ -442,6 +465,10 @@ const GuardianAssistant = {
             setTimeout(() => GuardianBot.set(headBot, 'idle'), 2600);
         }
         await this._fill();
+        // _fill can grow the panel to its max-height; a position computed
+        // against the empty shell leaves the bottom half below the fold on
+        // short windows. Re-place against the real height (drag still wins).
+        if (this._open && !this._panelRestore()) this._placeNear(this._panel);
     },
 
     _build() {
@@ -552,7 +579,8 @@ const GuardianAssistant = {
         row.querySelector('.sv-ga-row-val').textContent = value || '';
         row.addEventListener('click', () => {
             this.close();
-            if (tab && window.CostsPage) CostsPage._pendingTab = tab;
+            if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
+            if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
             if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
         });
         return row;
@@ -669,6 +697,38 @@ const GuardianAssistant = {
         });
         body.appendChild(pinRow);
 
+        // Color row: personalization scoped to the mascot. The chips carry
+        // the dark-theme shade; the applied color still follows the active
+        // theme through the palette CSS, so light mode gets its own shades.
+        const colorRow = document.createElement('div');
+        colorRow.className = 'sv-ga-quiet sv-ga-colors';
+        const colorLabel = document.createElement('span');
+        colorLabel.textContent = 'My color: ';
+        colorRow.appendChild(colorLabel);
+        const CHIP = { teal: '#5eadb8', azure: '#6aa6ff', violet: '#a78bfa',
+                       rose: '#f27fa5', amber: '#e8b45a', jade: '#63c493' };
+        const paintSwatches = () => {
+            colorRow.querySelectorAll('.sv-ga-swatch').forEach(b =>
+                b.classList.toggle('sel', b.dataset.accent === this._accent()));
+        };
+        this.ACCENTS.forEach((name) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sv-ga-swatch';
+            b.dataset.accent = name;
+            b.title = name;
+            b.setAttribute('aria-label', 'Guardian color: ' + name);
+            b.style.setProperty('--sw', CHIP[name]);
+            b.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._setAccent(name);
+                paintSwatches();
+            });
+            colorRow.appendChild(b);
+        });
+        paintSwatches();
+        body.appendChild(colorRow);
+
         const hideRow = document.createElement('button');
         hideRow.type = 'button';
         hideRow.className = 'sv-ga-quiet';
@@ -678,6 +738,27 @@ const GuardianAssistant = {
     },
 
     // ---------------- sentinel: watch quietly, speak rarely ----------------
+
+    // The bot's personal color. Stamped on <html> so the palette CSS in
+    // guardian-bot.js and the 3D rim light both pick it up; 'teal' is the
+    // default and clears the stamp so a fresh install carries no attribute.
+    ACCENTS: ['teal', 'azure', 'violet', 'rose', 'amber', 'jade'],
+    _accent() {
+        try {
+            const v = localStorage.getItem('sv-guardian-accent');
+            return this.ACCENTS.includes(v) ? v : 'teal';
+        } catch (_) { return 'teal'; }
+    },
+    _setAccent(name) {
+        if (!this.ACCENTS.includes(name)) name = 'teal';
+        try { localStorage.setItem('sv-guardian-accent', name); } catch (_) { /* private mode */ }
+        this._applyAccent();
+    },
+    _applyAccent() {
+        const name = this._accent();
+        if (name === 'teal') document.documentElement.removeAttribute('data-bot-accent');
+        else document.documentElement.setAttribute('data-bot-accent', name);
+    },
 
     _quiet() {
         try { return localStorage.getItem('sv-guardian-quiet') === '1'; } catch (_) { return false; }
@@ -712,17 +793,22 @@ const GuardianAssistant = {
 
     async _sentinelTick() {
         const st = this._sentinelState();
-        const [threats, red, blocked, act] = await Promise.all([
+        const [threats, red, blocked, act, egress] = await Promise.all([
             API.request('/api/threat-intel?page=1&page_size=1').catch(() => null),
             API.getRedactions(1).catch(() => null),
             API.getBlockedLedger({ window_days: 1 }).catch(() => null),
             API.getOptimizerSessions(1).catch(() => null),
+            API.request('/api/egress/destinations?days=1').catch(() => null),
         ]);
         const totals = {
             threats: threats && threats.total != null ? threats.total : null,
             redactions: red && red.summary && red.summary.total != null ? red.summary.total : null,
             blocked: blocked && blocked.summary && blocked.summary.blocked_total != null
                 ? blocked.summary.blocked_total : null,
+            // Sum of per-destination blocks: an agent reaching for a denied
+            // or known-bad host is the one event worth interrupting for.
+            egress: egress && Array.isArray(egress.destinations)
+                ? egress.destinations.reduce((a, d) => a + (d.blocked || 0), 0) : null,
         };
 
         // Agent numbering also works when the live advisor is switched off:
@@ -771,6 +857,14 @@ const GuardianAssistant = {
                 cta: 'See them', page: 'blocked-ledger', mood: 'alert',
             });
             if (spoke) bump('blocked');
+        } else if (grew('egress') && ready('egress')) {
+            const n = totals.egress - st.totals.egress;
+            spoke = this._speak({
+                text: n === 1 ? 'An agent reached for a blocked destination. I stopped it.'
+                    : `Agents reached for blocked destinations ${n} times. I stopped every one.`,
+                cta: 'See the destinations', page: 'egress', mood: 'alert',
+            });
+            if (spoke) bump('egress');
         }
 
         // live context too high: the one alert that can still save THIS run
@@ -903,13 +997,26 @@ const GuardianAssistant = {
     // line ends with an explicit "or carry on". The user is investigating;
     // the bot is offering, not intercepting.
 
-    ORIENT_MAX: 3,        // per session, across all pages
+    ORIENT_MAX: 6,        // per session, across all pages
     ORIENT_DWELL_MS: 450, // let the expand actually render before reacting
+    ORIENT_ARRIVE_MS: 2600, // page arrival: let the user look before speaking
 
     /** What each view is, and the one thing worth looking at first. These are
      *  explanations of the product, not claims about the user's data: nothing
      *  here can be wrong about what is on screen. */
     PAGE_BRIEFS: {
+        dashboard: {
+            noun: 'the dashboard',
+            what: 'One screen of posture: detections, blocked actions, and spend across every connected agent, updating live.',
+            look: 'Anything red earned its color. Start there.',
+            cta: 'Open the traces', page: 'agent-runs',
+        },
+        'agent-map': {
+            noun: 'the agent map',
+            what: 'Every connected runtime and the tools its agents actually called, drawn as a map.',
+            look: 'A tool no one remembers adding is worth a look.',
+            cta: 'Open the traces', page: 'agent-runs',
+        },
         'agent-runs': {
             noun: 'traces',
             what: 'A trace is one agent run end to end, and the rows inside it are the model calls it made, in order.',
@@ -932,7 +1039,7 @@ const GuardianAssistant = {
             noun: 'agent egress',
             what: 'These are the destinations agents actually reached, taken from this device.',
             look: 'A first-seen destination matters more than a busy familiar one.',
-            cta: 'Open the destination rules', page: 'rules',
+            cta: 'Open the egress policy', page: 'egress', tab: 'policy',
         },
         redactions: {
             noun: 'secret detections',
@@ -963,6 +1070,30 @@ const GuardianAssistant = {
             what: 'This is the record of what was decided, by which policy, and when.',
             look: 'Export it if you need the evidence outside the app.',
             cta: 'Open SIEM export', page: 'siem-export',
+        },
+        'tool-permissions': {
+            noun: 'tool permissions',
+            what: 'Each row is a tool an agent may call and the decision it gets: allow, ask, or block.',
+            look: 'Pending requests at the top are agents waiting on your answer right now.',
+            cta: 'See what was blocked', page: 'blocked-ledger',
+        },
+        rules: {
+            noun: 'the rules',
+            what: 'Rules are the detection library: each one names the pattern it watches for and what happens on a match.',
+            look: 'Disabled rules are the quiet risk. Check what is off and why.',
+            cta: 'See recent detections', page: 'threats',
+        },
+        'instant-audit': {
+            noun: 'Instant Audit',
+            what: 'One click replays recent agent activity into a single audit view you can hand to a reviewer.',
+            look: 'The report is only as fresh as its timestamp. Rerun it before you rely on it.',
+            cta: 'Open governance', page: 'governance',
+        },
+        'cloud-activity': {
+            noun: 'cloud activity',
+            what: 'This device reports into the SecureVector cloud, and the cloud gives you the fleet view: every device and agent on one screen.',
+            look: 'If a device is missing up there, Cloud Connect on that machine is the first thing to check.',
+            cta: 'Open Instant Audit', page: 'instant-audit',
         },
         storylines: {
             noun: 'storylines',
@@ -999,17 +1130,29 @@ const GuardianAssistant = {
                 || (this._panel && this._panel.contains(t))
                 || (this._bubbleEl && this._bubbleEl.contains(t))) return;
             const before = this._openCount();
+            const pageBefore = this._currentPage();
             setTimeout(() => {
+                // Two triggers, one discipline: the click expanded something,
+                // or it landed the user on a different page. Arrival gets a
+                // longer beat so the brief never races the page render.
                 if (this._openCount() > before) this._orient();
+                else if (this._currentPage() !== pageBefore) {
+                    setTimeout(() => this._orient(), this.ORIENT_ARRIVE_MS);
+                }
             }, this.ORIENT_DWELL_MS);
         }, { capture: true, passive: true });
     },
 
     /** Offer the short version of whatever the user just opened. */
     _orient() {
-        if (this._quiet() || this._open || this._bubbleEl) return;
+        if (this._quiet() || this._open) return;
+        // A live advisory outranks a brief, but it must not eat it: remember
+        // the page and try again when the bubble closes. On a busy machine a
+        // bubble is up almost constantly, and without this the map and
+        // dashboard briefs would starve forever.
+        if (this._bubbleEl) { this._orientPending = this._currentPage(); return; }
         if (this._orientCount >= this.ORIENT_MAX) return;
-        if (Date.now() - (this._spokeAt || 0) < 30000) return; // let the last word land
+        if (Date.now() - (this._spokeAt || 0) < 12000) return; // let the last word land
         const page = this._currentPage();
         const b = page && this.PAGE_BRIEFS[page];
         if (!b || this._oriented[page]) return;
@@ -1376,7 +1519,8 @@ const GuardianAssistant = {
         go.addEventListener('click', () => {
             this._hideBubble();
             if (act) { this._act(act); return; } // in-place: the answer is on THIS page
-            if (tab && window.CostsPage) CostsPage._pendingTab = tab;
+            if (tab && page === 'costs' && window.CostsPage) CostsPage._pendingTab = tab;
+            if (tab && page === 'egress' && window.EgressPage) EgressPage._state.tab = tab;
             if (window.Sidebar && Sidebar.navigate) Sidebar.navigate(page);
         });
         b.querySelector('.sv-ga-bubble-mute').addEventListener('click', () => this._setQuiet(true));
@@ -1399,6 +1543,15 @@ const GuardianAssistant = {
         this._bubbleEl = null;
         b.classList.remove('show');
         setTimeout(() => b.remove(), 220);
+        // A page brief that lost its slot to this bubble gets it back now,
+        // but only if the user is still on the page the brief was for.
+        if (this._orientPending) {
+            const page = this._orientPending;
+            this._orientPending = null;
+            setTimeout(() => {
+                if (this._currentPage() === page) this._orient();
+            }, 1600);
+        }
     },
 
     // ------------- live advisor: watch live sessions, speak in time -------------
@@ -1687,8 +1840,12 @@ const GuardianAssistant = {
         const before = (win.before || {}).context_tokens;
         const after = (win.after || {}).context_tokens;
         if (before && after && after < before) {
+            // "after your compact" only when a manual compact boundary was
+            // actually seen in the transcript -- measured, never inferred.
+            const how = win.compacted === 'manual'
+                ? 'after your compact' : 'after you pasted the fix';
             return `Nice, that worked. ${who} went from ${this._fmtTok(before)} to `
-                + `${this._fmtTok(after)} tokens of context after you pasted the fix.`;
+                + `${this._fmtTok(after)} tokens of context ${how}.`;
         }
         return `Nice, that worked. The ${this._fixName(win.type)} in ${who} has not `
             + 'come back since you pasted the fix.';
@@ -1861,7 +2018,6 @@ body.sv-ga-on #page-content { padding-bottom: 128px; }
    bot that was clear when it landed). 0.32 was a legible grey shape on
    the page, which reads as a smudge; this reads as out of the way. */
 .sv-ga-fab.sv-ga-ghost { opacity: 0.14; }
-.sv-ga-fab.sv-ga-away { opacity: 0 !important; pointer-events: none; }
 .sv-ga-fab:focus-visible { outline: 2px solid var(--accent-primary, #5eadb8); border-radius: 12px; }
 .sv-ga-panel { position: fixed; right: 22px; bottom: 100px; z-index: 899;
   width: 340px; max-width: calc(100vw - 44px); max-height: 70vh; overflow-y: auto;
@@ -1904,6 +2060,13 @@ body.sv-ga-on #page-content { padding-bottom: 128px; }
   font-size: 10.5px; color: var(--text-muted, #7f8a97); padding: 2px 4px 0;
   text-decoration: underline; text-underline-offset: 2px; }
 .sv-ga-quiet:hover { color: var(--text-secondary, #aeb7c2); }
+.sv-ga-colors { display: flex; align-items: center; gap: 8px; cursor: default; }
+.sv-ga-colors:hover { color: inherit; }
+.sv-ga-swatch { width: 18px; height: 18px; border-radius: 50%; padding: 0; flex-shrink: 0;
+  background: var(--sw); border: 2px solid transparent; cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease; }
+.sv-ga-swatch:hover { transform: scale(1.18); }
+.sv-ga-swatch.sel { border-color: var(--text-primary, #e6ecf2); }
 .sv-ga-bubble { position: fixed; right: 24px; bottom: 148px; z-index: 901;
   width: 300px; max-width: calc(100vw - 48px);
   background: var(--bg-card, #12171e); border: 1px solid var(--border-light, #303844);

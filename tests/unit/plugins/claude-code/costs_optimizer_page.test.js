@@ -186,14 +186,11 @@ test('receipts are proof cards: prediction vs measured vs quality, no faulty com
   assert.match(src, /Output quality/);
   assert.match(src, /Medians across real same-harness sessions/);
   assert.match(src, /semantic quality is not judged and no model is involved/);
-  // a comparison we will not show is always explained, never silently absent:
-  // the Before-vs-after card lists collection progress per type, and every
-  // non-insufficient pending reason renders verbatim on its own row
-  assert.match(src, /_optBeforeAfter\(/);
-  assert.match(src, /Before vs after your change/);
-  assert.match(src, /after side filling/);
-  assert.match(src, /collecting/);
-  assert.match(src, /\$\{this\._esc\(p\.reason \|\| ''\)\}/);
+  // follow-through lives in the "Fixes you copied" band, rendered with the
+  // sessions it measures (the Before-vs-after card was removed in its favor)
+  assert.match(src, /_optFixesSec\(/);
+  assert.match(src, /Fixes you copied/);
+  assert.doesNotMatch(src, /Before vs after your change/);
   const svc = fs.readFileSync(path.resolve(WEB, '..', '..', 'services', 'cost_optimizer.py'), 'utf8');
   assert.match(svc, /no comparison will be shown/);
   assert.match(svc, /below_noise/);
@@ -437,8 +434,6 @@ test('the strip leads with numbers: method and caveats are one click away', () =
   assert.match(src, /svo-strip-caveat/);
   // the caveats still exist, they are just not always-on prose
   assert.match(src, /Token counts are exact; dollar figures are list-price estimates/);
-  // and a card with nothing measured collapses instead of costing a third of a screen
-  assert.match(src, /if \(!resolved\.length\) return this\._optCollapsible\(card, '_optBaOpen'\)/);
 });
 
 test('numbers carry an anchor and causes are phrased as changes a person makes', () => {
@@ -504,4 +499,19 @@ test('the Guardian fades only over real text, and never all the way out', () => 
   const bot = read('js/components/guardian-3d.js');
   assert.match(bot, /glance\(\) \{/);
   assert.match(bot, /performance\.now\(\) - lastMove < 4000/);
+});
+
+test('the live-poll rebuild never steals the scroll position', () => {
+  const src = read('js/pages/costs.js');
+  // the optimizer tab is wiped and re-fetched when a session flips live/idle;
+  // the old height is held and the scroll restored so a reader who is deep in
+  // the page is not yanked back to the top mid-read
+  assert.match(src, /const scroller = content\.closest\('\.page-content'\) \|\| document\.scrollingElement/);
+  assert.match(src, /content\.style\.minHeight = keepH \+ 'px'/);
+  assert.match(src, /content\.style\.minHeight = ''/);
+  assert.match(src, /scroller\.scrollTop = Math\.min\(/);
+  // the follow-through band renders with the sessions it measures
+  const sess = src.indexOf('this._optSessionsSec(host, rep, st);');
+  const fixes = src.indexOf('const fixSec = this._optFixesSec();');
+  assert.ok(sess !== -1 && fixes > sess, 'Fixes you copied renders after the session cards');
 });

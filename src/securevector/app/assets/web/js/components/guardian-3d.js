@@ -18,6 +18,19 @@
 import * as THREE from '/js/vendor/three.module.min.js';
 
 const TEAL = 0x5eadb8;
+
+// The bot's personal accent, chosen in the Guardian panel. Resolved from the
+// same CSS variable the SVG bot reads, so both renderers always agree; the
+// palette in guardian-bot.js carries per-theme shades, which is why this is
+// re-read on every data-theme / data-bot-accent change instead of cached.
+function accentHex() {
+    try {
+        const v = getComputedStyle(document.documentElement)
+            .getPropertyValue('--sv-bot-accent').trim();
+        if (/^#[0-9a-f]{6}$/i.test(v)) return parseInt(v.slice(1), 16);
+    } catch (_) { /* fall through */ }
+    return TEAL;
+}
 // Theme counterpoint, mirroring the SVG bot: light shell on dark themes,
 // dark slate shell on the light theme. Read live so theme switches retint
 // the materials in place (see applyTheme in mount()).
@@ -102,7 +115,9 @@ function buildGuardian() {
     headGroup.add(visor);
     // ears
     const earGeo = new THREE.CapsuleGeometry(0.13, 0.28, 8, 16);
-    const earL = new THREE.Mesh(earGeo, shell);
+    // pods carry the accent, so they need a material the body does not share
+    const podMat = shell.clone();
+    const earL = new THREE.Mesh(earGeo, podMat);
     earL.position.set(-1.34, -0.02, 0);
     earL.rotation.z = Math.PI / 2 * 0; // vertical pods
     const earR = earL.clone();
@@ -141,7 +156,7 @@ function buildGuardian() {
     shadow.position.y = -1.55;
     root.add(shadow);
 
-    return { root, body, headGroup, eyes, eyeL, eyeR, shadow, shell, dark };
+    return { root, body, headGroup, eyes, eyeL, eyeR, shadow, shell, podMat, dark };
 }
 
 const Guardian3D = {
@@ -176,7 +191,7 @@ const Guardian3D = {
         const key = new THREE.DirectionalLight(0xffffff, 1.9);
         key.position.set(-3, 4, 5);
         scene.add(key);
-        const rim = new THREE.PointLight(TEAL, 9, 20);
+        const rim = new THREE.PointLight(accentHex(), 9, 20);
         rim.position.set(3.4, 0.6, 2.2);
         scene.add(rim);
         const fill = new THREE.DirectionalLight(0xbfd0dd, 0.5);
@@ -187,14 +202,26 @@ const Guardian3D = {
         scene.add(G.root);
         // Retint on theme switches: the app stamps data-theme on <html>.
         const applyTheme = () => {
-            G.shell.color.setHex(isLightTheme() ? SHELL_ON_LIGHT : SHELL_ON_DARK);
+            const shellHex = isLightTheme() ? SHELL_ON_LIGHT : SHELL_ON_DARK;
+            G.shell.color.setHex(shellHex);
+            const acc = accentHex();
+            rim.color.setHex(acc);
+            // A chosen accent must be SEEN: tint the ear pods and the eye
+            // halos. The default (no stamp) keeps the classic neutral look,
+            // and the eye pills stay state-owned (scan/idle tween them).
+            const tinted = document.documentElement.hasAttribute('data-bot-accent');
+            G.podMat.color.setHex(tinted ? acc : shellHex);
+            [G.eyeL, G.eyeR].forEach(e => {
+                const halo = e.children[1];
+                if (halo && halo.material) halo.material.color.setHex(tinted ? acc : 0xffffff);
+            });
         };
         applyTheme();
         const themeObs = new MutationObserver(() => {
             applyTheme();
             if (REDUCED) renderer.render(scene, camera); // static frame retints too
         });
-        themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-bot-accent'] });
         G.root.rotation.x = 0.04;
         G.root.position.y = 0.1;
 

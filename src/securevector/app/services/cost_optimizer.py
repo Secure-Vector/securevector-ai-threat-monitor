@@ -1007,6 +1007,7 @@ def fix_brief(fix: dict) -> dict:
         "resolved_at": fix.get("resolved_at"),
         "before": fix.get("baseline"),
         "after": fix.get("after"),
+        "compacted": fix.get("compacted"),
     }
 
 
@@ -1337,6 +1338,15 @@ class CostOptimizerService:
                 (ftype in CONTEXT_FIXES or ftype.startswith("compact"))
                 and any(trig == "auto"
                         for _, trig, _ in _compact_boundaries(after)))
+            # A manual compact boundary after the paste is the fix being
+            # followed through, not just pasted -- record it so the win copy
+            # and the receipt can say "after your compact" as a measured
+            # fact rather than an inference.
+            if (not harness_did_it
+                    and (ftype in CONTEXT_FIXES or ftype.startswith("compact"))
+                    and any(trig != "auto"
+                            for _, trig, _ in _compact_boundaries(after))):
+                fix["compacted"] = "manual"
             fix["status"] = "auto_compacted" if harness_did_it else "worked"
             fix["after"] = post
             fix["resolved_at"] = _now_iso()

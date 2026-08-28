@@ -103,7 +103,7 @@ const GuardianBot = {
             // key-light sheen: a big soft highlight hugging the top curve
             '<ellipse class="gb-sheen" cx="26" cy="18.5" rx="12" ry="4" filter="url(#gb3d-soft)"/>' +
             // cool rim bounce on the right edge (screen light)
-            '<path d="M48.5 21c1.6 2.6 1.6 9.4 0 12" stroke="rgba(94,173,184,0.35)" stroke-width="1.6"/>' +
+            '<path class="gb-arc" d="M48.5 21c1.6 2.6 1.6 9.4 0 12" stroke="rgba(94,173,184,0.35)" stroke-width="1.6"/>' +
             // visor: one wide glass capsule, the face lives inside it
             '<rect class="gb-visor" x="17.5" y="20" width="29" height="16" rx="8" fill="url(#gb3d-visor)"/>' +
             // glass glare: an angled streak across the visor's top
@@ -152,6 +152,31 @@ const GuardianBot = {
 [data-theme="light"] .sv-gbot .gb-shadow { fill: rgba(20, 26, 34, 0.25); }
 .sv-gbot .gb-happy { stroke: #f4f7fa; stroke-width: 2.6; }
 .sv-gbot .gb-beam line { stroke-linecap: round; }
+
+/* Accent: the bot's personal color, chosen in the Guardian panel and stamped
+   as data-bot-accent on <html>. Scoped to the bot on purpose: the app's UI
+   accent stays teal (SOC color discipline), only the mascot dresses up.
+   Every accent carries a light-theme shade so contrast survives the switch. */
+:root { --sv-bot-accent: #5eadb8; --sv-bot-accent-soft: rgba(94, 173, 184, 0.35); }
+[data-theme="light"] { --sv-bot-accent: #2b8a97; --sv-bot-accent-soft: rgba(43, 138, 151, 0.4); }
+[data-bot-accent="azure"] { --sv-bot-accent: #6aa6ff; --sv-bot-accent-soft: rgba(106, 166, 255, 0.35); }
+[data-theme="light"][data-bot-accent="azure"] { --sv-bot-accent: #2e6fd8; --sv-bot-accent-soft: rgba(46, 111, 216, 0.4); }
+[data-bot-accent="violet"] { --sv-bot-accent: #a78bfa; --sv-bot-accent-soft: rgba(167, 139, 250, 0.35); }
+[data-theme="light"][data-bot-accent="violet"] { --sv-bot-accent: #7c5cd6; --sv-bot-accent-soft: rgba(124, 92, 214, 0.4); }
+[data-bot-accent="rose"] { --sv-bot-accent: #f27fa5; --sv-bot-accent-soft: rgba(242, 127, 165, 0.35); }
+[data-theme="light"][data-bot-accent="rose"] { --sv-bot-accent: #d64f7e; --sv-bot-accent-soft: rgba(214, 79, 126, 0.4); }
+[data-bot-accent="amber"] { --sv-bot-accent: #e8b45a; --sv-bot-accent-soft: rgba(232, 180, 90, 0.35); }
+[data-theme="light"][data-bot-accent="amber"] { --sv-bot-accent: #b97f1f; --sv-bot-accent-soft: rgba(185, 127, 31, 0.4); }
+[data-bot-accent="jade"] { --sv-bot-accent: #63c493; --sv-bot-accent-soft: rgba(99, 196, 147, 0.35); }
+[data-theme="light"][data-bot-accent="jade"] { --sv-bot-accent: #2f9d64; --sv-bot-accent-soft: rgba(47, 157, 100, 0.4); }
+.sv-gbot .gb-arc { stroke: var(--sv-bot-accent-soft, rgba(94, 173, 184, 0.35)); }
+.sv-gbot .gb-beam line:first-child { stroke: var(--sv-bot-accent, #5eadb8); }
+/* A chosen accent must be SEEN. When the stamp is present the pods and the
+   eye halos wear it (after the theme rules on purpose: same specificity,
+   source order decides). No stamp keeps the classic neutral figure. */
+[data-bot-accent] .sv-gbot .gb-pod { fill: var(--sv-bot-accent); }
+[data-bot-accent] .sv-gbot .gb-eye ellipse:first-child { fill: var(--sv-bot-accent); }
+[data-bot-accent] .sv-gbot .gb-happy { stroke: var(--sv-bot-accent); }
 
 /* state visibility: spheres for idle/scan, arcs for ok, beam for scan */
 .sv-gbot .gb-happy { display: none; }

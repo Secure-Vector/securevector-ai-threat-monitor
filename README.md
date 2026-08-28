@@ -24,6 +24,7 @@
 | **OpenAI Codex** *(CLI 0.133+)* | Native plugin | `codex` |
 | **GitHub Copilot CLI** | Native plugin | `copilot-cli` |
 | **Cursor** | Native plugin | `cursor` |
+| **OpenCode** *(1.18+)* | Native plugin — in-process ES module, no subprocess hooks | `opencode` |
 | **OpenClaw / ClawdBot** | Native plugin | `openclaw` |
 | **LangChain** | SDK — [`securevector-sdk-langchain`](https://github.com/Secure-Vector/securevector-sdk-langchain) (`pip install`) | `langchain` |
 | **LangGraph** | SDK — [`securevector-sdk-langgraph`](https://github.com/Secure-Vector/securevector-sdk-langgraph) (`pip install`) | `langgraph` |
@@ -61,6 +62,7 @@
 > - **Cost / Token Optimizer** — Cost Tracking answers *how much*; the Optimizer answers *why* and *what to change*. An opt-in local scan partitions each session's waste into cache waste and compaction waste, with eight detectors emitting ranked findings that deep-link to the exact turns in Traces. Findings are attributable or absent.
 > - **Impact receipts, not claims** — copy a fix, and the Optimizer watches your local transcripts for it being pasted, then re-measures. *Copied* is certain, *pasted* is read from the transcript, *worked* is measured — and only measured wins are celebrated.
 > - **Per-run limits** — opt-in tool-call caps, a loop breaker, and per-run cost/token ceilings, enforced on the existing deny rails with an audit row and a one-click, time-boxed "let this run continue" exemption. Everything ships off.
+> - **SecureVector Guard for OpenCode** — the Guard plugin family gains OpenCode (1.18+): a native in-process ES module, no subprocess hooks. One-click install from Integrations, tool-call decisions on the same policy rails as every other harness, and OpenCode session tokens in the Session Tokens by Runtime card.
 > - **The Guardian assistant grows up** — the ambient character now docks instead of wandering, reacts in a register that matches the event, names the agent its advice is about, offers a two-sentence orientation of whatever you just opened, answers on the page you are already on, and keeps a strict one-clock restraint policy so it never becomes noise. Advisory only: it never types into a session or edits your files.
 > - **An honest fill gauge** — context-fill percentage now comes from evidence in the transcript (compact boundaries, observed peaks), so it can never read "118% full" again, and autocompact's work is never credited as yours.
 >

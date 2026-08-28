@@ -44,7 +44,7 @@ _SESSION_SCAN_CAP = 5000
 # Known harness runtime_kind values (audit) — used to split harnesses from
 # frameworks in the agent graph. 'copilot' and 'copilot-cli' are the same host.
 _HARNESS_RUNTIME_KINDS = {
-    "claude-code", "codex", "copilot", "copilot-cli", "cursor", "openclaw",
+    "claude-code", "codex", "copilot", "copilot-cli", "cursor", "opencode", "openclaw",
 }
 # Frameworks we explicitly recognise (runtime_kind -> display label); anything
 # else with activity that isn't a harness is still reported as an "agent".
@@ -90,6 +90,24 @@ _HARNESSES = [
         "slug": "cursor", "label": "Cursor",
         "home": lambda: _harness_dir("CURSOR_HOME", ".cursor"),
         "session_root": None,  # plugin-only; no hook-layer session transcripts
+        "session_glob": None, "session_unit": None, "recursive": False,
+    },
+    {
+        # OpenCode keeps neither a dot-dir home nor per-session transcript
+        # files: its config lives under XDG config (~/.config/opencode) and all
+        # session state is rows in a single SQLite DB under XDG data. So detect
+        # on either dir, and skip transcript counting (the DB is not a glob).
+        "slug": "opencode", "label": "OpenCode",
+        "home": lambda: (
+            Path(os.environ["OPENCODE_CONFIG"]).expanduser().parent
+            if os.environ.get("OPENCODE_CONFIG")
+            else (
+                Path(os.environ["XDG_CONFIG_HOME"]).expanduser() / "opencode"
+                if os.environ.get("XDG_CONFIG_HOME")
+                else _home() / ".config" / "opencode"
+            )
+        ),
+        "session_root": None,  # sessions live in opencode.db, not on-disk files
         "session_glob": None, "session_unit": None, "recursive": False,
     },
     {

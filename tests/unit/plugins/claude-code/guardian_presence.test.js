@@ -169,9 +169,9 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
 
 test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
-  assert.match(html, /guardian-bot\.js\?v=11/);
-  assert.match(html, /guardian-3d\.js\?v=16/);
-  assert.match(html, /guardian-assistant\.js\?v=39/);
+  assert.match(html, /guardian-bot\.js\?v=13/);
+  assert.match(html, /guardian-3d\.js\?v=18/);
+  assert.match(html, /guardian-assistant\.js\?v=44/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -440,7 +440,7 @@ test('the Guardian paces itself: rare thoughts, one shared clock', () => {
   // every bubble pushes the next thought back: one clock for the whole voice
   assert.match(a, /this\._spokeAt = Date\.now\(\); \/\/ thoughts wait their turn after any bubble/);
   // an orientation never lands on top of something just said
-  assert.match(a, /if \(Date\.now\(\) - \(this\._spokeAt \|\| 0\) < 30000\) return; \/\/ let the last word land/);
+  assert.match(a, /if \(Date\.now\(\) - \(this\._spokeAt \|\| 0\) < 12000\) return; \/\/ let the last word land/);
   // dots never clip a thought mid-read
   assert.match(a, /if \(!text && t\.classList\.contains\('show'\) && t\.dataset\.mode === 'text'\) return;/);
   // the resting drift is real motion, so reduced motion turns it off
@@ -556,13 +556,40 @@ test('the page-aware offer is an offer, not an interception', () => {
   assert.match(a, /'\[aria-expanded="true"\], details\[open\], \.expanded, \.open'/);
   assert.match(a, /if \(this\._openCount\(\) > before\) this\._orient\(\);/);
   // hard caps so it can never become chatty
-  assert.match(a, /ORIENT_MAX: 3,/);
+  assert.match(a, /ORIENT_MAX: 6,/);
   assert.match(a, /if \(this\._orientCount >= this\.ORIENT_MAX\) return;/);
   assert.match(a, /if \(!b \|\| this\._oriented\[page\]\) return;/);
-  // it yields to anything that actually needs attention
-  assert.match(a, /_orient\(\) \{\n\s+if \(this\._quiet\(\) \|\| this\._open \|\| this\._bubbleEl\) return;/);
+  // it yields to anything that actually needs attention, but a brief that
+  // lost its slot to a live bubble is queued and retried when it closes,
+  // so a busy machine cannot starve the page briefs forever
+  assert.match(a, /_orient\(\) \{\n\s+if \(this\._quiet\(\) \|\| this\._open\) return;/);
+  assert.match(a, /if \(this\._bubbleEl\) \{ this\._orientPending = this\._currentPage\(\); return; \}/);
+  assert.match(a, /if \(this\._currentPage\(\) === page\) this\._orient\(\);/);
   // and every line ends by handing control back
   assert.match(a, /Or ignore me and carry on\./);
+  // the crucial governance surfaces all carry a brief
+  ['tool-permissions', 'rules', 'instant-audit', 'cloud-activity', 'egress']
+    .forEach(k => assert.ok(a.includes(`'${k}': {`) || a.includes(`${k}: {`),
+      `PAGE_BRIEFS must cover ${k}`));
+  // the cloud brief sells the fleet view, in positioning language
+  assert.match(a, /the cloud gives you the fleet view/);
+  // blocked egress is announced by the sentinel like any other verdict
+  assert.match(a, /\/api\/egress\/destinations\?days=1/);
+  assert.match(a, /An agent reached for a blocked destination\. I stopped it\./);
+  // the egress brief's CTA lands on the egress Policy tab, not the detection
+  // rules library: 'destination rules' live under Agent Egress > Policy
+  assert.match(a, /cta: 'Open the egress policy', page: 'egress', tab: 'policy',/);
+  // tab handoffs are page-guarded so an egress tab can never leak into the
+  // costs page's pendingTab (or vice versa), and both CTA paths carry them
+  const costsHandoffs = a.match(/if \(tab && page === 'costs' && window\.CostsPage\) CostsPage\._pendingTab = tab;/g) || [];
+  const egressHandoffs = a.match(/if \(tab && page === 'egress' && window\.EgressPage\) EgressPage\._state\.tab = tab;/g) || [];
+  assert.strictEqual(costsHandoffs.length, 2);
+  assert.strictEqual(egressHandoffs.length, 2);
+  assert.ok(!/if \(tab && window\.CostsPage\)/.test(a), 'unguarded costs handoff must be gone');
+
+  // the panel is re-placed after _fill grows it, or its bottom half hides
+  // below the fold on short windows
+  assert.match(a, /await this\._fill\(\);[\s\S]{0,400}if \(this\._open && !this\._panelRestore\(\)\) this\._placeNear\(this\._panel\);/);
   // the briefs explain the product, never the user's data: a claim about what
   // is on screen could be wrong, an explanation of the view cannot be
   const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage()'));
@@ -584,4 +611,68 @@ test('the traces-page CTA answers on the traces page, not on the Optimizer', () 
   assert.match(a, /cannot rank these traces yet/);
   // The bubble handler runs the action INSTEAD of navigating.
   assert.match(a, /if \(act\) \{ this\._act\(act\); return; \}/);
+});
+
+test('the bot stays visible while the panel is open, so a celebration has an audience', () => {
+  const src = read('js/components/guardian-assistant.js');
+  // open() must not hide the FAB; the away-class mechanism is gone entirely.
+  assert.ok(!/classList\.add\('sv-ga-away'\)/.test(src),
+    'open() must not add sv-ga-away to the FAB');
+  assert.ok(!/\.sv-ga-fab\.sv-ga-away/.test(src),
+    'the sv-ga-away CSS rule should be removed with its last user');
+});
+
+test('a compact win says "after your compact" only when the compact was measured', () => {
+  const src = read('js/components/guardian-assistant.js');
+  assert.match(src, /win\.compacted === 'manual'/);
+  assert.match(src, /after your compact/);
+  const costs = read('js/pages/costs.js');
+  assert.match(costs, /f\.compacted === 'manual'/);
+  assert.match(costs, /after your compact\./);
+});
+
+test('dashboard and agent map get briefs, and arriving on a page can trigger one', () => {
+  const a = read('js/components/guardian-assistant.js');
+  const briefs = a.slice(a.indexOf('PAGE_BRIEFS: {'), a.indexOf('_currentPage()'));
+  assert.match(briefs, /dashboard: \{/);
+  assert.match(briefs, /'agent-map': \{/);
+  assert.match(a, /ORIENT_ARRIVE_MS/);
+  assert.match(a, /this\._currentPage\(\) !== pageBefore/);
+});
+
+test('clicking outside the open panel closes it, the fab and panel are exempt', () => {
+  const a = read(ASSISTANT);
+  assert.match(a, /document\.addEventListener\('pointerdown', this\._outsideClose, true\)/);
+  assert.match(a, /document\.removeEventListener\('pointerdown', this\._outsideClose, true\)/);
+  assert.match(a, /\(this\._fab && this\._fab\.contains\(t\)\)\) return;/);
+});
+
+test('the bot color picker is scoped to the mascot and respects the theme', () => {
+  const a = read(ASSISTANT);
+  // six curated accents, persisted, stamped on <html>; teal clears the stamp
+  assert.match(a, /ACCENTS: \['teal', 'azure', 'violet', 'rose', 'amber', 'jade'\]/);
+  assert.match(a, /localStorage\.setItem\('sv-guardian-accent', name\)/);
+  assert.match(a, /removeAttribute\('data-bot-accent'\)/);
+  // the palette sheet is injected at mount even when the 3D hero renders
+  // the FAB, or the accent variable would resolve empty on a fresh load
+  assert.match(a, /if \(GuardianBot\._injectStyle\) GuardianBot\._injectStyle\(\);/);
+  assert.match(a, /setAttribute\('data-bot-accent', name\)/);
+  const bot = read('js/components/guardian-bot.js');
+  // every accent carries a light-theme shade so contrast survives the switch
+  ['azure', 'violet', 'rose', 'amber', 'jade'].forEach(k => {
+    assert.ok(bot.includes(`[data-bot-accent="${k}"]`), `palette missing ${k}`);
+    assert.ok(bot.includes(`[data-theme="light"][data-bot-accent="${k}"]`),
+      `light-theme shade missing for ${k}`);
+  });
+  // the SVG bot reads the variable, never a hardcoded accent
+  assert.match(bot, /\.sv-gbot \.gb-beam line:first-child \{ stroke: var\(--sv-bot-accent, #5eadb8\); \}/);
+  const g3 = read('js/components/guardian-3d.js');
+  // the 3D rim light resolves the same variable and retints live
+  assert.match(g3, /getPropertyValue\('--sv-bot-accent'\)/);
+  assert.match(g3, /rim\.color\.setHex\(acc\)/);
+  // the accent is visible, not just a rim glow: pods and eye halos wear it
+  assert.match(g3, /G\.podMat\.color\.setHex\(tinted \? acc : shellHex\)/);
+  assert.match(g3, /halo\.material\.color\.setHex\(tinted \? acc : 0xffffff\)/);
+  assert.ok(bot.includes('[data-bot-accent] .sv-gbot .gb-pod { fill: var(--sv-bot-accent); }'));
+  assert.match(g3, /attributeFilter: \['data-theme', 'data-bot-accent'\]/);
 });

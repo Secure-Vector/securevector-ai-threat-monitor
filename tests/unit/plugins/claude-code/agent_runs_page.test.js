@@ -93,3 +93,8 @@ test('agent-runs is wired into the API client, router, index, and the Map|Runs t
   assert.ok(html.indexOf('components/obs-tabs.js') < html.indexOf('pages/agent-runs.js'), 'obs-tabs must load before the pages');
   assert.ok(html.indexOf('pages/agent-runs.js') < html.indexOf('js/app.js?'), 'agent-runs.js must load before app.js');
 });
+
+test('collapsing the group that holds the open trace closes the trace, so the collapse sticks', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /if \(closing && g\.runs\.some\(r => r\.trace_id === this\.selected\)\) this\._showList\(\);/);
+});

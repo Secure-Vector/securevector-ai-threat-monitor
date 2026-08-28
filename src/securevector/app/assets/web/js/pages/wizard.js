@@ -22,6 +22,7 @@ const ConnectWizardPage = {
         'codex': '/api/hooks/codex/install',
         'copilot-cli': '/api/hooks/copilot-cli/install',
         'cursor': '/api/hooks/cursor/install',
+        'opencode': '/api/hooks/opencode/install',
         'openclaw': '/api/hooks/install',
     },
     GUIDES: {
@@ -29,6 +30,7 @@ const ConnectWizardPage = {
         'codex': 'guide-codex',
         'copilot-cli': 'guide-copilot-cli',
         'cursor': 'guide-cursor',
+        'opencode': 'guide-opencode',
         'openclaw': 'guide-openclaw',
     },
     // SDK route — agents live in the user's environment, so these stay

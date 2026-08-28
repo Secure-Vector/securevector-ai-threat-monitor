@@ -1450,6 +1450,11 @@ const AgentRunsPage = {
                 body.hidden = closing;
                 head.classList.toggle('closed', closing);
                 collapsed[g.rt] = closing;
+                // Collapsing the group that holds the open trace also closes
+                // the trace. Otherwise the next live tick force-reopens the
+                // group (holdsSel refuses to hide a selection) and the
+                // collapse reads as broken.
+                if (closing && g.runs.some(r => r.trace_id === this.selected)) this._showList();
                 try { localStorage.setItem('sv-ar-groups', JSON.stringify(collapsed)); } catch (e) { /* private mode */ }
             });
             list.appendChild(head);
