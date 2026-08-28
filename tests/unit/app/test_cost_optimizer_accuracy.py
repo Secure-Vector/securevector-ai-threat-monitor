@@ -18,7 +18,6 @@ from securevector.app.services.cost_optimizer import (
     THRESHOLDS,
     CostOptimizerService,
     analyze_session,
-    prompt_tokens,
 )
 
 # anthropic list-price shape: $3/M in, $15/M out
@@ -141,7 +140,7 @@ def test_duplicate_value_exact():
 def test_strip_is_derived_not_computed(tmp_path, monkeypatch):
     """modeled = observed - buckets, to the cent, and the repeated-context
     findings sum exactly to the compaction bucket (partition, not stacking)."""
-    import securevector.app.services.cost_optimizer as co
+    from securevector.app.services import cost_optimizer as co
     monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path)
     sessions = [{
         "session_id": f"s{j}", "harness": "claude-code", "trace_id": f"t{j}",
@@ -252,7 +251,7 @@ def test_optimizer_is_pure_algorithm_no_model_calls():
     anything that could call a model or the network.)"""
     import ast as _ast
     from pathlib import Path
-    import securevector.app.services.cost_optimizer as co
+    from securevector.app.services import cost_optimizer as co
     import securevector.app.services.run_limits as rl
     BANNED = {"httpx", "requests", "aiohttp", "urllib", "socket", "http",
               "openai", "anthropic", "ollama"}
@@ -280,7 +279,7 @@ def test_subagent_transcripts_are_counted(tmp_path, monkeypatch):
     import asyncio
     import json as _json
 
-    import securevector.app.services.cost_optimizer as co
+    from securevector.app.services import cost_optimizer as co
 
     home = tmp_path / "claude"
     slug = home / "projects" / "-x"
@@ -324,7 +323,7 @@ def test_receipt_proves_prediction_and_quality(tmp_path, monkeypatch):
     movement (fact) and the behavioral quality panel (fact)."""
     from datetime import datetime, timedelta, timezone
 
-    import securevector.app.services.cost_optimizer as co
+    from securevector.app.services import cost_optimizer as co
 
     monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path)
     svc = co.CostOptimizerService()
@@ -367,7 +366,7 @@ def test_faulty_comparisons_never_resolve(tmp_path, monkeypatch):
     as below_noise; a thin before-window pends as insufficient."""
     from datetime import timedelta
 
-    import securevector.app.services.cost_optimizer as co
+    from securevector.app.services import cost_optimizer as co
 
     monkeypatch.setattr(co, "get_app_data_dir", lambda: tmp_path)
     svc = co.CostOptimizerService()

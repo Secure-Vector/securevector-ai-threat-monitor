@@ -1410,6 +1410,8 @@ class LLMProxy:
             try:
                 body_dict = json.loads(body_text)
             except json.JSONDecodeError:
+                # Non-JSON bodies (SSE keepalives, form posts) are simply not
+                # scannable; an empty dict skips the body-derived checks.
                 pass
 
         # Stable per-conversation id for grouping tool-call audits into runs.

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import securevector.app.services.cost_optimizer as co
+from securevector.app.services import cost_optimizer as co
 from securevector.app.services.cost_optimizer import (
     CostOptimizerService,
     THRESHOLDS,
@@ -24,7 +24,6 @@ from securevector.app.services.cost_optimizer import (
     detect_duplicates,
     detect_excessive_output,
     detect_retry_loops,
-    prompt_tokens,
     segment_generations,
 )
 

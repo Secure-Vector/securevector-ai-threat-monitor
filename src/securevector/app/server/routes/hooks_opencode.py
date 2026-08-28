@@ -282,6 +282,8 @@ def _atomic_write_config(path: Path, data: dict, header: list[str]) -> None:
         try:
             os.unlink(tmp_path)
         except OSError:
+            # Best-effort cleanup of the temp file; the original write
+            # failure below is the error worth surfacing.
             pass
         raise
 
