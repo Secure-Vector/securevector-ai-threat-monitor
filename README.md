@@ -58,12 +58,17 @@
 
 <br>
 
+<img src="docs/guardian-bot.gif" align="right" width="130" alt="The Guardian bot cycling through its accent colors">
+
 > **What's new in v5.2.0**
 > - **Cost / Token Optimizer** — Cost Tracking answers *how much*; the Optimizer answers *why* and *what to change*. An opt-in local scan partitions each session's waste into cache waste and compaction waste, with eight detectors emitting ranked findings that deep-link to the exact turns in Traces. Findings are attributable or absent.
 > - **Impact receipts, not claims** — copy a fix, and the Optimizer watches your local transcripts for it being pasted, then re-measures. *Copied* is certain, *pasted* is read from the transcript, *worked* is measured — and only measured wins are celebrated.
 > - **Per-run limits** — opt-in tool-call caps, a loop breaker, and per-run cost/token ceilings, enforced on the existing deny rails with an audit row and a one-click, time-boxed "let this run continue" exemption. Everything ships off.
 > - **SecureVector Guard for OpenCode** — the Guard plugin family gains OpenCode (1.18+): a native in-process ES module, no subprocess hooks. One-click install from Integrations, tool-call decisions on the same policy rails as every other harness, and OpenCode session tokens in the Session Tokens by Runtime card.
 > - **The Guardian assistant grows up** — the ambient character now docks instead of wandering, reacts in a register that matches the event, names the agent its advice is about, offers a two-sentence orientation of whatever you just opened, answers on the page you are already on, and keeps a strict one-clock restraint policy so it never becomes noise. Advisory only: it never types into a session or edits your files.
+> - **Blocked egress, announced live** — the Guardian's sentinel watches quietly and speaks when it matters: an agent reaches for a blocked destination, the Guardian says it stopped it, and one click lands you on the destination evidence.
+> - **Your Guardian, your color** — six accents (teal, azure, violet, rose, amber, jade), each with theme-tuned shades so the bot looks right in light and dark mode. That's it cycling through a few on the right.
+> - **Cost Summary, redesigned** — and every model price re-verified against the official provider pages.
 > - **An honest fill gauge** — context-fill percentage now comes from evidence in the transcript (compact boundaries, observed peaks), so it can never read "118% full" again, and autocompact's work is never credited as yours.
 >
 > **Previously:** v5.1.0 shipped Agent Egress Governance, blast-radius inventory, scope-expansion alerting, counterfactual policy replay, and local detections lighting up the cloud console.
