@@ -189,6 +189,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         42: migrate_to_v42,
         43: migrate_to_v43,
         44: migrate_to_v44,
+        45: migrate_to_v45,
     }
 
     if version in migrations:
@@ -1932,6 +1933,57 @@ async def migrate_to_v44(db: DatabaseConnection) -> None:
         "'Agent egress governance — policy, per-destination audit, containment proofs')"
     )
     logger.info("Applied migration v44: egress policy + audit + containment proofs")
+
+
+async def migrate_to_v45(db: DatabaseConnection) -> None:
+    """v44 -> v45: per-run cost enforcement (issue #203).
+
+    Three pieces, all additive and idempotent:
+    - ``llm_cost_records.session_id`` — the proxy already derives a stable
+      per-conversation id (``proxy-<sha256[:24]>``); storing it is what turns
+      "spend today" into "spend this run", the correlation per-run cost and
+      token ceilings need.
+    - Run-limit settings on the ``app_settings`` singleton, mirroring the v13
+      daily-budget shape: ``run_max_tool_calls`` / ``run_max_cost_usd`` /
+      ``run_max_tokens`` (NULL = off — everything ships disabled),
+      ``run_limit_action`` (warn|block, ceilings only) and ``run_loop_breaker``.
+    - An index on ``tool_call_audit.trace_id`` — the per-run tool-call counter
+      is a COUNT over that column on the decision path, so it must not scan.
+    """
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(llm_cost_records)")
+    cost_cols = {row[1] for row in await cur.fetchall()}
+    if "session_id" not in cost_cols:
+        await conn.execute("ALTER TABLE llm_cost_records ADD COLUMN session_id TEXT")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cost_records_session "
+        "ON llm_cost_records (session_id, recorded_at DESC)"
+    )
+
+    cur = await conn.execute("PRAGMA table_info(app_settings)")
+    settings_cols = {row[1] for row in await cur.fetchall()}
+    for name, ddl in (
+        ("run_max_tool_calls", "run_max_tool_calls INTEGER DEFAULT NULL"),
+        ("run_max_cost_usd", "run_max_cost_usd REAL DEFAULT NULL"),
+        ("run_max_tokens", "run_max_tokens INTEGER DEFAULT NULL"),
+        ("run_limit_action", "run_limit_action TEXT NOT NULL DEFAULT 'warn'"),
+        ("run_loop_breaker", "run_loop_breaker INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in settings_cols:
+            await conn.execute(f"ALTER TABLE app_settings ADD COLUMN {ddl}")
+
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_audit_trace "
+        "ON tool_call_audit (trace_id)"
+    )
+
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (45, CURRENT_TIMESTAMP, "
+        "'Per-run cost enforcement — session on cost records, run-limit settings, trace index')"
+    )
+    logger.info("Applied migration v45: per-run cost enforcement plumbing")
 
 
 # Future migration functions would be defined here:

@@ -153,6 +153,7 @@ const SettingsPage = {
         const themeCard = Card.create({ gradient: true });
         const themeBody = themeCard.querySelector('.card-body');
         this.renderThemeSettings(themeBody);
+        this.renderGuardianBotToggle(themeBody);
         themeSection.appendChild(themeCard);
         container.appendChild(themeSection);
 
@@ -1554,6 +1555,44 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\\securevector"`,
         } catch (error) {
             Toast.error('Failed to update cloud mode: ' + error.message);
         }
+    },
+
+    /** The Guardian bot on/off switch. Local preference (localStorage), the
+     *  counterpart of the bot panel's "Hide the Guardian" button. */
+    renderGuardianBotToggle(container) {
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 14px;';
+
+        const info = document.createElement('div');
+        const label = document.createElement('span');
+        label.className = 'setting-label';
+        label.style.fontWeight = '600';
+        label.textContent = 'Guardian bot';
+        info.appendChild(label);
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin-top: 4px;';
+        note.textContent = 'The on-screen companion that announces threats, secret catches, blocks and session recaps. Drag it to pin it; hide it here or from its own panel.';
+        info.appendChild(note);
+        row.appendChild(info);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'toggle';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        let hidden = false;
+        try { hidden = localStorage.getItem('sv-guardian-hidden') === '1'; } catch (_) { /* private mode */ }
+        checkbox.checked = !hidden;
+        checkbox.addEventListener('change', (e) => {
+            if (window.GuardianAssistant) GuardianAssistant.setHidden(!e.target.checked);
+            else { try { localStorage.setItem('sv-guardian-hidden', e.target.checked ? '0' : '1'); } catch (_) {} }
+        });
+        const slider = document.createElement('span');
+        slider.className = 'toggle-slider';
+        toggle.appendChild(checkbox);
+        toggle.appendChild(slider);
+        row.appendChild(toggle);
+        container.appendChild(row);
     },
 
     renderThemeSettings(container) {

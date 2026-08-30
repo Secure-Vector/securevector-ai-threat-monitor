@@ -27,6 +27,7 @@ from securevector.app.server.routes.tool_permissions import (
     CODEX_BUILTINS,
     COPILOT_CLI_BUILTINS,
     CURSOR_BUILTINS,
+    OPENCODE_BUILTINS,
     router as tp_router,
 )
 from tests.fixtures.synced_rules import seed_synced_rules
@@ -37,6 +38,7 @@ NORMALIZE_JS = REPO / "src" / "securevector" / "plugins" / "claude-code" / "lib"
 NORMALIZE_JS_CODEX = REPO / "src" / "securevector" / "plugins" / "codex" / "lib" / "normalize.js"
 NORMALIZE_JS_COPILOT = REPO / "src" / "securevector" / "plugins" / "copilot-cli" / "lib" / "normalize.js"
 NORMALIZE_JS_CURSOR = REPO / "src" / "securevector" / "plugins" / "cursor" / "lib" / "normalize.js"
+NORMALIZE_JS_OPENCODE = REPO / "src" / "securevector" / "plugins" / "opencode" / "lib" / "normalize.js"
 
 
 def _builtins_from_js(path: Path) -> set[str]:
@@ -200,6 +202,95 @@ def test_copilot_normalize_builtin_and_internal():
     assert _copilot_normalize("write_bash") == ["write_bash"]
     assert _copilot_normalize("bash") == ["bash"]
     assert _copilot_normalize("report_intent") == []  # cosmetic UI tool — skipped
+
+
+def test_opencode_builtins_table_mirrors_opencode_normalize_js():
+    """Drift-check for the OpenCode copy of normalize.js.
+
+    Doubly load-bearing on this harness: OpenCode gives MCP tools NO prefix
+    (`<server>_<tool>`, plain underscore), so "not in BUILTIN_TOOLS" is the
+    only way the plugin can tell an MCP tool from a built-in. A name missing
+    from one side is therefore not just an unmatched rule — it silently
+    reclassifies the tool."""
+    js_names = _builtins_from_js(NORMALIZE_JS_OPENCODE)
+    py_names = {name for (name, _r, _d) in OPENCODE_BUILTINS}
+    missing_in_py = js_names - py_names
+    missing_in_js = py_names - js_names
+    assert not missing_in_py, (
+        f"OPENCODE_BUILTINS missing built-ins present in OpenCode normalize.js: {missing_in_py}"
+    )
+    assert not missing_in_js, (
+        f"OPENCODE_BUILTINS has names absent from OpenCode normalize.js: {missing_in_js}"
+    )
+
+
+def test_opencode_builtins_use_bash_not_shell():
+    """OpenCode's shell tool is exposed as `bash` (src/tool/shell/id.ts pins
+    ToolID = "bash" for back-compat, to be renamed in opencode 2.0). A rule
+    written against `shell` would never fire, so pin the real name."""
+    names = {name for (name, _r, _d) in OPENCODE_BUILTINS}
+    assert "bash" in names
+    assert "shell" not in names
+
+
+def _opencode_normalize(tool_name: str):
+    """Invoke the OpenCode plugin's normalize() via node.
+
+    Unlike the other plugins this module is an ES module (OpenCode loads
+    plugins as in-process ESM), so it must be dynamically imported by file
+    URL rather than require()d."""
+    import json
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    url = NORMALIZE_JS_OPENCODE.as_uri()
+    script = (
+        f"import({url!r}).then(m => "
+        f"process.stdout.write(JSON.stringify(m.normalize({tool_name!r}))));"
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=20,
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_opencode_normalize_builtin_names():
+    """Built-ins normalize to their exact lowercase id, case-insensitively."""
+    assert _opencode_normalize("bash") == ["bash"]
+    assert _opencode_normalize("BASH") == ["bash"]
+    assert _opencode_normalize("webfetch") == ["webfetch"]
+
+
+def test_opencode_normalize_underscored_builtin_beats_mcp_shape():
+    """`apply_patch` and `todowrite` are BUILT-INS that carry the same
+    underscore shape as an MCP name. The built-in check must run first, or a
+    core tool is silently treated as a third-party MCP tool."""
+    assert _opencode_normalize("apply_patch") == ["apply_patch"]
+    assert _opencode_normalize("todowrite") == ["todowrite"]
+    assert _opencode_normalize("plan_exit") == ["plan_exit"]
+
+
+def test_opencode_normalize_mcp_tool_candidates():
+    """OpenCode MCP tools arrive as `<server>_<tool>` with NO mcp prefix
+    (src/mcp/catalog.ts: sanitize(client) + "_" + sanitize(name)). normalize()
+    must yield candidates matching a literal-name rule, a cloud
+    `<server>:<tool>` rule, a bare-tool rule, and a server-wide rule."""
+    cands = _opencode_normalize("github_create_issue")
+    for expected in ("github_create_issue", "github:create_issue", "create_issue", "github"):
+        assert expected in cands, f"{expected!r} missing from {cands}"
+    # most-specific (literal) first so a tool rule beats a server-wide one
+    assert cands[0] == "github_create_issue"
+
+
+def test_opencode_normalize_unknown_single_token_is_skipped():
+    """A non-built-in with no underscore cannot be an MCP tool (OpenCode always
+    joins server+tool with one), so it is internal plumbing: return [] and stay
+    fail-open rather than audit/enforce an unknown surface."""
+    assert _opencode_normalize("someunknowninternaltool") == []
 
 
 def test_essential_response_includes_24_builtins(client):

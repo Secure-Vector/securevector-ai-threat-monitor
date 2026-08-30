@@ -46,8 +46,8 @@ test('agent-runs renders Generation (LLM turn) spans with redacted I/O previews'
   assert.match(src, /_genSpan\(/);
   assert.match(src, /_genDetail\(/);
   // Shows model + token flow + cost, and the LLM input/output preview boxes.
-  assert.match(src, /LLM input — prompt/);
-  assert.match(src, /LLM output — response/);
+  assert.match(src, /LLM input: prompt/);
+  assert.match(src, /LLM output: response/);
   assert.match(src, /input_preview/);
   assert.match(src, /output_preview/);
   // Honest privacy contract carried through to the detail.
@@ -92,4 +92,9 @@ test('agent-runs is wired into the API client, router, index, and the Map|Runs t
   assert.match(html, /components\/obs-tabs\.js/);
   assert.ok(html.indexOf('components/obs-tabs.js') < html.indexOf('pages/agent-runs.js'), 'obs-tabs must load before the pages');
   assert.ok(html.indexOf('pages/agent-runs.js') < html.indexOf('js/app.js?'), 'agent-runs.js must load before app.js');
+});
+
+test('collapsing the group that holds the open trace closes the trace, so the collapse sticks', () => {
+  const src = read('js/pages/agent-runs.js');
+  assert.match(src, /if \(closing && g\.runs\.some\(r => r\.trace_id === this\.selected\)\) this\._showList\(\);/);
 });

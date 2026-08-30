@@ -252,6 +252,46 @@ CURSOR_BUILTINS: list[tuple[str, str, str]] = [
     ("task",   "admin", "Launch a Cursor subagent."),
 ]
 
+# OpenCode built-ins. Tool ids read from the ``Tool.define("<id>", …)`` call in
+# each ``packages/opencode/src/tool/*.ts`` at opencode 1.18.23
+# (anomalyco/opencode). Lowercase single tokens, a namespace of their own.
+#
+# NOTE the shell tool is exposed as ``bash``, not ``shell``: opencode's
+# ``src/tool/shell/id.ts`` pins ``ToolID = "bash"`` "for compatibility with
+# existing plugins, users, and saved permissions", with a note that it is to be
+# renamed in opencode 2.0. Re-check on a major upgrade.
+#
+# KEEP IN LOCKSTEP with BUILTIN_TOOLS in
+# ``src/securevector/plugins/opencode/lib/normalize.js`` — enforced by
+# tests/unit/app/test_tool_permissions_builtins.py. That list is doubly
+# load-bearing there: OpenCode gives MCP tools no prefix, so "not a built-in"
+# is the only way the plugin can recognise an MCP tool.
+OPENCODE_BUILTINS: list[tuple[str, str, str]] = [
+    # Shell execution
+    ("bash",        "admin", "Run a shell command."),
+    # Filesystem
+    ("read",        "read",  "Read a file's contents."),
+    ("write",       "write", "Write a new file."),
+    ("edit",        "write", "Make string replacements in a file."),
+    ("apply_patch", "write", "Apply a patch to one or more files."),
+    ("glob",        "read",  "Match files by glob pattern."),
+    ("grep",        "read",  "Search file contents (ripgrep)."),
+    # Network / search
+    ("webfetch",    "admin", "Fetch the contents of a URL."),
+    ("websearch",   "admin", "Search the web."),
+    # Agents / skills / planning
+    ("task",        "admin", "Delegate work to a subagent."),
+    ("skill",       "admin", "Invoke a skill."),
+    ("todowrite",   "write", "Update the session todo list."),
+    ("question",    "read",  "Ask the user a question."),
+    # Experimental / flag-gated. Present only when the matching runtime flag is
+    # on; governing them unconditionally is harmless (a name OpenCode never
+    # emits simply never matches).
+    ("lsp",         "read",  "Query the language server (experimental)."),
+    ("plan_exit",   "write", "Exit plan mode (experimental)."),
+    ("execute",     "admin", "Run generated code in code-mode (experimental)."),
+]
+
 # Hermes (NousResearch hermes-agent) built-ins — the framework-shape sibling
 # of LangChain, governed via the securevector-sdk-hermes package rather than
 # a hook plugin. Names are Hermes's own snake_case registry names, extracted
@@ -539,6 +579,27 @@ async def list_essential_tools():
                 name, builtin_meta, overrides_map, synced_map, matches_last_resort,
             ))
 
+        # OpenCode built-ins. Lowercase, its own namespace (bash, read, write,
+        # webfetch, …), surfaced under category "opencode". Omitted only when
+        # the registry already claims the name.
+        for name, risk, description in OPENCODE_BUILTINS:
+            if name in registry_ids:
+                continue
+            builtin_meta = {
+                "name": name,
+                "provider": "OpenCode",
+                "category": "opencode",
+                "risk": risk,
+                "default_permission": "allow",
+                "description": description,
+                "source": "builtin",
+                "mcp_server": "",
+                "popular": False,
+            }
+            tools.append(_build_tool_response_row(
+                name, builtin_meta, overrides_map, synced_map, matches_last_resort,
+            ))
+
         # Cursor agent built-ins. Mostly names our hook scripts synthesize
         # from Cursor's event-typed hooks ('shell', 'edit', 'read'), surfaced
         # under category "cursor". Omitted only when the registry already
@@ -608,7 +669,8 @@ async def get_overrides():
 
 
 @router.get("/tool-permissions/synced-overrides")
-async def get_synced_overrides(runtime: Optional[str] = None):
+async def get_synced_overrides(runtime: Optional[str] = None,
+                               session_id: Optional[str] = None):
     """Effective tool-permission decisions, in proxy-friendly shape.
 
     ENFORCEMENT VIEW — NOT the full rule catalogue. This endpoint returns
@@ -685,7 +747,19 @@ async def get_synced_overrides(runtime: Optional[str] = None):
 
         merged: list = []
 
-        # JIT grants first — a time-boxed allow a human approved in the local
+        # Per-run limits (#203) FIRST — ahead even of JIT grants, so a
+        # tool-specific grant can't accidentally pre-lift a run stop. The
+        # sanctioned lift is the run exemption (a tool_id='*' session grant),
+        # which run_limits consumes server-side by emitting no deny at all.
+        # Only evaluated when the hook identifies both runtime and session;
+        # with every control off (the default) this is a single settings read.
+        _rt = (runtime or "").strip() or None
+        _sid = (session_id or "").strip() or None
+        if _rt and _sid:
+            from securevector.app.services.run_limits import evaluate_run_limits
+            merged.extend(await evaluate_run_limits(db, _rt, _sid))
+
+        # JIT grants next — a time-boxed allow a human approved in the local
         # UI against a *requestable* deny. Emitted ahead of synced rows so the
         # hooks' first-seen-wins scan picks the grant over the deny it
         # overrides (grants only ever exist for requestable denies — the
@@ -708,6 +782,11 @@ async def get_synced_overrides(runtime: Optional[str] = None):
                 if jit_runtime else []
             )
             for g in grants:
+                # Run exemptions (tool_id='*', #203) are consumed server-side
+                # by run_limits and must NOT be emitted: a wildcard allow row
+                # would lift policy denies too, not just the run cap.
+                if g["tool_id"] == "*":
+                    continue
                 grant_base = {
                     "effect": "allow",
                     "priority": 150,  # above synced (100) — see note above
@@ -831,6 +910,7 @@ async def upsert_override(tool_id: str, request: OverrideRequest):
         builtin_ids.update(name for name, _r, _d in COPILOT_CLI_BUILTINS)
         builtin_ids.update(name for name, _r, _d in CURSOR_BUILTINS)
         builtin_ids.update(name for name, _r, _d in HERMES_BUILTINS)
+        builtin_ids.update(name for name, _r, _d in OPENCODE_BUILTINS)
         if tool_id not in registry and tool_id not in builtin_ids:
             raise HTTPException(
                 status_code=404,

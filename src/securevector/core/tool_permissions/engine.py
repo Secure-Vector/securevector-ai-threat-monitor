@@ -162,7 +162,13 @@ def evaluate_tool_call(
     # Case handling: try exact, then lowercase, then a folded view of the
     # synced map so a cloud-authored `write_File` rule matches an LLM-emitted
     # `WRITE_FILE`, `write_file`, `writeFile`, etc.
-    synced_match = synced_overrides.get(function_name) or synced_overrides.get(function_name_lower)
+    # Per-run limit rows (#203) are keyed '*' and apply to every tool. Checked
+    # FIRST — mirroring the Guard plugins — so a tool-specific allow cannot
+    # bypass a run stop. The server only ever emits wildcard rows for
+    # run-limit denies (an exemption suppresses them server-side).
+    synced_match = synced_overrides.get("*")
+    if synced_match is None:
+        synced_match = synced_overrides.get(function_name) or synced_overrides.get(function_name_lower)
     if synced_match is None:
         for key, val in synced_overrides.items():
             if key.lower() == function_name_lower:
@@ -175,12 +181,19 @@ def evaluate_tool_call(
         policy_version = synced_match.get("policy_version")
         ver_suffix = f" v{policy_version}" if policy_version is not None else ""
         essential_match = essential_registry.get(function_name) or essential_registry.get(function_name_lower)
+        # Run-limit rows carry the full operator-facing reason (control name,
+        # observed value, threshold) — surface it verbatim rather than the
+        # generic synced-policy phrasing.
+        if synced_match.get("source") == "run_limit" and synced_match.get("reason"):
+            reason = synced_match["reason"]
+        else:
+            reason = f"Synced policy '{policy_name}'{ver_suffix}: {effect}"
         return PermissionDecision(
             tool_name=function_name,
             function_name=function_name,
             action=action,
             risk=(essential_match or {}).get("risk"),
-            reason=f"Synced policy '{policy_name}'{ver_suffix}: {effect}",
+            reason=reason,
             is_essential=essential_match is not None,
         )
 

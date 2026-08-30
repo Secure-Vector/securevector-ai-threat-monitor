@@ -31,6 +31,7 @@ const GuideConnectAgentsPage = {
         { id: 'codex', route: 'B', label: 'Codex', guide: 'guide-codex', integration: 'proxy-codex', slug: 'codex' },
         { id: 'copilot-cli', route: 'B', label: 'Copilot CLI', guide: 'guide-copilot-cli', integration: 'proxy-copilot-cli', slug: 'copilot-cli' },
         { id: 'cursor', route: 'B', label: 'Cursor', guide: 'guide-cursor', integration: 'proxy-cursor', slug: 'cursor' },
+        { id: 'opencode', route: 'B', label: 'OpenCode', guide: 'guide-opencode', integration: 'proxy-opencode', slug: 'opencode' },
         { id: 'openclaw', route: 'B', label: 'OpenClaw', guide: 'guide-openclaw', integration: 'proxy-openclaw', slug: 'openclaw' },
     ],
 
@@ -339,6 +340,61 @@ const GuideConnectAgentsPage = {
             }
             head.appendChild(tabs);
             tabsHost.appendChild(head);
+
+            // One-click install (route B plugins, local mode only): the same
+            // POST the Integrations page's Install Plugin button sends. Two
+            // options on this device, deliberately duplicated: a button for
+            // the guided path, the command below for people who live in a
+            // terminal. Self-host stays command-only (the plugin installs on
+            // a machine this app cannot reach).
+            if (!selfHost && selected.route === 'B') {
+                const oneClick = document.createElement('div');
+                oneClick.style.cssText = 'display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px;';
+                const installBtn = document.createElement('button');
+                installBtn.type = 'button';
+                installBtn.style.cssText = 'background: var(--accent-primary); color: white; border: none; padding: 9px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;';
+                installBtn.textContent = 'Install Plugin';
+                const resultLine = document.createElement('span');
+                resultLine.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
+                oneClick.appendChild(installBtn); oneClick.appendChild(resultLine);
+                // Reflect current state so the label reads Install / Reinstall
+                // exactly like the Integrations page.
+                guardStatus(selected.slug).then(st => { if (st !== 'absent') installBtn.textContent = 'Reinstall Plugin'; });
+                installBtn.addEventListener('click', async () => {
+                    installBtn.disabled = true;
+                    const prev = installBtn.textContent;
+                    installBtn.textContent = prev === 'Reinstall Plugin' ? 'Reinstalling...' : 'Installing...';
+                    try {
+                        const url = selected.slug === 'openclaw' ? '/api/hooks/install' : '/api/hooks/' + selected.slug + '/install';
+                        const res = await fetch(url, { method: 'POST' });
+                        const r = await res.json();
+                        if (r && r.ok) {
+                            resultLine.style.color = 'var(--success)';
+                            resultLine.textContent = (r.auto_installed && r.enabled)
+                                ? ('Installed and enabled. ' + (r.next_step || 'Restart ' + selected.label + ' to load it.')).trim()
+                                : (r.auto_installed
+                                    ? (r.next_step || 'Installed, not enabled: enable it in ' + selected.label + '.')
+                                    : 'Staged: finish with the command below, or the full setup page.');
+                            installBtn.textContent = 'Reinstall Plugin';
+                            runDetection(); // refresh the coverage rail badges
+                        } else {
+                            resultLine.style.color = 'var(--error)';
+                            resultLine.textContent = 'Install failed: use the command below, or the full setup page.';
+                            installBtn.textContent = prev;
+                        }
+                    } catch (_) {
+                        resultLine.style.color = 'var(--error)';
+                        resultLine.textContent = 'Could not reach the SecureVector server.';
+                        installBtn.textContent = prev;
+                    }
+                    installBtn.disabled = false;
+                });
+                panel.appendChild(oneClick);
+                const orLabel = document.createElement('div');
+                orLabel.style.cssText = 'font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); margin: 0 0 2px;';
+                orLabel.textContent = 'Or run it yourself';
+                panel.appendChild(orLabel);
+            }
 
             // single command set for the chosen mode (the hero)
             this.blocksFor(selected, selfHost, engineUrl).forEach(b => panel.appendChild(codeBlock(b.label, b.code)));
@@ -651,7 +707,7 @@ const GuideConnectAgentsPage = {
             const body = document.createElement('div'); body.style.cssText = 'font-size: 13px; color: var(--text-secondary); line-height: 1.6;';
             body.appendChild(document.createTextNode('SecureVector will check this device (' + osName + ') to show what’s running. It reads, locally:'));
             const ul = document.createElement('ul'); ul.style.cssText = 'margin: 8px 0; padding-left: 18px;';
-            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.openclaw): which are installed',
+            ['Harness folders (~/.claude, ~/.codex, ~/.copilot, ~/.cursor, ~/.config/opencode, ~/.openclaw): which are installed',
              'Their session files: to count sessions and recent activity',
              'SecureVector’s own tool-call audit: to list active agents/frameworks'].forEach(li => { const l = document.createElement('li'); l.style.cssText = 'margin-bottom: 3px;'; l.textContent = li; ul.appendChild(l); });
             body.appendChild(ul);

@@ -8,7 +8,7 @@
  */
 
 const GlobalBanners = {
-    WHATS_NEW_VERSION: '4.6.0',
+    WHATS_NEW_VERSION: '5.2.0',
     KEY_WHATS_NEW: 'sv-whats-new-acked',
     // Guardian ML ships ENABLED by default (local-only, reversible) — the
     // one-time notice is what turns "enabled without asking" into "enabled
@@ -230,7 +230,7 @@ const GlobalBanners = {
         // the device -> agent -> tool map at a glance.
         const icon = document.createElement('div');
         icon.style.cssText = 'flex-shrink: 0; width: 36px; height: 36px; background: rgba(94,173,184,0.14); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);';
-        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M10.6 7l-4 9.7"/><path d="M13.4 7l4 9.7"/></svg>';
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
         card.appendChild(icon);
 
         const textCol = document.createElement('div');
@@ -240,17 +240,17 @@ const GlobalBanners = {
         titleRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;';
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.3;';
-        title.textContent = 'Now with the GitHub Copilot CLI plugin';
+        title.textContent = 'New: the Cost / Token Optimizer, with your Guardian Bot';
         titleRow.appendChild(title);
         const pill = document.createElement('span');
         pill.style.cssText = 'font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px; color: var(--accent-primary); background: rgba(94,173,184,0.12); border: 1px solid rgba(94,173,184,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
-        pill.textContent = 'New \u00B7 v4.6.0';
+        pill.textContent = 'New \u00B7 v5.2.0';
         titleRow.appendChild(pill);
         textCol.appendChild(titleRow);
 
         const desc = document.createElement('div');
         desc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.45;';
-        desc.textContent = 'Copilot CLI joins the guarded harnesses, and Guardian ML adds local AI threat detection. See every guarded run on the Agent Map.';
+        desc.textContent = 'See why your agent sessions cost what they did, and what to change: repeated context, cache misses, retry loops, each finding named to its exact session and turn. The Guardian Bot at the bottom right takes you there, and keeps threats, secret leaks and blocked actions one click away.';
         textCol.appendChild(desc);
 
         card.appendChild(textCol);
@@ -261,16 +261,17 @@ const GlobalBanners = {
         // Primary CTA — explore the hero feature (filled, brand accent).
         const explore = document.createElement('button');
         explore.style.cssText = 'font-size: 12px; font-weight: 600; color: #fff; background: var(--accent-primary); border: none; padding: 7px 13px; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: opacity 0.15s, transform 0.05s; line-height: 1;';
-        explore.textContent = 'Explore the Agent Map \u2192';
+        explore.textContent = 'Open the Optimizer \u2192';
         explore.addEventListener('mouseenter', () => { explore.style.opacity = '0.9'; });
         explore.addEventListener('mouseleave', () => { explore.style.opacity = '1'; });
         explore.addEventListener('mousedown', () => { explore.style.transform = 'scale(0.98)'; });
         explore.addEventListener('mouseup', () => { explore.style.transform = 'scale(1)'; });
         explore.addEventListener('click', () => {
             localStorage.setItem(this.KEY_WHATS_NEW, this.WHATS_NEW_VERSION);
-            // Lands on the Agent Map (the hero topology view) \u2014 navigate()
+            // Lands on the Optimizer tab of Cost & Tokens; navigate()
             // expands the Observability section automatically.
-            if (window.Sidebar) Sidebar.navigate('agent-map');
+            if (window.CostsPage) CostsPage._pendingTab = 'optimizer';
+            if (window.Sidebar) Sidebar.navigate('costs');
             this.render();
         });
         ctaGroup.appendChild(explore);

@@ -1,7 +1,7 @@
 {
   "name": "securevector-guard",
   "description": "Real-time policy enforcement and tamper-evident audit for tool calls invoked from a GitHub Copilot CLI session. Forwards every tool call to a local SecureVector app for cloud-managed deny rules and persistent audit logging. Requires the free SecureVector local app; fails open if it is unreachable.",
-  "version": "4.6.0",
+  "version": "5.2.0",
   "author": {
     "name": "SecureVector",
     "url": "https://securevector.io"

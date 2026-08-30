@@ -31,6 +31,7 @@ const App = {
         'proxy-codex': { render: (c) => IntegrationPage.render(c, 'proxy-codex') },
         'proxy-copilot-cli': { render: (c) => IntegrationPage.render(c, 'proxy-copilot-cli') },
         'proxy-cursor': { render: (c) => IntegrationPage.render(c, 'proxy-cursor') },
+        'proxy-opencode': { render: (c) => IntegrationPage.render(c, 'proxy-opencode') },
         // Connect Wizard (v5.0.0) — detect → protect → verify activation flow.
         // Auto-launched once on fresh installs (see maybeAutoLaunchWizard).
         'connect-wizard': { render: (c) => ConnectWizardPage.render(c) },
@@ -39,6 +40,7 @@ const App = {
         'guide-codex': { render: (c) => GuideCodexPage.render(c) },
         'guide-copilot-cli': { render: (c) => GuideCopilotCliPage.render(c) },
         'guide-cursor': { render: (c) => GuideCursorPage.render(c) },
+        'guide-opencode': { render: (c) => GuideOpenCodePage.render(c) },
         'guide-openclaw': { render: (c) => GuideOpenclawPage.render(c) },
         'guide-frameworks': { render: (c) => GuideFrameworksPage.render(c) },
         settings: SettingsPage,
@@ -68,7 +70,9 @@ const App = {
         'bill-of-tools':     { render: (c) => { ToolPermissionsPage.activeTab = 'bill';        ToolPermissionsPage.hideTabBar = false; ToolPermissionsPage.visibleTabs = ['activity', 'bill']; return ToolPermissionsPage.render(c); } },
         // Kept routable as an alias: opens Threat Monitor on the Secrets facet.
         'redactions':        { render: (c) => { ThreatsPage.activeFacet = 'secrets'; return ThreatsPage.render(c); } },
-        costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'overview'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
+        // Optimizer is the landing tab (user decision, v5.2.0): the page opens on
+        // why-it-cost rather than how-much; Overview stays first in the tab order.
+        costs:               { render: (c) => { CostsPage.mode = 'monitor';  CostsPage.activeTab = 'optimizer'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'cost-settings':     { render: (c) => { CostsPage.mode = 'settings'; CostsPage.hideTabBar = true; return CostsPage.render(c); } },
         'siem-export':       SiemExportPage,
         'skill-scanner':     { render: (c) => { SkillScannerPage.activeTab = 'scanner';     return SkillScannerPage.render(c); } },
@@ -99,6 +103,9 @@ const App = {
         // (the Dashboard), so no init-time render here.
         Sidebar.render();
         Header.render();
+        // The floating Guardian (replaces the retired TryItChat panel):
+        // cost optimization first, threats/secrets/blocked actions alongside.
+        if (window.GuardianAssistant) GuardianAssistant.mount();
 
         // Handle browser back/forward
         window.addEventListener('popstate', (e) => {
@@ -161,6 +168,10 @@ const App = {
         // dialog on first launch was too aggressive for what the plugins
         // nudge banner and the Integrations page already cover.
         if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
+
+        // v5.2.0 Optimizer spotlight: upgraders only, once, never stacked on
+        // another modal (it self-guards on both).
+        if (window.OptimizerSpotlight) OptimizerSpotlight.maybeShow();
     },
 
     /**

@@ -58,6 +58,25 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
       if (!byToolId.has(key)) byToolId.set(key, row);
     }
   }
+  // Per-run limit rows (#203) are keyed '*' and apply to every tool. Checked
+  // ahead of the candidates so a tool-specific allow cannot bypass a run
+  // stop. The sanctioned lift (a run exemption) suppresses these rows
+  // server-side, so any '*' row that arrives is meant to act.
+  const runRow = byToolId.get('*');
+  if (runRow) {
+    const runMapped = EFFECT_TO_DECISION[runRow.effect];
+    if (runMapped && runMapped !== 'allow') {
+      return {
+        decision: runMapped,
+        reason: typeof runRow.reason === 'string' && runRow.reason.length > 0
+          ? runRow.reason
+          : 'Per-run limit reached',
+        toolId: candidates[0],
+        requestable: runRow.requestable === true,
+      };
+    }
+  }
+
   for (const cand of candidates) {
     const match = byToolId.get(cand.toLowerCase());
     if (!match) continue;
@@ -81,7 +100,7 @@ function decideFromOverrides(candidates, overrides, sessionId = null) {
 /** Async decision for a candidate list. fetchSyncedOverrides fails open. */
 async function decideForCandidates(candidates, baseUrl, sessionId = null) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ALLOW;
-  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND);
+  const overrides = await fetchSyncedOverrides(baseUrl, RUNTIME_KIND, { sessionId });
   return decideFromOverrides(candidates, overrides, sessionId);
 }
 

@@ -74,6 +74,14 @@ class AppSettings:
     # cannot be turned off (EU/regulated orgs). Resolved from env/config or the
     # persisted column (cloud enrollment, future). Default OFF.
     residency_locked: bool = False
+    # Per-run cost enforcement (#203). NULL/0 = off — every control ships
+    # disabled; a cost control that blocks real work by default is a cost
+    # control that gets switched off.
+    run_max_tool_calls: Optional[int] = None
+    run_max_cost_usd: Optional[float] = None
+    run_max_tokens: Optional[int] = None
+    run_limit_action: str = "warn"
+    run_loop_breaker: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -102,6 +110,11 @@ class AppSettings:
             "guardian_ml_enabled": self.guardian_ml_enabled,
             "local_only_analysis": self.local_only_analysis,
             "residency_locked": self.residency_locked,
+            "run_max_tool_calls": self.run_max_tool_calls,
+            "run_max_cost_usd": self.run_max_cost_usd,
+            "run_max_tokens": self.run_max_tokens,
+            "run_limit_action": self.run_limit_action,
+            "run_loop_breaker": self.run_loop_breaker,
         }
 
 
@@ -182,6 +195,11 @@ class SettingsRepository:
             block_threats=bool(row_dict.get("block_threats", False)),
             tool_permissions_enabled=bool(row_dict.get("tool_permissions_enabled", True)),
             guardian_ml_enabled=bool(row_dict.get("guardian_ml_enabled", True)),
+            run_max_tool_calls=row_dict.get("run_max_tool_calls"),
+            run_max_cost_usd=row_dict.get("run_max_cost_usd"),
+            run_max_tokens=row_dict.get("run_max_tokens"),
+            run_limit_action=row_dict.get("run_limit_action") or "warn",
+            run_loop_breaker=bool(row_dict.get("run_loop_breaker", False)),
             **self._resolve_residency(row_dict),
         )
 
@@ -237,6 +255,11 @@ class SettingsRepository:
             "guardian_ml_enabled",
             "local_only_analysis",
             "residency_locked",
+            "run_max_tool_calls",
+            "run_max_cost_usd",
+            "run_max_tokens",
+            "run_limit_action",
+            "run_loop_breaker",
         }
 
         updates = {}

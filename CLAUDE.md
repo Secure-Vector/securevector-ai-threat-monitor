@@ -24,6 +24,36 @@ tests/
 
 cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
 
+## Versioning — two files, and mind which copy you are reading
+
+`__version__` is declared **twice** and both must move together on every
+release bump:
+
+- `src/securevector/__init__.py` — the package version
+- `src/securevector/app/__init__.py` — the app version (its own comment says
+  to keep it in sync with the package one)
+
+`src/securevector/mcp/__init__.py` and the plugin `package.json` /
+`plugin.json` files carry **independent** version lines. Do not bump those to
+match the app version.
+
+**Before concluding the version is stale, check where you are reading it
+from.** A pip-installed copy in `site-packages` shadows this checkout, and
+sibling git worktrees sit on older branches, so `import securevector` or a
+bare `python -m securevector.app.main` can report an older version while this
+checkout is already correct:
+
+```bash
+# which copy is being imported, and what does it claim?
+python -c "import securevector; print(securevector.__file__, securevector.__version__)"
+
+# what this checkout actually says
+grep -n '__version__' src/securevector/__init__.py src/securevector/app/__init__.py
+```
+
+Run the app from source so it loads this checkout rather than the installed
+copy: `PYTHONPATH=src python -m securevector.app.main --web`.
+
 ## Code Style
 
 Python 3.10+, JavaScript ES6+: Follow standard conventions
