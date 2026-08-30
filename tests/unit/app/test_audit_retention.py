@@ -50,7 +50,7 @@ async def test_v33_creates_tool_id_called_at_index(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_schema_version_advances_to_44(tmp_path):
+async def test_schema_version_advances_to_45(tmp_path):
     # v34 — added redaction_events audit log (backs the local Secret
     # Detections page sibling to Tool Inventory).
     # v35 — added redaction_events.runtime_kind for per-row plugin
@@ -79,12 +79,15 @@ async def test_schema_version_advances_to_44(tmp_path):
     # call), and containment_proofs (hash-chained results of the controlled
     # self-test that verifies the containment boundary rather than asserting
     # it). See story #198.
+    # v45 — per-run cost enforcement (#203): session_id on llm_cost_records
+    # (proxy run correlation), run-limit settings on app_settings, and a
+    # trace_id index on tool_call_audit for the per-run counter.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 44
+    assert CURRENT_SCHEMA_VERSION == 45
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 44
+    assert row["v"] == 45
 
 
 # --- Cleanup_old_audit_records --------------------------------------------

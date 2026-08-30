@@ -1,0 +1,31 @@
+{
+  "name": "@securevector/opencode-guard",
+  "version": "1.0.0",
+  "description": "SecureVector Guard for OpenCode - policy enforcement, tamper-evident audit, and threat scanning for OpenCode tool calls, backed by the local SecureVector app.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "README.md",
+    "PRIVACY.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "securevector",
+    "security",
+    "ai-agent",
+    "governance",
+    "audit"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://securevector.io",
+  "engines": {
+    "node": ">=18"
+  }
+}

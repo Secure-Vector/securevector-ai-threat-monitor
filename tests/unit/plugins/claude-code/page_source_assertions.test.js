@@ -104,3 +104,65 @@ test('source-of-decision badge re-renders after override AND after reset', () =>
     `expected ≥2 invocations of row._svRenderSourceBadge() (override + reset); got ${calls.length}`,
   );
 });
+
+
+// --- 5.2.0 header/title regression guards -------------------------------
+
+const HEADER = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'src',
+  'securevector',
+  'app',
+  'assets',
+  'web',
+  'js',
+  'components',
+  'header.js',
+);
+
+
+test('PAGE_INFO covers every coding-agent proxy and guide page', () => {
+  // These pages neither call Header.setPageInfo nor had PAGE_INFO
+  // entries, so the app header kept the fallback title after
+  // navigation. Each route in app.js must resolve to a real title.
+  const src = fs.readFileSync(HEADER, 'utf8');
+  const pages = [
+    'proxy-claude-code',
+    'proxy-codex',
+    'proxy-copilot-cli',
+    'proxy-cursor',
+    'proxy-opencode',
+    'guide-claude-code',
+    'guide-codex',
+    'guide-copilot-cli',
+    'guide-cursor',
+    'guide-opencode',
+    'guide-openclaw',
+    'guide-frameworks',
+  ];
+  const m = src.match(/PAGE_INFO:\s*\{[\s\S]*?\n {4}\}/);
+  assert.ok(m, 'could not locate the PAGE_INFO literal');
+  for (const page of pages) {
+    assert.match(
+      m[0],
+      new RegExp(`'${page}':\\s*\\{\\s*title:\\s*'[^']+',\\s*subtitle:`),
+      `expected PAGE_INFO['${page}'] with a title and subtitle`,
+    );
+  }
+});
+
+
+test('category tabs carry an accessible name separating label from count', () => {
+  // The count pill is a sibling span, so the tab's textContent reads
+  // as "OpenCode11" to assistive tech without an explicit aria-label.
+  const src = readPage();
+  assert.match(
+    src,
+    /tab\.setAttribute\('aria-label', label \+ ', ' \+ count \+ \(count === 1 \? ' tool' : ' tools'\)\);/,
+    'expected mkTab to set an aria-label of "<label>, <n> tools"',
+  );
+});

@@ -24,7 +24,10 @@ test('blocked-ledger page defines the ledger with reason + tool breakdowns', () 
 
 test('blocked-ledger is wired into API client, router, nav, and index', () => {
   assert.match(read('js/api.js'), /getBlockedLedger/);
-  assert.match(read('js/app.js'), /'blocked-ledger':\s*BlockedLedgerPage/);
+  // The route now deliberately lands on Threats' Blocked facet (one triage
+  // surface); the standalone page file remains loaded for its helpers.
+  assert.match(read('js/app.js'), /'blocked-ledger':\s*\{/);
+  assert.match(read('js/app.js'), /activeFacet = 'blocked'/);
   assert.match(read('js/components/sidebar.js'), /id: 'blocked-ledger', label: 'Blocked Actions'/);
   const html = read('index.html');
   assert.match(html, /pages\/blocked-ledger\.js/);

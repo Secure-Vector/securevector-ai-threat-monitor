@@ -189,6 +189,7 @@ class CostRecorder:
         agent_id: str,
         response_body: bytes,
         request_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         """
         Extract tokens from response body and record cost asynchronously.
@@ -251,6 +252,7 @@ class CostRecorder:
                 rate_output=rate_output,
                 pricing_known=pricing_known,
                 request_id=request_id,
+                session_id=session_id,
             )
 
         except Exception as e:

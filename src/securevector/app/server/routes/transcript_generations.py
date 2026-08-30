@@ -24,6 +24,7 @@ Read-only, local file, no writes, no migration.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -126,6 +127,52 @@ def _tool_use_pairs(content) -> list[tuple]:
     return out
 
 
+def _sha16(text: str) -> Optional[str]:
+    """Stable 16-hex content identity for duplicate/retry detection.
+
+    A hash, never the text: the Cost Optimizer needs to know that two inputs
+    (or two tool calls) were *identical* without carrying the content itself,
+    so the analysis fields stay inside the same privacy contract as metadata.
+    Empty text hashes to None so "no input" never collides with itself as a
+    'duplicate'.
+    """
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16]
+
+
+def _args_hash(args) -> Optional[str]:
+    """Canonical hash of a tool_use ``input`` dict (sorted keys, volatile keys
+    stripped) — the identity for "same tool called with the same arguments".
+    Timestamp-ish keys are dropped so a retry that only differs in a client
+    timestamp still counts as identical."""
+    if not isinstance(args, dict):
+        return None
+    cleaned = {
+        k: v for k, v in args.items()
+        if k not in ("timestamp", "ts", "time", "request_id", "requestId")
+    }
+    try:
+        canon = json.dumps(cleaned, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        return None
+    return _sha16(canon)
+
+
+def _tool_use_calls(content) -> list[dict]:
+    """``{"name", "args_hash"}`` per tool_use block — full args are hashed and
+    discarded, never retained. Only built when the caller asks for analysis
+    fields (the trace waterfall doesn't need them)."""
+    out = []
+    if isinstance(content, list):
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") == "tool_use":
+                n = blk.get("name")
+                if isinstance(n, str) and n:
+                    out.append({"name": n, "args_hash": _args_hash(blk.get("input"))})
+    return out
+
+
 def _tool_results_of(content) -> list[tuple]:
     """``(tool_use_id, text, is_error)`` for each tool_result block in a user
     turn — what the tools RETURNED (Pillar 3). Result content is a plain string
@@ -155,7 +202,10 @@ def _preview(text: str) -> tuple[str, bool]:
     return (redacted[:PREVIEW_CAP], truncated)
 
 
-def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
+def build_generations(
+    session_id: str, *, store_text: bool, with_analysis: bool = False,
+    path: Optional[Path] = None,
+) -> list[dict]:
     """Reconstruct Generation spans for one Claude Code session.
 
     One generation = one API round-trip (all assistant records sharing a
@@ -170,8 +220,16 @@ def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
     ``store_text``) a redacted 200-char preview of the model's text output plus
     the prompt that drove it. Returns [] when the transcript can't be found or
     read — the trace still renders its tool spans; generations are additive.
+
+    ``with_analysis`` adds content-identity fields for the Cost Optimizer —
+    ``input_hash`` on the generation, ``tool_calls`` ({name, args_hash}) and a
+    ``result_hash`` per tool_result. Hashes only, never text; off by default so
+    the trace payload is unchanged for existing callers.
     """
-    path = _find_transcript(session_id)
+    # ``path`` override: subagent transcripts (<session>/subagents/agent-*.jsonl)
+    # share this exact record format but aren't discoverable by session id.
+    if path is None:
+        path = _find_transcript(session_id)
     if path is None:
         return []
 
@@ -181,39 +239,66 @@ def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
     cur_out_parts: list[str] = []
     cur_tools: list[str] = []  # tool names this round-trip asked to call
     cur_tool_ids: dict = {}    # tool_use_id -> name, to match returned results
+    cur_tool_calls: list[dict] = []  # {name, args_hash} when with_analysis
     # The just-flushed generation + its id->name map: the tool_result blocks in
     # the NEXT user turn belong to it (it made the calls).
     last_gen: Optional[dict] = None
     last_gen_ids: dict = {}
+    # Every emitted generation by requestId. Claude Code can interleave a
+    # tool_result USER record in the middle of one request's streamed records
+    # (interleaved tool use); the records after it carry the SAME requestId
+    # and the SAME usage. Without this map each split re-counted the request's
+    # tokens as a brand-new generation — ~3% inflation on real sessions.
+    emitted_rids: dict = {}
 
     def _flush() -> None:
-        nonlocal cur, cur_out_parts, cur_tools, cur_tool_ids, last_gen, last_gen_ids
+        nonlocal cur, cur_out_parts, cur_tools, cur_tool_ids, cur_tool_calls, last_gen, last_gen_ids
         if cur is None:
             return
+        reopen = bool(cur.get("reopen"))
         out_text = "\n".join(p for p in cur_out_parts if p)
         gen = cur["gen"]
-        if store_text:
+        if store_text and not reopen:
             inp_prev, inp_trunc = _preview(cur["input_text"])
             out_prev, out_trunc = _preview(out_text)
             gen["input_preview"] = inp_prev
             gen["output_preview"] = out_prev
             gen["input_truncated"] = inp_trunc
             gen["output_truncated"] = out_trunc
+        if with_analysis:
+            if reopen:
+                if cur_tool_calls:
+                    gen["tool_calls"] = (gen.get("tool_calls") or []) + cur_tool_calls
+            else:
+                gen["input_hash"] = _sha16(cur["input_text"])
+                gen["tool_calls"] = cur_tool_calls
         # De-dupe tool names, preserving first-seen order (a tool called twice
         # in one turn shows once; token/cost stay on the run, not per tool).
+        # A reopened request keeps the tools it already declared.
         seen: set = set()
-        gen["tools_called"] = [t for t in cur_tools if not (t in seen or seen.add(t))]
+        base_tools = (gen.get("tools_called") or []) if reopen else []
+        gen["tools_called"] = [
+            t for t in list(base_tools) + cur_tools if not (t in seen or seen.add(t))
+        ]
+        ids_for_last = cur_tool_ids
         # Claude Code writes synthetic assistant records (system-injected turns)
         # with model "<synthetic>" and zero usage — not real API calls, so they
         # must not appear as LLM runs (they render as junk "0→0 tok" rows).
-        if gen.get("model") != "<synthetic>":
+        if not reopen and gen.get("model") != "<synthetic>":
             gens.append(gen)
+            if cur.get("rid"):
+                emitted_rids[cur["rid"]] = (gen, dict(cur_tool_ids))
+        elif reopen and cur.get("rid") in emitted_rids:
+            merged = {**emitted_rids[cur["rid"]][1], **cur_tool_ids}
+            emitted_rids[cur["rid"]] = (gen, merged)
+            ids_for_last = merged
         last_gen = gen
-        last_gen_ids = cur_tool_ids
+        last_gen_ids = ids_for_last
         cur = None
         cur_out_parts = []
         cur_tools = []
         cur_tool_ids = {}
+        cur_tool_calls = []
 
     # The prompt that drove a generation is the most-recent preceding user
     # message. tool-result-only user turns leave a marker so the input box
@@ -247,6 +332,9 @@ def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
                                 prev, trunc = _preview(text)
                                 entry["preview"] = prev
                                 entry["truncated"] = trunc
+                            if with_analysis:
+                                entry["result_hash"] = _sha16(text)
+                                entry["result_chars"] = len(text)
                             tr.append(entry)
                         if tr:
                             last_gen["tool_results"] = tr
@@ -269,6 +357,28 @@ def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
                 # A missing requestId is treated as its own singleton group.
                 if cur is None or rid is None or cur["rid"] != rid:
                     _flush()
+                    if rid is not None and rid in emitted_rids:
+                        # Continuation of a request we already emitted (its
+                        # stream was split by an interleaved user record).
+                        # Reopen the SAME generation: its usage is already
+                        # counted once; only tools/stop_reason accumulate.
+                        cur = {
+                            "rid": rid,
+                            "input_text": last_user_text,
+                            "gen": emitted_rids[rid][0],
+                            "reopen": True,
+                        }
+                        cur_out_parts = []
+                        cur_out_parts.append(_text_of(msg.get("content")))
+                        cur_tools.extend(_tool_uses_of(msg.get("content")))
+                        for _i, _n in _tool_use_pairs(msg.get("content")):
+                            cur_tool_ids[_i] = _n
+                        if with_analysis:
+                            cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
+                        sr = msg.get("stop_reason")
+                        if sr:
+                            cur["gen"]["stop_reason"] = sr
+                        continue
                     cur = {
                         "rid": rid,
                         "input_text": last_user_text,
@@ -304,6 +414,8 @@ def build_generations(session_id: str, *, store_text: bool) -> list[dict]:
                 cur_tools.extend(_tool_uses_of(msg.get("content")))
                 for _i, _n in _tool_use_pairs(msg.get("content")):
                     cur_tool_ids[_i] = _n
+                if with_analysis:
+                    cur_tool_calls.extend(_tool_use_calls(msg.get("content")))
                 sr = msg.get("stop_reason")
                 if sr:
                     cur["gen"]["stop_reason"] = sr
@@ -340,7 +452,9 @@ def _find_codex_rollout(session_id: str) -> Optional[Path]:
     return None
 
 
-def build_generations_codex(session_id: str, *, store_text: bool) -> list[dict]:
+def build_generations_codex(
+    session_id: str, *, store_text: bool, with_analysis: bool = False
+) -> list[dict]:
     """Reconstruct Generation spans for one Codex session from its rollout.
 
     Codex's transcript differs from Claude Code's: token usage rides on
@@ -388,6 +502,11 @@ def build_generations_codex(session_id: str, *, store_text: bool) -> list[dict]:
             "tools_called": [],
             "tool_results": [],
         }
+        if with_analysis:
+            # Content identity only — Codex rollouts don't correlate tool
+            # calls to turns here, so tool_calls stays absent and the
+            # optimizer's retry/duplicate detectors abstain for Codex.
+            gen["input_hash"] = _sha16(last_user_text)
         if store_text:
             ip, it = _preview(last_user_text)
             op, ot = _preview(out_text)

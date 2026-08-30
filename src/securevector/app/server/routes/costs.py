@@ -149,6 +149,18 @@ class BudgetStatusResponse(BaseModel):
     budget_action: str
     over_budget: bool
     warning_threshold: float = 0.8
+    # Per-run ceilings (#203) — populated only when the proxy identifies the
+    # run via ?session_id. Defaults are benign so existing consumers see no
+    # behavioural change.
+    session_id: Optional[str] = None
+    run_spend_usd: float = 0.0
+    run_tokens: int = 0
+    run_max_cost_usd: Optional[float] = None
+    run_max_tokens: Optional[int] = None
+    run_limit_action: str = "warn"
+    over_run_limit: bool = False
+    run_limit_reason: Optional[str] = None
+    run_exempted: bool = False
 
 
 class RecordCostRequest(BaseModel):
@@ -851,10 +863,13 @@ async def delete_agent_budget(agent_id: str) -> dict:
 @router.get("/costs/budget-status", response_model=BudgetStatusResponse)
 async def get_budget_status(
     agent_id: str = Query(..., description="Agent ID to check"),
+    session_id: Optional[str] = Query(None, description="Run (proxy session) id for per-run ceilings"),
 ) -> BudgetStatusResponse:
     """
-    Check whether an agent is within its budget today.
-    Used by the proxy before forwarding LLM requests.
+    Check whether an agent is within its budget today — and, when the caller
+    identifies the run via ``session_id``, whether the run is within its
+    per-run cost/token ceilings (#203). Used by the proxy before forwarding
+    LLM requests. Existing daily-budget behaviour is unchanged.
     """
     try:
         db = get_database()
@@ -876,19 +891,58 @@ async def get_budget_status(
             effective_budget = global_cfg["daily_budget_usd"]
             budget_action = global_cfg["budget_action"]
         else:
-            # No budget set — always allow
+            # No daily budget set
             today_spend = await repo.get_today_spend(agent_id)
-            return BudgetStatusResponse(
-                agent_id=agent_id,
-                today_spend_usd=round(today_spend, 6),
-                global_budget_usd=None,
-                agent_budget_usd=None,
-                effective_budget_usd=None,
-                budget_action="warn",
-                over_budget=False,
-            )
+            effective_budget = None
+            budget_action = "warn"
 
-        over_budget = today_spend >= effective_budget
+        over_budget = effective_budget is not None and today_spend >= effective_budget
+
+        # ---- per-run ceilings (#203): same mechanism, two units ----
+        run_fields: dict = {}
+        if session_id:
+            try:
+                from securevector.app.database.repositories.settings import (
+                    SettingsRepository,
+                )
+                from securevector.app.services.run_limits import (
+                    COST_CEILING_PREFIX,
+                    TOKEN_CEILING_PREFIX,
+                    has_run_exemption,
+                )
+                app_settings = await SettingsRepository(db).get()
+                usage = await repo.get_run_usage(session_id)
+                exempted = await has_run_exemption(db, "openclaw", session_id)
+                reason = None
+                over_run = False
+                if not exempted:
+                    if (app_settings.run_max_cost_usd is not None
+                            and usage["spend_usd"] >= app_settings.run_max_cost_usd):
+                        over_run = True
+                        reason = (
+                            f"{COST_CEILING_PREFIX}: ${usage['spend_usd']:.2f} spent "
+                            f"this run, limit ${app_settings.run_max_cost_usd:.2f}"
+                        )
+                    elif (app_settings.run_max_tokens is not None
+                            and usage["tokens"] >= app_settings.run_max_tokens):
+                        over_run = True
+                        reason = (
+                            f"{TOKEN_CEILING_PREFIX}: {usage['tokens']:,} tokens "
+                            f"this run, limit {app_settings.run_max_tokens:,}"
+                        )
+                run_fields = {
+                    "session_id": session_id,
+                    "run_spend_usd": round(usage["spend_usd"], 6),
+                    "run_tokens": usage["tokens"],
+                    "run_max_cost_usd": app_settings.run_max_cost_usd,
+                    "run_max_tokens": app_settings.run_max_tokens,
+                    "run_limit_action": app_settings.run_limit_action or "warn",
+                    "over_run_limit": over_run,
+                    "run_limit_reason": reason,
+                    "run_exempted": exempted,
+                }
+            except Exception as run_err:  # noqa: BLE001 — ceilings degrade, budgets survive
+                logger.warning(f"per-run ceiling check failed: {run_err}")
 
         return BudgetStatusResponse(
             agent_id=agent_id,
@@ -898,9 +952,112 @@ async def get_budget_status(
             effective_budget_usd=effective_budget,
             budget_action=budget_action,
             over_budget=over_budget,
+            **run_fields,
         )
     except Exception as e:
         logger.error(f"Failed to get budget status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Per-run limits (#203) — controls live on Cost Settings (Policies side).
+# Everything defaults to off; the tool-call cap and loop breaker enforce at
+# the tool boundary via synced-overrides, the cost/token ceilings at the
+# proxy. OpenClaw carve-out: its plugin cannot deny, so tool-boundary stops
+# are proxy-only there.
+# ---------------------------------------------------------------------------
+
+class RunLimitsConfig(BaseModel):
+    run_max_tool_calls: Optional[int] = Field(None, ge=1, le=100000)
+    run_max_cost_usd: Optional[float] = Field(None, gt=0)
+    run_max_tokens: Optional[int] = Field(None, ge=1)
+    run_limit_action: str = Field("warn", pattern="^(warn|block)$")
+    run_loop_breaker: bool = False
+
+
+class RunExemptRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=128)
+    runtime_kind: Optional[str] = Field(None, max_length=40)
+
+
+@router.get("/costs/run-limits")
+async def get_run_limits():
+    """Current per-run limit settings plus the published loop-breaker
+    thresholds (operators can disagree with a number, not a feeling)."""
+    try:
+        from securevector.app.database.repositories.settings import SettingsRepository
+        from securevector.app.services import run_limits as rl
+
+        settings = await SettingsRepository(get_database()).get()
+        return {
+            "run_max_tool_calls": settings.run_max_tool_calls,
+            "run_max_cost_usd": settings.run_max_cost_usd,
+            "run_max_tokens": settings.run_max_tokens,
+            "run_limit_action": settings.run_limit_action or "warn",
+            "run_loop_breaker": bool(settings.run_loop_breaker),
+            "loop_thresholds": {
+                "window_seconds": rl.LOOP_WINDOW_SECONDS,
+                "repeat_limit": rl.LOOP_REPEAT_LIMIT,
+                "rate_per_min": rl.LOOP_RATE_PER_MIN,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to read run limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/costs/run-limits")
+async def put_run_limits(cfg: RunLimitsConfig):
+    """Replace the per-run limit settings. Null clears a ceiling (off).
+    Takes effect on the next decision/request — no restarts anywhere."""
+    try:
+        from securevector.app.database.repositories.settings import SettingsRepository
+
+        repo = SettingsRepository(get_database())
+        await repo.update(
+            run_max_tool_calls=cfg.run_max_tool_calls,
+            run_max_cost_usd=cfg.run_max_cost_usd,
+            run_max_tokens=cfg.run_max_tokens,
+            run_limit_action=cfg.run_limit_action,
+            run_loop_breaker=cfg.run_loop_breaker,
+        )
+        return await get_run_limits()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update run limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/costs/run-limits/stops")
+async def get_run_limit_stops(window_days: int = Query(7, ge=1, le=90)):
+    """Recent run-limit stops (from the audit trail), with exemption state —
+    the one-click "approve continuation" surface reads this."""
+    try:
+        from securevector.app.services.run_limits import recent_stops
+
+        return {"stops": await recent_stops(get_database(), window_days=window_days)}
+    except Exception as e:
+        logger.error(f"Failed to read run-limit stops: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/costs/run-limits/exempt")
+async def exempt_run(req: RunExemptRequest):
+    """One-click "approve this run to continue": a session-scoped, time-boxed
+    JIT grant (tool_id='*'), revocable from the JIT grants list. The grant row
+    is the promotion's audit record."""
+    try:
+        from securevector.app.services.run_limits import create_run_exemption
+
+        grant = await create_run_exemption(
+            get_database(), req.runtime_kind, req.session_id
+        )
+        return {"ok": True, "grant": grant}
+    except Exception as e:
+        logger.error(f"Failed to create run exemption: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

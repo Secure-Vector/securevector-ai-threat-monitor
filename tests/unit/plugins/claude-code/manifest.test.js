@@ -36,9 +36,9 @@ test('plugin.json: name is kebab-case and present (the only required field)', ()
 });
 
 
-test('plugin.json: version tracks the app version (4.x semver)', () => {
+test('plugin.json: version tracks the app version (5.x semver)', () => {
   const m = readJson('.claude-plugin/plugin.json');
-  assert.match(m.version, /^4\.\d+\.\d+$/);
+  assert.match(m.version, /^5\.\d+\.\d+$/);
 });
 
 

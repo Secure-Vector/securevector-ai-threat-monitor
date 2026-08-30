@@ -854,6 +854,79 @@ const API = {
         return this.request('/api/costs/budget/guardian').catch(() => null);
     },
 
+    // ------------------------------------------------- per-run limits ---
+    // #203 enforcement controls. Reads degrade; writes surface errors.
+    async getRunLimits() {
+        return this.request('/api/costs/run-limits').catch(() => null);
+    },
+
+    async setRunLimits(payload) {
+        return this.request('/api/costs/run-limits', {
+            method: 'PUT',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async getRunLimitStops(windowDays) {
+        const q = windowDays ? `?window_days=${encodeURIComponent(windowDays)}` : '';
+        return this.request(`/api/costs/run-limits/stops${q}`).catch(() => ({ stops: [] }));
+    },
+
+    async exemptRun(payload) {
+        return this.request('/api/costs/run-limits/exempt', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    // ------------------------------------------- cost / token optimizer ---
+    // Reads degrade (status -> null, report -> null) so the Optimizer tab
+    // renders its empty state offline; run/prefs writes surface their errors.
+    async getOptimizerStatus() {
+        return this.request('/api/cost-optimizer/status').catch(() => null);
+    },
+
+    async getOptimizerReport() {
+        return this.request('/api/cost-optimizer/report').catch(() => null);
+    },
+
+    async getOptimizerSessions(windowDays = 30) {
+        return this.request(`/api/cost-optimizer/sessions?window_days=${windowDays}`)
+            .catch(() => null);
+    },
+
+    async getOptimizerLive() {
+        return this.request('/api/cost-optimizer/live').catch(() => null);
+    },
+
+    /** Tell the service a fix went to the clipboard, so the next live sweep
+     *  can look for the paste and then measure whether it changed anything.
+     *  Best effort: the copy itself must never fail because of this. */
+    async optimizerFixCopied(payload) {
+        return this.request('/api/cost-optimizer/fix-copied', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        }).catch(() => null);
+    },
+
+    async runOptimizer(payload) {
+        return this.request('/api/cost-optimizer/run', {
+            method: 'POST',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async setOptimizerPrefs(payload) {
+        return this.request('/api/cost-optimizer/prefs', {
+            method: 'PUT',
+            body: JSON.stringify(payload || {}),
+        });
+    },
+
+    async deleteOptimizerReport() {
+        return this.request('/api/cost-optimizer/report', { method: 'DELETE' });
+    },
+
     // ---------------------------------------------------------- egress ---
     // Read paths degrade to null so a missing policy or an unrun proof
     // renders as an honest empty state rather than a page-level error. The

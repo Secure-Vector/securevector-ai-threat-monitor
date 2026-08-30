@@ -48,6 +48,8 @@ const AgentRunsPage = {
     _pendingRuntime: null, // one-shot runtime filter handed off by the Map; consumed on render
     _pendingKinds: null,   // one-shot built-in/external filter handed off by a Map tool-node click
     _pendingTrace: null,   // one-shot: open THIS exact run (trace_id) from a Map agent-node click
+    _pendingGenRid: null,  // one-shot: after opening, jump to the generation with this request_id (Optimizer finding click-through)
+    _optReport: undefined, // Cost Optimizer report, fetched once per page life for per-turn annotations (null = fetched, none)
     toolFilter: null,      // filter spans to one tool_id (from a Map tool-node click)
     _pendingTool: null,    // one-shot tool_id handed off by a Map tool-node click
     outcomeFilter: 'all',  // span verdict filter: all | allow | blocked | log_only | threat | secret
@@ -1448,6 +1450,11 @@ const AgentRunsPage = {
                 body.hidden = closing;
                 head.classList.toggle('closed', closing);
                 collapsed[g.rt] = closing;
+                // Collapsing the group that holds the open trace also closes
+                // the trace. Otherwise the next live tick force-reopens the
+                // group (holdsSel refuses to hide a selection) and the
+                // collapse reads as broken.
+                if (closing && g.runs.some(r => r.trace_id === this.selected)) this._showList();
                 try { localStorage.setItem('sv-ar-groups', JSON.stringify(collapsed)); } catch (e) { /* private mode */ }
             });
             list.appendChild(head);
@@ -1483,6 +1490,74 @@ const AgentRunsPage = {
         if (!trace) { this._detailEmpty('Trace unavailable.', ''); return; }
         this._trace = trace;
         this.renderWaterfall(trace);
+        this._consumePendingGenJump(trace);
+    },
+
+    /** Optimizer finding → turn click-through: resolve the one-shot
+     *  request_id to the generation span's seq and jump to it. */
+    _consumePendingGenJump(trace) {
+        const rid = this._pendingGenRid;
+        if (!rid) return;
+        this._pendingGenRid = null;
+        const hit = (trace.spans || []).find(
+            s => s.span_kind === 'generation' && s.request_id === rid);
+        if (hit && hit._seq != null) this._jumpToSpan(hit._seq);
+    },
+
+    /** Per-turn Cost Optimizer annotations — the findings list is discovery,
+     *  this is proof: the claim renders on the exact turns it refers to, where
+     *  the evidence lives. Best-effort: no report, no chips, no errors. */
+    async _annotateOptimizer(trace) {
+        if (this._optReport === undefined) {
+            this._optReport = await fetch('/api/cost-optimizer/report')
+                .then(r => (r.ok ? r.json() : null)).catch(() => null);
+        }
+        const rep = this._optReport;
+        if (!rep || !trace.session_id || this._trace !== trace) return;
+        const findings = (rep.findings || []).filter(f => f.session_id === trace.session_id);
+        if (!findings.length) return;
+        const byRid = new Map();
+        (trace.spans || []).forEach(s => {
+            if (s.span_kind === 'generation' && s.request_id) byRid.set(s.request_id, s);
+        });
+        const LABELS = this._OPT_LABELS;
+        findings.forEach(f => {
+            (f.evidence && f.evidence.sample_turns || []).forEach(t => {
+                const span = t.request_id && byRid.get(t.request_id);
+                if (!span || span._seq == null) return;
+                const row = document.querySelector(
+                    `#ar-detail .ar-span[data-seq="${span._seq}"] .ar-span-row`);
+                if (!row || row.querySelector('.ar-opt-chip')) return;
+                const chip = document.createElement('span');
+                chip.className = 'ar-opt-chip';
+                chip.style.cssText =
+                    'display:inline-flex;align-items:center;gap:4px;margin-left:6px;' +
+                    'padding:1px 7px;border-radius:9999px;font-size:10px;font-weight:600;' +
+                    'letter-spacing:0.3px;cursor:pointer;white-space:nowrap;' +
+                    'border:1px solid color-mix(in srgb, var(--accent-primary,#5eadb8) 45%, transparent);' +
+                    'color:var(--accent-primary,#5eadb8);' +
+                    'background:color-mix(in srgb, var(--accent-primary,#5eadb8) 9%, transparent);';
+                chip.textContent = LABELS[f.type] || 'Optimizer finding';
+                chip.title = (f.evidence && f.evidence.observed) ||
+                    'This turn appears in a Cost Optimizer finding.';
+                chip.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    if (window.CostsPage) CostsPage._pendingTab = 'optimizer';
+                    if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('costs');
+                });
+                row.appendChild(chip);
+            });
+        });
+    },
+
+    _OPT_LABELS: {
+        repeated_context: 'Optimizer: repeated context',
+        tool_result_carry: 'Optimizer: result carried',
+        low_cache_utilization: 'Optimizer: cache misses',
+        retry_loop: 'Optimizer: retry loop',
+        duplicate_llm: 'Optimizer: duplicate request',
+        excessive_output: 'Optimizer: long output',
+        abnormal_loop: 'Optimizer: loop shape',
     },
 
     renderWaterfall(trace) {
@@ -1767,6 +1842,9 @@ const AgentRunsPage = {
             const el = detail.querySelector('.ar-run-search');
             if (el) { el.focus(); const v = el.value; try { el.setSelectionRange(v.length, v.length); } catch (_) {} }
         }
+        // Optimizer chips survive filter/replay re-renders because they're
+        // re-applied here, after every rebuild of the span rows.
+        this._annotateOptimizer(trace);
     },
 
     /** Render the trace as a NESTED tree (best-practice Pillar 1): group the
@@ -2065,6 +2143,10 @@ const AgentRunsPage = {
                     el.dataset.ridx = ridxOf(startI + k);
                     body.appendChild(el);
                 });
+                // The rows inside this group only just entered the DOM, so
+                // the Optimizer's per-turn chips must be re-applied now —
+                // the render-time pass couldn't have found them.
+                if (this._trace) this._annotateOptimizer(this._trace);
             }
         });
         wrap.appendChild(head);

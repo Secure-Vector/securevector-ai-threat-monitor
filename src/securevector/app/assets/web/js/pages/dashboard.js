@@ -533,6 +533,12 @@ const DashboardPage = {
         // Governance posture moved to its own Cloud-section page
         // (GovernancePage) — kept off the dashboard to reduce clutter.
 
+        // Cost / Token Optimizer — one compact tile (user-requested dashboard
+        // placement, v5.2.0). Spend is not a security state, so it lives down
+        // here with the report tiles, never in the hero strip, and stays
+        // neutral + teal.
+        this._renderOptimizerTile(container);
+
         // Reports — weekly artifacts as compact tiles; the full pages (and
         // rich PDF export) are one click away.
         this.renderReportsSection(container);
@@ -1104,6 +1110,78 @@ const DashboardPage = {
                 spendStat.cell.appendChild(cap);
             }
         } catch (_) { /* hero stats are non-critical */ }
+    },
+
+    /** Compact Optimizer tile: the headline comparison in the user's billing
+     *  mode plus the top finding, or a first-scan invitation. Render-then-fill
+     *  like the report tiles so the dashboard stays snappy. */
+    _renderOptimizerTile(container) {
+        const card = document.createElement('div');
+        card.style.cssText =
+            'display:flex;align-items:center;gap:18px;flex-wrap:wrap;' +
+            'background:var(--bg-card);border:1px solid var(--border-default);' +
+            'border-radius:12px;padding:16px 20px;margin-bottom:16px;';
+        container.appendChild(card);
+
+        const fmtTok = (n) => {
+            if (n == null) return '–';
+            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+            return String(Math.round(n));
+        };
+        const fmtUsd = (v) => v == null ? null : '$' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
+
+        const fill = async () => {
+            const st = await API.getOptimizerStatus();
+            if (!st) { card.remove(); return; } // server facet missing: no tile
+            const rep = st.has_report ? await API.getOptimizerReport() : null;
+
+            const col = document.createElement('div');
+            col.style.cssText = 'flex:1 1 280px;min-width:220px;';
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;';
+            title.textContent = 'Cost / Token Optimizer';
+            col.appendChild(title);
+            const line = document.createElement('div');
+            line.style.cssText = 'font-size:12px;color:var(--text-secondary);line-height:1.45;';
+            const cta = document.createElement('button');
+            cta.type = 'button';
+            cta.className = 'btn btn-secondary btn-sm';
+            cta.style.cssText = 'flex-shrink:0;';
+
+            if (rep && rep.observed) {
+                const mode = (st.prefs && (st.prefs.billing_mode || st.prefs.billing_mode_derived)) || null;
+                const obs = rep.observed, mod = rep.modeled_lossless || rep.modeled || {};
+                const lead = mode === 'api' && obs.est_cost_usd != null
+                    ? `≈${fmtUsd(obs.est_cost_usd)} → ≈${fmtUsd(mod.est_cost_usd)}`
+                    : `${fmtTok(obs.total_tokens)} → ${fmtTok(mod.total_tokens)} tok`;
+                const big = document.createElement('div');
+                big.style.cssText = 'font-family:var(--font-mono,monospace);font-size:19px;font-weight:700;' +
+                    'color:var(--text-primary);font-variant-numeric:tabular-nums;margin:2px 0;';
+                big.textContent = lead;
+                big.title = 'Observed window vs the modeled figure under the lossless fixes only (trimmed tool results and caching, nothing dropped). Modeled estimate at list price, never an invoice claim.';
+                col.appendChild(big);
+                const n = (rep.findings || []).length;
+                const top = (rep.findings || [])[0];
+                line.textContent = n
+                    ? `${n} finding${n === 1 ? '' : 's'} in the last ${rep.window_days} days, modeled estimate. ` +
+                      (top && top.evidence ? 'Top: ' + (top.evidence.observed || '').split(';')[0] + '.' : '')
+                    : `No material waste above the noise floor in the last ${rep.window_days} days.`;
+                cta.textContent = 'Open the Optimizer';
+            } else {
+                line.textContent = 'See why your agent sessions cost what they did: repeated context, cache misses, retry loops, each finding named to its exact session and turn. Local, opt-in.';
+                cta.textContent = 'Run your first scan';
+            }
+            col.appendChild(line);
+            card.appendChild(col);
+            cta.addEventListener('click', () => {
+                if (window.CostsPage) CostsPage._pendingTab = 'optimizer';
+                if (window.Sidebar && Sidebar.navigate) Sidebar.navigate('costs');
+            });
+            card.appendChild(cta);
+        };
+        fill().catch(() => card.remove());
     },
 
     renderReportsSection(container) {
