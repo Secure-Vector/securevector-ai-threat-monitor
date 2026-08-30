@@ -59,7 +59,8 @@
 <br>
 
 <div align="center">
-  <img src="docs/guardian-bot.gif" width="96" alt="The Guardian bot, cycling through its accent colors">
+  <img src="docs/guardian-bot.gif" width="150" alt="The Guardian bot, cycling through its accent colors">
+  <p><em>Meet the Guardian, our new on-device advisor. Pick any of its six colors.</em></p>
 </div>
 
 > **What's new in v5.2.0**
