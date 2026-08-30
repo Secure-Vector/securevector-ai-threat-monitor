@@ -150,10 +150,10 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 <table>
 <tr>
-<td width="25%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 305 calls, 158 blocked: bash rm -rf, gmail_send to attacker, use_aws_cli stopped</em></td>
-<td width="25%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threat counts, cost metrics, and tool permission status</em></td>
-<td width="25%"><img src="docs/screenshots/costs-light.png" alt="LLM Cost Tracker" width="100%"><br><em>LLM Cost Tracker — per-agent spend, budgets, and token breakdown</em></td>
-<td width="25%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static security analysis for AI agent skills</em></td>
+<td width="25%"><img src="docs/screenshots/tool-call-history.png" alt="Tool Call History" width="100%"><br><em>Tool Call History — 4,925 calls in a SHA-256 hash-chained log, every row integrity-verified: 7 blocked, 48 logged</em></td>
+<td width="25%"><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="100%"><br><em>Dashboard — threats, secret catches, tool-call volume, and the Optimizer headline across the last 30 days</em></td>
+<td width="25%"><img src="docs/screenshots/costs-light.png" alt="Cost / Token Optimizer" width="100%"><br><em>Cost / Token Optimizer — what your sessions used, what they could have used, and the lossless fixes behind the gap</em></td>
+<td width="25%"><img src="docs/screenshots/skill-scanner.png" alt="Skill Scanner" width="100%"><br><em>Skill Scanner — static analysis of a skill package before you install it: risk level and findings, per skill</em></td>
 </tr>
 </table>
 
