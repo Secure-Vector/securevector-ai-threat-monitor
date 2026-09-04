@@ -1583,25 +1583,6 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: none;
 }
 
-.nav-pulse-dot {
-    position: absolute;
-    top: 9px;
-    left: 30px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #f97316;
-    pointer-events: none;
-    animation: sv-pulse-ring 1.8s ease-in-out infinite;
-    z-index: 1;
-}
-
-.sidebar.collapsed .nav-pulse-dot {
-    top: 6px;
-    left: auto;
-    right: 6px;
-}
-
 /* YouTube-guide rhythm: rhythm comes from row HEIGHT, not inter-row margins —
    rows sit flush (margin 0) and the vertical padding does the breathing. */
 .nav-item {
@@ -8236,3 +8217,113 @@ thead tr:hover #records-select-all,
         transform: translateY(-1px);
     }
 }
+
+/* ---- v5.3 rail: search row, views, live counts, icon-rail flyout ---- */
+.nav-search {
+    display: flex; align-items: center; gap: 10px; width: calc(100% - 20px); margin: 10px 10px 2px;
+    padding: 7px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-default);
+    background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.nav-search:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.nav-search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nav-search-label { flex: 1; text-align: left; }
+.nav-search-kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    border: 1px solid var(--border-default); color: var(--text-secondary); }
+.sidebar.collapsed .nav-search { width: 40px; margin: 10px 12px 2px; padding: 7px 0; justify-content: center; }
+.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd { display: none; }
+
+/* Views: the pages folded into a destination. Visible only under the active row. */
+.nav-views { display: none; margin: 0 0 4px 26px; padding-left: 6px; border-left: 1px solid var(--border-default); }
+.nav-views.open { display: block; }
+.sidebar.collapsed .nav-views { display: none !important; }
+.nav-item.nav-view { padding: 5px 10px 5px 12px; gap: 6px; font-size: 12px; margin: 0; }
+.nav-item.nav-view span:first-child { flex: 1; min-width: 0; white-space: nowrap; }
+.nav-view-tier { font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 0 5px;
+    border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); }
+
+/* Live count pills. Threat counts are security state, so the pill is the alert colour;
+   quiet counts (rules) stay neutral. */
+.nav-count { margin-left: auto; flex-shrink: 0; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    line-height: 1.5; padding: 1px 7px; border-radius: 999px; background: rgba(239, 68, 68, 0.16); color: #ef4444; }
+.nav-count[hidden] { display: none; }
+.nav-count-quiet { background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border-default); }
+.nav-count-warn { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+.sidebar.collapsed .nav-item { position: relative; }
+.sidebar.collapsed .nav-item > .nav-count { display: block; position: absolute; top: 4px; right: 6px;
+    padding: 0 4px; font-size: 9px; line-height: 14px; min-width: 14px; text-align: center; }
+.sidebar.collapsed .nav-item > .nav-count[hidden] { display: none; }
+
+/* Icon-rail flyout: label, purpose and the destination's views on hover. */
+.nav-flyout { position: fixed; z-index: 1200; min-width: 220px; max-width: 300px; padding: 10px 12px;
+    background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); color: var(--text-primary); }
+.nav-flyout[hidden] { display: none; }
+.nav-flyout-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.nav-flyout-title .nav-count { margin-left: 0; }
+.nav-flyout-desc { margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+.nav-flyout-view { display: block; width: 100%; text-align: left; font: inherit; font-size: 12px; margin-top: 4px;
+    padding: 6px 8px; border-radius: var(--radius-sm, 6px); border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.nav-flyout-desc + .nav-flyout-view { margin-top: 8px; }
+.nav-flyout-view:hover { background: var(--bg-primary); color: var(--text-primary); }
+.nav-flyout-view.active { color: var(--accent-primary); background: var(--bg-primary); }
+
+.sidebar.collapsed .sidebar-version { display: none; }
+
+/* ---- v5.3 rail: pulse block, sliding indicator, reveal, chord hints ---- */
+.nav-pulse { display: flex; flex-direction: column; gap: 5px; width: calc(100% - 20px); margin: 6px 10px 4px;
+    padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-default); background: var(--bg-primary);
+    color: var(--text-secondary); transition: border-color var(--transition-fast); }
+.nav-pulse:hover { border-color: var(--accent-primary); }
+.nav-pulse-main { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0;
+    background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.nav-pulse-ring { position: relative; width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%;
+    border: 1px solid var(--border-default); display: grid; place-items: center; }
+.nav-pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted, #7d8590); }
+.nav-pulse.live .nav-pulse-dot { background: var(--accent-primary); }
+.nav-pulse.live .nav-pulse-ring { border-color: var(--accent-primary); }
+.nav-pulse.live .nav-pulse-ring::after { content: ''; position: absolute; inset: -1px; border-radius: 50%;
+    border: 1px solid var(--accent-primary); animation: navPulse 1.8s ease-out infinite; }
+@keyframes navPulse { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(1.9); opacity: 0; } }
+.nav-pulse-line { flex: 1; min-width: 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-pulse-line b { color: var(--text-primary); font-weight: 600; }
+/* Posture always names its scope, so "Strong" can never be read as fleet-wide. */
+.nav-posture { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 6px;
+    border-radius: var(--radius-sm, 6px); border: 0; background: transparent; color: var(--text-secondary);
+    font: inherit; font-size: 10.5px; text-align: left; cursor: pointer; }
+.nav-posture[hidden] { display: none; }
+.nav-posture:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-posture-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted, #7d8590); }
+.nav-posture[data-band="strong"] .nav-posture-dot { background: #10b981; }
+.nav-posture[data-band="partial"] .nav-posture-dot { background: #f59e0b; }
+.nav-posture[data-band="minimal"] .nav-posture-dot { background: #ef4444; }
+.nav-posture[data-band="none"] .nav-posture-dot { background: var(--accent-primary); }
+.nav-posture-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.sidebar.collapsed .nav-pulse { width: 40px; margin: 6px 12px 4px; padding: 8px 0; align-items: center; }
+.sidebar.collapsed .nav-pulse-line, .sidebar.collapsed .nav-posture { display: none; }
+.sidebar.collapsed .nav-pulse-main { justify-content: center; }
+
+.nav-live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-primary); flex-shrink: 0;
+    box-shadow: 0 0 0 0 rgba(94,173,184,.6); animation: navLive 1.8s ease-out infinite; }
+.nav-live[hidden] { display: none; }
+@keyframes navLive { 0% { box-shadow: 0 0 0 0 rgba(94,173,184,.6); } 100% { box-shadow: 0 0 0 7px rgba(94,173,184,0); } }
+.sidebar.collapsed .nav-item > .nav-live { position: absolute; top: 5px; left: 6px; }
+
+/* One indicator that slides between rows instead of a bar painted on each. */
+.sidebar .nav-item.active, [data-theme="light"] .sidebar .nav-item.active { box-shadow: none; }
+.nav-indicator { position: absolute; left: 2px; width: 3px; border-radius: 2px; background: var(--accent-primary);
+    opacity: 0; pointer-events: none; transition: top .26s cubic-bezier(.2,.8,.2,1), height .26s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+.sidebar.collapsed .nav-indicator { left: 2px; }
+
+.nav-reveal .nav-item, .nav-reveal .nav-section-label { animation: navIn .32s cubic-bezier(.2,.8,.2,1) both;
+    animation-delay: calc(var(--i, 0) * 16ms); }
+@keyframes navIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    .nav-reveal .nav-item, .nav-reveal .nav-section-label, .nav-pulse.live .nav-pulse-ring::after, .nav-live { animation: none; }
+    .nav-indicator { transition: none; }
+}
+
+.nav-chord-hint { display: none; margin-left: 6px; font-family: var(--font-mono); font-size: 9.5px; padding: 0 4px;
+    border-radius: 4px; border: 1px solid var(--accent-primary); color: var(--accent-primary); flex-shrink: 0; }
+.sidebar.nav-chord:not(.collapsed) .nav-chord-hint { display: inline-block; }
+

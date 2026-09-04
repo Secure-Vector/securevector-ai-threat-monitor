@@ -76,7 +76,7 @@ test('a caused gaze needs a real on-screen target, and outranks cursor tracking'
   // collapsible section and have NO box while it is closed, which is exactly
   // the case for the events that matter most. Verified live: the section
   // header is the fallback, so the gaze still points the right way.
-  assert.match(a, /const group = el\.closest\('\.nav-sub-items'\);/);
+  assert.match(a, /const group = el\.closest\('\.nav-views, \.nav-sub-items'\);/);
   assert.match(a, /parent\.classList\.contains\('nav-item'\)/);
 });
 
@@ -171,7 +171,7 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=13/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=44/);
+  assert.match(html, /guardian-assistant\.js\?v=46/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
@@ -576,9 +576,9 @@ test('the page-aware offer is an offer, not an interception', () => {
   // blocked egress is announced by the sentinel like any other verdict
   assert.match(a, /\/api\/egress\/destinations\?days=1/);
   assert.match(a, /An agent reached for a blocked destination\. I stopped it\./);
-  // the egress brief's CTA lands on the egress Policy tab, not the detection
+  // the egress brief's CTA lands on the Egress Policy page, not the detection
   // rules library: 'destination rules' live under Agent Egress > Policy
-  assert.match(a, /cta: 'Open the egress policy', page: 'egress', tab: 'policy',/);
+  assert.match(a, /cta: 'Open the egress policy', page: 'egress-policy',/);
   // tab handoffs are page-guarded so an egress tab can never leak into the
   // costs page's pendingTab (or vice versa), and both CTA paths carry them
   const costsHandoffs = a.match(/if \(tab && page === 'costs' && window\.CostsPage\) CostsPage\._pendingTab = tab;/g) || [];

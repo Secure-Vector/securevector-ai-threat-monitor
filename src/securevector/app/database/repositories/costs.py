@@ -470,6 +470,177 @@ class CostsRepository:
             "requests": int(row["requests"]) if row else 0,
         }
 
+    # ------------------------------------------------------------------ #
+    # Generation spans (model-run tracing, v46)                            #
+    # ------------------------------------------------------------------ #
+
+    CACHE_DISCOUNT = {"openai": 0.5, "anthropic": 0.1, "gemini": 0.25}
+
+    async def resolve_rates(self, provider: Optional[str], model_id: str) -> tuple[Optional[float], Optional[float]]:
+        """(input_per_million, output_per_million) for a model, or (None, None).
+
+        Exact ``provider/model`` first, then any provider with that model id,
+        then a prefix match so dated variants (``gpt-4o-2024-08-06``) and
+        Bedrock ids (``anthropic.claude-3-5-sonnet-20241022-v2:0``) still price.
+        """
+        if not model_id:
+            return None, None
+        if provider:
+            exact = await self.get_pricing(provider, model_id)
+            if exact:
+                return exact.input_per_million, exact.output_per_million
+        rows = await self.db.fetch_all("SELECT model_id, input_per_million, output_per_million FROM model_pricing")
+        by_model = {}
+        for r in rows or []:
+            by_model[str(r["model_id"])] = (float(r["input_per_million"]), float(r["output_per_million"]))
+        if model_id in by_model:
+            return by_model[model_id]
+        bare = model_id.split(".", 1)[-1] if "." in model_id and provider in ("bedrock", "aws") else model_id
+        best = None
+        for mid, rates in by_model.items():
+            if bare.startswith(mid) and (best is None or len(mid) > len(best[0])):
+                best = (mid, rates)
+        return best[1] if best else (None, None)
+
+    async def record_generation(
+        self,
+        *,
+        trace_id: Optional[str],
+        span_id: Optional[str],
+        session_id: Optional[str],
+        runtime_kind: str,
+        provider: Optional[str],
+        model_id: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        input_cached_tokens: int = 0,
+        started_at: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        parent_span_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        input_preview: Optional[str] = None,
+        output_preview: Optional[str] = None,
+        finish_reason: Optional[str] = None,
+        verdict_action: Optional[str] = None,
+        verdict_risk: Optional[int] = None,
+        verdict_reason: Optional[str] = None,
+    ) -> dict:
+        """Upsert one generation span. Idempotent on ``(trace_id, span_id)``.
+
+        Cost is computed here with the same formula the proxy's CostRecorder
+        uses, so a traced call and a proxied call price identically.
+        """
+        rate_in, rate_out = await self.resolve_rates(provider, model_id)
+        pricing_known = rate_in is not None and rate_out is not None
+        if pricing_known:
+            cache_rate = self.CACHE_DISCOUNT.get(provider or "", 1.0)
+            uncached = max(0, int(input_tokens) - int(input_cached_tokens))
+            input_cost = (uncached / 1_000_000) * rate_in + (int(input_cached_tokens) / 1_000_000) * rate_in * cache_rate
+            output_cost = (int(output_tokens) / 1_000_000) * rate_out
+        else:
+            input_cost = output_cost = 0.0
+        total = round(input_cost + output_cost, 8)
+        now = datetime.utcnow().isoformat()
+        started = started_at or now
+
+        existing = None
+        if trace_id and span_id:
+            existing = await self.db.fetch_one(
+                "SELECT id FROM llm_cost_records WHERE trace_id = ? AND span_id = ?", (trace_id, span_id)
+            )
+        if existing:
+            record_id = existing["id"]
+            await self.db.execute(
+                """
+                UPDATE llm_cost_records SET
+                    provider = ?, model_id = ?, input_tokens = ?, output_tokens = ?, input_cached_tokens = ?,
+                    input_cost_usd = ?, output_cost_usd = ?, total_cost_usd = ?, rate_input = ?, rate_output = ?,
+                    pricing_known = ?, started_at = ?, duration_ms = ?, parent_span_id = ?, request_id = ?,
+                    input_preview = ?, output_preview = ?, finish_reason = ?,
+                    verdict_action = ?, verdict_risk = ?, verdict_reason = ?
+                WHERE id = ?
+                """,
+                (provider or "unknown", model_id, int(input_tokens), int(output_tokens), int(input_cached_tokens),
+                 round(input_cost, 8), round(output_cost, 8), total, rate_in, rate_out,
+                 1 if pricing_known else 0, started, duration_ms, parent_span_id, request_id,
+                 input_preview, output_preview, finish_reason,
+                 verdict_action, verdict_risk, verdict_reason, record_id),
+            )
+        else:
+            record_id = str(uuid.uuid4())
+            turn_row = await self.db.fetch_one(
+                "SELECT COUNT(*) AS n FROM llm_cost_records WHERE trace_id = ?", (trace_id,)
+            ) if trace_id else None
+            turn_index = int(turn_row["n"] or 0) if turn_row else 0
+            await self.db.execute(
+                """
+                INSERT INTO llm_cost_records
+                (id, agent_id, provider, model_id, request_id,
+                 input_tokens, output_tokens, input_cached_tokens,
+                 input_cost_usd, output_cost_usd, total_cost_usd,
+                 rate_input, rate_output, pricing_known, recorded_at, session_id,
+                 trace_id, span_id, parent_span_id, runtime_kind, turn_index, started_at, duration_ms,
+                 input_preview, output_preview, finish_reason,
+                 verdict_action, verdict_risk, verdict_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (record_id, agent_id or runtime_kind, provider or "unknown", model_id, request_id,
+                 int(input_tokens), int(output_tokens), int(input_cached_tokens),
+                 round(input_cost, 8), round(output_cost, 8), total,
+                 rate_in, rate_out, 1 if pricing_known else 0, now, session_id,
+                 trace_id, span_id, parent_span_id, runtime_kind, turn_index, started, duration_ms,
+                 input_preview, output_preview, finish_reason,
+                 verdict_action, verdict_risk, verdict_reason),
+            )
+        return {"id": record_id, "total_cost_usd": total, "pricing_known": pricing_known}
+
+    async def get_trace_generations(self, trace_id: str) -> list[dict]:
+        """Stored generation spans for one run, in execution order."""
+        rows = await self.db.fetch_all(
+            """
+            SELECT id, span_id, parent_span_id, request_id, session_id, runtime_kind, provider, model_id,
+                   input_tokens, output_tokens, input_cached_tokens, total_cost_usd, pricing_known,
+                   COALESCE(started_at, recorded_at) AS started_at, duration_ms, turn_index,
+                   input_preview, output_preview, finish_reason,
+                   verdict_action, verdict_risk, verdict_reason
+            FROM llm_cost_records
+            WHERE trace_id = ?
+            ORDER BY COALESCE(started_at, recorded_at) ASC, turn_index ASC
+            """,
+            (trace_id,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
+    async def get_generation_runs(self, window_days: int = 7, limit: int = 50) -> list[dict]:
+        """One row per trace_id over the cost table: tokens, cost, the costliest
+        turn, time bounds. Mirrors ``CustomToolsRepository.get_trace_runs``."""
+        window_days = max(1, min(int(window_days), 90))
+        limit = max(1, min(int(limit), 500))
+        rows = await self.db.fetch_all(
+            f"""
+            SELECT
+                trace_id,
+                MAX(runtime_kind) AS runtime_kind,
+                MAX(session_id) AS session_id,
+                COUNT(*) AS generations,
+                SUM(input_tokens + input_cached_tokens + output_tokens) AS tokens,
+                SUM(total_cost_usd) AS cost,
+                MAX(total_cost_usd) AS max_turn_cost,
+                MIN(COALESCE(started_at, recorded_at)) AS started_at,
+                MAX(COALESCE(started_at, recorded_at)) AS ended_at,
+                SUM(CASE WHEN verdict_action = 'log_only' THEN 1 ELSE 0 END) AS flagged,
+                GROUP_CONCAT(DISTINCT model_id) AS models
+            FROM llm_cost_records
+            WHERE trace_id IS NOT NULL AND recorded_at >= datetime('now', '-{window_days} days')
+            GROUP BY trace_id
+            ORDER BY ended_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in rows] if rows else []
+
     async def get_monthly_spend(self, agent_id: Optional[str] = None) -> float:
         """Return this calendar month's total spend in USD, optionally filtered by agent_id."""
         now = datetime.utcnow()

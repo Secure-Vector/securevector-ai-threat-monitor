@@ -394,6 +394,8 @@ class CustomToolsRepository:
         runtime_kind: Optional[str] = None,
         session_id: Optional[str] = None,
         request_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        parent_span_id: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -488,7 +490,6 @@ class CustomToolsRepository:
                 ) as cursor:
                     count_row = await cursor.fetchone()
                 turn_index = int(count_row["n"] or 0)
-            parent_span_id: Optional[str] = None  # reserved for future nested spans
 
             await conn.execute(
                 """
@@ -496,8 +497,8 @@ class CustomToolsRepository:
                     (tool_id, function_name, action, risk, reason, is_essential,
                      args_preview, called_at, seq, prev_hash, row_hash, device_id,
                      runtime_kind, session_id, trace_id, turn_index, parent_span_id,
-                     request_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     request_id, span_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     resolved_tool_id,
@@ -518,6 +519,7 @@ class CustomToolsRepository:
                     turn_index,
                     parent_span_id,
                     request_id,
+                    span_id,
                 ),
             )
             await conn.commit()
@@ -1312,7 +1314,7 @@ class CustomToolsRepository:
             SELECT
                 seq, turn_index, tool_id, function_name, action,
                 risk, reason, called_at, runtime_kind, args_preview,
-                request_id, session_id
+                request_id, session_id, span_id, parent_span_id
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC

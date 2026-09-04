@@ -237,6 +237,7 @@ const API = {
         // All scans for one agent run (Runs page scanned-content panel).
         if (params.session_id) queryParams.set('session_id', params.session_id);
         // Range-scoped fetches (dashboard charts). Server-side filter.
+        if (params.is_threat !== undefined) queryParams.set('is_threat', String(params.is_threat));
         if (params.start_date) queryParams.set('start_date', params.start_date);
         if (params.end_date) queryParams.set('end_date', params.end_date);
         // Sessions merged trace reads a session's scans oldest-first.

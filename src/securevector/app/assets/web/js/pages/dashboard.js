@@ -343,6 +343,64 @@ const DashboardPage = {
         if (syncVis) syncVis();
     },
 
+    /** Agent budget alerts as one card. Colour is reserved for the state
+     *  counts (red = over, amber = near); rows and the card border stay
+     *  neutral. Shows three rows, the rest behind "Show all". */
+    _buildAgentBudgetCard(alerts) {
+        const over = alerts.filter(a => a.over_budget).length;
+        const near = alerts.length - over;
+        const card = document.createElement('div');
+        card.style.cssText = 'padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-card);';
+        const head = document.createElement('div');
+        head.style.cssText = 'display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text-primary);';
+        const parts = [];
+        if (over) parts.push(`<span style="color:#ef4444">${over}</span> agent${over === 1 ? '' : 's'} over budget`);
+        if (near) parts.push(`<span style="color:#f59e0b">${near}</span> near limit`);
+        head.innerHTML = `<span style="flex:1;min-width:0">${parts.join(' · ')} today</span>`;
+        const goBtn = document.createElement('button');
+        goBtn.className = 'btn btn-secondary btn-sm';
+        goBtn.textContent = 'Cost settings →';
+        goBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('cost-settings'); });
+        head.appendChild(goBtn);
+        card.appendChild(head);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'margin-top: 8px; display: flex; flex-direction: column; gap: 4px;';
+        const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const row = (a) => {
+            const pct = Math.min(Math.round((a.pct_used || 0) * 100), 999);
+            const label = a.agent_id.length > 36 ? a.agent_id.slice(0, 36) + '…' : a.agent_id;
+            const state = a.over_budget ? (a.budget_action === 'block' ? 'blocked' : 'over') : 'near';
+            const color = a.over_budget ? '#ef4444' : '#f59e0b';
+            const el = document.createElement('div');
+            el.style.cssText = 'display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 12px; align-items: center; font-size: 12px; color: var(--text-secondary);';
+            el.innerHTML = `<span style="font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary)">${esc(label)}</span>` +
+                `<span style="font-family: var(--font-mono, monospace); white-space: nowrap">$${Number(a.today_spend_usd || 0).toFixed(2)} of $${Number(a.budget_usd || 0).toFixed(2)} · ${pct}${pct >= 999 ? '+' : ''}%</span>` +
+                `<span style="font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: ${color}; min-width: 52px; text-align: right">${state}</span>`;
+            return el;
+        };
+        const SHOW = 3;
+        alerts.slice(0, SHOW).forEach(a => list.appendChild(row(a)));
+        card.appendChild(list);
+        if (alerts.length > SHOW) {
+            const rest = document.createElement('div');
+            rest.style.cssText = 'display: none; flex-direction: column; gap: 4px; margin-top: 4px;';
+            alerts.slice(SHOW).forEach(a => rest.appendChild(row(a)));
+            card.appendChild(rest);
+            const toggle = document.createElement('button');
+            toggle.className = 'btn btn-secondary btn-sm';
+            toggle.style.cssText = 'margin-top: 8px;';
+            toggle.textContent = `Show all ${alerts.length}`;
+            toggle.addEventListener('click', () => {
+                const open = rest.style.display === 'flex';
+                rest.style.display = open ? 'none' : 'flex';
+                toggle.textContent = open ? `Show all ${alerts.length}` : 'Show fewer';
+            });
+            card.appendChild(toggle);
+        }
+        return card;
+    },
+
     async renderContent(container) {
         container.textContent = '';
 
@@ -419,13 +477,13 @@ const DashboardPage = {
                     ));
                 }
                 if (hasAgentAlerts) {
-                    gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
-                        alertsBox.appendChild(buildBudgetBar(
-                            a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
-                            a.today_spend_usd, a.budget_usd, a.pct_used,
-                            a.over_budget, a.budget_action
-                        ));
-                    });
+                    // One compact card for every agent alert instead of a red
+                    // card per agent: the count carries the colour, rows stay
+                    // neutral, and the list folds after three so the stack
+                    // never pushes the rest of the dashboard off screen.
+                    const alerts = gd.agent_alerts.filter(a => a.over_budget || a.warning)
+                        .sort((a, b) => (b.over_budget - a.over_budget) || ((b.pct_used || 0) - (a.pct_used || 0)));
+                    alertsBox.appendChild(this._buildAgentBudgetCard(alerts));
                 }
             }
 

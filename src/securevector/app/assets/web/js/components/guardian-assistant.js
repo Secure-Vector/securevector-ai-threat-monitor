@@ -943,12 +943,13 @@ const GuardianAssistant = {
         const el = document.querySelector(`.nav-item[data-page="${page}"]`);
         if (!el) return null;
         if (onScreen(el)) return el;
-        // Threats, Secret Detections and Blocked Actions are sub-items of a
-        // collapsible section, so they have no box while it is closed — which
-        // is exactly the case for the events that matter most. Fall back to
-        // the section header that owns them: still the right direction, and
-        // it is the thing the user would have to click anyway.
-        const group = el.closest('.nav-sub-items');
+        // Threats, Secret Detections and Blocked Actions are views of a
+        // destination, so they have no box unless that destination is the
+        // active one, which is exactly the case for the events that matter
+        // most. Fall back to the destination row that owns them: still the
+        // right direction, and it is the thing the user would have to click
+        // anyway. (`.nav-sub-items` covers any group still using the old shape.)
+        const group = el.closest('.nav-views, .nav-sub-items');
         const parent = group && group.previousElementSibling;
         if (parent && parent.classList && parent.classList.contains('nav-item')
             && onScreen(parent)) return parent;
@@ -1039,7 +1040,7 @@ const GuardianAssistant = {
             noun: 'agent egress',
             what: 'These are the destinations agents actually reached, taken from this device.',
             look: 'A first-seen destination matters more than a busy familiar one.',
-            cta: 'Open the egress policy', page: 'egress', tab: 'policy',
+            cta: 'Open the egress policy', page: 'egress-policy',
         },
         redactions: {
             noun: 'secret detections',

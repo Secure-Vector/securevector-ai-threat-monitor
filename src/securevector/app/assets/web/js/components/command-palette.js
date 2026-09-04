@@ -33,9 +33,9 @@ const CommandPalette = {
             // but stay searchable here: users look for them by name, and the
             // ids remain routable straight to the right facet.
             if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
-                'blocked-ledger', 'redactions', 'costs'].includes(id)) return 'Visibility';
-            if (['tool-permissions', 'rules', 'egress', 'skill-scanner', 'guardian-ml',
-                'cost-settings', 'governance', 'mcp-policies'].includes(id)) return 'Govern';
+                'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
+            if (['tool-permissions', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
+                'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Govern';
             if (['connect-wizard', 'guide-connect-agents', 'integrations'].includes(id) || id.startsWith('proxy-')) return 'Connect';
             if (['siem-export', 'cloud-activity'].includes(id)) return 'Cloud & Forwarders';
             return '';
@@ -217,9 +217,16 @@ const CommandPalette = {
     _move(delta) {
         if (!this._filtered.length) return;
         this._sel = (this._sel + delta + this._filtered.length) % this._filtered.length;
-        this._renderList();
+        this._syncSel();
         const el = this._list.querySelector('[aria-selected="true"]');
         if (el) el.scrollIntoView({ block: 'nearest' });
+    },
+
+    /** Move the highlight without touching the DOM structure. */
+    _syncSel() {
+        (this._rows || []).forEach((row, i) => {
+            row.setAttribute('aria-selected', i === this._sel ? 'true' : 'false');
+        });
     },
 
     _go(item) {
@@ -238,8 +245,10 @@ const CommandPalette = {
             empty.className = 'sv-palette-empty';
             empty.textContent = 'No matching page.';
             list.appendChild(empty);
+            this._rows = [];
             return;
         }
+        this._rows = [];
         this._filtered.slice(0, 12).forEach((item, i) => {
             const row = document.createElement('div');
             row.className = 'sv-palette-item';
@@ -255,9 +264,13 @@ const CommandPalette = {
                 sec.textContent = item.section;
                 row.appendChild(sec);
             }
-            row.addEventListener('mouseenter', () => { this._sel = i; this._renderList(); });
+            row.addEventListener('mouseenter', () => { this._sel = i; this._syncSel(); });
+            // Activate on mousedown as well: the palette closes on backdrop
+            // mousedown, so a slow click could otherwise lose the row first.
+            row.addEventListener('mousedown', (e) => { e.preventDefault(); this._go(item); });
             row.addEventListener('click', () => this._go(item));
             list.appendChild(row);
+            this._rows.push(row);
         });
     },
 };

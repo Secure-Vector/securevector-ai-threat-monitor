@@ -291,6 +291,20 @@ Fail-open: if the app is not running, the function still runs and one warning is
 
 [Full guide](docs/GUARD.md)
 
+**Model calls too.** Add `instrument()` and every OpenAI or Anthropic call joins the same trace with tokens, cost, prompt and response previews, duration and a verdict; `guard.generation()` does the same for Bedrock, Gemini or any other client. The Traces page then shows cost per run, spend per model and the costliest turn.
+
+```python
+from securevector import guard, instrument
+
+instrument()                                  # openai and anthropic clients
+
+with guard.session("run-42", user_id="u-1"):
+    client.chat.completions.create(model="gpt-4o", messages=messages)   # recorded
+    search_web("weather in Austin")                                     # nested under it
+```
+
+Already on OpenTelemetry? Point your exporter at `http://127.0.0.1:8741/v1/traces` (OTLP/HTTP JSON) and skip the SDK. [Tracing guide](docs/TRACING.md)
+
 ### OpenClaw / ClawdBot
 
 Native plugin with **ZERO latency** — runs inside the agent, no proxy needed. Install from the Integrations tab or `curl -X POST http://localhost:8741/api/hooks/install`. Enable block mode from the dashboard when you want to actively stop threats via proxy.

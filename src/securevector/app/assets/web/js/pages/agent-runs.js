@@ -378,6 +378,7 @@ const AgentRunsPage = {
         // cluster (which is pushed right via margin-left:auto on .filters-bar).
         const howto = ObsTabs.howToReadLink('How to read traces', 'section-read-runs', 'gs-read-runs');
         howto.style.alignSelf = 'center';
+        howto.title = 'How to read traces';
         header.appendChild(howto);
         const toolbar = document.createElement('div');
         toolbar.className = 'filters-bar';
@@ -390,17 +391,24 @@ const AgentRunsPage = {
         away.id = 'ar-away';
         container.appendChild(away);
 
-        // Accordion drill-down (CrowdStrike-style): a FULL-WIDTH agent list
-        // grouped by runtime; clicking an agent expands the waterfall INLINE
-        // beneath its row (click again to collapse). No split panes, no page
-        // swap — the single #ar-detail node is moved under whichever row is
-        // open. It lives outside the list here so renderRuns can rebuild the
-        // rows without destroying it.
+        // Two layouts, one DOM. Wide screens (>=1100px) get a SPLIT PANE:
+        // the agent list grouped by runtime stays on the left, the open
+        // trace fills a sticky pane on the right, and each scrolls on its
+        // own, so opening agent 1 never pushes agents 2 and 3 off screen.
+        // Narrow screens keep the inline accordion: the single #ar-detail
+        // node is moved under whichever row is open. Either way the detail
+        // node lives outside the list so renderRuns can rebuild the rows
+        // without destroying it.
         const layout = document.createElement('div');
         layout.className = 'ar-layout';
         layout.innerHTML = '<div class="ar-listview" id="ar-listview"><div class="ar-rail-head" id="ar-rail-head"></div>' +
-            '<div class="ar-runlist" id="ar-runlist"></div></div><div class="ar-detail" id="ar-detail" hidden></div>';
+            '<div class="ar-runlist" id="ar-runlist"></div></div>' +
+            '<div class="ar-pane" id="ar-pane"><div class="ar-pane-empty" id="ar-pane-empty">' +
+            '<div class="ar-pane-empty-t">Select an agent</div>' +
+            '<div class="ar-pane-empty-s">Its trace opens here: every model turn and tool call on one timeline. The agent list stays on the left.</div></div>' +
+            '<div class="ar-detail" id="ar-detail" hidden></div></div>';
         container.appendChild(layout);
+        this._splitSetup(layout);
 
         await this.loadData();
         this._liveStart();
@@ -415,11 +423,64 @@ const AgentRunsPage = {
             .ar-layout { display:block; }
             .ar-listview { display:flex; flex-direction:column; gap:8px; }
             .ar-detail[hidden] { display:none; }
+            .ar-pane-empty { display:none; }
+            /* Split pane (>=1100px): agent rail left, trace pane right, each
+               scrolling inside the viewport height left under the header. */
+            /* The page reserves room at the bottom for the Guardian; in split
+               mode the panes scroll inside themselves, so a small gap is enough. */
+            .page-content:has(.ar-layout.split), body.sv-ga-on #page-content:has(.ar-layout.split) { padding-bottom:40px; }
+            .ar-layout.split { display:grid; grid-template-columns:372px minmax(0,1fr); gap:14px; align-items:start; }
+            .ar-layout.split .ar-listview { position:sticky; top:0; max-height:var(--ar-pane-h,72vh); overflow:auto;
+                overscroll-behavior:contain; padding-right:3px; }
+            .ar-layout.split .ar-pane { position:sticky; top:0; max-height:var(--ar-pane-h,72vh); min-width:0;
+                display:flex; flex-direction:column; }
+            .ar-layout.split .ar-detail { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain;
+                margin:0; animation:none; }
+            .ar-layout.split .ar-det-head { position:sticky; top:-18px; z-index:3; margin:-18px -20px 3px;
+                padding:16px 20px 8px; background:var(--bg-card,#161b22);
+                border-bottom:1px solid var(--border-default,#30363d); }
+            .ar-layout.split .ar-pane:not(.has-trace) .ar-pane-empty { display:flex; flex-direction:column;
+                align-items:center; justify-content:center; text-align:center; gap:6px; min-height:320px;
+                border:1px dashed var(--border-default,#30363d); border-radius:14px; padding:24px;
+                color:var(--text-muted,#7d8590); }
+            .ar-pane-empty-t { font:700 15px 'Avenir Next',Avenir,system-ui,sans-serif; color:var(--text-secondary,#b1bac4); }
+            .ar-pane-empty-s { font-size:12.5px; max-width:380px; line-height:1.45; }
+            /* One command bar: the filters ride on the tab row and each control
+               carries its own label, so nothing stacks under the tabs. */
+            .obs-header { row-gap:8px; }
+            #agent-runs-toolbar.filters-bar { margin:0 0 0 auto; gap:8px; align-items:center; }
+            #agent-runs-toolbar .filter-group { position:relative; flex-direction:row; align-items:center; gap:0; }
+            #agent-runs-toolbar .filter-group > label { position:absolute; width:1px; height:1px; overflow:hidden;
+                clip:rect(0 0 0 0); white-space:nowrap; }
+            #agent-runs-toolbar .filter-select { height:30px; padding:4px 26px 4px 10px; font-size:12.5px;
+                background-position:right 8px center; }
+            #agent-runs-toolbar .btn { height:30px; padding:0 10px; font-size:12.5px; }
+            #agent-runs-toolbar .filter-select { width:auto; min-width:0; }
+            .obs-header .sv-howto-link span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+            .obs-header .sv-howto-link { padding:5px 9px; }
+            .ar-layout.split .ar-view-chip { padding:3px 8px; font-size:11.5px; }
+            .ar-layout.split .ar-group-head { flex-wrap:wrap; row-gap:2px; }
+            .ar-layout.split .ar-group-head .ar-group-flag:first-of-type { flex-basis:100%; margin-left:22px; }
+            /* Two equal panels sharing one top edge and one bottom edge. */
+            .ar-layout.split .ar-listview, .ar-layout.split .ar-pane { height:var(--ar-pane-h,72vh); box-sizing:border-box; }
+            .ar-layout.split .ar-listview { background:var(--bg-card,#161b22); border:1px solid var(--border-default,#30363d);
+                border-radius:14px; padding:12px 12px 8px; gap:6px; }
+            .ar-layout.split .ar-view-chips { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+            .ar-layout.split .ar-view-chips::-webkit-scrollbar { display:none; }
+            .ar-layout.split .ar-pane:not(.has-trace) .ar-pane-empty { flex:1 1 auto; border-style:solid;
+                background:var(--bg-card,#161b22); }
+            /* The rail keeps the columns that decide a click: name, blocked, cost. */
+            .ar-layout.split .ar-cols, .ar-layout.split .ar-run { grid-template-columns:14px 10px minmax(0,1fr) 56px 74px; gap:8px; }
+            .ar-layout.split .ar-cols { padding-left:32px; }
+            .ar-layout.split .col-tools, .ar-layout.split .col-det, .ar-layout.split .col-sec,
+            .ar-layout.split .col-time, .ar-layout.split .ar-row-id { display:none; }
+            .ar-layout.split .ar-group-body { padding-left:12px; }
+            .ar-layout.split .ar-tl { width:128px; }
             /* Trace TABLE (the Langfuse/LangSmith/Datadog pattern): one
                full-width row per agent with aligned columns; the shared grid
                template keeps the header and every row in lockstep. */
             .ar-cols, .ar-run { display:grid; align-items:center; gap:10px;
-                grid-template-columns:14px 10px minmax(160px,1fr) 90px 90px 90px 90px 150px; }
+                grid-template-columns:14px 10px minmax(160px,1fr) 90px 90px 90px 90px 96px 150px; }
             .ar-cols { padding:0 13px 0 42px; margin-top:2px;
                 font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.9px;
                 text-transform:uppercase; color:var(--text-muted,#7d8590); }
@@ -432,8 +493,17 @@ const AgentRunsPage = {
             .ar-row-c { text-align:right; font-size:11.5px; color:var(--text-secondary,#b1bac4); white-space:nowrap; }
             .ar-row-c .ar-dim0 { color:var(--text-muted,#7d8590); opacity:.5; }
             .ar-row-time { text-align:right; color:var(--text-muted,#7d8590); font-size:11px; white-space:nowrap; }
+            .ar-costly { display:inline-block; margin-left:5px; min-width:14px; height:14px; line-height:14px; border-radius:7px; text-align:center;
+                font:700 10px ui-monospace,Menlo,monospace; color:var(--text-primary,#e6edf3); background:var(--bg-tertiary,#30363d); }
+            .ar-gen-verdict { font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px; padding:1px 6px; border-radius:4px; margin-left:6px; }
+            .ar-gen-verdict.grey { color:var(--text-secondary,#b1bac4); background:var(--bg-tertiary,#30363d); }
+            .ar-gen-verdict.green { color:#3fb950; background:rgba(63,185,80,.12); }
+            .ar-gen-verdict.red { color:#ef4444; background:rgba(239,68,68,.12); }
+            .ar-gen-top { font:700 9.5px 'Avenir Next',Avenir,system-ui,sans-serif; letter-spacing:.6px; padding:1px 6px; border-radius:4px; margin-left:6px;
+                color:var(--text-primary,#e6edf3); background:var(--bg-tertiary,#30363d); }
+            .ar-gen-dur { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--text-muted,#7d8590); margin-left:6px; }
             @media (max-width:900px) {
-                .ar-cols, .ar-run { grid-template-columns:14px 10px minmax(120px,1fr) 70px 70px 120px; }
+                .ar-cols, .ar-run { grid-template-columns:14px 10px minmax(120px,1fr) 70px 70px 80px 120px; }
                 .col-det, .col-sec { display:none; }
             }
             .ar-rail-head { display:flex; align-items:baseline; gap:8px; padding:2px 4px 0;
@@ -460,6 +530,7 @@ const AgentRunsPage = {
                 font-variant-numeric:tabular-nums; }
             .ar-group-flag { font:600 10.5px 'Avenir Next',Avenir,system-ui,sans-serif; white-space:nowrap; }
             .ar-group-body { display:flex; flex-direction:column; gap:6px; padding-left:26px; }
+            .ar-group-body[hidden] { display:none; }
             .ar-group-body .ar-run { margin:0; }
             /* Inline drill-down: the waterfall expands directly beneath its
                row and collapses on a second click (accordion). */
@@ -756,6 +827,7 @@ const AgentRunsPage = {
             .ar-tl { flex:0 0 auto; position:relative; width:72px; height:6px; border-radius:3px;
                 background:color-mix(in srgb, var(--border-default,#30363d) 60%, transparent); overflow:hidden; }
             .ar-tl i { position:absolute; top:0; bottom:0; width:5px; border-radius:2px; }
+            .ar-tl i.ar-tl-bar { min-width:3px; border-radius:3px; opacity:.92; }
             @media (max-width:980px) { .ar-tl { display:none; } .ar-delta { min-width:0; } }
             /* Replay visibility: hide events past the playhead; spotlight current. */
             .ar-replay-hidden { display:none !important; }
@@ -1006,7 +1078,7 @@ const AgentRunsPage = {
         ogrp.appendChild(olbl);
         const osel = document.createElement('select');
         osel.className = 'filter-select';
-        [['all', 'All'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Logged only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
+        [['all', 'All outcomes'], ['allow', 'Allowed'], ['blocked', 'Blocked'], ['log_only', 'Logged only'], ['threat', 'Threats'], ['secret', 'Secret-touching']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v; o.textContent = t;
             if (v === this.outcomeFilter) o.selected = true;
@@ -1174,6 +1246,23 @@ const AgentRunsPage = {
      *  "agent #1"s, one per harness, told apart only by a small tag.) Mirrors
      *  the Agent Map's global numbering so an "agent #N" clicked there is the
      *  same "agent #N" here. */
+    /** Cost cell for the run list: list-price estimate of the run's model
+     *  spend, plus a quiet "costly turn" mark when one model turn is more
+     *  than half of the whole run (the thing to look at first). */
+    _costCell(r, dash) {
+        const cost = Number(r.cost || 0);
+        if (!(cost > 0)) return dash;
+        const txt = '≈$' + cost.toFixed(cost < 0.01 ? 4 : 2);
+        const heavy = (r.generations || 0) > 1 && Number(r.max_turn_cost || 0) > cost / 2;
+        return `<span class="ar-num">${txt}</span>` + (heavy ? `<span class="ar-costly" title="One model turn is more than half of this run's spend">!</span>` : '');
+    },
+    _costTitle(r) {
+        const tok = Number(r.tokens || 0);
+        const gens = Number(r.generations || 0);
+        if (!gens) return 'No model turns recorded for this run';
+        return `${gens} model turn${gens === 1 ? '' : 's'} · ${tok.toLocaleString()} tokens · list-price estimate`;
+    },
+
     _computeAgentNums() {
         this._agentNum = {};
         (this.runs || []).slice()
@@ -1240,13 +1329,84 @@ const AgentRunsPage = {
     },
 
     /** Collapse the inline drill-down and show the plain list. */
+    /** Split pane on wide screens, accordion below 1100px. The media query
+     *  flips the class live; the detail node is re-seated so a resize never
+     *  strands an open trace in the wrong place. */
+    _splitSetup(layout) {
+        this._splitMq = (typeof window.matchMedia === 'function') ? window.matchMedia('(min-width: 1100px)') : null;
+        const apply = () => {
+            layout.classList.toggle('split', !!(this._splitMq && this._splitMq.matches));
+            const det = document.getElementById('ar-detail');
+            if (det && !det.hidden && this.selected) this._expandUnder(this.selected, false);
+            else if (det) { const home = this._detailHome(); if (home && det.parentElement !== home) home.appendChild(det); }
+            this._paneState();
+            this._fitPanes();
+        };
+        this._splitApply = apply;
+        if (this._splitMq) {
+            if (this._splitMq.addEventListener) this._splitMq.addEventListener('change', apply);
+            else if (this._splitMq.addListener) this._splitMq.addListener(apply);
+        }
+        this._fitHandler = () => this._fitPanes();
+        window.addEventListener('resize', this._fitHandler);
+        // Anything above the layout that grows or shrinks (the away strip,
+        // the page itself) re-fits the panes.
+        if (typeof ResizeObserver === 'function') {
+            this._fitRo = new ResizeObserver(() => this._fitPanes());
+            const away = document.getElementById('ar-away');
+            if (away) this._fitRo.observe(away);
+            const pc = layout.closest('.page-content');
+            if (pc) this._fitRo.observe(pc);
+        }
+        apply();
+    },
+
+    _isSplit() {
+        const l = document.querySelector('.ar-layout');
+        return !!(l && l.classList.contains('split'));
+    },
+
+    /** Where the detail node lives when it is not under a row: the right
+     *  pane in split mode, the layout root in accordion mode. */
+    _detailHome() {
+        return (this._isSplit() && document.getElementById('ar-pane')) || document.querySelector('.ar-layout');
+    },
+
+    /** The right pane shows its placeholder until a trace is open. */
+    _paneState() {
+        const pane = document.getElementById('ar-pane');
+        const det = document.getElementById('ar-detail');
+        if (pane) pane.classList.toggle('has-trace', !!(det && !det.hidden));
+    },
+
+    /** Both panes get the viewport height left below the page header, so
+     *  each scrolls inside itself and the page never grows. */
+    _fitPanes() {
+        const l = document.querySelector('.ar-layout');
+        if (!l || !l.classList.contains('split')) return;
+        // Height left inside the page's scroll container, so the page itself
+        // has nothing to scroll: both panes scroll inside.
+        const pc = l.closest('.page-content');
+        let h;
+        if (pc) {
+            // Measured relative to the scroll container, so the page's
+            // slide-in transform cannot skew the number.
+            const top = l.getBoundingClientRect().top - pc.getBoundingClientRect().top + pc.scrollTop;
+            h = pc.clientHeight - (parseFloat(getComputedStyle(pc).paddingBottom) || 0) - top;
+        } else {
+            h = window.innerHeight - l.getBoundingClientRect().top - 14;
+        }
+        l.style.setProperty('--ar-pane-h', `${Math.max(320, Math.round(h))}px`);
+    },
+
     _showList() {
         const det = document.getElementById('ar-detail');
         if (det) {
             det.hidden = true;
-            const layout = det.closest('.ar-layout') || document.querySelector('.ar-layout');
-            if (layout && det.parentElement !== layout) layout.appendChild(det); // park it outside the list
+            const home = this._detailHome();
+            if (home && det.parentElement !== home) home.appendChild(det); // park it outside the list
         }
+        this._paneState();
         this.selected = null;
         this._live.paused = false; // leaving the trace releases the hold
         this.renderRuns();
@@ -1259,8 +1419,15 @@ const AgentRunsPage = {
         const det = document.getElementById('ar-detail');
         if (!det) return;
         const row = [...document.querySelectorAll('.ar-run')].find(c => c.dataset.trace === traceId);
-        if (row) row.after(det); else (document.getElementById('ar-runlist') || document.body).appendChild(det);
+        if (this._isSplit()) {
+            // Split pane: the detail stays in the right pane; only the
+            // selection highlight moves.
+            const home = this._detailHome();
+            if (home && det.parentElement !== home) home.appendChild(det);
+            if (scroll) det.scrollTop = 0;
+        } else if (row) row.after(det); else (document.getElementById('ar-runlist') || document.body).appendChild(det);
         det.hidden = false;
+        this._paneState();
         document.querySelectorAll('.ar-run.open').forEach(el => el.classList.remove('open'));
         document.querySelectorAll('.ar-run.sel').forEach(el => el.classList.remove('sel'));
         if (row) {
@@ -1282,8 +1449,8 @@ const AgentRunsPage = {
         // the selected row afterwards (bottom of this function).
         const det = document.getElementById('ar-detail');
         const detOpen = !!(det && !det.hidden && this.selected);
-        const layout = document.querySelector('.ar-layout');
-        if (det && layout && det.parentElement !== layout) layout.appendChild(det);
+        const home = this._detailHome();
+        if (det && home && det.parentElement !== home) home.appendChild(det);
         list.textContent = '';
         // List header — names the level (agents) and carries the pulse:
         // how many, how many live right now, the window.
@@ -1402,11 +1569,12 @@ const AgentRunsPage = {
                 `<span class="ar-row-id" title="session ${this._esc(r.session_id || '?')} · trace ${this._esc(r.trace_id)}">${this._esc(String(r.session_id || r.trace_id).slice(0, 8))}</span>` +
                 (this._isLive(r.ended_at) ? this._liveBadge() : '') +
                 `<span class="ar-risk" style="background:${RISK_DOT[r.risk] || RISK_DOT.green};margin-left:auto" title="risk: ${r.risk}"></span></span>` +
-                `<span class="ar-row-c"><span class="ar-num">${r.spans}</span></span>` +
-                `<span class="ar-row-c">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
+                `<span class="ar-row-c col-tools"><span class="ar-num">${r.spans}</span></span>` +
+                `<span class="ar-row-c col-blk">${r.blocked ? `${BAN_SVG('#ef4444')} <span class="ar-num ar-blk">${r.blocked}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-det" title="threats detected in this trace">${r.detections ? `${AR_VIRUS_SVG('#ef4444', 12)}<span class="ar-num" style="color:#ef4444"> ${r.detections}</span>` : dash}</span>` +
                 `<span class="ar-row-c col-sec" title="secret/credential detections in this trace">${r.secrets ? `${AR_LOCK_SVG('#f59e0b', 12)}<span class="ar-num" style="color:#f59e0b"> ${r.secrets}</span>` : dash}</span>` +
-                `<span class="ar-row-time">${this._fmtTime(r.ended_at)}</span>`;
+                `<span class="ar-row-c col-cost" title="${this._costTitle(r)}">${this._costCell(r, dash)}</span>` +
+                `<span class="ar-row-time col-time">${this._fmtTime(r.ended_at)}</span>`;
             card.addEventListener('click', () => this.selectRun(r.trace_id));
             return card;
         };
@@ -1415,8 +1583,8 @@ const AgentRunsPage = {
         const cols = document.createElement('div');
         cols.className = 'ar-cols';
         cols.innerHTML = '<span></span><span></span><span class="col-name">Agent</span>' +
-            '<span>Tool runs</span><span>Blocked</span><span class="col-det">Detected</span>' +
-            '<span class="col-sec">Secrets</span><span>Last activity</span>';
+            '<span class="col-tools">Tool runs</span><span class="col-blk">Blocked</span><span class="col-det">Detected</span>' +
+            '<span class="col-sec">Secrets</span><span class="col-cost" title="Model spend in this run, list-price estimate">Cost</span><span class="col-time">Last activity</span>';
         list.appendChild(cols);
         groups.forEach(g => {
             const color = RUNTIME_COLOR[g.rt] || '#64748b';
@@ -1467,6 +1635,7 @@ const AgentRunsPage = {
         // Snapshot which traces rendered as live, so a badge expiring (trace
         // goes quiet, data unchanged) still triggers a repaint on the next poll.
         this._liveIds = (this.runs || []).filter(r => this._isLive(r.ended_at)).map(r => r.trace_id).join(',');
+        this._fitPanes();
     },
 
     async selectRun(traceId, opts) {
@@ -1597,6 +1766,9 @@ const AgentRunsPage = {
             // Largest start-to-start gap — scales the per-row gap bars so the
             // slow steps are visually scannable (log scale in _timingHtml).
             this._maxGap = allSpans.reduce((a, s) => Math.max(a, s._gap || 0), 0);
+            // Trace window (first start to last start) scales the duration
+            // bars on the per-row timeline.
+            this._traceWin = Math.max(0, t1 - t0);
         }
         const toolSpans = allSpans.filter(s => s.span_kind !== 'generation');
         const genCount = trace.generation_count != null
@@ -1639,6 +1811,14 @@ const AgentRunsPage = {
                     return stat(`≈$${totalCost.toFixed(totalCost < 0.01 ? 4 : 2)}`, 'LLM cost · est.',
                         `<span title="${tip}">${det}</span>`);
                 })()
+                : '') +
+            (trace.expensive_turn && trace.expensive_turn.cost > 0 && (trace.generation_count || 0) > 1
+                ? stat(`#${trace.expensive_turn.turn_index} · ≈$${Number(trace.expensive_turn.cost).toFixed(trace.expensive_turn.cost < 0.01 ? 4 : 2)}`,
+                    'costliest turn', `<span title="The single model turn that cost the most in this run">${this._esc(trace.expensive_turn.model || '')}</span>`)
+                : '') +
+            ((trace.cost_by_model || []).length > 1
+                ? stat(String(trace.cost_by_model.length), 'models',
+                    this._esc(trace.cost_by_model.slice(0, 3).map(m => `${m.model} ≈$${Number(m.cost).toFixed(m.cost < 0.01 ? 4 : 2)}`).join(' · ')))
                 : '') +
             (dur && dur !== '0s'
                 ? stat(dur, 'wall clock', '<span title="Time from the first to the last run: not per-run latency">first → last run</span>')
@@ -1856,13 +2036,32 @@ const AgentRunsPage = {
     _renderTurns(detail, chrono, collapse) {
         const turns = [];
         let cur = null;
+        // generation span_id -> its turn (5.3.0 parent links). Built first so a
+        // tool run links to its turn even when the two rows sort out of order
+        // (the SDK stamps the model call, the app stamps the tool call).
+        const bySpan = new Map();
         chrono.forEach(s => {
-            if (s.span_kind === 'generation') { cur = { gen: s, tools: [] }; turns.push(cur); }
-            else {
-                if (!cur) { cur = { gen: null, tools: [] }; turns.push(cur); }
-                cur.tools.push(s);
+            if (s.span_kind === 'generation') {
+                const turn = { gen: s, tools: [] };
+                turns.push(turn);
+                if (s.span_id) bySpan.set(s.span_id, turn);
             }
         });
+        const linked = new Set();
+        chrono.forEach(s => {
+            if (s.span_kind === 'generation') return;
+            const parent = s.parent_span_id ? bySpan.get(s.parent_span_id) : null;
+            if (parent) { parent.tools.push(s); linked.add(s); }
+        });
+        // Unlinked tool runs fall under the most recent model turn before them.
+        const ordered = [];
+        chrono.forEach(s => {
+            if (s.span_kind === 'generation') { cur = bySpan.get(s.span_id) || turns.find(t => t.gen === s); ordered.push(cur); return; }
+            if (linked.has(s)) return;
+            if (!cur) { cur = { gen: null, tools: [] }; ordered.push(cur); }
+            cur.tools.push(s);
+        });
+        turns.length = 0; ordered.forEach(t => turns.push(t));
         // Chronological step numbers BEFORE reversing: step 1 = the first thing
         // that happened, whatever the display order.
         turns.forEach((t, i) => { t.step = i + 1; });
@@ -2317,6 +2516,13 @@ const AgentRunsPage = {
      *  enforcement verdict; it shows model · token flow · cost, with the
      *  redacted input/output preview revealed on expand. Neutral/teal accent
      *  (a generation is not a security state — SOC colour discipline). */
+    _fmtMs(ms) {
+        const n = Number(ms);
+        if (!(n >= 0)) return '';
+        if (n < 1000) return `${Math.round(n)} ms`;
+        return `${(n / 1000).toFixed(n < 10000 ? 2 : 1)} s`;
+    },
+
     _genSpan(s, stepN) {
         const span = document.createElement('div');
         span.className = 'ar-span ar-span-gen';
@@ -2350,7 +2556,11 @@ const AgentRunsPage = {
             `<span class="ar-gen-flow"><span class="ar-gen-tok">${inTok}</span>` +
             `<span class="ar-gen-arrow">→</span><span class="ar-gen-tok">${outTok}</span>` +
             `<span class="ar-gen-toklabel">tok</span></span>` +
-            `<span class="ar-gen-cost" title="Estimated: transcript token counts × API list price. Not metered billing: on a subscription plan this usage is included.">${cost}</span>${stop}` +
+            `<span class="ar-gen-cost" title="Estimated: token counts × API list price. Not metered billing: on a subscription plan this usage is included.">${cost}</span>${stop}` +
+            (s.verdict && s.verdict.label ? `<span class="ar-gen-verdict ${s.verdict.color || 'grey'}" title="${this._esc(s.verdict.reason || 'scanned: nothing found')}">${this._esc(s.verdict.label)}</span>` : '') +
+            (s.duration_ms != null ? `<span class="ar-gen-dur" title="Model call duration">${this._fmtMs(s.duration_ms)}</span>` : '') +
+            (this._trace && this._trace.expensive_turn && this._trace.expensive_turn.turn_index === s.turn_index && (this._trace.generation_count || 0) > 1
+                ? `<span class="ar-gen-top" title="The costliest model turn in this run">costliest</span>` : '') +
             `<span class="ar-time">${this._fmtTime(s.called_at)}</span>` +
             this._timingHtml(s, '#5eadb8') + `</div>` +
             this._genDetail(s);
@@ -2610,11 +2820,24 @@ const AgentRunsPage = {
         } else if (s._gap == null) {
             bar = `<span class="ar-gapbar first"></span>`;
         }
+        // Per-row timeline: a model turn with a measured duration draws a
+        // real bar (start position, width = duration over the trace window);
+        // a tool call, whose latency is not recorded, keeps the start tick.
         const p = Math.max(4, Math.min(96, (s._pos || 0) * 100)); // keep the tick fully visible at the rails
-        const pos = (typeof s._pos === 'number')
-            ? `<span class="ar-tl" title="When this run started within the trace (${Math.round(s._pos * 100)}% through)">` +
-              `<i style="left:calc(${p.toFixed(1)}% - 3px);background:${tickColor}"></i></span>`
-            : '';
+        let pos = '';
+        if (typeof s._pos === 'number') {
+            const win = this._traceWin || 0;
+            const durF = (s.duration_ms > 0 && win > 0) ? Math.min(1, s.duration_ms / win) : 0;
+            if (durF > 0) {
+                const left = Math.max(0, Math.min(100, (s._pos || 0) * 100));
+                const width = Math.max(2.5, Math.min(100 - left, durF * 100));
+                pos = `<span class="ar-tl" title="Started ${Math.round(s._pos * 100)}% through the trace, ran ${this._fmtMs(s.duration_ms)}">` +
+                    `<i class="ar-tl-bar" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%;background:${tickColor}"></i></span>`;
+            } else {
+                pos = `<span class="ar-tl" title="When this run started within the trace (${Math.round(s._pos * 100)}% through)">` +
+                    `<i style="left:calc(${p.toFixed(1)}% - 3px);background:${tickColor}"></i></span>`;
+            }
+        }
         return gap + bar + pos;
     },
 
@@ -2651,6 +2874,13 @@ const AgentRunsPage = {
             clearInterval(this._replay.timer);
             this._replay.timer = null;
         }
+        if (this._splitMq && this._splitApply) {
+            if (this._splitMq.removeEventListener) this._splitMq.removeEventListener('change', this._splitApply);
+            else if (this._splitMq.removeListener) this._splitMq.removeListener(this._splitApply);
+        }
+        if (this._fitHandler) window.removeEventListener('resize', this._fitHandler);
+        if (this._fitRo) { this._fitRo.disconnect(); this._fitRo = null; }
+        this._splitMq = this._splitApply = this._fitHandler = null;
     },
 };
 

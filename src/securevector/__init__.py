@@ -27,6 +27,7 @@ from .utils.auto_config import (
 from .async_client import AsyncSecureVectorClient
 from .client import SecureVectorClient
 from .guard import GuardBlocked, guard
+from .instrument import instrument
 from .models.analysis_result import AnalysisResult, ThreatDetection
 from .models.config_models import ModeConfig, SDKConfig
 from .models.policy_models import PolicyRule, SecurityPolicy
@@ -75,6 +76,7 @@ __version__ = "5.3.0"
 __all__ = [
     # One-decorator instrumentation
     "guard",
+    "instrument",
     "GuardBlocked",
     # Core clients
     "SecureVectorClient",

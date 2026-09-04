@@ -203,12 +203,21 @@ def current_session() -> str:
 
 
 @contextlib.contextmanager
-def session(session_id: str) -> Iterator[str]:
-    """Group every guarded call inside the block under one run in the app."""
+def session(session_id: str, *, user_id: Optional[str] = None, tags: Optional[list] = None,
+            metadata: Optional[Dict[str, Any]] = None) -> Iterator[str]:
+    """Group every guarded call and model call inside the block under one run.
+
+    ``user_id``, ``tags`` and ``metadata`` are set once here and carried by
+    every generation span opened inside the block.
+    """
+    from .tracing import reset_identity, set_identity  # lazy: tracing imports guard
+
     token = _session.set(str(session_id))
+    ident = set_identity(user_id, tags, metadata)
     try:
         yield str(session_id)
     finally:
+        reset_identity(ident)
         _session.reset(token)
 
 
@@ -287,7 +296,10 @@ class _Guard:
     def before(self, args: tuple, kwargs: dict) -> Dict[str, Any]:
         sid, rid = current_session(), uuid.uuid4().hex[:16]
         text = _args_text(self.fn, args, kwargs)
-        ctx = {"session_id": sid, "request_id": rid, "preview": redact(text), "verdict": None}
+        from .tracing import current_generation_span  # lazy: tracing imports guard
+
+        ctx = {"session_id": sid, "request_id": rid, "preview": redact(text), "verdict": None,
+               "parent_span_id": current_generation_span()}
         if not self.cfg.enabled:
             return ctx
         verdict = self.transport.analyze(text, "outgoing", session_id=sid, request_id=rid)
@@ -328,6 +340,8 @@ class _Guard:
             args_preview=ctx["preview"],
             session_id=ctx["session_id"],
             request_id=ctx["request_id"],
+            span_id=ctx["request_id"],
+            parent_span_id=ctx.get("parent_span_id"),
         )
 
 
@@ -401,4 +415,13 @@ def guard(
     return decorate(fn) if fn is not None else decorate
 
 
-guard.session = session  # type: ignore[attr-defined]
+guard.session = session
+
+
+def _generation(*args: Any, **kwargs: Any):
+    from .tracing import generation  # lazy: tracing imports guard
+
+    return generation(*args, **kwargs)
+
+
+guard.generation = _generation  # type: ignore[attr-defined]

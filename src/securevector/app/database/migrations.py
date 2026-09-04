@@ -190,6 +190,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         43: migrate_to_v43,
         44: migrate_to_v44,
         45: migrate_to_v45,
+        46: migrate_to_v46,
     }
 
     if version in migrations:
@@ -1984,6 +1985,81 @@ async def migrate_to_v45(db: DatabaseConnection) -> None:
         "'Per-run cost enforcement — session on cost records, run-limit settings, trace index')"
     )
     logger.info("Applied migration v45: per-run cost enforcement plumbing")
+
+
+async def migrate_to_v46(db: DatabaseConnection) -> None:
+    """v45 -> v46: generation spans (model-run tracing, 5.3.0).
+
+    Additive and idempotent. ``llm_cost_records`` becomes the store for
+    *generation spans* from any runtime (the OTLP ingest at ``/v1/traces``,
+    the Python SDK, the LLM proxy): span identity, ordering, duration,
+    redacted previews and the verdict. ``tool_call_audit`` gains ``span_id``
+    so a tool span can be addressed by the id its producer chose, and
+    ``parent_span_id`` (reserved since v36) starts carrying the generation
+    that requested the tool call.
+
+    Existing proxy rows get ``runtime_kind='llm-proxy'`` and a ``trace_id``
+    derived from their ``session_id``, so past proxy conversations appear
+    as runs in Traces. Nothing is dropped or rewritten otherwise.
+    """
+    from securevector.app.utils.trace_id import derive_trace_id
+
+    conn = await db.connect()
+
+    cur = await conn.execute("PRAGMA table_info(llm_cost_records)")
+    cols = {row[1] for row in await cur.fetchall()}
+    for name, ddl in (
+        ("trace_id", "trace_id TEXT"),
+        ("span_id", "span_id TEXT"),
+        ("parent_span_id", "parent_span_id TEXT"),
+        ("runtime_kind", "runtime_kind TEXT"),
+        ("turn_index", "turn_index INTEGER"),
+        ("started_at", "started_at TEXT"),
+        ("duration_ms", "duration_ms INTEGER"),
+        ("input_preview", "input_preview TEXT"),
+        ("output_preview", "output_preview TEXT"),
+        ("finish_reason", "finish_reason TEXT"),
+        ("verdict_action", "verdict_action TEXT"),
+        ("verdict_risk", "verdict_risk INTEGER"),
+        ("verdict_reason", "verdict_reason TEXT"),
+    ):
+        if name not in cols:
+            await conn.execute(f"ALTER TABLE llm_cost_records ADD COLUMN {ddl}")
+
+    cur = await conn.execute("PRAGMA table_info(tool_call_audit)")
+    audit_cols = {row[1] for row in await cur.fetchall()}
+    if "span_id" not in audit_cols:
+        await conn.execute("ALTER TABLE tool_call_audit ADD COLUMN span_id TEXT")
+
+    # Backfill: proxy conversations become runs.
+    await conn.execute(
+        "UPDATE llm_cost_records SET runtime_kind = 'llm-proxy' "
+        "WHERE session_id IS NOT NULL AND runtime_kind IS NULL"
+    )
+    cur = await conn.execute(
+        "SELECT DISTINCT session_id, runtime_kind FROM llm_cost_records "
+        "WHERE session_id IS NOT NULL AND trace_id IS NULL"
+    )
+    for row in await cur.fetchall():
+        sid, rk = row[0], row[1]
+        await conn.execute(
+            "UPDATE llm_cost_records SET trace_id = ? WHERE session_id = ? AND trace_id IS NULL",
+            (derive_trace_id(rk, sid), sid),
+        )
+
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cost_trace ON llm_cost_records (trace_id, recorded_at)"
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_span ON llm_cost_records (trace_id, span_id) "
+        "WHERE trace_id IS NOT NULL AND span_id IS NOT NULL"
+    )
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (46, CURRENT_TIMESTAMP, "
+        "'Generation spans on llm_cost_records; span_id on tool_call_audit; proxy runs get trace_id')"
+    )
+    logger.info("Applied migration v46: generation span columns")
 
 
 # Future migration functions would be defined here:

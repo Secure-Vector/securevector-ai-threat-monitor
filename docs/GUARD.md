@@ -129,6 +129,13 @@ curl -X PUT http://127.0.0.1:8741/api/settings \
   -H 'Content-Type: application/json' -d '{"store_text_content": false}'
 ```
 
+## Model calls in the same trace
+
+`instrument()` records OpenAI and Anthropic calls, and `guard.generation()`
+any other provider, into the same run as your `@guard` tool calls: tokens,
+cost, previews, duration and a verdict per model turn. See
+[TRACING.md](TRACING.md).
+
 ## Compared with the framework SDKs
 
 The LangChain, LangGraph, CrewAI and Hermes SDKs hook into the framework's own

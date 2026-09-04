@@ -39,6 +39,9 @@ const GovernancePage = {
                     return { state: 'off', gap: true, note: 'OpenClaw is active but its block-mode proxy is off (and Block Mode is off): OpenClaw threats are logged, not blocked. Start the proxy or turn on Block Mode.' };
                 }
                 if (s.block_threats) return { state: 'on', note: 'Block Mode is on: detected prompt-injection / data-leak threats are blocked on input and output.' };
+                if (c.toolCallsSeen && !c.recentActivity) {
+                    return { state: 'partial', note: 'A runtime is connected but no agent has run in the last 7 days, so native blocking has not been exercised recently. Nothing here is verified against current activity.' };
+                }
                 if (c.toolCallsSeen) {
                     const who = (c.activeRuntimes && c.activeRuntimes.length) ? c.activeRuntimes.join(', ') : 'your connected runtime';
                     return { state: 'native', note: 'Tool calls are blocked natively by ' + who + ' (via your hook / SDK / MCP). Block Mode only matters for the OpenClaw proxy: not needed here.' };
@@ -56,6 +59,9 @@ const GovernancePage = {
                 // regardless of the toggle, so a gap exists only for OpenClaw-off.
                 if (c.openclawActive && !s.scan_llm_responses) {
                     return { state: 'off', gap: true, note: 'OpenClaw is active but Output Scan is off: LLM responses on the proxy are not scanned for data leakage (tool I/O is still redacted).' };
+                }
+                if (c.toolCallsSeen && !c.recentActivity) {
+                    return { state: 'partial', note: 'No agent has run in the last 7 days, so nothing has been scanned recently. Scanning stays on, but there is no current evidence to report.' };
                 }
                 if (c.toolCallsSeen) {
                     return { state: 'native', note: 'Tool input & output from your connected integrations is redacted for secrets/PII on every scan: always on, server-side.' + (c.openclawActive ? ' LLM responses are also scanned via the OpenClaw proxy.' : ' Scanning the LLM’s own response additionally needs the OpenClaw proxy.') };
@@ -76,6 +82,9 @@ const GovernancePage = {
             key: 'tools', label: 'Tool-permission governance', required: true, nav: 'tool-permissions',
             fw: 'EU AI Act Art. 14 (human oversight) · OWASP LLM06 (Excessive Agency) · SOC 2 CC6',
             evaluate: (s, c) => {
+                if (s.tool_permissions_enabled === undefined || s.tool_permissions_enabled === null) {
+                    return { state: 'partial', note: 'Tool-permission governance has never been configured on this device, so it cannot be reported as enforced.' };
+                }
                 if (s.tool_permissions_enabled === false) return { state: 'off', gap: true, note: 'Tool/function calls are NOT checked against a permission policy: turn on Tool Permissions.' };
                 return c.enrolled
                     ? { state: 'on', note: 'Enforced locally, and your org/cloud MCP policy is synced to this device: centralized, fleet-wide governance.' }
@@ -101,7 +110,9 @@ const GovernancePage = {
         {
             key: 'residency', label: 'Prompts kept on this device', required: true, nav: 'settings',
             fw: 'EU AI Act Art. 10 (data governance) / GDPR · SOC 2 Confidentiality',
-            evaluate: (s) => (s.local_only_analysis !== false)
+            evaluate: (s) => (s.local_only_analysis === undefined || s.local_only_analysis === null)
+                ? { state: 'partial', note: 'Prompt residency has never been configured on this device, so it cannot be reported as enforced.' }
+                : (s.local_only_analysis !== false)
                 ? { state: 'on', note: s.residency_locked ? 'Enforced by your org’s data-residency policy: prompt text cannot leave this device.' : 'Prompt text is analyzed on-device and not sent to the cloud.' }
                 : { state: 'off', gap: true, note: 'Cloud analysis is on: prompt text is sent to SecureVector Cloud.' },
         },
@@ -229,14 +240,10 @@ const GovernancePage = {
         try { if (window.App && App.loadPage) return App.loadPage(nav); } catch (e) {}
     },
 
-    async render(container) {
-        this._injectStyle();
-        container.textContent = '';
-        // First view this session → play the entrance animations once; on
-        // subsequent visits the page renders instantly (no replayed motion).
-        let firstView = true;
-        try { firstView = sessionStorage.getItem('sv-governance-flashed') !== '1'; } catch (e) {}
-
+    // One gather, two readers: this page renders the full grid from it and the
+    // sidebar's posture chip reads the same band, so there is exactly one
+    // implementation of the rule set.
+    async _gather() {
         let settings = {};   try { settings = (await API.getSettings()) || {}; } catch (e) {}
         let integrityOk = null, auditCount = 0;
         try { const ig = await API.getToolCallAuditIntegrity(); integrityOk = !!(ig && ig.ok); auditCount = (ig && ig.total) || 0; } catch (e) {}
@@ -268,11 +275,40 @@ const GovernancePage = {
         let traceRows = [];
         try { const td = await API.getTraces({ window_days: 7 }); traceRows = (td && td.runs) || []; } catch (e) {}
         const cloudOn = !!(cloud && cloud.cloud_mode_enabled && cloud.credentials_configured);
-        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive };
+        const recentActivity = traceRows.length > 0;
+        const ctx = { integrityOk, auditCount, activeRules, enrolled, proxyRunning, activeRuntimes, toolCallsSeen, sessionCount, openclawActive, recentActivity };
         // One canonical scope phrase reused in the band + scope + warnings.
         const agentTxt = sessionCount === 0
             ? 'no agent sessions connected via SV Guard / SDK yet'
             : (sessionCount + ' agent session' + (sessionCount === 1 ? '' : 's') + ' across ' + activeRuntimes.length + ' harness' + (activeRuntimes.length === 1 ? '' : 'es') + ' connected via SV Guard / SDK' + (activeRuntimes.length ? ' (' + activeRuntimes.join(', ') + ')' : ''));
+        return { settings, cloud, cloudOn, traceRows, ctx, agentTxt };
+    },
+
+    // The band alone, for callers that want the rating and nothing else.
+    async computePosture() {
+        const g = await this._gather();
+        const rows = this.CONTROLS.map(c => Object.assign({}, c, c.evaluate(g.settings, g.ctx)));
+        const band = this._band(rows, g.ctx.sessionCount);
+        return {
+            name: band.name,
+            def: band.def,
+            // Same predicate the band uses, so the chip can never say
+            // "Partial, no gaps".
+            gaps: rows.filter(r => r.gap || (r.required && r.state === 'partial')).length,
+            sessions: g.ctx.sessionCount,
+        };
+    },
+
+    async render(container) {
+        this._injectStyle();
+        container.textContent = '';
+        // First view this session → play the entrance animations once; on
+        // subsequent visits the page renders instantly (no replayed motion).
+        let firstView = true;
+        try { firstView = sessionStorage.getItem('sv-governance-flashed') !== '1'; } catch (e) {}
+
+        const { settings, cloud, cloudOn, traceRows, ctx, agentTxt } = await this._gather();
+        const { activeRuntimes, sessionCount } = ctx;
 
         const rows = this.CONTROLS.map(c => Object.assign({}, c, c.evaluate(settings, ctx)));
         const band = this._band(rows, sessionCount);

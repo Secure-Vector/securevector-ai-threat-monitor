@@ -131,11 +131,13 @@ const IntegrationPage = {
             sdkInstallCmd: '# Nothing to install: @guard ships inside securevector-ai-monitor, already on this device',
             sdkInstallCmdRemote: 'pip install "securevector-ai-monitor"',
             sdkInstallNote: 'The app is already running (it is serving this page) and @guard is part of the same package, so there is nothing to install. Calls go to the local engine by default:',
-            sdkSnippet: `from securevector import guard
+            sdkSnippet: `from securevector import guard, instrument
+
+instrument()   # OpenAI and Anthropic calls: tokens, cost, previews, verdict, same trace
 
 # Decorate the functions your agent calls. Arguments are scanned on the way
 # in, the return value on the way out, and every call lands in Tool Activity,
-# Agent Runs and the audit chain (runtime_kind=python). Fail-open.
+# Traces and the audit chain (runtime_kind=python). Fail-open.
 @guard
 def search_web(query: str) -> str:
     ...

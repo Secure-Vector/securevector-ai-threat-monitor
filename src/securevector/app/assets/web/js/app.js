@@ -81,6 +81,11 @@ const App = {
         // Agent Egress — observed destinations + destination policy (#198).
         // The containment self-test tab is withheld; see js/pages/egress.js.
         egress:              EgressPage,
+        policies:            PoliciesHubPage,
+        'policies-controls': PoliciesHubPage,
+        // Same page, two destinations: what agents reached (Visibility) and
+        // what they may reach (Policies).
+        'egress-policy':     EgressPolicyPage,
     },
 
     /**

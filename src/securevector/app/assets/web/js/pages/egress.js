@@ -54,34 +54,33 @@ const EgressPage = {
 
     async render(container) {
         container.textContent = '';
+        // Two sidebar destinations share this page: "Agent Egress" under
+        // Visibility shows what agents reached; "Egress Policy" under
+        // Policies shows what they may reach. The route decides the view,
+        // so there is no in-page tab bar; each view links to the other.
+        // (The withheld containment self-test keeps its loader and renderer;
+        // set _state.tab = 'containment' to bring it back.)
+        if (this._state.tab !== 'containment') {
+            this._state.tab = (window.App && App.currentPage === 'egress-policy') ? 'policy' : 'destinations';
+        }
+        const policyView = this._state.tab === 'policy';
         if (window.Header) {
-            // No "and proof of where they cannot" — that promise belonged to the
-            // withheld containment self-test.
-            Header.setPageInfo('Agent Egress',
-                'Every external host your agents reached, and the policy that governs it.');
+            if (policyView) Header.setPageInfo('Egress Policy', 'Where agents may reach: allow, block or log per destination.');
+            else Header.setPageInfo('Agent Egress', 'Every external host your agents reached, first seen and how often.');
         }
         this._injectStyle();
 
-        const tabs = document.createElement('div');
-        tabs.className = 'eg-tabs';
-        [
-            // ['containment', 'Containment Self-Test'] is withheld — see the file
-            // header. Restore this entry to bring the tab back; the loader,
-            // renderer and backend are all still wired.
-            ['destinations', 'Destinations'],
-            ['policy', 'Policy'],
-        ].forEach(([id, label]) => {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'eg-tab' + (this._state.tab === id ? ' on' : '');
-            b.textContent = label;
-            b.addEventListener('click', () => {
-                this._state.tab = id;
-                this.render(container);
-            });
-            tabs.appendChild(b);
+        const cross = document.createElement('div');
+        cross.className = 'eg-cross';
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'eg-cross-link';
+        link.textContent = policyView ? 'See the destinations agents reached' : 'Manage the egress policy';
+        link.addEventListener('click', () => {
+            if (window.App && typeof App.loadPage === 'function') App.loadPage(policyView ? 'egress' : 'egress-policy');
         });
-        container.appendChild(tabs);
+        cross.appendChild(link);
+        container.appendChild(cross);
 
         const body = document.createElement('div');
         body.id = 'eg-body';
@@ -909,6 +908,17 @@ const EgressPage = {
     },
 
     _injectStyle() {
+        if (!document.getElementById('egress-cross-style')) {
+            const st = document.createElement('style');
+            st.id = 'egress-cross-style';
+            st.textContent = `
+            .eg-cross { display:flex; justify-content:flex-end; margin:0 0 14px; }
+            .eg-cross-link { cursor:pointer; border:1px solid var(--border-default,#30363d); border-radius:999px;
+                background:var(--bg-card,#161b22); color:var(--accent-primary,#5eadb8); padding:5px 12px;
+                font:600 12px 'Avenir Next',Avenir,system-ui,sans-serif; transition:border-color .12s,background .12s; }
+            .eg-cross-link:hover { border-color:var(--accent-primary,#5eadb8); background:var(--bg-hover,#21262d); }`;
+            document.head.appendChild(st);
+        }
         if (document.getElementById('eg-style')) return;
         const st = document.createElement('style');
         st.id = 'eg-style';
@@ -1112,4 +1122,10 @@ const EgressPage = {
         document.head.appendChild(st);
     },
 };
+/** Route wrapper: the Policies entry renders the policy view of EgressPage. */
+const EgressPolicyPage = {
+    render(container) { return EgressPage.render(container); },
+};
+
 window.EgressPage = EgressPage;
+window.EgressPolicyPage = EgressPolicyPage;

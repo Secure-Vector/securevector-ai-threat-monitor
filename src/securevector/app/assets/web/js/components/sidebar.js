@@ -5,48 +5,54 @@
 
 const Sidebar = {
     navItems: [
-        // v5.3 rail: about a dozen destinations. Reference material (the 13
-        // integration pages, the 17 guide pages) lives behind Connect Agents and
-        // Guide; every old page id stays routable and highlights its parent via
-        // `aliases`, so deep links, the palette and Governance gap cards still land.
+        // v5.3 rail: ten destinations in three groups, plus Guide and Settings
+        // docked at the bottom. Pages that used to be their own rows are
+        // `views` of a destination: they render indented under the active row
+        // (expanded rail) or inside the hover flyout (icon rail). Every old page
+        // id stays routable and highlights its parent via `views` or `aliases`,
+        // so deep links, the palette and Governance gap cards still land.
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
-          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost' },
-        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor'],
-          tooltip: 'Prompt injection, jailbreak and exfiltration attempts seen in agent traffic' },
-        { id: 'blocked-ledger', label: 'Blocked Actions', icon: 'shield-check',
-          tooltip: 'What SecureVector prevented: blocked tool calls, egress and prompts' },
-        { id: 'redactions', label: 'Secret Detections', icon: 'lock',
-          tooltip: 'Credentials and PII caught in agent traffic, stored as hashes only' },
-        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan',
-          tooltip: 'What your agents already did on this device, before SecureVector was watching' },
-        { id: 'tool-activity', label: 'Tool Activity', icon: 'integrations', aliases: ['bill-of-tools'],
-          tooltip: 'Every tool call, plus the inventory of MCP servers and tools your agents touch' },
-        { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'Token spend per agent, model and session' },
-        { id: 'policies-controls', label: 'Policies', icon: 'lock', collapsible: true, defaultExpanded: false,
-          tooltip: 'Everything that decides what an agent may do: tool permissions, rules, egress, skills, budgets, MCP',
-          subItems: [
-            { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow, block or log-only per tool' },
-            { id: 'rules', label: 'Rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
-            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it' },
-            { id: 'skill-scanner', label: 'Skills Scanner', tooltip: 'Static analysis and policy for skill directories' },
-            { id: 'cost-settings', label: 'Cost Settings', tooltip: 'Budgets and pricing' },
-            { id: 'mcp-policies', label: 'MCP Policies', tooltip: 'Org-managed tool rules synced from your SecureVector account' },
-          ]},
-        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s protection posture and the gaps to close' },
+          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
+          views: [
+            { id: 'agent-runs', label: 'Runs' },
+            { id: 'tool-activity', label: 'Tool Activity', aliases: ['bill-of-tools'] },
+            { id: 'instant-audit', label: 'Instant Audit' },
+          ] },
+        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor'], count: 'threats',
+          tooltip: 'Prompt injection, jailbreak and exfiltration attempts, plus what was blocked and which secrets were caught',
+          views: [
+            { id: 'threats', label: 'Detections' },
+            { id: 'blocked-ledger', label: 'Blocked Actions', count: 'blocked' },
+            { id: 'redactions', label: 'Secret Detections', count: 'secrets' },
+          ] },
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'How protected this one device is right now, and the gaps to close' },
+        { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
+        { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
+          tooltip: 'Every external host your agents reached, first seen and how often' },
+        { id: 'policies', label: 'Policies', icon: 'lock', aliases: ['policies-controls'],
+          tooltip: 'Everything that decides what an agent may do: tool permissions, rules, egress, budgets, MCP',
+          views: [
+            { id: 'policies', label: 'Overview' },
+            { id: 'tool-permissions', label: 'Tool Permissions' },
+            { id: 'rules', label: 'Rules' },
+            { id: 'egress-policy', label: 'Egress Policy' },
+            { id: 'cost-settings', label: 'Cost Settings' },
+            { id: 'mcp-policies', label: 'MCP Policies', cloud: true },
+            { id: 'skill-scanner', label: 'Skills Scanner' },
+          ] },
         { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
-        { id: 'cloud-forwarders', label: 'Cloud & Forwarders', icon: 'rocket', collapsible: true, defaultExpanded: false,
-          tooltip: 'Cloud Connect activity and SIEM forwarding',
-          subItems: [
-            { id: 'cloud-activity', label: 'Cloud Activity', tooltip: 'Everything flowing between this device and your SecureVector account' },
-            { id: 'siem-export', label: 'SIEM Forwarder', tooltip: 'Forward threats and tool-call audit as OCSF events' },
-          ]},
+        { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
+          tooltip: 'SIEM forwarding and Cloud Connect activity',
+          views: [
+            { id: 'siem-export', label: 'SIEM Forwarder' },
+            { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
+          ] },
         { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
-
     currentPage: 'dashboard',
 
     collapsed: false,
@@ -98,8 +104,10 @@ const Sidebar = {
         if (!container) return;
 
         // Check saved collapsed state
-        this.collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
-        if (this.collapsed) container.classList.add('collapsed');
+        const savedCollapsed = localStorage.getItem('sidebar-collapsed');
+        // Icon rail by default on narrower windows; the user's choice wins once made.
+        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : window.innerWidth < 1280;
+        container.classList.toggle('collapsed', this.collapsed);
 
         // Restore the user's last sidebar width before rendering so the
         // expanded rail comes up at the right size on first paint.
@@ -185,6 +193,8 @@ const Sidebar = {
 
         header.appendChild(logoLink);
         container.appendChild(header);
+        container.appendChild(this._createSearchRow());
+        container.appendChild(this._createPulse());
 
         // Create nav
         const nav = document.createElement('nav');
@@ -220,12 +230,12 @@ const Sidebar = {
         // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
             'dashboard':            'Visibility',
-            'policies-controls':    'Govern',
+            'policies':             'Govern',
             'guide-connect-agents': 'Connect',
             'guide':                'Help & Settings',
         };
 
-        const DIVIDER_BEFORE = new Set(['policies-controls', 'guide-connect-agents', 'guide']);
+        const DIVIDER_BEFORE = new Set(['policies', 'guide-connect-agents', 'guide']);
 
         const sections = [];
         let currentSection = null;
@@ -291,20 +301,20 @@ const Sidebar = {
             // subItem branch below), but top-level never needed it until Threat
             // Monitor absorbed the blocked/secrets ledgers — without this the row
             // goes unlit on those routes and the user cannot tell where they are.
-            const matchesSelf = item.id === this.currentPage ||
-                (item.aliases && item.aliases.includes(this.currentPage));
+            const matchesSelf = this._itemMatches(item, this.currentPage);
             const isActive = matchesSelf && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
-            if (item.aliases) navItem.dataset.aliases = item.aliases.join(',');
+            const reach = this._itemPageIds(item);
+            if (reach.length) navItem.dataset.aliases = reach.join(',');
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             // A locked cloud row gets an explicit "needs a cloud account"
-            // tooltip; otherwise fall back to the item's own tooltip.
-            if (isCloudLocked) {
-                navItem.title = 'Requires a SecureVector cloud account: enroll this device to turn this on.';
-            } else if (item.tooltip) {
-                navItem.title = item.tooltip;
-            }
+            // tooltip; otherwise the item's own. Native tooltip on the expanded
+            // rail only; the icon rail shows the flyout instead.
+            navItem.dataset.tip = isCloudLocked
+                ? 'Requires a SecureVector cloud account: enroll this device to turn this on.'
+                : (item.tooltip || '');
+            if (navItem.dataset.tip && !this.collapsed) navItem.title = navItem.dataset.tip;
 
             // Add icon (SVG) — core features get an orange badge dot overlaid
             // on the icon. (The Guardian ML sentinel robot that used to render
@@ -331,6 +341,28 @@ const Sidebar = {
             label.textContent = item.label;
             label.style.cssText = 'white-space: nowrap; font-size: 12.5px; flex: 1; min-width: 0;';
             navItem.appendChild(label);
+
+            if (item.count) {
+                const cnt = document.createElement('span');
+                cnt.className = 'nav-count';
+                cnt.dataset.countFor = item.count;
+                cnt.hidden = true;
+                navItem.appendChild(cnt);
+            }
+            if (item.id === 'agent-runs') {
+                const live = document.createElement('span');
+                live.className = 'nav-live';
+                live.title = 'An agent is running right now';
+                live.hidden = true;
+                navItem.appendChild(live);
+            }
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                navItem.appendChild(hint);
+            }
 
             // Add badge for rules count
             if (item.id === 'rules') {
@@ -441,11 +473,16 @@ const Sidebar = {
                 // A section holding the active page must never start
                 // collapsed — a hidden "where am I" is worse than a stale
                 // collapse preference.
-                const activeHere = item.id === this.currentPage ||
-                    (item.aliases && item.aliases.includes(this.currentPage)) ||
+                const activeHere = this._itemMatches(item, this.currentPage) ||
                     (item.subItems || []).some(s => s.id === this.currentPage ||
                         (s.aliases && s.aliases.includes(this.currentPage)));
                 if (activeHere) currentSection.containsActive = true;
+            }
+
+            if (item.views && item.views.length) {
+                const viewsEl = this._renderViews(item, matchesSelf);
+                nav.appendChild(viewsEl);
+                if (currentSection) currentSection.els.push(viewsEl);
             }
 
             // Sub-items
@@ -562,6 +599,7 @@ const Sidebar = {
                 sec.chev.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
                 sec.btn.setAttribute('aria-expanded', String(!collapsed));
                 sec.btn.title = (collapsed ? 'Expand ' : 'Collapse ') + sec.name;
+                if (this._indicator) requestAnimationFrame(() => this._moveIndicator(false));
             };
             sec.apply = apply;
             apply(localStorage.getItem(sec.key) === '1' && !sec.containsActive);
@@ -587,7 +625,29 @@ const Sidebar = {
             this._jitBadgeTimer = setInterval(() => this.loadJitPendingCount(), 30000);
         }
 
+        // Live counts on the rail: threats in the last 24 hours, egress calls
+        // blocked in the last 24 hours. The rail answers "where should I look"
+        // before a click; zero hides the pill so quiet is quiet.
+        this.loadLiveCounts();
+        this.loadPulse();
+        this.loadPosture();
+        if (!this._countsTimer) {
+            this._countsTimer = setInterval(() => { this.loadLiveCounts(); this.loadPulse(); }, 60000);
+        }
+        if (!this._postureTimer) {
+            this._postureTimer = setInterval(() => this.loadPosture(), 600000);
+        }
+
         container.appendChild(nav);
+        this._flyoutInit(container, nav);
+        this._indicatorInit(nav);
+        this._chordInit();
+        // First paint: rows settle in one after another; later renders are instant.
+        if (!Sidebar._revealed) {
+            Sidebar._revealed = true;
+            nav.classList.add('nav-reveal');
+            nav.querySelectorAll('.nav-item, .nav-section-label').forEach((el, i) => el.style.setProperty('--i', String(i)));
+        }
 
         // Collapse toggle button (at menu level)
         const collapseBtn = document.createElement('button');
@@ -937,16 +997,392 @@ const Sidebar = {
         this.checkOpenCodePluginStatus();
     },
 
+    // ---- v5.3 rail: views, search row, live counts, icon-rail flyout ----
+
+    _itemPageIds(item) {
+        const ids = [...(item.aliases || [])];
+        (item.views || []).forEach(v => { ids.push(v.id); (v.aliases || []).forEach(a => ids.push(a)); });
+        return ids.filter(id => id !== item.id);
+    },
+
+    _itemMatches(item, page) {
+        return item.id === page || this._itemPageIds(item).includes(page);
+    },
+
+    _viewActive(view) {
+        return view.id === this.currentPage || !!(view.aliases && view.aliases.includes(this.currentPage));
+    },
+
+    _renderViews(item, open) {
+        const wrap = document.createElement('div');
+        wrap.className = 'nav-views' + (open ? ' open' : '');
+        wrap.dataset.viewsFor = item.id;
+        item.views.forEach(view => {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
+            row.dataset.page = view.id;
+            if (view.aliases) row.dataset.aliases = view.aliases.join(',');
+            const lbl = document.createElement('span');
+            lbl.textContent = view.label;
+            row.appendChild(lbl);
+            if (view.count) {
+                const cnt = document.createElement('span');
+                cnt.className = 'nav-count';
+                cnt.dataset.countFor = view.count;
+                cnt.hidden = true;
+                row.appendChild(cnt);
+            }
+            if (view.id === 'rules') {
+                const badge = document.createElement('span');
+                badge.className = 'nav-count nav-count-quiet';
+                badge.id = 'rules-count-badge';
+                row.appendChild(badge);
+            }
+            if (view.id === 'tool-permissions') {
+                const jitBadge = document.createElement('span');
+                jitBadge.id = 'jit-pending-badge';
+                jitBadge.className = 'nav-count nav-count-warn';
+                jitBadge.style.display = 'none';
+                row.appendChild(jitBadge);
+            }
+            if (view.cloud && this._enrolled !== true) {
+                const tier = document.createElement('span');
+                tier.className = 'nav-view-tier';
+                tier.textContent = 'Cloud';
+                row.appendChild(tier);
+            }
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.navigate(view.id);
+            });
+            wrap.appendChild(row);
+        });
+        return wrap;
+    },
+
+    _createSearchRow() {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'nav-search';
+        row.title = 'Search pages and actions';
+        row.setAttribute('aria-label', 'Search pages and actions');
+        row.appendChild(this.createIcon('search'));
+        const lbl = document.createElement('span');
+        lbl.className = 'nav-search-label';
+        lbl.textContent = 'Search';
+        row.appendChild(lbl);
+        const kbd = document.createElement('kbd');
+        kbd.className = 'nav-search-kbd';
+        kbd.textContent = /Mac/i.test(navigator.platform || '') ? '⌘K' : 'Ctrl K';
+        row.appendChild(kbd);
+        row.addEventListener('click', () => {
+            if (window.CommandPalette && typeof CommandPalette.open === 'function') CommandPalette.open();
+        });
+        return row;
+    },
+
+    // Where the rail's numbers come from. Two rules hold everywhere:
+    // a loud pill always means "something got through", and a pill that is
+    // showing means there is something you have not looked at yet.
+    _seenKey(page) { return `sv-nav-seen-${page}`; },
+
+    _seenSince(page) {
+        // Nothing looked at yet, or looked at long ago: fall back to 24 hours,
+        // so the pill can never grow without bound.
+        const floor = Date.now() - 24 * 3600 * 1000;
+        let seen = 0;
+        try { seen = Number(localStorage.getItem(this._seenKey(page))) || 0; } catch (_) { /* private mode */ }
+        return new Date(Math.max(floor, seen)).toISOString();
+    },
+
+    markSeen(page) {
+        const key = { threats: 'threats', 'blocked-ledger': 'blocked-ledger', redactions: 'redactions' }[page];
+        if (!key) return;
+        try { localStorage.setItem(this._seenKey(key), String(Date.now())); } catch (_) { /* private mode */ }
+        setTimeout(() => this.loadLiveCounts(), 300);
+    },
+
+    loadLiveCounts() {
+        const set = (key, n, title) => {
+            const v = Number(n) || 0;
+            document.querySelectorAll(`.nav-count[data-count-for="${key}"]`).forEach(el => {
+                el.textContent = v > 999 ? '999+' : String(v);
+                el.hidden = v <= 0;
+                if (title) el.title = title;
+            });
+        };
+        if (typeof API === 'undefined') return;
+        // Threats always means detections. A blocked action is a different
+        // outcome and gets its own row, never the same pill in the same colour.
+        API.getThreats({ page_size: 1, is_threat: true, start_date: this._seenSince('threats') })
+            .then(r => {
+                const n = Number((r && r.total) || 0);
+                set('threats', n, `${n} detection${n === 1 ? '' : 's'} you have not opened yet`);
+            }).catch(() => {});
+        API.getBlockedLedger({ window_days: 1 })
+            .then(r => {
+                const n = Number((r && r.summary && r.summary.blocked_total) || 0);
+                set('blocked', n, `${n} action${n === 1 ? '' : 's'} blocked in the last 24 hours`);
+            }).catch(() => {});
+        API.getRedactions(1, { limit: 1 })
+            .then(r => {
+                const n = Number((r && r.summary && r.summary.total) || 0);
+                set('secrets', n, `${n} secret${n === 1 ? '' : 's'} caught in the last 24 hours`);
+            }).catch(() => {});
+        API.getEgressDestinations(1)
+            .then(r => {
+                const n = ((r && r.destinations) || []).reduce((a, d) => a + (d.blocked || 0), 0);
+                set('egress', n, `${n} egress call${n === 1 ? '' : 's'} blocked in the last 24 hours`);
+            }).catch(() => {});
+    },
+
+    _flyoutInit(container, nav) {
+        let fly = document.getElementById('nav-flyout');
+        if (!fly) {
+            fly = document.createElement('div');
+            fly.id = 'nav-flyout';
+            fly.className = 'nav-flyout';
+            fly.hidden = true;
+            document.body.appendChild(fly);
+            fly.addEventListener('mouseenter', () => clearTimeout(this._flyHide));
+            fly.addEventListener('mouseleave', () => this._flyoutHide());
+        }
+        nav.querySelectorAll('.nav-item[data-page]:not(.nav-view):not(.nav-sub-item)').forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                if (container.classList.contains('collapsed')) this._flyoutShow(row);
+            });
+            row.addEventListener('mouseleave', () => this._flyoutHide());
+        });
+    },
+
+    _flyoutShow(row) {
+        clearTimeout(this._flyHide);
+        const item = this.navItems.find(i => i.id === row.dataset.page);
+        const fly = document.getElementById('nav-flyout');
+        if (!item || !fly) return;
+        fly.textContent = '';
+        const title = document.createElement('div');
+        title.className = 'nav-flyout-title';
+        title.textContent = item.label;
+        const cnt = row.querySelector('.nav-count');
+        if (cnt && !cnt.hidden) {
+            const c = document.createElement('span');
+            c.className = 'nav-count';
+            c.textContent = cnt.textContent;
+            title.appendChild(c);
+        }
+        fly.appendChild(title);
+        if (row.dataset.tip) {
+            const d = document.createElement('div');
+            d.className = 'nav-flyout-desc';
+            d.textContent = row.dataset.tip;
+            fly.appendChild(d);
+        }
+        (item.views || []).forEach(v => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'nav-flyout-view' + (this._viewActive(v) ? ' active' : '');
+            b.textContent = v.label;
+            b.addEventListener('click', () => { this._flyoutHide(true); this.navigate(v.id); });
+            fly.appendChild(b);
+        });
+        const r = row.getBoundingClientRect();
+        fly.style.left = `${Math.round(r.right + 6)}px`;
+        fly.hidden = false;
+        const h = fly.offsetHeight || 120;
+        fly.style.top = `${Math.round(Math.max(8, Math.min(r.top, window.innerHeight - 8 - h)))}px`;
+    },
+
+    _flyoutHide(now) {
+        clearTimeout(this._flyHide);
+        const fly = document.getElementById('nav-flyout');
+        if (!fly) return;
+        if (now) { fly.hidden = true; return; }
+        this._flyHide = setTimeout(() => { fly.hidden = true; }, 160);
+    },
+
+    // ---- v5.3 rail: pulse block, sliding indicator, chord shortcuts ----
+
+    _createPulse() {
+        const box = document.createElement('div');
+        box.className = 'nav-pulse';
+        box.id = 'nav-pulse';
+
+        // Live agents and posture, nothing else. Tool-call volume is throughput,
+        // not security state, and it was pushing real destinations off screen.
+        const main = document.createElement('button');
+        main.type = 'button';
+        main.className = 'nav-pulse-main';
+        main.title = 'Open Traces';
+        const ring = document.createElement('span');
+        ring.className = 'nav-pulse-ring';
+        const dot = document.createElement('span');
+        dot.className = 'nav-pulse-dot';
+        ring.appendChild(dot);
+        main.appendChild(ring);
+        const line = document.createElement('span');
+        line.className = 'nav-pulse-line';
+        line.id = 'nav-pulse-line';
+        line.textContent = 'Watching this device';
+        main.appendChild(line);
+        main.addEventListener('click', () => this.navigate('agent-runs'));
+        box.appendChild(main);
+
+        const posture = document.createElement('button');
+        posture.type = 'button';
+        posture.className = 'nav-posture';
+        posture.id = 'nav-posture';
+        posture.hidden = true;
+        posture.addEventListener('click', () => this.navigate(this._postureTarget || 'governance'));
+        box.appendChild(posture);
+        return box;
+    },
+
+    _paintPosture(p) {
+        const el = document.getElementById('nav-posture');
+        if (!el || !p || !p.name) return;
+        el.textContent = '';
+        const dot = document.createElement('span');
+        dot.className = 'nav-posture-dot';
+        el.appendChild(dot);
+        const lbl = document.createElement('span');
+        lbl.className = 'nav-posture-name';
+        el.appendChild(lbl);
+        // Nothing connected yet: a band would be meaningless, so the chip
+        // carries the next step instead of a grade.
+        if (!p.sessions) {
+            this._postureTarget = 'guide-connect-agents';
+            el.dataset.band = 'none';
+            lbl.textContent = 'Connect an agent to start';
+            el.title = 'No agent is reporting yet, so there is nothing to assess. Opens Connect Agents.';
+            el.hidden = false;
+            return;
+        }
+        this._postureTarget = 'governance';
+        // Always say whose posture this is: one device, not a fleet.
+        lbl.textContent = `This device: ${p.name}`;
+        el.dataset.band = p.name.toLowerCase().replace(/[^a-z]+/g, '-');
+        const gaps = p.gaps ? `${p.gaps} gap${p.gaps === 1 ? '' : 's'}` : 'no gaps';
+        el.title = `This device only, not your other machines. ${p.name}, ${gaps}${p.def ? `, ${p.def}` : ''}. Opens Agent Governance.`;
+        el.hidden = false;
+    },
+
+    loadPosture() {
+        // Paint the last known band immediately so the rail never flickers,
+        // then recompute. The calculation costs several requests, so it runs
+        // far less often than the counts.
+        try {
+            const cached = JSON.parse(localStorage.getItem('sv-nav-posture') || 'null');
+            if (cached && cached.name) this._paintPosture(cached);
+        } catch (_) { /* private mode */ }
+        if (!window.GovernancePage || typeof GovernancePage.computePosture !== 'function') return;
+        if (this._postureBusy) return;
+        this._postureBusy = true;
+        GovernancePage.computePosture().then(p => {
+            this._postureBusy = false;
+            if (!p || !p.name) return;
+            this._paintPosture(p);
+            try { localStorage.setItem('sv-nav-posture', JSON.stringify(p)); } catch (_) { /* private mode */ }
+        }).catch(() => { this._postureBusy = false; });
+    },
+
+    loadPulse() {
+        if (typeof API === 'undefined') return;
+        const box = document.getElementById('nav-pulse');
+        if (!box) return;
+        const parse = (ts) => (ts ? Date.parse(String(ts).replace(' ', 'T')) : NaN);
+        API.request('/api/traces?window_days=1&limit=100').then(r => {
+            const runs = (r && r.runs) || [];
+            // The window is wider than the poll interval on purpose: a run that
+            // is still going must never flicker to "quiet" between two polls.
+            const live = runs.filter(x => (Date.now() - parse(x.ended_at)) < 120000).length;
+            const line = document.getElementById('nav-pulse-line');
+            if (line) {
+                line.textContent = '';
+                const b = document.createElement('b');
+                if (live > 0) {
+                    b.textContent = live === 1 ? '1 agent live' : `${live} agents live`;
+                    line.appendChild(b);
+                    line.appendChild(document.createTextNode(runs.length > live ? ` · ${runs.length} today` : ''));
+                } else {
+                    b.textContent = 'Quiet';
+                    line.appendChild(b);
+                    line.appendChild(document.createTextNode(runs.length ? ` · ${runs.length} agent${runs.length === 1 ? '' : 's'} today` : ' · no agent today'));
+                }
+            }
+            box.classList.toggle('live', live > 0);
+            document.querySelectorAll('.nav-live').forEach(el => { el.hidden = live <= 0; });
+        }).catch(() => {});
+    },
+
+    _indicatorInit(nav) {
+        nav.style.position = 'relative';
+        const ind = document.createElement('div');
+        ind.className = 'nav-indicator';
+        nav.appendChild(ind);
+        this._indicator = ind;
+        this._indicatorNav = nav;
+        requestAnimationFrame(() => this._moveIndicator(true));
+    },
+
+    _moveIndicator(instant) {
+        const ind = this._indicator;
+        const nav = this._indicatorNav;
+        if (!ind || !nav || !nav.isConnected) return;
+        const rows = [...nav.querySelectorAll('.nav-item.active')].filter(el => el.offsetParent !== null);
+        const el = rows[rows.length - 1];
+        if (!el) { ind.style.opacity = '0'; return; }
+        if (instant) ind.style.transition = 'none';
+        ind.style.top = `${el.offsetTop}px`;
+        ind.style.height = `${el.offsetHeight}px`;
+        ind.style.opacity = '1';
+        if (instant) requestAnimationFrame(() => { ind.style.transition = ''; });
+    },
+
+    // "g then key" jumps, the Linear and Gmail convention. The hints show on
+    // the rows while the chord is armed, so nobody has to memorise them.
+    CHORDS: { d: 'dashboard', t: 'agent-runs', h: 'threats', c: 'costs', e: 'egress', p: 'policies',
+              k: 'skill-scanner', a: 'governance', n: 'guide-connect-agents', f: 'siem-export', u: 'guide', s: 'settings' },
+
+    _chordInit() {
+        if (this._chordBound) return;
+        this._chordBound = true;
+        const typing = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+        document.addEventListener('keydown', (e) => {
+            if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+            if (this._chordArmed) {
+                clearTimeout(this._chordTimer);
+                this._chordArmed = false;
+                sidebar.classList.remove('nav-chord');
+                const page = this.CHORDS[e.key.toLowerCase()];
+                if (page) { e.preventDefault(); this.navigate(page); }
+                return;
+            }
+            if (e.key === 'g' || e.key === 'G') {
+                this._chordArmed = true;
+                sidebar.classList.add('nav-chord');
+                this._chordTimer = setTimeout(() => {
+                    this._chordArmed = false;
+                    sidebar.classList.remove('nav-chord');
+                }, 1500);
+            }
+        });
+    },
+
     toggleCollapse() {
         const container = document.getElementById('sidebar');
         this.collapsed = !this.collapsed;
         localStorage.setItem('sidebar-collapsed', this.collapsed);
 
-        if (this.collapsed) {
-            container.classList.add('collapsed');
-        } else {
-            container.classList.remove('collapsed');
-        }
+        container.classList.toggle('collapsed', this.collapsed);
+        this._flyoutHide(true);
+        setTimeout(() => this._moveIndicator(true), 260);
+        container.querySelectorAll('.nav-item[data-tip]').forEach(row => {
+            if (this.collapsed) row.removeAttribute('title');
+            else if (row.dataset.tip) row.title = row.dataset.tip;
+        });
 
         // Update icon
         const collapseBtn = container.querySelector('.sidebar-collapse-btn');
@@ -1551,6 +1987,10 @@ const Sidebar = {
             shield: [
                 { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
             ],
+            search: [
+                { tag: 'circle', attrs: { cx: '11', cy: '11', r: '7' } },
+                { tag: 'path', attrs: { d: 'M21 21l-4.5-4.5' } },
+            ],
             // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
             // it visually distinct from the two shields (Threats / MCP Policies)
             // so the nav doesn't read as a triplicated shield.
@@ -1700,6 +2140,7 @@ const Sidebar = {
         }
 
         this.currentPage = page;
+        this.markSeen(page);
 
         // Remove core icon badge dot on first visit
         const coreDot = document.querySelector(`[data-core-dot="${page}"]`);
@@ -1768,8 +2209,9 @@ const Sidebar = {
 
     setActive(page) {
         this.currentPage = page;
+        this.markSeen(page);
         document.querySelectorAll('.nav-item').forEach(item => {
-            const isSubItem = item.classList.contains('nav-sub-item');
+            const isSubItem = item.classList.contains('nav-sub-item') || item.classList.contains('nav-view');
             const matchesPage = item.dataset.page === page ||
                 (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
@@ -1781,6 +2223,12 @@ const Sidebar = {
                 item.classList.toggle('active', matchesPage && (!hasSubItems || isCollapsible));
             }
         });
+        // Views show under their destination only while it is the active one.
+        document.querySelectorAll('.nav-views').forEach(v => {
+            const parent = v.previousElementSibling;
+            v.classList.toggle('open', !!(parent && parent.classList.contains('active')));
+        });
+        requestAnimationFrame(() => this._moveIndicator(false));
     },
 };
 
