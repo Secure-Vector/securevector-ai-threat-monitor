@@ -58,7 +58,7 @@ const GuideConnectAgentsPage = {
             // install on this device; a self-hosted agent installs the app package.
             if (agent.id === 'python') {
                 return selfHost
-                    ? [ { label: 'Install', code: 'pip install "securevector-ai-monitor[app]"' },
+                    ? [ { label: 'Install', code: 'pip install "securevector-ai-monitor"' },
                         { label: 'Point at your endpoint', code: ENDPOINT },
                         { label: 'Add @guard', code: agent.wire } ]
                     : [ { label: 'Add @guard', code: agent.wire } ];

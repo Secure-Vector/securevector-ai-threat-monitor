@@ -276,3 +276,92 @@ def test_package_exports_guard():
 
     assert securevector.guard is guard
     assert securevector.GuardBlocked is GuardBlocked
+
+
+def test_real_transport_contract_against_app_payloads(monkeypatch):
+    """Exercise AppTransport.analyze/record_audit with the bodies the app
+    really returns. Only the HTTP layer is stubbed."""
+    from securevector.guard import _transports
+
+    posts = []
+
+    def fake_post(self, path, body):
+        posts.append((path, body))
+        if path == "/analyze":
+            return responses.pop(0)
+        return {"ok": True}
+
+    monkeypatch.setattr(AppTransport, "_post", fake_post)
+    _transports.clear()
+
+    # 1) clean text, but the app has block-threats on so it stamps
+    #    action_taken="blocked" on every response: must NOT be a finding.
+    # 2) a redacted secret: redacted_text is set, is_threat is False.
+    responses = [
+        {"is_threat": False, "threat_type": None, "risk_score": 0, "action_taken": "blocked"},
+        {"is_threat": False, "threat_type": None, "risk_score": 0, "redacted_text": "key=[REDACTED]"},
+    ]
+
+    @guard(config=GuardConfig(mode="enforce"))
+    def call(key):
+        return "done"
+
+    assert call("AKIAABCDEFGHIJKLMNOP") == "done"
+    analyze_posts = [b for p, b in posts if p == "/analyze"]
+    assert [b["direction"] for b in analyze_posts] == ["outgoing", "incoming"]
+    assert set(analyze_posts[0]) == {"text", "direction", "source", "session_id", "request_id"}
+    assert len(analyze_posts[0]["session_id"]) <= 64 and len(analyze_posts[0]["request_id"]) <= 64
+    (audit,) = [b for p, b in posts if p == "/api/tool-permissions/call-audit"]
+    assert audit["action"] == "log_only" and "secret" in audit["reason"]
+    assert audit["runtime_kind"] == "python" and audit["is_essential"] is False
+    assert set(audit) >= {"tool_id", "function_name", "action", "risk", "reason", "args_preview",
+                          "session_id", "request_id"}
+
+
+def test_transport_is_shared_across_decorated_functions(monkeypatch):
+    from securevector.guard import _transport, _transports
+
+    _transports.clear()
+    a = _transport(GuardConfig.from_env())
+    b = _transport(GuardConfig.from_env())
+    assert a is b, "one transport per endpoint, so the unreachable warning fires once per process"
+    assert _transport(GuardConfig(base_url="https://other")) is not a
+
+
+def test_unserialisable_argument_or_result_is_fail_open():
+    t, cfg = make()
+
+    class Cursed:
+        def __str__(self):
+            raise RuntimeError("no str for you")
+
+        __repr__ = __str__
+
+    @guard(config=cfg, transport=t)
+    def echo(x):
+        return x
+
+    obj = Cursed()
+    assert echo(obj) is obj
+    assert len(t.audits) == 1
+
+
+def test_instrumentation_error_never_reaches_the_caller():
+    t, cfg = make()
+
+    def explode(*a, **k):
+        raise RuntimeError("transport bug")
+
+    t.analyze = explode
+
+    @guard(config=cfg, transport=t)
+    def work():
+        return 42
+
+    assert work() == 42
+
+    @guard(config=cfg, transport=t)
+    async def awork():
+        return 43
+
+    assert asyncio.run(awork()) == 43

@@ -28,7 +28,6 @@ names as the framework SDKs:
     SECUREVECTOR_SDK_MODE            observe (default) | enforce
     SECUREVECTOR_SDK_RISK_THRESHOLD  risk_score at or above which enforce blocks (70)
     SECUREVECTOR_SDK_TIMEOUT_MS      per-request timeout (3000)
-    SECUREVECTOR_SDK_AGENT_ID        agent name shown in the app
     SECUREVECTOR_SDK_DISABLED        1 turns the decorator into a no-op
     SECUREVECTOR_API_KEY             forwarded as a bearer token to a self-hosted engine
 
@@ -90,7 +89,6 @@ class GuardConfig:
     mode: str = "observe"
     timeout_ms: int = 3000
     threat_risk_threshold: int = 70
-    agent_id: str = ""
     enabled: bool = True
     api_key: str = ""
 
@@ -102,7 +100,6 @@ class GuardConfig:
             mode=os.environ.get("SECUREVECTOR_SDK_MODE", "observe").strip().lower(),
             timeout_ms=int(os.environ.get("SECUREVECTOR_SDK_TIMEOUT_MS", "3000")),
             threat_risk_threshold=int(os.environ.get("SECUREVECTOR_SDK_RISK_THRESHOLD", "70")),
-            agent_id=os.environ.get("SECUREVECTOR_SDK_AGENT_ID", ""),
             enabled=not _truthy(os.environ.get("SECUREVECTOR_SDK_DISABLED", "")),
             api_key=os.environ.get("SECUREVECTOR_API_KEY", ""),
         )
@@ -140,14 +137,23 @@ class AppTransport:
         return json.loads(raw.decode("utf-8")) if raw else None
 
     def _warn_once(self, exc: Exception) -> None:
-        if not self._warned:
-            self._warned = True
+        if self._warned:
+            return
+        self._warned = True
+        if isinstance(exc, urllib.error.HTTPError):
             log.warning(
-                "SecureVector app not reachable at %s (%s); guarded calls run unscanned. "
-                "Start it with `securevector-app` or set SECUREVECTOR_ENGINE_ENDPOINT.",
+                "SecureVector engine at %s answered HTTP %s; guarded calls run unscanned. "
+                "Check SECUREVECTOR_ENGINE_ENDPOINT and SECUREVECTOR_API_KEY.",
                 self.cfg.base_url,
-                exc.__class__.__name__,
+                exc.code,
             )
+            return
+        log.warning(
+            "SecureVector app not reachable at %s (%s); guarded calls run unscanned. "
+            "Start it with `securevector-app` or set SECUREVECTOR_ENGINE_ENDPOINT.",
+            self.cfg.base_url,
+            exc.__class__.__name__,
+        )
 
     def analyze(self, text: str, direction: str, *, session_id: str, request_id: str) -> Optional[Verdict]:
         """Return a Verdict, or None when the app could not be reached."""
@@ -169,7 +175,10 @@ class AppTransport:
             return Verdict(False, 0, "no-result")
         risk = int(res.get("risk_score") or 0)
         is_threat = bool(res.get("is_threat", False))
-        has_secret = bool(res.get("redacted_text")) or res.get("action_taken") in ("redact", "block")
+        # redacted_text is set only when the app actually redacted a secret.
+        # action_taken is not a finding signal: it reads "blocked" on every
+        # response, clean or not, whenever the block-threats setting is on.
+        has_secret = bool(res.get("redacted_text"))
         reason = res.get("threat_type") or ("secret" if has_secret else "clean")
         return Verdict(is_threat or has_secret, risk, f"{direction} {reason} risk={risk}")
 
@@ -223,8 +232,11 @@ def _to_text(value: Any) -> str:
         return value
     try:
         return json.dumps(value, default=str, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return repr(value)
+    except Exception:  # noqa: BLE001 - a __str__ that raises must not break the call
+        try:
+            return repr(value)
+        except Exception:  # noqa: BLE001
+            return f"<{type(value).__name__}: unserialisable>"
 
 
 def _args_text(fn: Callable[..., Any], args: tuple, kwargs: dict) -> str:
@@ -242,14 +254,17 @@ def _args_text(fn: Callable[..., Any], args: tuple, kwargs: dict) -> str:
 # The decorator                                                               #
 # --------------------------------------------------------------------------- #
 
-_default_transport: Optional[AppTransport] = None
+_transports: Dict[tuple, AppTransport] = {}
 
 
 def _transport(cfg: GuardConfig) -> AppTransport:
-    global _default_transport
-    if _default_transport is None or _default_transport.cfg is not cfg:
-        _default_transport = AppTransport(cfg)
-    return _default_transport
+    """One transport per (endpoint, key, timeout), so the unreachable warning
+    really is logged once per process rather than once per decorated function."""
+    key = (cfg.base_url, cfg.api_key, cfg.timeout_ms)
+    t = _transports.get(key)
+    if t is None:
+        t = _transports[key] = AppTransport(cfg)
+    return t
 
 
 class _Guard:
@@ -316,6 +331,18 @@ class _Guard:
         )
 
 
+def _safe(step: Callable[..., Any], *a: Any) -> Any:
+    """Run one guard step. GuardBlocked passes through; any other error in the
+    instrumentation is logged and swallowed so the wrapped call is unaffected."""
+    try:
+        return step(*a)
+    except GuardBlocked:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.debug("guard step %s failed: %s", getattr(step, "__name__", step), exc)
+        return None
+
+
 def guard(
     fn: Optional[Callable[..., Any]] = None,
     *,
@@ -341,13 +368,15 @@ def guard(
         if inspect.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                ctx = await asyncio.to_thread(g.before, args, kwargs)
+                ctx = await asyncio.to_thread(_safe, g.before, args, kwargs)
                 try:
                     result = await func(*args, **kwargs)
                 except BaseException as exc:
-                    await asyncio.to_thread(g.failed, ctx, exc)
+                    if ctx is not None:
+                        await asyncio.to_thread(_safe, g.failed, ctx, exc)
                     raise
-                await asyncio.to_thread(g.after, ctx, result)
+                if ctx is not None:
+                    await asyncio.to_thread(_safe, g.after, ctx, result)
                 return result
 
             async_wrapper.__securevector_guard__ = g  # type: ignore[attr-defined]
@@ -355,13 +384,15 @@ def guard(
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            ctx = g.before(args, kwargs)
+            ctx = _safe(g.before, args, kwargs)
             try:
                 result = func(*args, **kwargs)
             except BaseException as exc:
-                g.failed(ctx, exc)
+                if ctx is not None:
+                    _safe(g.failed, ctx, exc)
                 raise
-            g.after(ctx, result)
+            if ctx is not None:
+                _safe(g.after, ctx, result)
             return result
 
         wrapper.__securevector_guard__ = g  # type: ignore[attr-defined]

@@ -10,7 +10,7 @@ is just a loop of Python functions, and there is no framework SDK to install.
 ## Install and run
 
 ```bash
-pip install securevector-ai-monitor[app]
+pip install "securevector-ai-monitor[app]"
 securevector-app            # starts the local app on http://127.0.0.1:8741
 ```
 
@@ -113,11 +113,21 @@ def tool(x): ...
 
 ## What is stored
 
-The app stores the redacted argument preview (500 characters), the action,
-risk and reason, not the full arguments or the return value. Text sent to the
-scan endpoint is capped at 100 KB and is not persisted by the scan itself.
-Obvious credential shapes (AWS keys, GitHub tokens, `sk-` keys, `password:`
-fields) are redacted client-side before the preview leaves the process.
+Every call writes one audit row: the redacted argument preview (500
+characters), the action, risk and reason. Obvious credential shapes (AWS keys,
+GitHub tokens, `sk-` keys, `password:` fields) are redacted client-side before
+the preview leaves the process.
+
+Text sent to the scan endpoint is capped at 100 KB. On a clean result it is
+not kept. On a finding the app also keeps the scanned text (secrets redacted)
+with the threat record, so you can see what fired in **Threats**. If your
+arguments or results carry data you do not want on disk, turn that off once
+and findings are recorded without the text:
+
+```bash
+curl -X PUT http://127.0.0.1:8741/api/settings \
+  -H 'Content-Type: application/json' -d '{"store_text_content": false}'
+```
 
 ## Compared with the framework SDKs
 
