@@ -122,6 +122,30 @@ const IntegrationPage = {
     },
 
     integrations: {
+        'proxy-python': {
+            name: 'Python @guard',
+            description: 'Any Python agent: one decorator, no framework needed',
+            defaultProvider: 'openai',
+            runtimeKind: 'python',
+            sdkPackage: 'securevector-ai-monitor[app]',
+            sdkInstallCmd: '# Nothing to install: @guard ships inside securevector-ai-monitor, already on this device',
+            sdkInstallNote: 'The app is already running (it is serving this page) and @guard is part of the same package, so there is nothing to install. Calls go to the local engine by default:',
+            sdkSnippet: `from securevector import guard
+
+# Decorate the functions your agent calls. Arguments are scanned on the way
+# in, the return value on the way out, and every call lands in Tool Activity,
+# Agent Runs and the audit chain (runtime_kind=python). Fail-open.
+@guard
+def search_web(query: str) -> str:
+    ...
+
+@guard(tool_id="db.query", mode="enforce")   # a finding on the arguments stops the call
+async def run_sql(sql: str) -> list[dict]:
+    ...
+
+with guard.session("run-42"):                # group one agent run
+    search_web("weather in Austin")`
+        },
         'proxy-langchain': {
             name: 'LangChain',
             description: 'Python framework for building LLM agents',
@@ -3573,11 +3597,11 @@ def chat_with_protection(user_input):
         };
 
         const localPanel = optionPanel(1, CYAN, 'This device (local app)', null,
-            'The app is already running (it’s serving this page), so install the adapter only: it points at the local engine by default:',
-            'pip install ' + integration.sdkPackage + ' --no-deps', !endpointMode);
+            integration.sdkInstallNote || 'The app is already running (it’s serving this page), so install the adapter only: it points at the local engine by default:',
+            (integration.sdkInstallCmd || 'pip install ' + integration.sdkPackage + ' --no-deps'), !endpointMode);
         const cloudPanel = optionPanel(2, RED, 'Your cloud (self-hosted endpoint)', endpointMode ? 'Recommended here' : null,
             'Deploy the engine to your cloud with the SecureVector Terraform modules, then point the SDK at its endpoint:',
-            'pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + (engineUrl || 'https://<your-engine-endpoint>'), !!endpointMode);
+            (integration.sdkInstallCmd || 'pip install ' + integration.sdkPackage + ' --no-deps') + '\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + (engineUrl || 'https://<your-engine-endpoint>'), !!endpointMode);
 
         // In endpoint mode the cloud option is the one that applies → lead with it.
         if (endpointMode) { content.appendChild(cloudPanel); content.appendChild(localPanel); }
@@ -3713,7 +3737,7 @@ def chat_with_protection(user_input):
 
         if (isSdk) {
             body.appendChild(note('Your environment already has the framework and the engine lives elsewhere, so install the adapter only (--no-deps) and set the endpoint:'));
-            body.appendChild(this.createCodeBlock('pip install ' + integration.sdkPackage + ' --no-deps\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + ep));
+            body.appendChild(this.createCodeBlock((integration.sdkInstallCmd || 'pip install ' + integration.sdkPackage + ' --no-deps') + '\nexport SECUREVECTOR_ENGINE_ENDPOINT=' + ep));
         } else if (isPlugin) {
             body.appendChild(note('The plugin runs on the machine where your coding-agent harness runs, and talks to the remote engine over HTTP. Install the CLI there to add the plugin hooks, point it at your deployment, then install: this installs the CLI + plugin hooks only; your engine stays remote:'));
             body.appendChild(this.createCodeBlock("pip install 'securevector-ai-monitor[app]'\nexport SECUREVECTOR_ENGINE_ENDPOINT=" + ep + "\nsecurevector-app --install-plugin " + slug));

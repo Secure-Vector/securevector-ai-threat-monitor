@@ -19,6 +19,8 @@ const GuideConnectAgentsPage = {
     scrollTo: null,
 
     AGENTS: [
+        { id: 'python', route: 'A', label: 'Python @guard', guide: 'guide-frameworks', integration: 'proxy-python', pkg: 'securevector-ai-monitor[app]',
+            wire: 'from securevector import guard\n\n# Decorate the functions your agent calls. Arguments are scanned on the\n# way in, the return value on the way out; every call lands in Traces and\n# the audit chain. observe = log-only (default); mode="enforce" blocks.\n@guard\ndef search_web(query: str) -> str:\n    ...' },
         { id: 'langchain', route: 'A', label: 'LangChain', guide: 'guide-frameworks', integration: 'proxy-langchain', pkg: 'securevector-sdk-langchain',
             wire: 'from langchain.agents import create_agent\nfrom securevector_sdk_langchain import secure_middleware\n\n# requires langchain>=1.0 · observe = log-only (default); mode="enforce" blocks\nagent = create_agent(model, tools, middleware=[secure_middleware(mode="observe")])' },
         { id: 'langgraph', route: 'A', label: 'LangGraph', guide: 'guide-frameworks', integration: 'proxy-langgraph', pkg: 'securevector-sdk-langgraph',
@@ -52,6 +54,15 @@ const GuideConnectAgentsPage = {
             // difference for "your cloud" is the endpoint env var.
             // Hermes attaches zero-config via its plugin entry point (no code to
             // wrap), so its final step is "Run it", not "Wrap your agent".
+            // @guard ships inside the app package itself, so there is nothing to
+            // install on this device; a self-hosted agent installs the app package.
+            if (agent.id === 'python') {
+                return selfHost
+                    ? [ { label: 'Install', code: 'pip install "securevector-ai-monitor[app]"' },
+                        { label: 'Point at your endpoint', code: ENDPOINT },
+                        { label: 'Add @guard', code: agent.wire } ]
+                    : [ { label: 'Add @guard', code: agent.wire } ];
+            }
             const wireLabel = agent.id === 'hermes' ? 'Run it' : 'Wrap your agent';
             return selfHost
                 ? [ { label: 'Install the SDK', code: 'pip install ' + agent.pkg + ' --no-deps' },
@@ -874,6 +885,18 @@ const GuideConnectAgentsPage = {
         agentWrap.style.cssText = 'margin: 0;';
         agentWrap.appendChild(agentGroup('route-frameworks', 'Frameworks · SDK', 'A'));
         agentWrap.appendChild(agentGroup('route-plugins', 'Harnesses · plugin', 'B'));
+        // Proxy-only integrations have no SDK or plugin step; link their pages.
+        const more = document.createElement('div');
+        more.style.cssText = 'font-size: 12px; color: var(--text-secondary); padding: 10px 0 0;';
+        more.textContent = 'Proxy-only integrations:';
+        [['n8n', 'proxy-n8n'], ['Ollama', 'proxy-ollama']].forEach(([label, page]) => {
+            const a = document.createElement('a');
+            a.href = '#'; a.textContent = label;
+            a.style.cssText = 'color: var(--accent-primary); margin-left: 8px; font-weight: 600;';
+            a.addEventListener('click', (e) => { e.preventDefault(); if (window.Sidebar) Sidebar.navigate(page); });
+            more.appendChild(a);
+        });
+        agentWrap.appendChild(more);
 
         // Each step is COLLAPSIBLE and collapsed by default — the card reads as
         // a clean three-line overview (① pick · ② where · ③ commands); clicking
@@ -923,8 +946,8 @@ const GuideConnectAgentsPage = {
         const notes = document.createElement('div');
         notes.style.cssText = 'margin-top: 22px; font-size: 12px; color: var(--text-secondary); line-height: 1.75; display: flex; flex-direction: column; gap: 1px;';
         ['Adding more agents? Pick another above and copy its commands (a new framework needs its own SDK install).',
-         'Team or fleet rollout → Integrations in the sidebar.',
-         'Other tools: n8n · Ollama → Integrations.'].forEach(t => {
+         'Team or fleet rollout: Cloud & Forwarders in the sidebar.',
+         'Other tools: n8n and Ollama, linked above under proxy-only integrations.'].forEach(t => {
             const d = document.createElement('div'); d.textContent = t; notes.appendChild(d);
         });
         leftCol.appendChild(notes);

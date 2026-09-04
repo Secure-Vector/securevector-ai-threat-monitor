@@ -256,6 +256,7 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 
 | Agent/Framework | Integration |
 |-----------------|-------------|
+| **Any Python agent** (OpenAI, Anthropic, Bedrock, Gemini, plain functions) | [**`@guard` decorator**](#any-python-agent-one-decorator), ships in `pip install securevector-ai-monitor[app]` |
 | **LangChain** | [**`securevector-sdk-langchain`**](docs/USECASES.md#langchain) (tool-call SDK, recommended) or LLM Proxy |
 | **LangGraph** | [**`securevector-sdk-langgraph`**](docs/USECASES.md#langgraph) (tool-call SDK, recommended) or LLM Proxy |
 | **CrewAI** | [**`securevector-sdk-crewai`**](docs/USECASES.md#crewai) (tool-call SDK, recommended) or LLM Proxy |
@@ -266,6 +267,29 @@ Runs entirely on your machine. No accounts required. No data leaves your infrast
 | **Claude Desktop** | [MCP Server Guide](docs/MCP_GUIDE.md) |
 | **Any OpenAI-compatible app** | LLM Proxy — set `OPENAI_BASE_URL` to proxy |
 | **Any HTTP Client** | `POST http://localhost:8741/analyze` with `{"text": "..."}` |
+
+### Any Python agent (one decorator)
+
+No framework required. Wrap the functions your agent calls and every call lands in Tool Activity, Agent Runs and the tamper-evident audit chain, scanned on the way in and on the way out.
+
+```python
+from securevector import guard
+
+@guard
+def search_web(query: str) -> str:
+    ...
+
+@guard(tool_id="db.query", mode="enforce")   # a finding on the arguments stops the call
+async def run_sql(sql: str) -> list[dict]:
+    ...
+
+with guard.session("run-42"):                # group one agent run in the app
+    search_web("weather in Austin")
+```
+
+Fail-open: if the app is not running, the function still runs and one warning is logged. Configure with the same variables as the framework SDKs (`SECUREVECTOR_SDK_MODE=enforce`, `SECUREVECTOR_ENGINE_ENDPOINT=https://...` for a self-hosted engine).
+
+[Full guide](docs/GUARD.md)
 
 ### OpenClaw / ClawdBot
 

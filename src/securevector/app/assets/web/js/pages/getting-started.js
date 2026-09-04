@@ -18,6 +18,10 @@ const GettingStartedPage = {
         // from the "How to read this map" / "How to read runs" links on the
         // Agent Map and Agent Runs pages.
         container.appendChild(this.createCollapsibleCard(
+            'Setup guides', 'Step-by-step setup for each coding agent and framework, plus the integration pages',
+            'section-setup-guides', () => this.buildSetupGuidesContent()
+        ));
+        container.appendChild(this.createCollapsibleCard(
             'Reading the Agent Map', 'How to read the device → harness → agent → tool topology, and what it is good for',
             'section-read-map', () => this.buildReadMapContent()
         ));
@@ -2480,6 +2484,33 @@ const GettingStartedPage = {
         navBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('skill-scanner'); });
         frag.appendChild(navBtn);
 
+        return frag;
+    },
+
+    buildSetupGuidesContent() {
+        const frag = document.createElement('div');
+        frag.style.cssText = 'padding-top: 12px;';
+        const group = (title, links) => {
+            const h = document.createElement('div');
+            h.style.cssText = 'font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); margin: 10px 0 6px;';
+            h.textContent = title;
+            frag.appendChild(h);
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px;';
+            links.forEach(([label, page]) => {
+                const a = document.createElement('a');
+                a.href = '#'; a.textContent = label;
+                a.style.cssText = 'padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 999px; font-size: 12px; color: var(--text-primary); text-decoration: none;';
+                a.addEventListener('click', (e) => { e.preventDefault(); if (window.Sidebar) Sidebar.navigate(page); });
+                row.appendChild(a);
+            });
+            frag.appendChild(row);
+        };
+        group('Coding agents', [['Claude Code', 'guide-claude-code'], ['Codex', 'guide-codex'], ['GitHub Copilot CLI', 'guide-copilot-cli'],
+            ['Cursor', 'guide-cursor'], ['OpenCode', 'guide-opencode'], ['OpenClaw / ClawdBot', 'guide-openclaw']]);
+        group('Frameworks and Python', [['Python @guard', 'proxy-python'], ['LangChain, LangGraph, CrewAI, Hermes', 'guide-frameworks']]);
+        group('Proxies', [['n8n', 'proxy-n8n'], ['Ollama', 'proxy-ollama']]);
+        group('Start here', [['Connect Agents', 'guide-connect-agents']]);
         return frag;
     },
 

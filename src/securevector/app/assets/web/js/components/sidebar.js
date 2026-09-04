@@ -5,172 +5,45 @@
 
 const Sidebar = {
     navItems: [
+        // v5.3 rail: about a dozen destinations. Reference material (the 13
+        // integration pages, the 17 guide pages) lives behind Connect Agents and
+        // Guide; every old page id stays routable and highlights its parent via
+        // `aliases`, so deep links, the palette and Governance gap cards still land.
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        // The single triage surface. Blocked Actions and Secret Detections are
-        // facets of this page, not rails of their own — three destinations for
-        // one question ("what did SecureVector catch or stop?") was the main
-        // source of "where do I look?". Old ids stay aliases so deep links and
-        // bookmarks keep this row highlighted.
-        // One triage surface, three lenses — same shape as Agent Observability
-        // below. The facets stay visible in the rail so they remain scannable;
-        // hiding them behind the page made them undiscoverable to anyone who
-        // never clicked in. Clicking a child opens that facet directly.
-        // The parent is a GROUP id, not a route — same shape as
-        // 'agent-activity' below. It used to be `threats`, which made the
-        // Threats facet unreachable from the rail: the group ships expanded,
-        // so the first click only collapsed it, and the click that did
-        // navigate went to subItems[0] (Blocked). Listing all three facets as
-        // children fixes reachability and puts the word "Threats" back in the
-        // rail, where it had disappeared behind the group label.
-        { id: 'threat-monitor', label: 'Threat Monitor', icon: 'shield', collapsible: true,
-          defaultExpanded: true, navigable: true,
-          tooltip: 'Threats, blocked actions and secret detections — one triage surface',
+        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
+          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost' },
+        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor'],
+          tooltip: 'Prompt injection, jailbreak and exfiltration attempts seen in agent traffic' },
+        { id: 'blocked-ledger', label: 'Blocked Actions', icon: 'shield-check',
+          tooltip: 'What SecureVector prevented: blocked tool calls, egress and prompts' },
+        { id: 'redactions', label: 'Secret Detections', icon: 'lock',
+          tooltip: 'Credentials and PII caught in agent traffic, stored as hashes only' },
+        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan',
+          tooltip: 'What your agents already did on this device, before SecureVector was watching' },
+        { id: 'tool-activity', label: 'Tool Activity', icon: 'integrations', aliases: ['bill-of-tools'],
+          tooltip: 'Every tool call, plus the inventory of MCP servers and tools your agents touch' },
+        { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'Token spend per agent, model and session' },
+        { id: 'policies-controls', label: 'Policies', icon: 'lock', collapsible: true, defaultExpanded: false,
+          tooltip: 'Everything that decides what an agent may do: tool permissions, rules, egress, skills, budgets, MCP',
           subItems: [
-              { id: 'threats',        label: 'Threats', tooltip: 'Prompt-injection, jailbreak and exfiltration attempts detected in agent traffic' },
-              { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
-              { id: 'redactions',     label: 'Secret Detections' },
-          ]},
-        // conversion-ux — the download hook: opt-in retroactive scan of the
-        // agent history already on disk. Sits beside Threat Monitor: past vs live.
-        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
-        // Agent Replay umbrella — collapsible parent grouping the three
-        // observability views that share the same per-agent lens. Top-level
-        // 'replay' route still works as a deep-link (the Timeline sub-item
-        // lands on it), and Tool Activity / Cost & Tokens get prominent
-        // visibility under the agent-observability story instead of being
-        // buried under Configure.
-        { id: 'agent-activity', label: 'Agent Observability', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
-            // One destination, three lenses (Sessions / Traces / Map tabs via
-            // ObsTabs). Lands on Sessions — the complete-trace workhorse view
-            // (v5 default flip: LangSmith/Langfuse-style, traces first; the
-            // Map is the overview lens one tab away). `aliases` keep this
-            // item highlighted while the user switches tabs (separate page ids).
-            // Label stays "Sessions" (not "Agent Sessions" — redundant under
-            // the Observability parent; not "Agent Traces" — a trace is ONE
-            // turn/request, i.e. the Traces tab; Sessions is the level above,
-            // matching Langfuse/Phoenix vocabulary). Tooltip carries the def.
-            { id: 'agent-runs',     label: 'Traces', aliases: ['storylines', 'agent-map', 'agent-timeline'], tooltip: 'One trace per agent session. Open a trace to see its runs (each LLM call and tool call) with the enforcement verdict, tokens and cost on each. Replay it, or open the Map.' },
-            // Activity log + inventory (SBOM) are two lenses on the same
-            // tool_call_audit data — one destination, two tabs on the page.
-            // 'bill-of-tools' stays as an alias so deep links keep this row lit.
-            { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
-            // Blocked Actions and Secret Detections moved up into Threat Monitor
-            // as facets — see the note on that entry above.
-            { id: 'costs',          label: 'Cost & Tokens' },
-        ]},
-        // ---- Govern (v5 IA) ----
-        // Everything below until Connect is a control the human sets: what
-        // agents may do, which rules fire, what ML runs, what budgets cap.
-        // 2026-07-20 persona review (nav clutter): the four local-control
-        // singles fold into one collapsible group. Page ids are untouched, so
-        // every deep link (Governance gap cards, guides, palette) still lands.
-        // MCP Policies stays OUTSIDE this group on purpose — it's the
-        // CLOUD_TIER org-managed surface (#151), not a local control.
-        // Guardian ML still has no nav row — it's the header sentinel-robot
-        // control (Header.createGuardianControl); the 'guardian-ml' route
-        // stays alive for deep links.
-        { id: 'policies-controls', label: 'Policies & Controls', icon: 'lock', collapsible: true, defaultExpanded: true, subItems: [
-            { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
+            { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow, block or log-only per tool' },
             { id: 'rules', label: 'Rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
-            // Tool Permissions governs WHETHER a tool runs; egress governs WHERE
-            // it may reach. A tool allowed by name can still be denied its
-            // destination, so the two sit side by side rather than nested.
-            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it.' },
-            // Skills + Tools entries cover their primary "configure" surfaces
-            // (the Permissions / Policy tabs); the Activity / Tracking tabs
-            // are surfaced under Observability above.
-            { id: 'skill-scanner', label: 'Skills Scanner', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
-            { id: 'cost-settings', label: 'Cost Settings', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Observability.' },
-        ]},
-        // ---- Cloud section (#151) ----
-        // The cloud-account surfaces get their own labelled section
-        // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
-        // features don't blend into the local Configure items.
-        // MCP Policies — read-only viewer of cloud-synced policy bundles.
-        // Kept distinct from Tool Permissions: the trust artifact (what's
-        // pushed to me, by whom) vs the operational surface.
-        // Governance leads the Cloud section — always-visible local posture
-        // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
-        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture: which SecureVector controls are on. Operational, not legal/compliance.' },
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules: one change, applied to every enrolled device.' },
-        // Connect an agent — the QUICK path: pick an agent, copy a couple of
-        // commands, done. It sits directly above Integrations, which is the
-        // DETAILED per-agent reference (install/verify/uninstall, self-host,
-        // troubleshooting). Quick first, detailed second.
-        // v5 IA simplification: "Connect Wizard" is no longer a separate nav
-        // row — having Wizard + Connect Agents + Integrations read as three
-        // near-identical "connect" entries confused people (persona review:
-        // the novice "froze deciding" between them). Connect Agents is now the
-        // single door: it shows live coverage (detected · protected · not
-        // covered) AND offers the guided one-click setup (the old wizard flow)
-        // as a CTA on the page. The 'connect-wizard' route still exists for
-        // that guided flow and deep links; it's just reached from here now.
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Connect your agents and see coverage: which runtimes are detected, how many sessions are protected, and what is not yet covered. Guided one-click setup and manual commands both live here.' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference (install, verify, troubleshoot, self-host/auth) plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
-            // Grouped by integration mechanism so users pick the right install
-            // path at a glance. "Plugins" = native host hooks (no proxy, no env
-            // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
-            // the plugin but its page also exposes a block-mode proxy.
-            // "Frameworks" = agent frameworks (LangChain/LangGraph/CrewAI) whose
-            // primary path is now the SecureVector SDK (tool-call layer); each
-            // page keeps an optional legacy base-URL proxy. "Proxy" = the
-            // remaining tools you point at the local proxy's base URL (n8n,
-            // Ollama). The left-nav labels stay framework-named (not "SDK").
-            // (Page ids keep their historical `proxy-` prefix to avoid breaking
-            // routes.)
-            { header: 'Plugins' },
-            { id: 'proxy-claude-code', label: 'Claude Code' },
-            { id: 'proxy-codex', label: 'Codex' },
-            { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
-            { id: 'proxy-cursor', label: 'Cursor' },
-            { id: 'proxy-opencode', label: 'OpenCode' },
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
-            { header: 'Frameworks' },
-            { id: 'proxy-langchain', label: 'LangChain' },
-            { id: 'proxy-langgraph', label: 'LangGraph' },
-            { id: 'proxy-crewai', label: 'CrewAI' },
-            { id: 'proxy-hermes', label: 'Hermes' },
-            { header: 'Proxy' },
-            { id: 'proxy-n8n', label: 'n8n' },
-            { id: 'proxy-ollama', label: 'Ollama' },
-        ]},
-        // SIEM Forwarder + Cloud Activity are OUTBOUND pipes (data leaving this
-        // device), not "connect an agent" — lumping them under Connect bloated
-        // that section. They get their own "Cloud & Export" group so Connect
-        // stays just the two agent-connection entries.
-        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
-        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
-        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
-        // installs (clicking lands on its enroll-CTA empty state).
-        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment: synced policies down, metadata-only audit up.' },
-        { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
-            // "Connect Your Agents" is promoted to a top-level nav item (see
-            // above) so it is always visible on every viewport; it is therefore
-            // intentionally NOT duplicated here under Guide.
-            // Harness plugin guides grouped under one header — one section per
-            // harness that ships a native plugin (Claude Code, Codex, GitHub
-            // Copilot CLI, OpenClaw).
-            { header: 'Plugin setup' },
-            { id: 'guide-claude-code', label: 'Claude Code' },
-            { id: 'guide-codex', label: 'Codex' },
-            { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
-            { id: 'guide-cursor', label: 'Cursor' },
-            { id: 'guide-opencode', label: 'OpenCode' },
-            { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
-            { header: 'Framework SDKs' },
-            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI · Hermes' },
-            { header: 'Reading the data' },
-            { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
-            { id: 'gs-read-runs', label: 'Reading Traces', section: 'section-read-runs' },
-            { header: 'Reference' },
-            { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
-            { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
-            { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
-            { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
-            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
-            { id: 'gs-api', label: 'API Reference', section: 'section-api' },
-            { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
-        ]},
+            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it' },
+            { id: 'skill-scanner', label: 'Skills Scanner', tooltip: 'Static analysis and policy for skill directories' },
+            { id: 'cost-settings', label: 'Cost Settings', tooltip: 'Budgets and pricing' },
+            { id: 'mcp-policies', label: 'MCP Policies', tooltip: 'Org-managed tool rules synced from your SecureVector account' },
+          ]},
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s protection posture and the gaps to close' },
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+          tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
+        { id: 'cloud-forwarders', label: 'Cloud & Forwarders', icon: 'rocket', collapsible: true, defaultExpanded: false,
+          tooltip: 'Cloud Connect activity and SIEM forwarding',
+          subItems: [
+            { id: 'cloud-activity', label: 'Cloud Activity', tooltip: 'Everything flowing between this device and your SecureVector account' },
+            { id: 'siem-export', label: 'SIEM Forwarder', tooltip: 'Forward threats and tool-call audit as OCSF events' },
+          ]},
+        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+          tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
         { id: 'settings', label: 'Settings', icon: 'settings' },
     ],
 
@@ -318,7 +191,7 @@ const Sidebar = {
         nav.className = 'sidebar-nav';
 
         // Core features get an orange badge dot overlaid on their icon
-        const CORE_BADGE = new Set(['threat-monitor', 'tool-permissions', 'costs']);
+        const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
@@ -346,20 +219,14 @@ const Sidebar = {
         //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
         // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
-            'dashboard':          'Visibility',
-            'policies-controls':  'Govern',
+            'dashboard':            'Visibility',
+            'policies-controls':    'Govern',
             'guide-connect-agents': 'Connect',
-            'siem-export':        'Cloud & Forwarders',
-            'guide':              'Help & Settings',
+            'guide':                'Help & Settings',
         };
 
-        // Items that get a divider before them — the IA section boundaries.
-        const DIVIDER_BEFORE = new Set(['policies-controls', 'guide-connect-agents', 'siem-export', 'guide']);
+        const DIVIDER_BEFORE = new Set(['policies-controls', 'guide-connect-agents', 'guide']);
 
-        // Section groups — each Observe/Govern/Connect header is a toggle
-        // that collapses every row in its group. Rows register into the
-        // current section as they render; the tail (Guide + Settings) is
-        // deliberately ungrouped and always visible.
         const sections = [];
         let currentSection = null;
 
@@ -429,6 +296,7 @@ const Sidebar = {
             const isActive = matchesSelf && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
+            if (item.aliases) navItem.dataset.aliases = item.aliases.join(',');
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             // A locked cloud row gets an explicit "needs a cloud account"
             // tooltip; otherwise fall back to the item's own tooltip.
@@ -1440,6 +1308,7 @@ const Sidebar = {
         langchain: { icon: '🔗', label: 'LANGCHAIN PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langchain' },
         langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
         crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
+        python: { icon: '🐍', label: 'PYTHON @GUARD', color: 'linear-gradient(135deg, #8b949e, #6e7681)', page: 'proxy-python' },
         hermes: { icon: '🪽', label: 'HERMES PROXY', color: 'linear-gradient(135deg, #f59e0b, #d97706)', page: 'proxy-hermes' },
         n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
         default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #5eadb8, #c0655e)', page: 'integrations' },

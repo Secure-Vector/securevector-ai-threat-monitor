@@ -24,6 +24,7 @@ const App = {
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
         'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },
         'proxy-hermes': { render: (c) => IntegrationPage.render(c, 'proxy-hermes') },
+        'proxy-python': { render: (c) => IntegrationPage.render(c, 'proxy-python') },
         'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
