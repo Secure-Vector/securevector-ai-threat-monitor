@@ -75,7 +75,7 @@ test('the Policies hub is routed and versioned', () => {
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
   assert.match(html, /sidebar\.js\?v=133/);
-  assert.match(html, /styles\.css\?v=357/);
+  assert.match(html, /styles\.css\?v=358/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -146,4 +146,14 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
   assert.match(read('index.html'), /command-palette\.js\?v=16/);
+});
+
+test('the collapse button is reachable, not buried under the resize handle', () => {
+  const css = read('css/styles.css');
+  const btn = css.slice(css.indexOf('.sidebar-collapse-btn {'));
+  const handle = css.slice(css.indexOf('.sidebar-resize-handle {'));
+  const z = (s) => Number((s.slice(0, s.indexOf('}')).match(/z-index:\s*(\d+)/) || [])[1]);
+  // The handle spans the full height of the rail, so it sits over the button.
+  // If it wins the stack, the icon rail and its flyout cannot be reached.
+  assert.ok(z(btn) > z(handle), 'collapse button must stack above the resize handle');
 });

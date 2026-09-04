@@ -1014,7 +1014,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     align-items: center;
     justify-content: center;
     transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-    z-index: 10;
+    z-index: 21;
 }
 
 .sidebar-collapse-btn svg {
