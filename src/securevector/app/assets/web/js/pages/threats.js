@@ -100,6 +100,9 @@ const ThreatsPage = {
 
         const bar = document.createElement('div');
         bar.id = 'tm-facets';
+        // Detections, Blocked Actions and Secret Detections are the rail's
+        // views under Threats now, so the page no longer draws its own strip.
+        bar.hidden = true;
         container.appendChild(bar);
 
         const content = document.createElement('div');
@@ -175,7 +178,7 @@ const ThreatsPage = {
         this.selectedIds.clear();
         this._injectStyle();
 
-        if (window.Header) Header.setPageInfo('Threat Monitor', 'All LLM requests analyzed for threats');
+        if (window.Header) Header.setPageInfo('Threats', 'All LLM requests analyzed for threats');
 
         // Honor a deep-link from Agent Runs: scope the table to the clicked
         // detection's request_id and show a dismissable banner.

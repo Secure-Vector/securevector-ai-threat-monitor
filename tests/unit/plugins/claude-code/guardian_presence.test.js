@@ -171,14 +171,16 @@ test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
   assert.match(html, /guardian-bot\.js\?v=13/);
   assert.match(html, /guardian-3d\.js\?v=18/);
-  assert.match(html, /guardian-assistant\.js\?v=46/);
+  assert.match(html, /guardian-assistant\.js\?v=47/);
 });
 
 test('a live card says which agent it means, and the copy button says where it goes', () => {
   const a = read(ASSISTANT);
   // "a live session" is unusable advice with four agents running
   assert.match(a, /_liveWho\(s\) \{/);
-  assert.match(a, /num > 0 \? `Agent #\$\{num\} · \$\{shortId\}` : `Session \$\{shortId\}`/);
+  // the bubble names the agent by number only: the id never reaches a toast
+  // that ends up in screenshots and recordings
+  assert.match(a, /num > 0 \? `Agent #\$\{num\}` : 'Live session'/);
   // the number comes from the same activity list the Optimizer numbers from,
   // so one session cannot end up with two different names across the app
   assert.match(a, /this\._activityIds/);
@@ -236,13 +238,13 @@ test('agent identity: numbered when known, never guessed when not', () => {
     session_id: 'aaaa1111-x', harness: 'claude-code',
     model: 'claude-opus-5', last_activity: ago(12),
   });
-  assert.equal(first.title, 'Agent #1 · aaaa1111');
+  assert.equal(first.title, 'Agent #1');
   assert.equal(first.sub, 'claude-code · claude-opus-5 · active 12s ago');
 
   const second = GA._liveWho({
     session_id: 'bbbb2222-y', harness: 'codex', model: 'gpt-5', last_activity: ago(240),
   });
-  assert.equal(second.title, 'Agent #2 · bbbb2222');
+  assert.equal(second.title, 'Agent #2');
   assert.match(second.sub, /active 4m ago$/);
 
   // not in the activity list: stays unnumbered rather than taking a number
@@ -250,7 +252,7 @@ test('agent identity: numbered when known, never guessed when not', () => {
   const unknown = GA._liveWho({
     session_id: 'cccc3333-z', harness: 'cursor', model: 'sonnet', last_activity: ago(9000),
   });
-  assert.equal(unknown.title, 'Session cccc3333');
+  assert.equal(unknown.title, 'Live session');
   assert.match(unknown.sub, /active 3h ago$/);
 
   // no metadata at all: the sub-line is empty so the card omits it entirely

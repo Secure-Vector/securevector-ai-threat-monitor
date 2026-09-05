@@ -49,9 +49,9 @@ const Sidebar = {
             { id: 'siem-export', label: 'SIEM Forwarder' },
             { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
           ] },
-        { id: 'guide', label: 'Guide', icon: 'book', aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+        { id: 'guide', label: 'Guide', icon: 'book', dock: true, aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
-        { id: 'settings', label: 'Settings', icon: 'settings' },
+        { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
     ],
     currentPage: 'dashboard',
 
@@ -232,15 +232,17 @@ const Sidebar = {
             'dashboard':            'Visibility',
             'policies':             'Govern',
             'guide-connect-agents': 'Connect',
-            'guide':                'Help & Settings',
         };
 
-        const DIVIDER_BEFORE = new Set(['policies', 'guide-connect-agents', 'guide']);
+        const DIVIDER_BEFORE = new Set(['policies', 'guide-connect-agents']);
 
         const sections = [];
         let currentSection = null;
 
         this.navItems.forEach(item => {
+            // Guide and Settings live in the bottom dock, the way every
+            // reference product does it, so the scrolling rail ends at Connect.
+            if (item.dock) return;
 
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
@@ -641,6 +643,7 @@ const Sidebar = {
         container.appendChild(nav);
         this._flyoutInit(container, nav);
         this._indicatorInit(nav);
+        this._fadeInit(nav);
         this._chordInit();
         // First paint: rows settle in one after another; later renders are instant.
         if (!Sidebar._revealed) {
@@ -710,6 +713,7 @@ const Sidebar = {
         // Bottom section - proxy status, try it, uninstall, server status
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
+        bottomSection.appendChild(this._createDock());
 
         // Collapsible status stack — the proxy / plugin / SIEM banners live
         // in one foldable group (the user asked to be able to put them away).
@@ -1060,6 +1064,33 @@ const Sidebar = {
         return wrap;
     },
 
+    _createDock() {
+        const dock = document.createElement('div');
+        dock.className = 'nav-dock';
+        this.navItems.filter(i => i.dock).forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-dock-row' + (this._itemMatches(item, this.currentPage) ? ' active' : '');
+            row.dataset.page = item.id;
+            const reach = this._itemPageIds(item);
+            if (reach.length) row.dataset.aliases = reach.join(',');
+            row.title = item.tooltip || item.label;
+            row.appendChild(this.createIcon(item.icon));
+            const label = document.createElement('span');
+            label.textContent = item.label;
+            row.appendChild(label);
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                row.appendChild(hint);
+            }
+            row.addEventListener('click', () => this.navigate(item.id));
+            dock.appendChild(row);
+        });
+        return dock;
+    },
+
     _createSearchRow() {
         const row = document.createElement('button');
         row.type = 'button';
@@ -1303,7 +1334,7 @@ const Sidebar = {
                 if (live > 0) {
                     b.textContent = live === 1 ? '1 agent live' : `${live} agents live`;
                     line.appendChild(b);
-                    line.appendChild(document.createTextNode(runs.length > live ? ` · ${runs.length} today` : ''));
+                    line.appendChild(document.createTextNode(runs.length > live ? ` · ${runs.length} agents today` : ''));
                 } else {
                     b.textContent = 'Quiet';
                     line.appendChild(b);
@@ -1313,6 +1344,28 @@ const Sidebar = {
             box.classList.toggle('live', live > 0);
             document.querySelectorAll('.nav-live').forEach(el => { el.hidden = live <= 0; });
         }).catch(() => {});
+    },
+
+    // A rail that can scroll must say so. The fade shows only while there is
+    // more below, so a rail that fits shows nothing at all.
+    _fadeInit(nav) {
+        const sync = () => nav.classList.toggle('nav-more', nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4);
+        nav.addEventListener('scroll', sync, { passive: true });
+        nav.addEventListener('scrollend', sync, { passive: true });
+        window.addEventListener('resize', sync);
+        if (typeof ResizeObserver !== 'undefined') {
+            if (this._fadeRo) this._fadeRo.disconnect();
+            this._fadeRo = new ResizeObserver(sync);
+            this._fadeRo.observe(nav);
+        }
+        // The rail's own box is fixed by the layout; its contents grow and
+        // shrink as sections and views open, so watch those too.
+        if (typeof MutationObserver !== 'undefined') {
+            if (this._fadeMo) this._fadeMo.disconnect();
+            this._fadeMo = new MutationObserver(sync);
+            this._fadeMo.observe(nav, { subtree: true, attributes: true, attributeFilter: ['class', 'style'], childList: true });
+        }
+        requestAnimationFrame(sync);
     },
 
     _indicatorInit(nav) {

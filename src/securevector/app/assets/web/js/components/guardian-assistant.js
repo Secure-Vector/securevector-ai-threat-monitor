@@ -298,11 +298,16 @@ const GuardianAssistant = {
         const here = this._inkCount(r);
         if (!here) return;
         const w = fab.offsetWidth, h = fab.offsetHeight;
-        const dist = ([x, y]) => Math.hypot(x - r.left, y - r.top);
+        // Tie-break towards home, the bottom-right corner, not towards
+        // wherever the bot happens to be: a bot that drifts from clear spot to
+        // clear spot across the page reads as a rendering defect.
+        const anchors = this._anchors(w, h);
+        const home = anchors[0];
+        const dist = ([x, y]) => Math.hypot(x - home[0], y - home[1]);
         // Least ink wins, nearest breaks the tie. Requiring a perfectly clear
         // anchor was measured to fail on the dashboard: every edge anchor
         // covers something there, so the bot gave up and stayed on the banner.
-        const ranked = this._anchors(w, h)
+        const ranked = anchors
             .map((a) => ({ a, ink: this._inkCount(new DOMRect(a[0], a[1], w, h)) }))
             .sort((p, q) => (p.ink - q.ink) || (dist(p.a) - dist(q.a)));
         const best = ranked[0];
@@ -1602,8 +1607,9 @@ const GuardianAssistant = {
     _liveWho(s) {
         const ids = ((this._activityIds || [])).filter(Boolean);
         const num = ids.indexOf(s.session_id) + 1;
-        const shortId = String(s.session_id || '').slice(0, 8);
-        const title = num > 0 ? `Agent #${num} · ${shortId}` : `Session ${shortId}`;
+        // The bubble is a transient toast that ends up in screenshots and
+        // recordings: the agent number is enough, the id stays off it.
+        const title = num > 0 ? `Agent #${num}` : 'Live session';
         const parts = [s.harness, s.model, this._ago(s.last_activity)].filter(Boolean);
         return { title, sub: parts.join(' · ') };
     },

@@ -223,7 +223,7 @@ const DashboardPage = {
             sentence = `All clear: no threats in the ${rangeLabel}`;
         } else if (allowedThrough > 0) {
             tone = 'alert';
-            sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel} — review now`;
+            sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel}. Review now`;
         } else {
             sentence = `${blocked.length} threat${blocked.length === 1 ? '' : 's'} caught in the ${rangeLabel}` +
                 (latest && parse(latest.created_at) ? ` — last ${rel(parse(latest.created_at))}, blocked` : '');
@@ -983,7 +983,9 @@ const DashboardPage = {
         const NEUTRAL = 'var(--text-primary)';
         const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
         const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
-        const blockedStat = makeStat(`Threats blocked · ${rangeTag}`, NEUTRAL, 'threats');
+        // Same number, same words as Agent Governance: tool actions SecureVector
+        // stopped. Block Mode blocks are a different, usually empty, count.
+        const blockedStat = makeStat(`Actions blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
         const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
         const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
         const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
@@ -1015,8 +1017,7 @@ const DashboardPage = {
         // These two are synchronous — same lookback the posture sentence uses,
         // so they are filled before any network round-trip rather than sitting
         // on the em-dash placeholder.
-        blockedStat.valEl.textContent = blocked.toLocaleString();
-        if (blocked > 0) blockedStat.valEl.style.color = '#ef4444';
+        void blocked;
         criticalStat.valEl.textContent = critical.toLocaleString();
         if (critical > 0) criticalStat.valEl.style.color = '#ef4444';
 
@@ -1075,6 +1076,11 @@ const DashboardPage = {
                     .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
                 : 0;
             calls.valEl.textContent = toolCalls.toLocaleString();
+            const blockedActions = auditDaily && auditDaily.days
+                ? auditDaily.days.filter(d => d.day >= sinceDay).reduce((s, d) => s + (d.blocked || 0), 0)
+                : 0;
+            blockedStat.valEl.textContent = blockedActions.toLocaleString();
+            if (blockedActions > 0) blockedStat.valEl.style.color = '#ef4444';
             if (days > 1 && auditDaily && auditDaily.days) {
                 const byDay = new Map(auditDaily.days.map(d => [d.day,
                     (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0)]));

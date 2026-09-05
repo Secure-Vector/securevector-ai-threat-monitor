@@ -8327,3 +8327,28 @@ thead tr:hover #records-select-all,
     border-radius: 4px; border: 1px solid var(--accent-primary); color: var(--accent-primary); flex-shrink: 0; }
 .sidebar.nav-chord:not(.collapsed) .nav-chord-hint { display: inline-block; }
 
+
+/* ---- v5.3 rail: Guide and Settings docked at the foot ---- */
+.nav-dock { padding: 6px 10px 4px; border-bottom: 1px solid var(--border-default); }
+.nav-dock .nav-item { padding: 7px 12px; gap: 12px; }
+.nav-dock .nav-item span { font-size: 12.5px; flex: 1; }
+.nav-dock + .guardian-pill { margin-top: 12px; }
+.sidebar.collapsed .nav-dock { padding: 6px 8px 4px; }
+.sidebar.collapsed .nav-dock .nav-item { justify-content: center; padding: 8px; }
+.sidebar.collapsed .nav-dock .nav-item span, .sidebar.collapsed .nav-dock .nav-chord-hint { display: none; }
+
+/* ---- v5.3 rail: tighter rows so ten destinations fit, and an honest scroll fade ---- */
+.sidebar nav > .nav-item { padding-top: 7px; padding-bottom: 7px; }
+.sidebar nav .nav-section-toggle { padding-top: 7px; padding-bottom: 3px; }
+.nav-views { margin-bottom: 2px; }
+.nav-item.nav-view { padding-top: 4px; padding-bottom: 4px; }
+.nav-pulse { padding: 7px 10px; gap: 4px; }
+.sidebar nav.nav-more::after { content: ''; position: sticky; bottom: 0; display: block; height: 26px;
+    margin-top: -26px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--bg-secondary)); }
+
+.sidebar nav .nav-section-divider { margin-top: 3px; margin-bottom: 3px; }
+.sidebar nav .nav-section-toggle { padding-top: 5px; padding-bottom: 2px; }
+
+.sidebar nav { padding-bottom: 6px; }
+.nav-pulse { margin: 4px 10px 2px; }

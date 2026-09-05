@@ -579,7 +579,7 @@ const EgressPage = {
             const row = document.createElement('div');
             row.className = 'eg-scope-row';
             row.innerHTML =
-                `<code>${this._esc(s.session_id || 'unknown session')}</code>` +
+                `<code title="Session ${this._esc(s.session_id || '')}">${this._esc(s.session_id ? 'session ' + String(s.session_id).slice(0, 8) : 'unknown session')}</code>` +
                 `<span class="eg-scope-nums">${Number(s.distinct_hosts || 0)} hosts, ` +
                 `${Number(s.novel_hosts || 0)} new, ` +
                 `${Number(s.rate_per_minute || 0)}/min</span>`;
