@@ -6,11 +6,8 @@
 
 <p><em>Every model call and every tool call your agent makes, on one timeline, with a security verdict on each. On your machine.</em></p>
 
-<p>
-<a href="https://pypi.org/project/securevector-ai-monitor/"><img alt="PyPI" src="https://img.shields.io/pypi/v/securevector-ai-monitor"></a>
-<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
-<a href="https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Secure-Vector/securevector-ai-threat-monitor"></a>
-</p>
+[![Release](https://img.shields.io/github/v/release/Secure-Vector/securevector-ai-threat-monitor?style=for-the-badge&label=release)](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest)
+
 
 </div>
 
