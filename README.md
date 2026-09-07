@@ -2,19 +2,62 @@
 
 <h1><img src="docs/favicon.png" alt="SecureVector" width="40" height="40"> SecureVector</h1>
 
-<h3>Security &amp; Observability for AI Agents</h3>
+<h3>Security and Observability for AI Agents</h3>
 
-<p><em>Audit every tool. Catch the threats. All locally.</em></p>
+<p><em>Every model call and every tool call your agent makes, on one timeline, with a security verdict on each. On your machine.</em></p>
+
+<p>
+<a href="https://pypi.org/project/securevector-ai-monitor/"><img alt="PyPI" src="https://img.shields.io/pypi/v/securevector-ai-monitor"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue"></a>
+<a href="https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Secure-Vector/securevector-ai-threat-monitor"></a>
+</p>
 
 </div>
 
-- **See everything — Traces.** Every agent session replays as a stepped waterfall: verdict per tool call, tokens + estimated cost per model call. Live follow, redacted replay, audit PDF.
-- **Control everything — permissions + JIT.** Allow / deny / ask at agent runtime. Blocked tools become just-in-time requests: approve for 15 minutes, an hour, or one session — grants expire on their own.
-- **Audit the past — Instant Agent Audit.** Opt-in scan of session history already on disk: destructive commands, plaintext secrets, estimated spend.
-- **Catch the threats — 72 rules + Guardian ML.** OWASP LLM Top 10 + 28 agent-attack chains, detected while the agent is still running. Offline ML catches what regex misses. [Details ↓](#optional-ml-detection-layer--securevector-guardian)
-- **Cut the spend — Cost / Token Optimizer.** A local scan of your own transcripts shows why sessions cost what they did and what to change, with copyable fixes whose impact is measured, not modeled. The Guardian assistant surfaces the advice in the moment it helps.
-- **Prove it** — every tool call in a SHA-256 hash-chained log; blocked actions get a per-rule evidence ledger.
-- **Apache 2.0, no signup, 100% local** — `pip install` and you're covered in 60 seconds. Nothing leaves your machine.
+## Two lines of Python
+
+```bash
+pip install "securevector-ai-monitor[app]"
+securevector-app --web
+```
+
+```python
+from securevector import guard, instrument
+
+instrument()   # patches the OpenAI and Anthropic clients you already use
+
+with guard.session("ticket-8812", user_id="u-42"):
+    reply = client.chat.completions.create(model="gpt-4o", messages=messages)
+```
+
+Open [http://localhost:8741](http://localhost:8741) and every model call is there: model, tokens, cost, duration, finish reason, a verdict, and a redacted preview of the prompt and the response. Every `@guard` tool call nests under the model turn that asked for it.
+
+<p align="center"><img src="docs/screenshots/traces-split-pane.gif" alt="Traces: pick an agent on the left, read its whole run as a waterfall on the right" width="100%"></p>
+
+Any other provider gets one span per call with `guard.generation()`, and anything already instrumented with the OpenTelemetry GenAI conventions can send straight to `/v1/traces`. Details in [docs/TRACING.md](docs/TRACING.md).
+
+## What you get
+
+- **See it.** One trace per agent session. Pick an agent on the left, read its whole run as a waterfall on the right. Live follow, replay, and a costliest-turn mark on every run.
+- **Stop it.** Allow, block or log-only per tool, at runtime. Blocked tools become just-in-time requests you approve for fifteen minutes or an hour. Enforce mode blocks a model call before it leaves your process.
+- **Catch it.** 72 rules covering the OWASP LLM Top 10 plus 28 agent-attack chains, and an optional offline ML model, applied while the agent is still running.
+- **Know where it went.** Every external host an agent reached, when it was first seen, and a policy that decides which ones it may reach.
+- **Prove it.** Every tool call in a SHA-256 hash-chained log. Blocked actions get a per-rule evidence ledger.
+- **Pay less.** A local scan of your own transcripts shows why sessions cost what they did, with copyable fixes.
+- **Keep it.** Apache 2.0. No signup. Nothing leaves your machine unless you connect it.
+
+## Connect an agent
+
+| You run | Do this |
+|---|---|
+| Python with OpenAI or Anthropic | The two lines above |
+| LangChain, LangGraph, CrewAI | One SDK each: [langchain](https://github.com/Secure-Vector/securevector-sdk-langchain), [langgraph](https://github.com/Secure-Vector/securevector-sdk-langgraph), [crewai](https://github.com/Secure-Vector/securevector-sdk-crewai) |
+| Claude Code, Codex, Copilot CLI, Cursor, OpenCode | Open the app, **Connect Agents**, pick yours, **Install Plugin** |
+| OpenClaw | **Connect Agents**, OpenClaw, **Install Plugin**, restart OpenClaw |
+| Anything else with an OpenAI-compatible endpoint | **Connect Agents**, **Start Proxy**, point the base URL at it |
+
+Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest) are on the releases page. If ports 8741 or 8742 are taken, pass `--port`.
+
 
 ### Works with every agent
 
@@ -88,50 +131,6 @@
 
 <br>
 
-## Quick Start
-
-**Step 1 — Install or download**
-
-```bash
-pip install securevector-ai-monitor[app]
-securevector-app --web
-```
-
-**Or download the app:** [Windows](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-v5.2.0-Windows-Setup.exe) · [Linux](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-x86_64.AppImage) · [DEB](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector_5.2.0_amd64.deb) · [RPM](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector-5.2.0-1.x86_64.rpm) · [macOS](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-macOS.dmg)
-
-**Step 2 — Open the app**
-
-Open [http://localhost:8741](http://localhost:8741) in your browser, or double-click the installed binary.
-
-**Step 3 — Connect your agent**
-
-<table>
-<tr>
-<th align="left" width="50%">OpenClaw / ClawdBot (plugin, zero latency)</th>
-<th align="left" width="50%">LangChain, CrewAI, Ollama, n8n (proxy)</th>
-</tr>
-<tr>
-<td valign="top">
-
-**Observability & Monitoring** — Go to **Integrations → OpenClaw**, click **Install Plugin**, restart OpenClaw. Done. No proxy, no env vars.
-
-</td>
-<td valign="top">
-
-**Observability & Monitoring** — Go to **Integrations**, pick your framework, click **Start Proxy**, and set the env var shown on the page.
-
-</td>
-</tr>
-</table>
-
-> **Block Mode (only if you want to enforce blocking)** — Toggle **Block Mode** on the dashboard. The proxy starts automatically and blocks threats before they reach the LLM. Adds ~10–50ms latency per request. Applies to both plugin and proxy integrations.
-
-If the app fails to launch because ports 8741/8742 are already in use, use `--port <port>` of your choice — the proxy starts automatically on port+1.
-See [Configuration](#configuration) for proxy or web/api port settings.
-
-> **Open-source. 100% local by default. No API keys required.**
-
-<br>
 
 ## Screenshots
 
@@ -159,7 +158,7 @@ See [Configuration](#configuration) for proxy or web/api port settings.
 
 <br>
 
-## What You Get
+## Features in depth
 
 <table>
 <tr>
@@ -526,17 +525,17 @@ No Python required. Download and run.
 
 | Platform | Download |
 |----------|----------|
-| Windows | [SecureVector-v5.2.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-v5.2.0-Windows-Setup.exe) |
-| macOS | [SecureVector-5.2.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-macOS.dmg) |
-| Linux (AppImage) | [SecureVector-5.2.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SecureVector-5.2.0-x86_64.AppImage) |
-| Linux (DEB) | [securevector_5.2.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector_5.2.0_amd64.deb) |
-| Linux (RPM) | [securevector-5.2.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/securevector-5.2.0-1.x86_64.rpm) |
+| Windows | [SecureVector-v5.3.0-Windows-Setup.exe](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/SecureVector-v5.3.0-Windows-Setup.exe) |
+| macOS | [SecureVector-5.3.0-macOS.dmg](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/SecureVector-5.3.0-macOS.dmg) |
+| Linux (AppImage) | [SecureVector-5.3.0-x86_64.AppImage](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/SecureVector-5.3.0-x86_64.AppImage) |
+| Linux (DEB) | [securevector_5.3.0_amd64.deb](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/securevector_5.3.0_amd64.deb) |
+| Linux (RPM) | [securevector-5.3.0-1.x86_64.rpm](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/securevector-5.3.0-1.x86_64.rpm) |
 
-[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SHA256SUMS.txt)
+[All Releases](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases) · [SHA256 Checksums](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/SHA256SUMS.txt)
 
 > **Security:** Only download installers from this official GitHub repository. Always verify SHA256 checksums before installation. SecureVector is not responsible for binaries obtained from third-party sources.
 
-> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.2.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
+> **macOS binary note:** **Only download from this official GitHub repository** and verify the [SHA256 checksum](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/download/v5.3.0/SHA256SUMS.txt) before installing. (Prefer pip? `pip install securevector-ai-monitor[app]` always works too.)
 
 ### Other install options
 
