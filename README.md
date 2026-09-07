@@ -6,7 +6,12 @@
 
 <p><em>Every model call and every tool call your agent makes, on one timeline, with a security verdict on each. On your machine.</em></p>
 
-[![Release](https://img.shields.io/github/v/release/Secure-Vector/securevector-ai-threat-monitor?style=for-the-badge&label=release)](https://github.com/Secure-Vector/securevector-ai-threat-monitor/releases/latest)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
+[![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
+[![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
+[![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
+[![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
 
 </div>
@@ -75,12 +80,6 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
 
 <br>
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
-[![PyPI](https://img.shields.io/pypi/v/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![Python](https://img.shields.io/pypi/pyversions/securevector-ai-monitor.svg?style=for-the-badge)](https://pypi.org/project/securevector-ai-monitor)
-[![Downloads/month](https://img.shields.io/pypi/dm/securevector-ai-monitor?style=for-the-badge&label=downloads%2Fmonth&color=orange)](https://pypistats.org/packages/securevector-ai-monitor)
-[![Downloads total](https://img.shields.io/pepy/dt/securevector-ai-monitor?style=for-the-badge&label=downloads%20total&color=orange)](https://pepy.tech/project/securevector-ai-monitor)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/k3bgZuCQBC)
 
 [Website](https://securevector.io) · [Getting Started](docs/GETTING_STARTED.md) · [Verify your install](SECURITY.md#build-provenance--verifying-your-install) · [Discord](https://discord.gg/k3bgZuCQBC) · [Dashboard Screenshots](#screenshots)
 
