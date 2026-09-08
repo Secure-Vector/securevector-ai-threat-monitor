@@ -75,7 +75,7 @@ test('the Policies hub is routed and versioned', () => {
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
   assert.match(html, /sidebar\.js\?v=137/);
-  assert.match(html, /styles\.css\?v=363/);
+  assert.match(html, /styles\.css\?v=364/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -156,4 +156,22 @@ test('the collapse button is reachable, not buried under the resize handle', () 
   // The handle spans the full height of the rail, so it sits over the button.
   // If it wins the stack, the icon rail and its flyout cannot be reached.
   assert.ok(z(btn) > z(handle), 'collapse button must stack above the resize handle');
+});
+
+test('the desktop chrome block makes the rail behave like a window, not a page', () => {
+  const css = read('css/styles.css');
+  const block = css.slice(css.indexOf('v5.3 desktop chrome: the SPA runs inside a pywebview window'));
+  assert.ok(block.length > 0, 'desktop chrome block header must exist');
+  // chrome regions do not highlight on drag, but content and inputs still do
+  assert.match(block, /^\.sidebar,\n\.header,[\s\S]*?user-select: none;/m);
+  assert.match(block, /input, textarea, select, \[contenteditable="true"\][\s\S]*?user-select: text;/);
+  // arrow cursor on chrome, hand kept for real hyperlinks
+  assert.match(block, /html body a\[href\] \{ cursor: pointer; \}/);
+  // pointer clicks drop the ring; keyboard focus keeps it
+  assert.match(block, /button:focus:not\(:focus-visible\)/);
+  assert.match(css, /\[role="tab"\]:focus-visible \{/);
+  // pywebview has no drag regions, so none may be declared
+  assert.doesNotMatch(css, /-webkit-app-region/);
+  // the pin moves with the stylesheet
+  assert.match(read('index.html'), /styles\.css\?v=364/);
 });

@@ -85,9 +85,12 @@ jobs:
           if [ "${{ env.IS_DEVELOP }}" != "true" ]; then
             WINDOWED_FLAG="--windowed"
           fi
-          pyinstaller --noconfirm --onefile $WINDOWED_FLAG \
+          # --onedir: a onefile exe unpacks the whole tree to %TEMP% on every
+          # launch (slow cold start). The Inno installer lays down the
+          # dist/SecureVector<suffix>/ folder as {app}.
+          pyinstaller --noconfirm --onedir $WINDOWED_FLAG \
             --name "SecureVector${{ steps.version.outputs.suffix }}" \
-            --icon "src/securevector/app/assets/favicon.ico" \
+            --icon "src/securevector/app/assets/app-icon.ico" \
             --add-data "src/securevector/rules;securevector/rules" \
             --add-data "src/securevector/pricing;securevector/pricing" \
             --add-data "src/securevector/app/assets;securevector/app/assets" \
@@ -123,6 +126,8 @@ jobs:
             --hidden-import keyring.backends \
             --hidden-import platformdirs \
             src/securevector/app/main.py
+          # The Inno script packages this folder; fail here, not in iscc, if the shape changed.
+          test -f "dist/SecureVector${{ steps.version.outputs.suffix }}/SecureVector${{ steps.version.outputs.suffix }}.exe"
 
       - name: Create Inno Setup installer
         env:
@@ -248,7 +253,7 @@ jobs:
             "${SIGN_FLAGS[@]}" \
             --name "${{ steps.version.outputs.app_name }}" \
             --osx-bundle-identifier "${{ steps.version.outputs.bundle_id }}" \
-            --icon "src/securevector/app/assets/favicon.png" \
+            --icon "src/securevector/app/assets/app-icon.icns" \
             --add-data "src/securevector/rules:securevector/rules" \
             --add-data "src/securevector/pricing:securevector/pricing" \
             --add-data "src/securevector/app/assets:securevector/app/assets" \
@@ -488,8 +493,8 @@ jobs:
           cp "dist/${PKG_NAME}" package/usr/bin/
           chmod +x "package/usr/bin/${PKG_NAME}"
           # Copy app icon
-          cp src/securevector/app/assets/favicon.png package/usr/share/icons/hicolor/256x256/apps/securevector.png
-          cp src/securevector/app/assets/favicon.png package/usr/share/pixmaps/securevector.png
+          cp src/securevector/app/assets/app-icon-256.png package/usr/share/icons/hicolor/256x256/apps/securevector.png
+          cp src/securevector/app/assets/app-icon-256.png package/usr/share/pixmaps/securevector.png
           cat > "package/usr/share/applications/${PKG_NAME}.desktop" << DESKTOP_EOF
           [Desktop Entry]
           Name=SecureVector${{ steps.version.outputs.suffix }}
@@ -549,7 +554,7 @@ jobs:
           cp "dist/${PKG_NAME}" SecureVector.AppDir/usr/bin/
           cp "package/usr/share/applications/${PKG_NAME}.desktop" SecureVector.AppDir/
           # Copy icon for AppImage (required by appimagetool)
-          cp src/securevector/app/assets/favicon.png SecureVector.AppDir/securevector.png
+          cp src/securevector/app/assets/app-icon-256.png SecureVector.AppDir/securevector.png
           cat > SecureVector.AppDir/AppRun << APPRUN_EOF
           #!/bin/bash
           SELF=\$(readlink -f "\$0")

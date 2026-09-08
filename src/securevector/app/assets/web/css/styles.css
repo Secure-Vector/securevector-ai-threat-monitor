@@ -8352,3 +8352,113 @@ thead tr:hover #records-select-all,
 
 .sidebar nav { padding-bottom: 6px; }
 .nav-pulse { margin: 4px 10px 2px; }
+
+/* ============================================================
+ * v5.3 desktop chrome: the SPA runs inside a pywebview window
+ * (WKWebView / WebView2), so the chrome should behave like a
+ * native window rather than a web page. Scoped to the chrome
+ * regions only; content (values, cells, code, traces, inputs)
+ * stays selectable. No drag-region property: pywebview has no
+ * drag-region support.
+ * ============================================================ */
+
+/* ---- v5.3 desktop chrome: platform UI font for body text; the bundled
+   Space Grotesk display face stays on headings and brand, Space Mono on
+   numbers and micro-labels (see the v5 type signature block above). ---- */
+:root {
+    --font-body: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---- v5.3 desktop chrome: chrome is not text. Rail, header, page title
+   rows, toolbars and filter bars, tab rows, buttons and stat labels do
+   not highlight on drag. ---- */
+.sidebar,
+.header,
+.page-header, .page-title-bar, .page-title, .section-header, .card-header,
+.filters-bar, .tab-bar, .sv-obs-tabs, .sv-obs-viewtoggle,
+button, .btn, [role="tab"],
+.stat-label, .stat-card-title,
+.ia-stat-l, .tm-stat-l, .ar-stat-l, .eg-stat-label, .bl-stat-label,
+.llm-stat-label, .mcp-stat-label {
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* Inputs inside those regions (filter bars, the rail's search and settings
+   forms) must stay editable and selectable. */
+input, textarea, select, [contenteditable="true"],
+.sidebar input, .sidebar textarea, .header input, .filters-bar input {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* ---- v5.3 desktop chrome: arrow cursor on chrome, hand only on real
+   hyperlinks, I-beam on text fields. Pages inject their own <style> after
+   this sheet with single-class cursor:pointer rules, so the chrome rule
+   is written as html body :is(...) to outrank those while still losing to
+   two-class states such as .btn.disabled (not-allowed). ---- */
+html body :is(button, .btn, .btn-icon, [role="button"], [role="tab"], .tab-btn, .sv-obs-tab,
+    .nav-item, .nav-section-toggle, .nav-search, .sidebar-collapse-btn, .sidebar-theme-trigger,
+    .sv-theme-opt, .llm-toggle, .mini-toggle, .toggle, .agent-dropdown-btn, .agent-dropdown-item,
+    .ar-filter-chip, .sv-howto-link, select, label) {
+    cursor: default;
+}
+.data-table th.sortable, .data-table th.sv-table-th-sort { cursor: default; }
+html body a[href] { cursor: pointer; }
+input:not([type]), input[type="text"], input[type="search"], input[type="number"],
+input[type="password"], input[type="url"], input[type="email"], textarea {
+    cursor: text;
+}
+
+/* ---- v5.3 desktop chrome: thin scrollbars that stay out of the way
+   until the region is hovered. Standard properties first (Chromium and
+   WebView2 ignore ::-webkit-scrollbar once these are set), WebKit pseudo
+   elements for WKWebView. ---- */
+.sidebar-nav, .page-content,
+.table-wrapper, .table-container, .sv-table-wrap,
+.ar-detail, .modal-body, .side-drawer-content, .floating-chat-messages {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    -ms-overflow-style: auto;
+}
+.sidebar-nav:hover, .page-content:hover,
+.table-wrapper:hover, .table-container:hover, .sv-table-wrap:hover,
+.ar-detail:hover, .modal-body:hover, .side-drawer-content:hover, .floating-chat-messages:hover {
+    scrollbar-color: var(--border-light) transparent;
+}
+.sidebar-nav::-webkit-scrollbar, .page-content::-webkit-scrollbar,
+.table-wrapper::-webkit-scrollbar, .table-container::-webkit-scrollbar, .sv-table-wrap::-webkit-scrollbar,
+.ar-detail::-webkit-scrollbar, .modal-body::-webkit-scrollbar, .side-drawer-content::-webkit-scrollbar,
+.floating-chat-messages::-webkit-scrollbar {
+    display: block;
+    width: 8px;
+    height: 8px;
+}
+.sidebar-nav::-webkit-scrollbar-track, .page-content::-webkit-scrollbar-track,
+.table-wrapper::-webkit-scrollbar-track, .table-container::-webkit-scrollbar-track, .sv-table-wrap::-webkit-scrollbar-track,
+.ar-detail::-webkit-scrollbar-track, .modal-body::-webkit-scrollbar-track, .side-drawer-content::-webkit-scrollbar-track,
+.floating-chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb, .page-content::-webkit-scrollbar-thumb,
+.table-wrapper::-webkit-scrollbar-thumb, .table-container::-webkit-scrollbar-thumb, .sv-table-wrap::-webkit-scrollbar-thumb,
+.ar-detail::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb, .side-drawer-content::-webkit-scrollbar-thumb,
+.floating-chat-messages::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+.sidebar-nav:hover::-webkit-scrollbar-thumb, .page-content:hover::-webkit-scrollbar-thumb,
+.table-wrapper:hover::-webkit-scrollbar-thumb, .table-container:hover::-webkit-scrollbar-thumb, .sv-table-wrap:hover::-webkit-scrollbar-thumb,
+.ar-detail:hover::-webkit-scrollbar-thumb, .modal-body:hover::-webkit-scrollbar-thumb, .side-drawer-content:hover::-webkit-scrollbar-thumb,
+.floating-chat-messages:hover::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+}
+
+/* ---- v5.3 desktop chrome: no focus ring after a pointer click; the
+   :focus-visible rings above stay intact for keyboard users. ---- */
+button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible),
+.nav-item:focus:not(:focus-visible), .sidebar-collapse-btn:focus:not(:focus-visible) {
+    outline: none;
+}

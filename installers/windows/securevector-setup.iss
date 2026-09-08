@@ -1,5 +1,6 @@
 ; SecureVector AI Threat Monitor - Inno Setup Script
-; Creates Windows installer (.exe)
+; Creates Windows installer (.exe) from the PyInstaller --onedir output
+; in dist\SecureVector[-dev]\ (built by .github/workflows/build-installers.yml)
 ; Usage: iscc /DAppSuffix=-dev securevector-setup.iss (for dev builds)
 
 #ifndef AppSuffix
@@ -30,14 +31,19 @@ DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir=Output
 OutputBaseFilename=SecureVector{#AppSuffix}-{#MyAppVersion}-Windows-Setup
-SetupIconFile=..\..\src\securevector\app\assets\favicon.ico
-UninstallDisplayIcon={app}\assets\favicon.ico
+SetupIconFile=..\..\src\securevector\app\assets\app-icon.ico
+UninstallDisplayIcon={app}\assets\app-icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+; The app holds this mutex while running so Setup can ask the user to close
+; it before an upgrade overwrites files in {app}.
+AppMutex=SecureVectorDesktop
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -47,16 +53,21 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startupicon"; Description: "Start SecureVector when Windows starts"; GroupDescription: "Startup:"
 
 [Files]
-Source: "..\..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; Whole PyInstaller --onedir tree: the exe plus its _internal\ runtime.
+Source: "..\..\dist\{#MyAppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\src\securevector\rules\*"; DestDir: "{app}\rules"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\src\securevector\app\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"
-Name: "{group}\{#MyAppName} (OpenClaw Proxy)"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--web --proxy openclaw"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\app-icon.ico"
+Name: "{group}\{#MyAppName} (OpenClaw Proxy)"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\app-icon.ico"; Parameters: "--web --proxy openclaw"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\favicon.ico"; Parameters: "--minimized"; Tasks: startupicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\app-icon.ico"; Tasks: desktopicon
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\app-icon.ico"; Parameters: "--minimized"; Tasks: startupicon
+
+[UninstallDelete]
+; Remove anything the runtime dropped into the onedir tree (caches, logs).
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

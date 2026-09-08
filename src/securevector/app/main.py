@@ -33,6 +33,7 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any, Callable, Optional
 
 # Ensure stdout/stderr never crash on Unicode characters (✓ etc.) on any platform.
 # Strategy: try reconfigure first; fall back to wrapping the raw buffer; ignore all errors.
@@ -94,12 +95,19 @@ def get_assets_path() -> Path:
     return Path(__file__).parent / "assets"
 
 
-def start_server(host: str, port: int, ready_event: threading.Event) -> None:
+def start_server(
+    host: str,
+    port: int,
+    ready_event: threading.Event,
+    configure_app: Optional[Callable[[Any], None]] = None,
+) -> None:
     """Start the FastAPI server in a background thread."""
     import uvicorn
     from securevector.app.server.app import create_app
 
     app = create_app(host=host, port=port)
+    if configure_app is not None:
+        configure_app(app)
 
     # Signal that we're about to start
     def signal_ready():
@@ -126,26 +134,52 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
     """Run the application with a native desktop window."""
     import os
     import webview
+    from securevector.app import desktop_shell
 
     assets_path = get_assets_path()
     loading_html = assets_path / "web" / "loading.html"
     favicon_path = assets_path / "favicon.ico"
+    app_url = f"http://{host}:{port}"
+
+    # Restore last window geometry (validated against the current screens).
+    geometry = desktop_shell.restore_geometry()
 
     # Start with loading screen
     window = webview.create_window(
         title="SecureVector",
-        url=str(loading_html) if loading_html.exists() else f"http://{host}:{port}",
-        width=1200,
-        height=800,
-        min_size=(800, 600),
+        url=str(loading_html) if loading_html.exists() else app_url,
+        width=geometry.width,
+        height=geometry.height,
+        x=geometry.x,
+        y=geometry.y,
+        maximized=geometry.maximized,
+        min_size=(desktop_shell.MIN_WIDTH, desktop_shell.MIN_HEIGHT),
         text_select=True,
     )
+
+    state_tracker = desktop_shell.WindowStateTracker(geometry)
+    state_tracker.attach(window)
+    if not debug:
+        # Native right-click menu off; kept in debug mode so DevTools stays reachable.
+        desktop_shell.suppress_context_menu(window)
+
+    # Single-instance: record our port so a second launch can raise this window.
+    try:
+        desktop_shell.write_lock(port, host)
+        desktop_shell.hold_instance_mutex()
+    except OSError as exc:
+        logger.debug("Could not write desktop lock: %s", exc)
 
     # Start server in background
     server_ready = threading.Event()
     server_thread = threading.Thread(
         target=start_server,
         args=(host, port, server_ready),
+        kwargs={
+            "configure_app": lambda app: desktop_shell.install_activation_route(
+                app, desktop_shell.make_activate_callback(window)
+            )
+        },
         daemon=True,
     )
     server_thread.start()
@@ -157,9 +191,13 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         time.sleep(0.3)  # Extra buffer for server startup
 
         # Navigate to the main app
-        window.load_url(f"http://{host}:{port}")
+        window.load_url(app_url)
 
     def on_closing():
+        # Persist geometry and release the single-instance lock before the
+        # hard exit below (os._exit skips atexit handlers).
+        state_tracker.flush()
+        desktop_shell.remove_lock()
         # macOS hang on Cmd+Q / window-close: pywebview's Cocoa run loop
         # waits for the daemon uvicorn thread to drain, but uvicorn's
         # event loop holds long-lived connections (SSE/keepalive) and
@@ -173,7 +211,11 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
 
     # Start webview (blocking). When it returns, the window is gone
     # and we must hard-exit; daemon-thread cleanup is unreliable on macOS.
-    webview.start(on_loaded, debug=debug)
+    webview.start(
+        on_loaded,
+        debug=debug,
+        menu=desktop_shell.build_menu(window, app_url, __version__, debug=debug),
+    )
     os._exit(0)
 
 
@@ -1733,6 +1775,14 @@ Examples:
     #     silently moving it would break them).
     import socket as _sock
 
+    if not args.web:
+        # Desktop mode: if a desktop instance is already up (its lock file
+        # records the real port, even after an auto-fallback), raise its
+        # window and exit instead of starting a second copy.
+        from securevector.app.desktop_shell import activate_running_instance
+        if activate_running_instance():
+            sys.exit(0)
+
     def _port_free(_p: int) -> bool:
         if _p > 65534:
             return False
@@ -1774,6 +1824,12 @@ Examples:
         # already up and surface the existing instance.
         if _securevector_on(args.port):
             _url_str = f"http://{args.host}:{args.port}"
+            if not args.web:
+                # Desktop mode: raise the existing native window and leave quietly.
+                from securevector.app.desktop_shell import activate_running_instance
+                if activate_running_instance(args.port):
+                    sys.exit(0)
+            # Web mode (or the running instance has no native window): open a tab.
             print(f"\n  ✓  SecureVector is already running at {_url_str}")
             print("     Not starting a second copy. Opening the existing window…\n")
             try:
