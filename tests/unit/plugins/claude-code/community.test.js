@@ -93,9 +93,9 @@ test('friction points carry a report link: threat drawer and uninstall screen', 
 test('community.js loads before the rail and the pins moved', () => {
   const html = read('index.html');
   const community = html.indexOf('community.js?v=4');
-  const sidebar = html.indexOf('sidebar.js?v=144');
+  const sidebar = html.indexOf('sidebar.js?v=145');
   assert.ok(community > 0 && community < sidebar);
   assert.match(html, /header\.js\?v=54/);
   assert.match(html, /dashboard\.js\?v=90/);
-  assert.match(html, /styles\.css\?v=368/);
+  assert.match(html, /styles\.css\?v=369/);
 });

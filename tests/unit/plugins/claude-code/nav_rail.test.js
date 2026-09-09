@@ -74,8 +74,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=144/);
-  assert.match(html, /styles\.css\?v=368/);
+  assert.match(html, /sidebar\.js\?v=145/);
+  assert.match(html, /styles\.css\?v=369/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -92,17 +92,18 @@ test('a loud pill always means something got through, and clears when read', () 
   assert.match(src, /\{ id: 'redactions', label: 'Secret Detections', count: 'secrets' \}/);
 });
 
-test('the status block carries security state only, and names its scope', () => {
+test('the rail is navigation only: no pulse, posture or throughput rows', () => {
   const src = read('js/components/sidebar.js');
-  // throughput telemetry was cut: it is not security state and it cost the rail
+  // throughput telemetry was cut first (not security state); the live-agent
+  // pulse and the device posture chip followed, since Traces and Agent
+  // Governance already carry them and the rail read as a second dashboard
   assert.doesNotMatch(src, /nav-spark|getToolCallAuditDaily|_renderRecent|nav-recent/);
-  assert.match(src, /lbl\.textContent = `This device: \$\{p\.name\}`;/);
-  // nothing connected: the chip offers the next step instead of a grade
-  assert.match(src, /lbl\.textContent = 'Connect an agent to start';/);
-  assert.match(src, /this\._postureTarget = 'guide-connect-agents';/);
+  assert.doesNotMatch(src, /_createPulse|loadPulse|loadPosture|_paintPosture|nav-pulse|nav-posture|sv-nav-posture/);
   const css = read('css/styles.css');
-  assert.doesNotMatch(css, /nav-spark|nav-recent|nav-count-block/);
-  assert.match(css, /\.sidebar\.collapsed \.nav-pulse-line, \.sidebar\.collapsed \.nav-posture \{ display: none; \}/);
+  assert.doesNotMatch(css, /nav-spark|nav-recent|nav-count-block|nav-pulse|nav-posture/);
+  // the plugin status stack folds under a plain row, not a shouting label
+  assert.match(src, /statusLabel\.textContent = 'Plugins';/);
+  assert.doesNotMatch(src, /text-transform: uppercase; color: var\(--text-muted\); width: calc\(100% - 24px\)/);
 });
 
 test('governance credits a control only on current evidence', () => {
@@ -115,18 +116,14 @@ test('governance credits a control only on current evidence', () => {
   assert.match(read('index.html'), /governance\.js\?v=23/);
 });
 
-test('the posture chip reads the governance rule set rather than its own copy', () => {
+test('posture is computed once, in governance, and the rail no longer reads it', () => {
   const src = read('js/components/sidebar.js');
-  assert.match(src, /GovernancePage\.computePosture\(\)/);
-  // painted from cache first so the rail never flickers, recomputed rarely
-  assert.match(src, /localStorage\.getItem\('sv-nav-posture'\)/);
-  assert.match(src, /setInterval\(\(\) => this\.loadPosture\(\), 600000\)/);
+  assert.doesNotMatch(src, /GovernancePage\.computePosture\(\)/);
   const gov = read('js/pages/governance.js');
   assert.match(gov, /async _gather\(\) \{/);
   assert.match(gov, /async computePosture\(\) \{/);
   // render() consumes the same gather, so there is one implementation
   assert.match(gov, /const \{ settings, cloud, cloudOn, traceRows, ctx, agentTxt \} = await this\._gather\(\);/);
-  
 });
 
 test('the Guardian can still point at a folded page through its destination row', () => {
@@ -173,5 +170,5 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=368/);
+  assert.match(read('index.html'), /styles\.css\?v=369/);
 });

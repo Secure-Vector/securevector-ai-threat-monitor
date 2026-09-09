@@ -186,7 +186,6 @@ const Sidebar = {
         header.appendChild(logoLink);
         container.appendChild(header);
         container.appendChild(this._createSearchRow());
-        container.appendChild(this._createPulse());
 
         // Create nav
         const nav = document.createElement('nav');
@@ -225,8 +224,6 @@ const Sidebar = {
             'policies':             'Govern',
             'guide-connect-agents': 'Connect',
         };
-
-        const DIVIDER_BEFORE = new Set(['policies', 'guide-connect-agents']);
 
         const sections = [];
         let currentSection = null;
@@ -281,13 +278,6 @@ const Sidebar = {
                 sections.push(currentSection);
             }
 
-            // Divider
-            if (DIVIDER_BEFORE.has(item.id)) {
-                const divider = document.createElement('div');
-                divider.className = 'nav-section-divider';
-                nav.appendChild(divider);
-                if (currentSection) currentSection.els.push(divider);
-            }
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
@@ -623,13 +613,8 @@ const Sidebar = {
         // blocked in the last 24 hours. The rail answers "where should I look"
         // before a click; zero hides the pill so quiet is quiet.
         this.loadLiveCounts();
-        this.loadPulse();
-        this.loadPosture();
         if (!this._countsTimer) {
-            this._countsTimer = setInterval(() => { this.loadLiveCounts(); this.loadPulse(); }, 60000);
-        }
-        if (!this._postureTimer) {
-            this._postureTimer = setInterval(() => this.loadPosture(), 600000);
+            this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
         }
 
         container.appendChild(nav);
@@ -715,13 +700,20 @@ const Sidebar = {
         statusToggle.type = 'button';
         statusToggle.id = 'sidebar-status-toggle';
         statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
-        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 0 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
-        const statusChevron = document.createElement('span');
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 10px; margin: 0 10px 2px; padding: 6px 12px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text-secondary); width: calc(100% - 20px); text-align: left; overflow: visible;';
+        const statusChevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        statusChevron.setAttribute('viewBox', '0 0 24 24');
+        statusChevron.setAttribute('fill', 'none');
+        statusChevron.setAttribute('stroke', 'currentColor');
+        statusChevron.setAttribute('stroke-width', '2');
         statusChevron.setAttribute('aria-hidden', 'true');
-        statusChevron.style.cssText = 'font-size: 11px; flex-shrink: 0; line-height: 1;';
+        statusChevron.style.cssText = 'width: 20px; height: 20px; flex-shrink: 0; opacity: .7; transition: transform 0.15s;';
+        const statusChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        statusChevPath.setAttribute('d', 'M9 6l6 6-6 6');
+        statusChevron.appendChild(statusChevPath);
         statusToggle.appendChild(statusChevron);
         const statusLabel = document.createElement('span');
-        statusLabel.textContent = 'Active plugins';
+        statusLabel.textContent = 'Plugins';
         statusToggle.appendChild(statusLabel);
         const statusCount = document.createElement('span');
         statusCount.style.cssText = 'margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 9px; line-height: 16px;';
@@ -739,7 +731,7 @@ const Sidebar = {
         const STATUS_COLLAPSE_KEY = 'sv-status-stack-collapsed';
         const applyStatusCollapsed = (collapsed) => {
             statusStack.style.display = collapsed ? 'none' : 'block';
-            statusChevron.textContent = collapsed ? '\u25b8' : '\u25be';
+            statusChevron.style.transform = collapsed ? 'none' : 'rotate(90deg)';
             statusToggle.setAttribute('aria-expanded', String(!collapsed));
             statusToggle.title = collapsed ? 'Show plugin status' : 'Hide plugin status';
         };
@@ -753,11 +745,20 @@ const Sidebar = {
         // poller flips its banner's inline display) — observe instead of
         // threading a callback through all five pollers.
         const updateStatusToggle = () => {
-            const visible = Array.from(statusStack.children).filter(el => el.style.display !== 'none').length;
-            statusToggle.style.display = visible ? 'flex' : 'none';
-            statusCount.textContent = String(visible);
+            const rows = Array.from(statusStack.children).filter(el => el.style.display !== 'none');
+            statusToggle.style.display = rows.length ? 'flex' : 'none';
+            statusCount.textContent = String(rows.length);
+            // Colour is state, not runtime: the dot goes accent once the
+            // plugin is active, amber while it still needs a step (staged,
+            // or installed but not enabled). Runtime brand hues were the
+            // one place the rail broke the single-accent rule.
+            rows.forEach(row => {
+                const dot = row.querySelector('span[aria-hidden]');
+                if (!dot || !/plugin/.test(row.textContent)) return;
+                dot.style.background = /\bActive$/.test(row.textContent.trim()) ? 'var(--accent-primary)' : '#f59e0b';
+            });
         };
-        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true });
+        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, characterData: true, subtree: true });
         updateStatusToggle();
 
         // Guardian ML lives in the header (Header.createGuardianControl) —
@@ -820,7 +821,7 @@ const Sidebar = {
         ccPluginBanner.addEventListener('mouseenter', () => { ccPluginBanner.style.background = 'var(--bg-hover)'; });
         ccPluginBanner.addEventListener('mouseleave', () => { ccPluginBanner.style.background = 'transparent'; });
         const ccDot = document.createElement('span');
-        ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #8b5cf6; flex-shrink: 0;';
+        ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         ccDot.setAttribute('aria-hidden', 'true');
         ccPluginBanner.appendChild(ccDot);
         const ccText = document.createElement('span');
@@ -857,7 +858,7 @@ const Sidebar = {
         codexPluginBanner.addEventListener('mouseenter', () => { codexPluginBanner.style.background = 'var(--bg-hover)'; });
         codexPluginBanner.addEventListener('mouseleave', () => { codexPluginBanner.style.background = 'transparent'; });
         const codexDot = document.createElement('span');
-        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #c0655e; flex-shrink: 0;';
+        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         codexDot.setAttribute('aria-hidden', 'true');
         codexPluginBanner.appendChild(codexDot);
         const codexText = document.createElement('span');
@@ -886,7 +887,7 @@ const Sidebar = {
         copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'var(--bg-hover)'; });
         copilotPluginBanner.addEventListener('mouseleave', () => { copilotPluginBanner.style.background = 'transparent'; });
         const copilotDot = document.createElement('span');
-        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #4a8fe7; flex-shrink: 0;';
+        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         copilotDot.setAttribute('aria-hidden', 'true');
         copilotPluginBanner.appendChild(copilotDot);
         const copilotText = document.createElement('span');
@@ -913,7 +914,7 @@ const Sidebar = {
         opencodePluginBanner.addEventListener('mouseenter', () => { opencodePluginBanner.style.background = 'var(--bg-hover)'; });
         opencodePluginBanner.addEventListener('mouseleave', () => { opencodePluginBanner.style.background = 'transparent'; });
         const opencodeDot = document.createElement('span');
-        opencodeDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #d99a2b; flex-shrink: 0;';
+        opencodeDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         opencodeDot.setAttribute('aria-hidden', 'true');
         opencodePluginBanner.appendChild(opencodeDot);
         const opencodeText = document.createElement('span');
@@ -1224,125 +1225,10 @@ const Sidebar = {
         this._flyHide = setTimeout(() => { fly.hidden = true; }, 160);
     },
 
-    // ---- v5.3 rail: pulse block, sliding indicator, chord shortcuts ----
+    // ---- v5.3 rail: sliding indicator, chord shortcuts ----
+    // The rail is navigation only. Live agent counts live on Traces and
+    // device posture on Agent Governance; both used to be repeated here.
 
-    _createPulse() {
-        const box = document.createElement('div');
-        box.className = 'nav-pulse';
-        box.id = 'nav-pulse';
-
-        // Live agents and posture, nothing else. Tool-call volume is throughput,
-        // not security state, and it was pushing real destinations off screen.
-        const main = document.createElement('button');
-        main.type = 'button';
-        main.className = 'nav-pulse-main';
-        main.title = 'Open Traces';
-        const ring = document.createElement('span');
-        ring.className = 'nav-pulse-ring';
-        const dot = document.createElement('span');
-        dot.className = 'nav-pulse-dot';
-        ring.appendChild(dot);
-        main.appendChild(ring);
-        const line = document.createElement('span');
-        line.className = 'nav-pulse-line';
-        line.id = 'nav-pulse-line';
-        line.textContent = 'Watching this device';
-        main.appendChild(line);
-        main.addEventListener('click', () => this.navigate('agent-runs'));
-        box.appendChild(main);
-
-        const posture = document.createElement('button');
-        posture.type = 'button';
-        posture.className = 'nav-posture';
-        posture.id = 'nav-posture';
-        posture.hidden = true;
-        posture.addEventListener('click', () => this.navigate(this._postureTarget || 'governance'));
-        box.appendChild(posture);
-        return box;
-    },
-
-    _paintPosture(p) {
-        const el = document.getElementById('nav-posture');
-        if (!el || !p || !p.name) return;
-        el.textContent = '';
-        const dot = document.createElement('span');
-        dot.className = 'nav-posture-dot';
-        el.appendChild(dot);
-        const lbl = document.createElement('span');
-        lbl.className = 'nav-posture-name';
-        el.appendChild(lbl);
-        // Nothing connected yet: a band would be meaningless, so the chip
-        // carries the next step instead of a grade.
-        if (!p.sessions) {
-            this._postureTarget = 'guide-connect-agents';
-            el.dataset.band = 'none';
-            lbl.textContent = 'Connect an agent to start';
-            el.title = 'No agent is reporting yet, so there is nothing to assess. Opens Connect Agents.';
-            el.hidden = false;
-            return;
-        }
-        this._postureTarget = 'governance';
-        // Always say whose posture this is: one device, not a fleet.
-        lbl.textContent = `This device: ${p.name}`;
-        el.dataset.band = p.name.toLowerCase().replace(/[^a-z]+/g, '-');
-        const gaps = p.gaps ? `${p.gaps} gap${p.gaps === 1 ? '' : 's'}` : 'no gaps';
-        el.title = `This device only, not your other machines. ${p.name}, ${gaps}${p.def ? `, ${p.def}` : ''}. Opens Agent Governance.`;
-        el.hidden = false;
-    },
-
-    loadPosture() {
-        // Paint the last known band immediately so the rail never flickers,
-        // then recompute. The calculation costs several requests, so it runs
-        // far less often than the counts.
-        try {
-            const cached = JSON.parse(localStorage.getItem('sv-nav-posture') || 'null');
-            if (cached && cached.name) this._paintPosture(cached);
-        } catch (_) { /* private mode */ }
-        if (!window.GovernancePage || typeof GovernancePage.computePosture !== 'function') return;
-        if (this._postureBusy) return;
-        this._postureBusy = true;
-        GovernancePage.computePosture().then(p => {
-            this._postureBusy = false;
-            if (!p || !p.name) return;
-            this._paintPosture(p);
-            try { localStorage.setItem('sv-nav-posture', JSON.stringify(p)); } catch (_) { /* private mode */ }
-        }).catch(() => { this._postureBusy = false; });
-    },
-
-    loadPulse() {
-        if (typeof API === 'undefined') return;
-        const box = document.getElementById('nav-pulse');
-        if (!box) return;
-        // Server timestamps are naive UTC ('2026-09-08 22:51:25'). Without the
-        // 'Z', Date.parse reads them as local time, which puts recent runs in
-        // the future and counted them as live. Same rule as AgentRunsPage._ms.
-        const parse = (ts) => (ts ? Date.parse(String(ts).replace(' ', 'T') + (String(ts).endsWith('Z') || /[+-]\d\d:?\d\d$/.test(String(ts)) ? '' : 'Z')) : NaN);
-        API.request('/api/traces?window_days=1&limit=100').then(r => {
-            const runs = (r && r.runs) || [];
-            // The window is wider than the poll interval on purpose: a run that
-            // is still going must never flicker to "quiet" between two polls.
-            const live = runs.filter(x => (Date.now() - parse(x.ended_at)) < 120000).length;
-            const line = document.getElementById('nav-pulse-line');
-            if (line) {
-                line.textContent = '';
-                const b = document.createElement('b');
-                if (live > 0) {
-                    b.textContent = live === 1 ? '1 agent live' : `${live} agents live`;
-                    line.appendChild(b);
-                    line.appendChild(document.createTextNode(runs.length > live ? ` · ${runs.length} agents today` : ''));
-                } else {
-                    b.textContent = 'Quiet';
-                    line.appendChild(b);
-                    line.appendChild(document.createTextNode(runs.length ? ` · ${runs.length} agent${runs.length === 1 ? '' : 's'} today` : ' · no agent today'));
-                }
-            }
-            box.classList.toggle('live', live > 0);
-            document.querySelectorAll('.nav-live').forEach(el => { el.hidden = live <= 0; });
-        }).catch(() => {});
-    },
-
-    // A rail that can scroll must say so. The fade shows only while there is
-    // more below, so a rail that fits shows nothing at all.
     _fadeInit(nav) {
         const sync = () => nav.classList.toggle('nav-more', nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4);
         nav.addEventListener('scroll', sync, { passive: true });
