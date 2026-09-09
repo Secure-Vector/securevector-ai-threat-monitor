@@ -694,6 +694,10 @@ pytest tests/ -v
 
 [Contributing Guidelines](docs/legal/CONTRIBUTOR_AGREEMENT.md) · [Code of Conduct](.github/CODE_OF_CONDUCT.md)
 
+### Feedback
+
+A wrong detection is the most useful thing you can send. Every detection in the app has a **Report this rule** link that opens a [prefilled false-positive report](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues/new?template=false_positive.yml) with the rule id, version and platform, and nothing else. Anything else: [open an issue](https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues/new/choose), say hello on [Discord](https://discord.gg/k3bgZuCQBC), or email [contact@securevector.io](mailto:contact@securevector.io). If SecureVector is earning its place on your machine, a star helps others find it.
+
 ## Cloud (optional, opt-in)
 
 A separate cloud product handles MCP tool-permission policy sync across enrolled devices, per-org audit attribution, and per-device fleet slicing. It also adds **AI Agent Governance** — your agents' governance posture rolled into a single score across the fleet ([app.securevector.io/governance](https://app.securevector.io/governance)) — plus **EU AI Act orientation** that maps your action-layer logging and tamper-evident tool-call audit to the relevant obligations ([governance/eu-ai-act](https://app.securevector.io/governance/eu-ai-act)); orientation only, not legal advice. Sign in for the fleet-wide view — the local install already gives you the single-device snapshot. Strictly additive — the local install above works standalone without it. Details: [securevector.io](https://securevector.io).

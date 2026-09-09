@@ -143,6 +143,8 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
 
     # Restore last window geometry (validated against the current screens).
     geometry = desktop_shell.restore_geometry()
+    chrome = desktop_shell.ChromeApi(context_menu=debug)  # right-click stays on in debug for DevTools
+    chrome_color, _scheme = desktop_shell.chrome_theme(desktop_shell.DEFAULT_CHROME_THEME)
 
     # Start with loading screen
     window = webview.create_window(
@@ -155,13 +157,20 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         maximized=geometry.maximized,
         min_size=(desktop_shell.MIN_WIDTH, desktop_shell.MIN_HEIGHT),
         text_select=True,
+        background_color=chrome_color,
     )
 
     state_tracker = desktop_shell.WindowStateTracker(geometry)
     state_tracker.attach(window)
-    if not debug:
-        # Native right-click menu off; kept in debug mode so DevTools stays reachable.
-        desktop_shell.suppress_context_menu(window)
+
+    def on_before_show(*_args):
+        # Runs on the GUI thread once the native window exists: hide the title
+        # strip so the rail runs up under the traffic lights (macOS only).
+        unified = desktop_shell.apply_unified_titlebar(window)
+        chrome.bind(window, unified=unified)
+        desktop_shell.apply_chrome_theme(window, desktop_shell.DEFAULT_CHROME_THEME)
+
+    window.events.before_show += on_before_show
 
     # Single-instance: record our port so a second launch can raise this window.
     try:
@@ -176,8 +185,9 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         target=start_server,
         args=(host, port, server_ready),
         kwargs={
-            "configure_app": lambda app: desktop_shell.install_activation_route(
-                app, desktop_shell.make_activate_callback(window)
+            "configure_app": lambda app: (
+                desktop_shell.install_activation_route(app, desktop_shell.make_activate_callback(window)),
+                desktop_shell.install_chrome_routes(app, chrome),
             )
         },
         daemon=True,
@@ -192,6 +202,12 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
 
         # Navigate to the main app
         window.load_url(app_url)
+        # pywebview builds the menu bar during first show; put File first.
+        desktop_shell.reorder_macos_menu()
+        # The web view covers the title strip under the unified title bar;
+        # a native overlay gives the strip its drag and double-click back.
+        # After load, because the inset only exists once the toolbar laid out.
+        desktop_shell.install_titlebar_gestures(window)
 
     def on_closing():
         # Persist geometry and release the single-instance lock before the
@@ -215,6 +231,7 @@ def run_desktop(host: str, port: int, debug: bool) -> None:
         on_loaded,
         debug=debug,
         menu=desktop_shell.build_menu(window, app_url, __version__, debug=debug),
+        user_agent=desktop_shell.desktop_user_agent(__version__),
     )
     os._exit(0)
 

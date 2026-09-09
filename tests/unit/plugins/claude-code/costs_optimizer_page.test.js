@@ -82,11 +82,14 @@ test('spotlight is one-time, native, upgrade-only, and wired into index + app', 
   assert.match(app, /OptimizerSpotlight\.maybeShow\(\)/);
 });
 
-test('what\'s-new banner is bumped to 5.2.0 and lands on the Optimizer', () => {
+test('top banners are retired: the slot renders nothing and is removed', () => {
   const src = read('js/components/global-banners.js');
-  assert.match(src, /WHATS_NEW_VERSION: '5\.2\.0'/);
-  assert.match(src, /Cost \/ Token Optimizer/);
-  assert.match(src, /_pendingTab = 'optimizer'/);
+  for (const gone of ['_buildWhatsNew', '_buildGuardianNotice', '_buildEnrolledBanner', 'Cost / Token Optimizer']) {
+    assert.ok(!src.includes(gone), gone + ' should be gone');
+  }
+  assert.match(src, /if \(slot\) slot\.remove\(\);/);
+  assert.match(src, /KEY_WHATS_NEW: 'sv-whats-new-acked'/, 'welcome screen still acks the key');
+  assert.match(read('index.html'), /global-banners\.js\?v=24/);
 });
 
 test('tour includes an Optimizer step targeting Cost & Tokens', () => {

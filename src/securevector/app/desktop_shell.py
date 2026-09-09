@@ -28,7 +28,14 @@ logger = logging.getLogger(__name__)
 LOCK_FILENAME = "desktop.lock"
 WINDOW_STATE_FILENAME = "window_state.json"
 ACTIVATE_PATH = "/api/desktop/activate"
+CHROME_PATH = "/api/desktop/chrome"
+CHROME_THEME_PATH = "/api/desktop/chrome/theme"
+DESKTOP_USER_AGENT_TOKEN = "SecureVectorDesktop"
 DOCS_URL = "https://securevector.io/docs"
+GITHUB_URL = "https://github.com/Secure-Vector/securevector-ai-threat-monitor"
+GITHUB_ISSUES_URL = "https://github.com/Secure-Vector/securevector-ai-threat-monitor/issues/new"
+DISCORD_URL = "https://discord.gg/k3bgZuCQBC"
+CONTACT_EMAIL = "contact@securevector.io"
 
 DEFAULT_WIDTH = 1200
 DEFAULT_HEIGHT = 800
@@ -373,22 +380,11 @@ def restore_geometry(data_dir: Optional[Path] = None) -> WindowGeometry:
 # 3. Context menu suppression
 # ---------------------------------------------------------------------------
 
-SUPPRESS_CONTEXT_MENU_JS = (
-    "(function(){if(window.__svNoContextMenu){return;}window.__svNoContextMenu=true;"
-    "document.addEventListener('contextmenu',function(e){e.preventDefault();},true);})();"
-)
-
-
-def suppress_context_menu(window: Any) -> None:
-    """Attach a per-page-load hook that disables the native WebView context menu."""
-
-    def _on_loaded(*_args: Any) -> None:
-        try:
-            window.evaluate_js(SUPPRESS_CONTEXT_MENU_JS)
-        except Exception as exc:
-            logger.debug("Context menu suppression skipped: %s", exc)
-
-    window.events.loaded += _on_loaded
+# Context-menu suppression lives in the page (desktop-chrome.js), gated on the
+# desktop user agent and the ``context_menu`` flag from the chrome route. The
+# page's Content Security Policy has no ``unsafe-eval``, and pywebview's
+# ``evaluate_js`` wraps every script in ``eval``, so nothing pushed from
+# Python that way ever runs.
 
 
 # ---------------------------------------------------------------------------
@@ -468,10 +464,25 @@ class DesktopMenu:
     def minimize(self) -> None:
         self.window.minimize()
 
-    def documentation(self) -> None:
+    def _open(self, url: str) -> None:
         import webbrowser
 
-        webbrowser.open(DOCS_URL)
+        webbrowser.open(url)
+
+    def documentation(self) -> None:
+        self._open(DOCS_URL)
+
+    def star_on_github(self) -> None:
+        self._open(GITHUB_URL)
+
+    def join_discord(self) -> None:
+        self._open(DISCORD_URL)
+
+    def report_issue(self) -> None:
+        self._open(issue_url(self.version))
+
+    def email_feedback(self) -> None:
+        self._open(mail_url(self.version))
 
     def open_logs(self) -> None:
         from securevector.app.utils.platform import get_log_dir
@@ -528,11 +539,34 @@ class DesktopMenu:
                     MenuAction("Documentation", self.documentation),
                     MenuAction("Open Logs", self.open_logs),
                     MenuSeparator(),
+                    MenuAction("Star SecureVector on GitHub", self.star_on_github),
+                    MenuAction("Join the Discord", self.join_discord),
+                    MenuAction("Report an Issue", self.report_issue),
+                    MenuAction("Email Feedback", self.email_feedback),
+                    MenuSeparator(),
                     MenuAction("About SecureVector", self.about),
                 ],
             )
         )
         return menus
+
+
+def issue_url(version: str) -> str:
+    """Prefilled bug report: version, platform and install method land in the form fields."""
+    from urllib.parse import urlencode
+
+    os_name = {"darwin": "macOS", "win32": "Windows"}.get(sys.platform, "Linux")
+    install = {"darwin": "macOS installer (.dmg)", "win32": "Windows installer (.exe)"}.get(sys.platform, "Linux AppImage")
+    query = urlencode({"template": "bug_report.yml", "version": version, "os": os_name, "install_method": install})
+    return f"{GITHUB_ISSUES_URL}?{query}"
+
+
+def mail_url(version: str) -> str:
+    """mailto for the public contact alias; the subject carries version and platform."""
+    from urllib.parse import quote
+
+    os_name = {"darwin": "macOS", "win32": "Windows"}.get(sys.platform, "Linux")
+    return f"mailto:{CONTACT_EMAIL}?subject={quote(f'SecureVector feedback (v{version}, {os_name})')}"
 
 
 def build_menu(window: Any, app_url: str, version: str, debug: bool = False) -> list:
@@ -555,3 +589,398 @@ def make_activate_callback(window: Any) -> Callable[[], None]:
         window.show()
 
     return _activate
+
+
+# ---------------------------------------------------------------------------
+# Window chrome: unified title bar, theme-aware appearance, menu order
+# ---------------------------------------------------------------------------
+
+#: Rail background per theme id, mirroring ``--bg-secondary`` in styles.css.
+#: The native window paints this behind the web view so the title strip, the
+#: resize edge and the first paint all match the active theme. Second value
+#: is the system appearance the title-bar controls should use.
+CHROME_THEMES: dict = {
+    "dark": ("#0e1218", "dark"),
+    "black": ("#08090b", "dark"),
+    "slate": ("#1b212c", "dark"),
+    "azure": ("#0c1826", "dark"),
+    "ember": ("#19120e", "dark"),
+    "light": ("#f6f8fa", "light"),
+}
+DEFAULT_CHROME_THEME = "dark"
+
+#: Menu bar order after the application menu. pywebview inserts its own Edit
+#: and View menus at index 1, which pushes our File menu behind them.
+MACOS_MENU_ORDER = ("File", "Edit", "View", "Window", "Help")
+
+_NS_FULL_SIZE_CONTENT_VIEW = 1 << 15  # NSWindowStyleMaskFullSizeContentView
+_NS_TITLE_HIDDEN = 1  # NSWindowTitleHidden
+_NS_TOOLBAR_UNIFIED_COMPACT = 4  # NSWindowToolbarStyleUnifiedCompact (macOS 11+)
+_DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+_DWMWA_CAPTION_COLOR = 35
+_DWMWA_TEXT_COLOR = 36
+
+
+def chrome_theme(theme_id: Any) -> tuple:
+    """Return ``(hex_color, scheme)`` for a theme id; unknown ids fall back to dark."""
+    key = str(theme_id or "").strip().lower()
+    return CHROME_THEMES.get(key, CHROME_THEMES[DEFAULT_CHROME_THEME])
+
+
+def menu_order(titles: Iterable[str]) -> list:
+    """Reorder menu titles: app menu stays first, then File, Edit, View, Window, Help, then the rest."""
+    titles = list(titles)
+    if not titles:
+        return []
+    app_menu, rest = titles[0], titles[1:]
+    known = [t for t in MACOS_MENU_ORDER if t in rest]
+    extras = [t for t in rest if t not in MACOS_MENU_ORDER]
+    return [app_menu, *known, *extras]
+
+
+def _hex_to_rgb(color: str) -> tuple:
+    value = color.lstrip("#")
+    if len(value) != 6:
+        value = "0e1218"
+    return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def apply_unified_titlebar(window: Any) -> bool:
+    """macOS: make the title bar transparent and run the web view under the traffic lights.
+
+    Called from the ``before_show`` event, which pywebview fires on the main
+    thread after the NSWindow exists and before it is ordered front. Returns
+    True when the style was applied; a no-op elsewhere.
+    """
+    if sys.platform != "darwin":
+        return False
+    native = getattr(window, "native", None)
+    if native is None:
+        return False
+    try:
+        import AppKit
+
+        native.setStyleMask_(native.styleMask() | _NS_FULL_SIZE_CONTENT_VIEW)
+        native.setTitlebarAppearsTransparent_(True)
+        native.setTitleVisibility_(_NS_TITLE_HIDDEN)
+        # An empty toolbar gives the title strip the taller "unified" height
+        # with the traffic lights vertically centred, the way Claude Desktop
+        # and Codex Desktop present theirs.
+        toolbar = AppKit.NSToolbar.alloc().initWithIdentifier_("securevector-chrome")
+        toolbar.setShowsBaselineSeparator_(False)
+        toolbar.setAllowsUserCustomization_(False)
+        native.setToolbar_(toolbar)
+        if hasattr(native, "setToolbarStyle_"):
+            native.setToolbarStyle_(_NS_TOOLBAR_UNIFIED_COMPACT)
+        return True
+    except Exception as exc:  # pragma: no cover - depends on the Cocoa runtime
+        logger.debug("unified title bar not applied: %s", exc)
+        return False
+
+
+_NS_VIEW_WIDTH_SIZABLE = 2
+_strip_class: Any = None
+
+
+def double_click_action(preference: Any) -> Optional[str]:
+    """Map the macOS "double-click a window's title bar to" setting to an action.
+
+    Values seen in the wild: Maximize (default), Fill (macOS 15), Minimize, None.
+    """
+    pref = str(preference or "Maximize").strip().lower()
+    if pref == "minimize":
+        return "minimize"
+    if pref == "none":
+        return None
+    return "zoom"
+
+
+def _titlebar_strip_class() -> Any:
+    """Transparent NSView that gives the hidden title strip its gestures back.
+
+    With the full-size content view the web view covers the title area, so
+    the system never sees a drag or a double-click there. The strip sits
+    above the web view over the inset only (the page keeps that band empty)
+    and hands single clicks to the native window drag and double clicks to
+    the user's title-bar preference. Built lazily: PyObjC classes can only
+    be defined once and only where AppKit exists.
+    """
+    global _strip_class
+    if _strip_class is not None:
+        return _strip_class
+    import AppKit
+
+    class SecureVectorTitleStrip(AppKit.NSView):
+        def acceptsFirstMouse_(self, event):  # noqa: N802 - ObjC selector
+            return True
+
+        def resizeWithOldSuperviewSize_(self, old_size):  # noqa: N802 - ObjC selector
+            # Re-place on every resize instead of trusting the autoresizing
+            # mask: the superview is the flipped WKWebView, where top is y=0.
+            place_title_strip(self, getattr(self, "_sv_inset", 0) or 0)
+
+        def mouseDown_(self, event):  # noqa: N802 - ObjC selector
+            window = self.window()
+            if window is None:
+                return
+            if event.clickCount() >= 2:
+                pref = AppKit.NSUserDefaults.standardUserDefaults().stringForKey_("AppleActionOnDoubleClick")
+                action = double_click_action(pref)
+                if action == "zoom":
+                    window.performZoom_(None)
+                elif action == "minimize":
+                    window.performMiniaturize_(None)
+                return
+            window.performWindowDragWithEvent_(event)
+
+    _strip_class = SecureVectorTitleStrip
+    return _strip_class
+
+
+def place_title_strip(strip: Any, inset: int) -> None:
+    """Pin the strip to the top of its superview, whichever way that view's y axis runs.
+
+    pywebview makes the WKWebView itself the content view; WKWebView is
+    flipped (y grows downward), so its top is y = 0. A plain NSView would
+    put the top at height minus inset.
+    """
+    superview = strip.superview()
+    if superview is None or inset <= 0:
+        return
+    import AppKit
+
+    bounds = superview.bounds()
+    flipped = bool(superview.isFlipped()) if hasattr(superview, "isFlipped") else False
+    y = 0 if flipped else bounds.size.height - inset
+    strip.setFrame_(AppKit.NSMakeRect(0, y, bounds.size.width, inset))
+
+
+def install_titlebar_gestures(window: Any) -> bool:
+    """macOS only: add the title strip view over the inset, on the main thread.
+
+    Scheduled rather than immediate because the inset is only known once the
+    toolbar has laid out (after first show), and AppKit view work belongs on
+    the main thread. Returns True when the install was scheduled.
+    """
+    if sys.platform != "darwin":
+        return False
+    native = getattr(window, "native", None)
+    if native is None:
+        return False
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+
+        def _apply() -> None:
+            inset = titlebar_inset(window)
+            if inset <= 0:
+                logger.debug("title strip gestures skipped: no inset")
+                return
+            content = native.contentView()
+            strip = _titlebar_strip_class().alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 0, 0))
+            strip._sv_inset = inset
+            strip.setAutoresizingMask_(_NS_VIEW_WIDTH_SIZABLE)
+            content.addSubview_(strip)
+            place_title_strip(strip, inset)
+
+        AppHelper.callAfter(_apply)
+        return True
+    except Exception as exc:  # pragma: no cover - depends on the Cocoa runtime
+        logger.debug("title strip gestures not installed: %s", exc)
+        return False
+
+
+def titlebar_inset(window: Any) -> int:
+    """Height in points of the native title strip that overlaps the web view (macOS only)."""
+    if sys.platform != "darwin":
+        return 0
+    native = getattr(window, "native", None)
+    if native is None:
+        return 0
+    try:
+        frame = native.frame()
+        layout = native.contentLayoutRect()
+        return max(0, int(round(frame.size.height - layout.size.height)))
+    except Exception as exc:
+        logger.debug("titlebar inset unavailable: %s", exc)
+        return 0
+
+
+def apply_chrome_theme(window: Any, theme_id: Any) -> bool:
+    """Bind the native window chrome to the app theme.
+
+    macOS: system appearance (dark or light controls) plus the window
+    background. Windows: caption colour and dark-mode title bar through DWM
+    on builds that support it. Other platforms: no-op.
+    """
+    color, scheme = chrome_theme(theme_id)
+    native = getattr(window, "native", None)
+    if native is None:
+        return False
+    if sys.platform == "darwin":
+        try:
+            import AppKit
+            from PyObjCTools import AppHelper
+
+            r, g, b = _hex_to_rgb(color)
+
+            def _apply() -> None:
+                name = "NSAppearanceNameDarkAqua" if scheme == "dark" else "NSAppearanceNameAqua"
+                native.setAppearance_(AppKit.NSAppearance.appearanceNamed_(name))
+                native.setBackgroundColor_(
+                    AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(r / 255, g / 255, b / 255, 1.0)
+                )
+
+            AppHelper.callAfter(_apply)
+            return True
+        except Exception as exc:
+            logger.debug("chrome theme not applied: %s", exc)
+            return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            handle = getattr(native, "Handle", None)
+            hwnd = int(handle.ToInt64()) if hasattr(handle, "ToInt64") else int(handle)
+            dwm = ctypes.windll.dwmapi
+            dark = ctypes.c_int(1 if scheme == "dark" else 0)
+            dwm.DwmSetWindowAttribute(hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
+            r, g, b = _hex_to_rgb(color)
+            caption = ctypes.c_uint32((b << 16) | (g << 8) | r)
+            dwm.DwmSetWindowAttribute(hwnd, _DWMWA_CAPTION_COLOR, ctypes.byref(caption), ctypes.sizeof(caption))
+            text = ctypes.c_uint32(0x00EEEEEE if scheme == "dark" else 0x00202020)
+            dwm.DwmSetWindowAttribute(hwnd, _DWMWA_TEXT_COLOR, ctypes.byref(text), ctypes.sizeof(text))
+            return True
+        except Exception as exc:
+            logger.debug("chrome theme not applied: %s", exc)
+            return False
+    return False
+
+
+def menu_item_title(item: Any) -> str:
+    """Visible title of a menu-bar item: the submenu's title, since pywebview leaves the item's own blank."""
+    try:
+        submenu = item.submenu()
+        if submenu is not None:
+            return str(submenu.title())
+    except Exception as exc:
+        logger.debug("submenu title unavailable: %s", exc)
+    return str(item.title())
+
+
+def desktop_user_agent(version: str) -> str:
+    """User agent for the desktop web view; the page keys desktop-only behaviour on the token."""
+    if sys.platform == "darwin":
+        base = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
+    elif sys.platform == "win32":
+        base = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+    else:
+        base = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)"
+    return f"{base} {DESKTOP_USER_AGENT_TOKEN}/{version}"
+
+
+def reorder_macos_menu() -> bool:
+    """Move File in front of the Edit and View menus pywebview inserts.
+
+    AppKit only allows the main menu to be read or changed on the main
+    thread, so the whole pass is scheduled there. Returns True when scheduled.
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+
+        def _apply() -> None:
+            main = AppKit.NSApplication.sharedApplication().mainMenu()
+            if main is None:
+                return
+            items = list(main.itemArray())
+            titles = [menu_item_title(i) for i in items]
+            wanted = menu_order(titles)
+            if wanted == titles or len(set(titles[1:])) != len(titles[1:]):
+                return  # nothing to do, or ambiguous titles: leave the bar alone
+            by_title = {menu_item_title(i): i for i in items[1:]}
+            main.removeAllItems()
+            main.addItem_(items[0])
+            for title in wanted[1:]:
+                main.addItem_(by_title[title])
+
+        AppHelper.callAfter(_apply)
+        return True
+    except Exception as exc:
+        logger.debug("menu reorder skipped: %s", exc)
+        return False
+
+
+class ChromeApi:
+    """Chrome state shared between the shell and the loopback routes.
+
+    The window is bound after ``create_window`` returns and the title bar is
+    styled from ``before_show``; the page asks for the result over HTTP.
+    """
+
+    def __init__(self, window: Any = None, context_menu: bool = False):
+        self._window = window
+        self._unified = False
+        self.context_menu = bool(context_menu)
+
+    def bind(self, window: Any, unified: bool = False) -> None:
+        self._window = window
+        self._unified = bool(unified)
+
+    def chrome_info(self) -> dict:
+        return {
+            "platform": sys.platform,
+            "unified_titlebar": self._unified,
+            "titlebar_inset": titlebar_inset(self._window) if self._unified else 0,
+            "context_menu": self.context_menu,
+        }
+
+    def set_theme(self, theme_id: Any = None) -> bool:
+        return apply_chrome_theme(self._window, theme_id)
+
+
+def install_chrome_routes(app: Any, chrome: ChromeApi) -> None:
+    """Register the loopback-only chrome routes the page uses instead of the JS bridge.
+
+    ``GET /api/desktop/chrome`` returns the title-bar inset and flags;
+    ``POST /api/desktop/chrome/theme`` binds the native window to a theme id.
+    """
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    async def _info(request: Request):
+        client_host = request.client.host if request.client else None
+        if not is_loopback(client_host):
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
+        return chrome.chrome_info()
+
+    async def _theme(request: Request):
+        client_host = request.client.host if request.client else None
+        if not is_loopback(client_host):
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        theme = body.get("theme") if isinstance(body, dict) else None
+        if not isinstance(theme, str) or theme.lower() not in CHROME_THEMES:
+            return JSONResponse({"error": "Unknown theme"}, status_code=400)
+        try:
+            applied = chrome.set_theme(theme)
+        except Exception as exc:  # never let a GUI hiccup 500 the page
+            logger.warning("Chrome theme failed: %s", exc)
+            applied = False
+        return {"applied": bool(applied), "theme": theme.lower()}
+
+    # The SPA catch-all (``GET /{path}``) is already registered by the time the
+    # desktop shell configures the app, so these go to the front of the table.
+    _add_route_first(app, CHROME_PATH, _info, ["GET"])
+    _add_route_first(app, CHROME_THEME_PATH, _theme, ["POST"])
+
+
+def _add_route_first(app: Any, path: str, endpoint: Callable[..., Any], methods: list) -> None:
+    app.add_api_route(path, endpoint, methods=methods, include_in_schema=False)
+    routes = app.router.routes
+    routes.insert(0, routes.pop())

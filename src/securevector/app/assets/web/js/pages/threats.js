@@ -1415,6 +1415,16 @@ const ThreatsPage = {
                 : 'Keeps the record for audit, unlike Delete.';
             dispRow.appendChild(dispHint);
 
+            // Feedback at the moment of friction: a wrong detection is the
+            // one time a user has something specific to say. Prefilled issue
+            // with rule ids, label, version and platform; never the text.
+            if (window.Community) {
+                const report = Community.createReportLink('Report this rule', Community.falsePositiveUrl(threat));
+                report.title = 'Open a prefilled GitHub issue with the rule id, label, version and platform. The text is not included.';
+                report.style.cssText = 'margin-left:auto;font-size:12px;color:var(--text-secondary);white-space:nowrap;';
+                dispRow.appendChild(report);
+            }
+
             content.appendChild(dispRow);
         }
 

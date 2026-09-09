@@ -93,6 +93,9 @@
 
     /* Header */
     --header-height: 64px;
+    /* Height of the native title strip that overlaps the page in the macOS
+       desktop shell. 0 in a browser; the shell sets it at startup. */
+    --titlebar-inset: 0px;
 
     /* Transitions */
     --transition-fast: 150ms ease;
@@ -367,8 +370,22 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 20px;
+    padding: 0 16px;
     border-bottom: 1px solid var(--border-default);
+}
+
+/* Desktop shell (macOS): the native title bar is transparent and the web
+   view runs under the traffic lights, so the rail header and the page header
+   both start below the title-bar inset. Both sides paint --bg-secondary, so
+   the strip reads as one piece of app chrome rather than a browser frame. */
+html.desktop-mac .sidebar-header {
+    height: calc(var(--header-height) + var(--titlebar-inset));
+    padding-top: var(--titlebar-inset);
+}
+
+html.desktop-mac .header {
+    min-height: calc(var(--header-height) + var(--titlebar-inset));
+    padding-top: calc(8px + var(--titlebar-inset));
 }
 
 .sidebar-mascot {
@@ -1017,6 +1034,11 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     z-index: 21;
 }
 
+/* Desktop shell: the button follows the rail header down by the title-bar inset. */
+html.desktop-mac .sidebar-collapse-btn {
+    top: calc(72px + var(--titlebar-inset));
+}
+
 .sidebar-collapse-btn svg {
     width: 14px;
     height: 14px;
@@ -1099,6 +1121,140 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 
 .sidebar-theme-fixed:hover .sidebar-theme-chev {
     opacity: 0.85;
+}
+
+/* Rail foot: the theme row and, on the same line, GitHub and Discord as two
+   quiet icons. One row, not two; the ask itself happens once, at a
+   milestone (see community.js). */
+.sidebar-foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin: 6px 8px 8px;
+}
+
+.sidebar-foot .sidebar-theme-fixed {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.sidebar-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.sidebar-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-link svg {
+    width: 16px;
+    height: 16px;
+}
+
+.sidebar-link:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-link:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+.sidebar.collapsed .sidebar-links {
+    display: none;
+}
+
+/* Milestone card: shown once, the first time the app has earned the
+   question. Top right under the header, where it does not sit on the
+   Guardian bot or the toast stack (both bottom right). Dismissed for good
+   by any of its buttons. Nothing is sent from the app. */
+.sv-milestone {
+    position: fixed;
+    right: 24px;
+    top: calc(var(--header-height) + var(--titlebar-inset) + 12px);
+    z-index: 1090;
+    width: 340px;
+    max-width: calc(100vw - 48px);
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: slideIn 0.3s ease;
+}
+
+.sv-milestone-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.sv-milestone-body {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.sv-milestone-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.sv-milestone-action {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sv-milestone-action:hover {
+    background: var(--bg-hover);
+}
+
+.sv-milestone-action.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.sv-milestone-action.primary:hover {
+    filter: brightness(1.08);
+}
+
+.sv-milestone-action.quiet {
+    border-color: transparent;
+    color: var(--text-secondary);
+}
+
+.sv-milestone-action:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .sidebar-theme-trigger[aria-expanded="true"] .sidebar-theme-chev {
@@ -1590,7 +1746,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 9px 16px;
+    padding: 8px 16px;
     margin-bottom: 0;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
@@ -2065,7 +2221,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 9px 24px;
+    padding: 8px 24px;
 }
 
 .mobile-menu-btn {

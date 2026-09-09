@@ -74,8 +74,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=137/);
-  assert.match(html, /styles\.css\?v=364/);
+  assert.match(html, /sidebar\.js\?v=142/);
+  assert.match(html, /styles\.css\?v=367/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -173,5 +173,5 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=364/);
+  assert.match(read('index.html'), /styles\.css\?v=367/);
 });

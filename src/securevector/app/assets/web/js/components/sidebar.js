@@ -1615,7 +1615,14 @@ const Sidebar = {
             if (e.key === 'Escape') { close(); trigger.focus(); }
         });
 
-        return row;
+        // One foot row: theme on the left, GitHub and Discord as two quiet
+        // icons on the right. Same line so the rail foot stays one row; the
+        // theme hover menu keeps its own wrapper so the icons do not open it.
+        const foot = document.createElement('div');
+        foot.className = 'sidebar-foot';
+        foot.appendChild(row);
+        if (window.Community) foot.appendChild(Community.createLinks());
+        return foot;
     },
 
     setTheme(id) {
@@ -1623,6 +1630,7 @@ const Sidebar = {
         if (this.currentTheme() === id) return;
         document.documentElement.setAttribute('data-theme', id);
         try { localStorage.setItem('theme', id); } catch (_) { /* private mode */ }
+        if (window.DesktopChrome) DesktopChrome.syncTheme(id);
         this.render();
         if (window.Header) Header.render();
     },
@@ -1740,6 +1748,24 @@ const Sidebar = {
         content.appendChild(warning);
 
         modal.appendChild(content);
+
+        // The people who leave are the ones we most need to hear from. One
+        // optional line, one click, a prefilled issue; no survey.
+        if (window.Community) {
+            const leaving = document.createElement('p');
+            leaving.style.cssText = 'margin: 12px 0 0; font-size: 12px; color: var(--text-secondary);';
+            leaving.appendChild(document.createTextNode('Leaving because something did not work? '));
+            const tell = Community.createReportLink('Tell us in a GitHub issue', Community.bugUrl({ title: 'Uninstalling because: ' }));
+            tell.style.cssText = 'color: var(--accent-primary);';
+            leaving.appendChild(tell);
+            leaving.appendChild(document.createTextNode(' or '));
+            const mail = Community.createReportLink('email us', Community.mailUrl('feedback'));
+            mail.removeAttribute('target');
+            mail.style.cssText = 'color: var(--accent-primary);';
+            leaving.appendChild(mail);
+            leaving.appendChild(document.createTextNode('. Version and platform are prefilled, nothing else.'));
+            modal.appendChild(leaving);
+        }
 
         // Footer
         const footer = document.createElement('div');

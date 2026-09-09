@@ -298,15 +298,6 @@ class TestWindowStatePersistence:
 
 
 class TestContextMenuAndMenuBar:
-    def test_suppress_context_menu_runs_js_on_every_load(self):
-        window = _window()
-        ds.suppress_context_menu(window)
-        window.events.loaded.fire()
-        window.events.loaded.fire(window)
-        assert window.evaluate_js.call_count == 2
-        assert "contextmenu" in window.evaluate_js.call_args[0][0]
-        assert "preventDefault" in window.evaluate_js.call_args[0][0]
-
     def _titles(self, menus):
         from webview.menu import MenuAction
 
@@ -320,7 +311,15 @@ class TestContextMenuAndMenuBar:
         menus = ds.build_menu(window, "http://127.0.0.1:9999", "9.9.9")
         titles = self._titles(menus)
         assert "File" in titles and "Window" in titles and "Help" in titles
-        assert titles["Help"] == ["Documentation", "Open Logs", "About SecureVector"]
+        assert titles["Help"] == [
+            "Documentation",
+            "Open Logs",
+            "Star SecureVector on GitHub",
+            "Join the Discord",
+            "Report an Issue",
+            "Email Feedback",
+            "About SecureVector",
+        ]
         assert titles["File"] == ["Quit SecureVector"]
         flat = [t for items in titles.values() for t in items] + list(titles)
         assert all("—" not in t for t in flat)
@@ -346,6 +345,17 @@ class TestContextMenuAndMenuBar:
         with patch("webbrowser.open") as wb:
             menu.documentation()
         wb.assert_called_once_with(ds.DOCS_URL)
+        with patch("webbrowser.open") as wb:
+            menu.star_on_github()
+            menu.join_discord()
+            menu.report_issue()
+        opened = [c.args[0] for c in wb.call_args_list]
+        assert opened[:2] == [ds.GITHUB_URL, ds.DISCORD_URL]
+        assert opened[2].startswith(ds.GITHUB_ISSUES_URL + "?template=bug_report.yml&version=9.9.9&os=")
+        assert "install_method=" in opened[2]
+        with patch("webbrowser.open") as wb:
+            menu.email_feedback()
+        assert wb.call_args.args[0].startswith("mailto:contact@securevector.io?subject=SecureVector%20feedback%20%28v9.9.9%2C%20")
         with patch.object(ds, "open_path_in_file_manager") as opener, patch(
             "securevector.app.utils.platform.get_log_dir", return_value="/tmp/x"
         ):
@@ -393,3 +403,256 @@ def test_hold_instance_mutex_keeps_the_handle_on_windows(monkeypatch):
     finally:
         desktop_shell._instance_mutex_handle = None
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 chrome: unified title bar, theme-bound chrome, File-first menu
+# ---------------------------------------------------------------------------
+
+
+class TestChrome:
+    def test_menu_order_puts_file_before_the_injected_edit_and_view(self):
+        titles = ["SecureVector", "Edit", "View", "File", "Window", "Help"]
+        assert ds.menu_order(titles) == ["SecureVector", "File", "Edit", "View", "Window", "Help"]
+        # Unknown menus keep their relative order after the known set; the app menu never moves.
+        assert ds.menu_order(["", "Debug", "File", "Help"]) == ["", "File", "Help", "Debug"]
+        assert ds.menu_order([]) == []
+
+    def test_chrome_theme_lookup_defaults_to_dark(self):
+        assert ds.chrome_theme("light") == ("#f6f8fa", "light")
+        assert ds.chrome_theme("BLACK") == ("#08090b", "dark")
+        assert ds.chrome_theme("retired-theme") == ds.chrome_theme("dark")
+        assert ds.chrome_theme(None) == ds.chrome_theme("dark")
+        assert set(ds.CHROME_THEMES) == {"dark", "black", "slate", "azure", "ember", "light"}
+
+    def test_unified_titlebar_is_a_no_op_off_macos(self, monkeypatch):
+        window = MagicMock()
+        monkeypatch.setattr(ds.sys, "platform", "linux")
+        assert ds.apply_unified_titlebar(window) is False
+        window.native.setStyleMask_.assert_not_called()
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        assert ds.apply_unified_titlebar(SimpleNamespace(native=None)) is False
+
+    def test_unified_titlebar_sets_mask_transparency_and_toolbar(self, monkeypatch):
+        import types
+
+        toolbar = MagicMock()
+        appkit = types.SimpleNamespace(NSToolbar=MagicMock())
+        appkit.NSToolbar.alloc.return_value.initWithIdentifier_.return_value = toolbar
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", appkit)
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        native = MagicMock()
+        native.styleMask.return_value = 0b1111
+        assert ds.apply_unified_titlebar(SimpleNamespace(native=native)) is True
+        native.setStyleMask_.assert_called_once_with(0b1111 | (1 << 15))
+        native.setTitlebarAppearsTransparent_.assert_called_once_with(True)
+        native.setTitleVisibility_.assert_called_once_with(1)
+        native.setToolbar_.assert_called_once_with(toolbar)
+        native.setToolbarStyle_.assert_called_once_with(4)
+        toolbar.setAllowsUserCustomization_.assert_called_once_with(False)
+
+    def test_double_click_action_follows_the_system_preference(self):
+        assert ds.double_click_action(None) == "zoom"
+        assert ds.double_click_action("Maximize") == "zoom"
+        assert ds.double_click_action("Fill") == "zoom"
+        assert ds.double_click_action("Minimize") == "minimize"
+        assert ds.double_click_action("None") is None
+
+    def test_titlebar_gestures_add_a_strip_over_the_inset(self, monkeypatch):
+        import types
+
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        appkit = types.SimpleNamespace(NSMakeRect=lambda x, y, w, h: (x, y, w, h))
+        helper = types.SimpleNamespace(callAfter=lambda fn, *a: fn(*a))
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", appkit)
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools", types.SimpleNamespace(AppHelper=helper))
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools.AppHelper", helper)
+        strip_cls = MagicMock()
+        strip = strip_cls.alloc.return_value.initWithFrame_.return_value
+        monkeypatch.setattr(ds, "_titlebar_strip_class", lambda: strip_cls)
+        native = MagicMock()
+        native.frame.return_value = SimpleNamespace(size=SimpleNamespace(height=800.0))
+        native.contentLayoutRect.return_value = SimpleNamespace(size=SimpleNamespace(height=760.0))
+        content = native.contentView.return_value
+        content.bounds.return_value = SimpleNamespace(size=SimpleNamespace(width=1200.0, height=800.0))
+        content.isFlipped.return_value = True
+        strip.superview.return_value = content
+        assert ds.install_titlebar_gestures(SimpleNamespace(native=native)) is True
+        assert strip._sv_inset == 40
+        content.addSubview_.assert_called_once_with(strip)
+        strip.setAutoresizingMask_.assert_called_once_with(2)
+        # Flipped superview (the WKWebView): top is y = 0.
+        strip.setFrame_.assert_called_once_with((0, 0, 1200.0, 40))
+        # No strip without an inset (toolbar not laid out), a native window, or macOS.
+        content.addSubview_.reset_mock()
+        native.contentLayoutRect.return_value = SimpleNamespace(size=SimpleNamespace(height=800.0))
+        assert ds.install_titlebar_gestures(SimpleNamespace(native=native)) is True
+        content.addSubview_.assert_not_called()
+        assert ds.install_titlebar_gestures(SimpleNamespace(native=None)) is False
+        monkeypatch.setattr(ds.sys, "platform", "win32")
+        assert ds.install_titlebar_gestures(SimpleNamespace(native=native)) is False
+
+    def test_place_title_strip_handles_both_axis_directions(self, monkeypatch):
+        import types
+
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", types.SimpleNamespace(NSMakeRect=lambda x, y, w, h: (x, y, w, h)))
+        superview = MagicMock()
+        superview.bounds.return_value = SimpleNamespace(size=SimpleNamespace(width=1000.0, height=700.0))
+        strip = MagicMock()
+        strip.superview.return_value = superview
+        superview.isFlipped.return_value = False
+        ds.place_title_strip(strip, 40)
+        strip.setFrame_.assert_called_once_with((0, 660.0, 1000.0, 40))
+        strip.setFrame_.reset_mock()
+        superview.isFlipped.return_value = True
+        ds.place_title_strip(strip, 40)
+        strip.setFrame_.assert_called_once_with((0, 0, 1000.0, 40))
+        strip.setFrame_.reset_mock()
+        strip.superview.return_value = None
+        ds.place_title_strip(strip, 40)
+        strip.setFrame_.assert_not_called()
+
+    def test_titlebar_inset_is_frame_minus_content_layout(self, monkeypatch):
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        native = MagicMock()
+        native.frame.return_value = SimpleNamespace(size=SimpleNamespace(height=800.0))
+        native.contentLayoutRect.return_value = SimpleNamespace(size=SimpleNamespace(height=762.0))
+        assert ds.titlebar_inset(SimpleNamespace(native=native)) == 38
+        assert ds.titlebar_inset(SimpleNamespace(native=None)) == 0
+        monkeypatch.setattr(ds.sys, "platform", "win32")
+        assert ds.titlebar_inset(SimpleNamespace(native=native)) == 0
+
+    def test_chrome_theme_on_macos_binds_appearance_and_background(self, monkeypatch):
+        import types
+
+        appkit = types.SimpleNamespace(NSAppearance=MagicMock(), NSColor=MagicMock())
+        helper = types.SimpleNamespace(callAfter=lambda fn, *a: fn(*a))
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", appkit)
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools", types.SimpleNamespace(AppHelper=helper))
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools.AppHelper", helper)
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        native = MagicMock()
+        assert ds.apply_chrome_theme(SimpleNamespace(native=native), "light") is True
+        appkit.NSAppearance.appearanceNamed_.assert_called_with("NSAppearanceNameAqua")
+        r, g, b, a = appkit.NSColor.colorWithSRGBRed_green_blue_alpha_.call_args.args
+        assert (round(r * 255), round(g * 255), round(b * 255), a) == (0xF6, 0xF8, 0xFA, 1.0)
+        assert ds.apply_chrome_theme(SimpleNamespace(native=native), "black") is True
+        appkit.NSAppearance.appearanceNamed_.assert_called_with("NSAppearanceNameDarkAqua")
+        assert native.setBackgroundColor_.call_count == 2
+        assert ds.apply_chrome_theme(SimpleNamespace(native=None), "dark") is False
+
+    def test_chrome_theme_elsewhere_is_a_no_op(self, monkeypatch):
+        monkeypatch.setattr(ds.sys, "platform", "linux")
+        assert ds.apply_chrome_theme(SimpleNamespace(native=MagicMock()), "dark") is False
+
+    def test_reorder_menu_is_a_no_op_off_macos(self, monkeypatch):
+        monkeypatch.setattr(ds.sys, "platform", "linux")
+        assert ds.reorder_macos_menu() is False
+
+    def test_reorder_menu_rebuilds_the_main_menu(self, monkeypatch):
+        import types
+
+        def item(title):
+            m = MagicMock()
+            m.title.return_value = title
+            return m
+
+        # pywebview leaves every NSMenuItem title blank; the visible name is the submenu's.
+        items = [item("NSMenuItem") for _ in range(6)]
+        for it, t in zip(items, ["SecureVector", "Edit", "View", "File", "Window", "Help"]):
+            it.submenu.return_value.title.return_value = t
+        main = MagicMock()
+        main.itemArray.return_value = items
+        app = SimpleNamespace(mainMenu=lambda: main)
+        appkit = types.SimpleNamespace(NSApplication=SimpleNamespace(sharedApplication=lambda: app))
+        helper = types.SimpleNamespace(callAfter=lambda fn, *a: fn(*a))
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", appkit)
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools", types.SimpleNamespace(AppHelper=helper))
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools.AppHelper", helper)
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        assert ds.reorder_macos_menu() is True
+        main.removeAllItems.assert_called_once()
+        added = [c.args[0].submenu().title() for c in main.addItem_.call_args_list]
+        assert added == ["SecureVector", "File", "Edit", "View", "Window", "Help"]
+
+    def test_reorder_menu_leaves_ambiguous_titles_alone(self, monkeypatch):
+        import types
+
+        def item(title):
+            m = MagicMock()
+            m.submenu.return_value.title.return_value = title
+            return m
+
+        main = MagicMock()
+        main.itemArray.return_value = [item(t) for t in ["App", "Edit", "Edit", "File"]]
+        app = SimpleNamespace(mainMenu=lambda: main)
+        appkit = types.SimpleNamespace(NSApplication=SimpleNamespace(sharedApplication=lambda: app))
+        helper = types.SimpleNamespace(callAfter=lambda fn, *a: fn(*a))
+        monkeypatch.setitem(__import__("sys").modules, "AppKit", appkit)
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools", types.SimpleNamespace(AppHelper=helper))
+        monkeypatch.setitem(__import__("sys").modules, "PyObjCTools.AppHelper", helper)
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        assert ds.reorder_macos_menu() is True
+        main.removeAllItems.assert_not_called()
+
+    def test_chrome_routes_are_loopback_only_and_validate_the_theme(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.responses import HTMLResponse
+        from fastapi.testclient import TestClient
+
+        app = FastAPI()
+
+        @app.get("/{path:path}")  # the SPA catch-all is registered before the shell configures the app
+        async def spa(path: str):
+            return HTMLResponse("<html>spa</html>")
+
+        chrome = ds.ChromeApi(context_menu=False)
+        ds.install_chrome_routes(app, chrome)
+        assert TestClient(app).get(ds.CHROME_PATH).status_code == 403  # "testclient" host
+        client = TestClient(app, client=("127.0.0.1", 50000))
+        info = client.get(ds.CHROME_PATH)
+        assert info.status_code == 200
+        assert info.headers["content-type"].startswith("application/json"), "catch-all must not shadow the route"
+        assert info.json()["context_menu"] is False and "titlebar_inset" in info.json()
+        assert client.get("/anything-else").text == "<html>spa</html>"
+        assert client.post(ds.CHROME_THEME_PATH, json={"theme": "neon"}).status_code == 400
+        assert client.post(ds.CHROME_THEME_PATH, content=b"not json").status_code == 400
+        with patch.object(chrome, "set_theme", return_value=True) as set_theme:
+            resp = client.post(ds.CHROME_THEME_PATH, json={"theme": "Light"})
+        assert resp.status_code == 200 and resp.json() == {"applied": True, "theme": "light"}
+        set_theme.assert_called_once_with("Light")
+        with patch.object(chrome, "set_theme", side_effect=RuntimeError("gui gone")):
+            assert client.post(ds.CHROME_THEME_PATH, json={"theme": "dark"}).json()["applied"] is False
+
+    def test_menu_item_title_prefers_the_submenu(self):
+        item = MagicMock()
+        item.submenu.return_value.title.return_value = "File"
+        item.title.return_value = "NSMenuItem"
+        assert ds.menu_item_title(item) == "File"
+        item.submenu.return_value = None
+        assert ds.menu_item_title(item) == "NSMenuItem"
+
+    def test_desktop_user_agent_carries_the_token(self, monkeypatch):
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        ua = ds.desktop_user_agent("5.3.0")
+        assert ua.endswith("SecureVectorDesktop/5.3.0") and "AppleWebKit" in ua
+        monkeypatch.setattr(ds.sys, "platform", "win32")
+        assert "Windows" in ds.desktop_user_agent("5.3.0")
+
+    def test_chrome_api_surface(self, monkeypatch):
+        api = ds.ChromeApi()
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+        assert api.chrome_info() == {
+            "platform": "darwin", "unified_titlebar": False, "titlebar_inset": 0, "context_menu": False,
+        }
+        assert ds.ChromeApi(context_menu=True).chrome_info()["context_menu"] is True
+        assert api.set_theme("dark") is False  # no window bound yet
+        native = MagicMock()
+        native.frame.return_value = SimpleNamespace(size=SimpleNamespace(height=600.0))
+        native.contentLayoutRect.return_value = SimpleNamespace(size=SimpleNamespace(height=572.0))
+        api.bind(SimpleNamespace(native=native), unified=True)
+        assert api.chrome_info()["titlebar_inset"] == 28
+        with patch.object(ds, "apply_chrome_theme", return_value=True) as apply:
+            assert api.set_theme("slate") is True
+        apply.assert_called_once()
+        assert apply.call_args.args[1] == "slate"

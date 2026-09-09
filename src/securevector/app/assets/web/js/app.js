@@ -107,6 +107,7 @@ const App = {
         // Render components. Global banners render per page-load (see
         // loadPage) — v5 banner policy keeps them to ONE banner, ONE place
         // (the Dashboard), so no init-time render here.
+        if (window.Community) Community.init();
         Sidebar.render();
         Header.render();
         // The floating Guardian (replaces the retired TryItChat panel):

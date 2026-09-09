@@ -1081,6 +1081,15 @@ const DashboardPage = {
                 : 0;
             blockedStat.valEl.textContent = blockedActions.toLocaleString();
             if (blockedActions > 0) blockedStat.valEl.style.color = '#ef4444';
+            // Milestone prompt: the first blocked action is the moment the app
+            // has visibly done its job; real volume (tool calls plus
+            // detections) is the fallback for machines that only observe.
+            if (window.Community) {
+                Community.consider({
+                    blocked: blockedActions,
+                    events: ((this.data && this.data.total_threats) || 0) + toolCalls,
+                });
+            }
             if (days > 1 && auditDaily && auditDaily.days) {
                 const byDay = new Map(auditDaily.days.map(d => [d.day,
                     (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0)]));
