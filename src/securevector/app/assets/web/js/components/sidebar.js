@@ -30,22 +30,26 @@ const Sidebar = {
         { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
         { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
           tooltip: 'Every external host your agents reached, first seen and how often' },
-        // Configure: each policy surface is its own row with an icon, the
-        // same shape as the Visibility rows, so the two groups read alike.
+        // Configure: Policies is the one destination; each policy surface is
+        // a view with its own icon, shown under the row only while you are in
+        // it. Same fold as Traces and Threats, so the rail stays short at rest.
         { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
-          tooltip: 'Everything that decides what an agent may do, with live status for each control' },
-        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
-          tooltip: 'Which tools each agent may call, and requests waiting on you' },
-        { id: 'rules', label: 'Rules', icon: 'rules',
-          tooltip: 'Detection rules: the community library plus your own' },
-        { id: 'egress-policy', label: 'Egress Policy', icon: 'proxy',
-          tooltip: 'Which external hosts agents may reach' },
-        { id: 'cost-settings', label: 'Cost Settings', icon: 'costs',
-          tooltip: 'Budgets and model pricing used for spend tracking' },
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
-          tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
-        { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
-          tooltip: 'Static scan of installed agent skills before they run' },
+          tooltip: 'Everything that decides what an agent may do, with live status for each control',
+          views: [
+            { id: 'policies', label: 'Overview', icon: 'sliders' },
+            { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
+              tooltip: 'Which tools each agent may call, and requests waiting on you' },
+            { id: 'rules', label: 'Rules', icon: 'rules',
+              tooltip: 'Detection rules: the community library plus your own' },
+            { id: 'egress-policy', label: 'Egress Policy', icon: 'proxy',
+              tooltip: 'Which external hosts agents may reach' },
+            { id: 'cost-settings', label: 'Cost Settings', icon: 'costs',
+              tooltip: 'Budgets and model pricing used for spend tracking' },
+            { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
+              tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
+            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
+              tooltip: 'Static scan of installed agent skills before they run' },
+          ] },
         { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
@@ -1027,6 +1031,8 @@ const Sidebar = {
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
+            if (view.tooltip && !this.collapsed) row.title = view.tooltip;
+            if (view.icon) row.appendChild(this.createIcon(view.icon));
             const lbl = document.createElement('span');
             lbl.textContent = view.label;
             row.appendChild(lbl);
