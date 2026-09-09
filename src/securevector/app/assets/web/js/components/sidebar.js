@@ -30,17 +30,22 @@ const Sidebar = {
         { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
         { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
           tooltip: 'Every external host your agents reached, first seen and how often' },
-        { id: 'policies', label: 'Policies', icon: 'lock', aliases: ['policies-controls'],
-          tooltip: 'Everything that decides what an agent may do: tool permissions, rules, egress, budgets, MCP',
-          views: [
-            { id: 'policies', label: 'Overview' },
-            { id: 'tool-permissions', label: 'Tool Permissions' },
-            { id: 'rules', label: 'Rules' },
-            { id: 'egress-policy', label: 'Egress Policy' },
-            { id: 'cost-settings', label: 'Cost Settings' },
-            { id: 'mcp-policies', label: 'MCP Policies', cloud: true },
-            { id: 'skill-scanner', label: 'Skills Scanner' },
-          ] },
+        // Configure: each policy surface is its own row with an icon, the
+        // same shape as the Visibility rows, so the two groups read alike.
+        { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
+          tooltip: 'Everything that decides what an agent may do, with live status for each control' },
+        { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
+          tooltip: 'Which tools each agent may call, and requests waiting on you' },
+        { id: 'rules', label: 'Rules', icon: 'rules',
+          tooltip: 'Detection rules: the community library plus your own' },
+        { id: 'egress-policy', label: 'Egress Policy', icon: 'proxy',
+          tooltip: 'Which external hosts agents may reach' },
+        { id: 'cost-settings', label: 'Cost Settings', icon: 'costs',
+          tooltip: 'Budgets and model pricing used for spend tracking' },
+        { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
+          tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
+        { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
+          tooltip: 'Static scan of installed agent skills before they run' },
         { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
           tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
         { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
@@ -215,12 +220,12 @@ const Sidebar = {
         // audiences use — SOC operators ("visibility into agent activity") and
         // business buyers alike — and doesn't echo the child.
         //   Visibility — what the agents are doing (dashboard, threats, observability)
-        //   Govern     — what the human controls (permissions, rules, policies)
+        //   Configure  — what the human sets (permissions, rules, egress, budgets, MCP, skills)
         //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
         // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
             'dashboard':            'Visibility',
-            'policies':             'Govern',
+            'policies':             'Configure',
             'guide-connect-agents': 'Connect',
         };
 
@@ -339,6 +344,16 @@ const Sidebar = {
                 badge.textContent = '...';
                 navItem.appendChild(badge);
             }
+            // Pending JIT requests: an agent waiting on a human decision is the
+            // one time-sensitive signal on Tool Permissions. Filled by
+            // loadJitPendingCount().
+            if (item.id === 'tool-permissions') {
+                const jitBadge = document.createElement('span');
+                jitBadge.id = 'jit-pending-badge';
+                jitBadge.className = 'nav-count nav-count-warn';
+                jitBadge.style.display = 'none';
+                navItem.appendChild(jitBadge);
+            }
 
             // Tier pill — features that require a SecureVector account get a
             // small "Cloud" marker so users know up-front before they click.
@@ -346,8 +361,9 @@ const Sidebar = {
             // so the dimmed row reads as "locked, available" rather than broken.
             if (CLOUD_TIER.has(item.id)) {
                 const tier = document.createElement('span');
-                tier.textContent = isCloudLocked ? '🔒 Cloud' : 'Cloud';
-                tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
+                tier.className = 'nav-view-tier';
+                tier.textContent = 'Cloud';
+                tier.title = isCloudLocked ? 'Needs a SecureVector account. Connect one under Cloud & Forwarders.' : 'Synced with your SecureVector account';
                 navItem.appendChild(tier);
             }
 
@@ -555,7 +571,7 @@ const Sidebar = {
             }
         });
 
-        // Wire the Visibility / Govern / Connect section toggles. Collapse hides
+        // Wire the Visibility / Configure / Connect section toggles. Collapse hides
         // rows via a class (not inline display) so each row's own inline
         // display state — sub-nav expand/collapse, banner visibility — is
         // preserved intact when the section reopens.
@@ -683,7 +699,7 @@ const Sidebar = {
         statusToggle.type = 'button';
         statusToggle.id = 'sidebar-status-toggle';
         statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
-        statusToggle.style.cssText = 'display: none; align-items: center; gap: 10px; margin: 0 10px 2px; padding: 6px 12px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text-secondary); width: calc(100% - 20px); text-align: left; overflow: visible;';
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 10px; margin: 0 10px 0; padding: 5px 12px; min-height: 24px; line-height: 1.4; background: transparent; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text-secondary); width: calc(100% - 20px); text-align: left; overflow: visible;';
         const statusChevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         statusChevron.setAttribute('viewBox', '0 0 24 24');
         statusChevron.setAttribute('fill', 'none');

@@ -21,12 +21,12 @@ function navItemsSource() {
 
 test('the rail has nine destinations plus Guide and Settings', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
-  // Visibility is what you read, Govern is what you set: the posture report
-  // moved out of Govern, and Skills Scanner folded into Policies where its
+  // Visibility is what you read, Configure is what you set: the posture report
+  // moved out of the settings group, and Skills Scanner sits with the policies where its
   // hub card already lived.
   assert.deepStrictEqual(ids, [
     'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
-    'policies',
+    'policies', 'tool-permissions', 'rules', 'egress-policy', 'cost-settings', 'mcp-policies', 'skill-scanner',
     'guide-connect-agents', 'siem-export',
     'guide', 'settings',
   ]);
@@ -34,10 +34,14 @@ test('the rail has nine destinations plus Guide and Settings', () => {
 
 test('folded pages are views of a destination, so every old page id still lands', () => {
   const nav = navItemsSource();
-  for (const id of ['tool-activity', 'instant-audit', 'blocked-ledger', 'redactions',
-                    'tool-permissions', 'rules', 'egress-policy', 'cost-settings', 'mcp-policies', 'cloud-activity']) {
+  for (const id of ['tool-activity', 'instant-audit', 'blocked-ledger', 'redactions', 'cloud-activity']) {
     assert.match(nav, new RegExp(`\\{ id: '${id}', label: '[^']+'`), `${id} must be a view`);
   }
+  // the policy surfaces are rows of their own under Configure, each with an icon
+  for (const id of ['tool-permissions', 'rules', 'egress-policy', 'cost-settings', 'mcp-policies', 'skill-scanner']) {
+    assert.match(nav, new RegExp(`\\{ id: '${id}', label: '[^']+', icon: '[a-z]+'`), `${id} must be a destination with an icon`);
+  }
+  assert.match(read('js/components/sidebar.js'), /'policies':\s+'Configure',/);
   // no page is both a destination and a stray sub-item list
   assert.doesNotMatch(nav, /subItems:/);
   // deep links to the retired group id still highlight Policies
@@ -74,8 +78,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=148/);
-  assert.match(html, /styles\.css\?v=371/);
+  assert.match(html, /sidebar\.js\?v=150/);
+  assert.match(html, /styles\.css\?v=374/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -170,5 +174,5 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=371/);
+  assert.match(read('index.html'), /styles\.css\?v=374/);
 });

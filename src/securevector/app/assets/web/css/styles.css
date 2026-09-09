@@ -984,7 +984,7 @@ html.desktop-mac .header {
 
 .sidebar.collapsed .nav-item {
     justify-content: center;
-    padding: 12px;
+    padding: 7px 12px;
 }
 
 .sidebar.collapsed .sidebar-theme-btn {
@@ -1051,7 +1051,7 @@ html.desktop-mac .sidebar-collapse-btn {
    Circle + label so it reads as a rail row rather than a stray control. */
 .sidebar-theme-fixed {
     position: relative;
-    margin: 6px 8px 8px;
+    margin: 4px 8px 6px;
 }
 
 .sidebar-theme-trigger {
@@ -1604,7 +1604,7 @@ html.desktop-mac .sidebar-collapse-btn {
 .sidebar-nav {
     flex: 1;
     min-height: 0;
-    padding: 8px 12px 16px;
+    padding: 2px 12px 2px;
     overflow-y: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -8469,7 +8469,7 @@ thead tr:hover #records-select-all,
 
 /* ---- v5.3 rail: Guide and Settings docked at the foot ---- */
 .nav-dock { padding: 6px 10px 0; }
-.nav-dock .nav-item { padding: 7px 12px; gap: 12px; }
+.nav-dock .nav-item { padding: 6px 12px; gap: 12px; }
 .nav-dock .nav-item span { font-size: 12.5px; flex: 1; }
 .nav-dock + .guardian-pill { margin-top: 12px; }
 .sidebar.collapsed .nav-dock { padding: 6px 8px 4px; }
@@ -8477,7 +8477,8 @@ thead tr:hover #records-select-all,
 .sidebar.collapsed .nav-dock .nav-item span, .sidebar.collapsed .nav-dock .nav-chord-hint { display: none; }
 
 /* ---- v5.3 rail: tighter rows so ten destinations fit, and an honest scroll fade ---- */
-.sidebar nav > .nav-item { padding-top: 7px; padding-bottom: 7px; }
+/* 32px rows: fifteen destinations plus three labels fit the 800px default window. */
+.sidebar nav > .nav-item { padding-top: 6px; padding-bottom: 6px; }
 .sidebar nav .nav-section-toggle { padding-top: 7px; padding-bottom: 3px; }
 .nav-views { margin-bottom: 2px; }
 .nav-item.nav-view { padding-top: 4px; padding-bottom: 4px; }
@@ -8486,9 +8487,9 @@ thead tr:hover #records-select-all,
     background: linear-gradient(to bottom, transparent, var(--bg-secondary)); }
 
 .sidebar nav .nav-section-divider { margin-top: 3px; margin-bottom: 3px; }
-.sidebar nav .nav-section-toggle { padding-top: 5px; padding-bottom: 2px; }
+.sidebar nav .nav-section-toggle { padding-top: 4px; padding-bottom: 2px; }
 
-.sidebar nav { padding-bottom: 6px; }
+.sidebar nav { padding-bottom: 2px; }
 
 /* ============================================================
  * v5.3 desktop chrome: the SPA runs inside a pywebview window
