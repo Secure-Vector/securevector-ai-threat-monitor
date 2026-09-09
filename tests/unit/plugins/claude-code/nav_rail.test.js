@@ -21,8 +21,8 @@ function navItemsSource() {
 
 test('the rail has nine destinations plus Guide and Settings', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
-  // Visibility is what you read, Configure is what you set: the posture report
-  // moved out of the settings group, and Skills Scanner folded into Policies where its
+  // Visibility is what you read, Govern is what you set: the posture report
+  // moved out of Govern, and Skills Scanner folded into Policies where its
   // hub card already lived.
   assert.deepStrictEqual(ids, [
     'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
@@ -74,7 +74,7 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=147/);
+  assert.match(html, /sidebar\.js\?v=148/);
   assert.match(html, /styles\.css\?v=371/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
