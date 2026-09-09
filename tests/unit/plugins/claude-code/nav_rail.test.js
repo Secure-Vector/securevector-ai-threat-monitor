@@ -44,7 +44,7 @@ test('folded pages are views of a destination, so every old page id still lands'
   }
   const src = read('js/components/sidebar.js');
   assert.match(src, /if \(view\.icon\) row\.appendChild\(this\.createIcon\(view\.icon\)\);/);
-  assert.match(read('css/styles.css'), /\.nav-item\.nav-view svg \{ width: 15px; height: 15px;/);
+  assert.match(read('css/styles.css'), /\.nav-item\.nav-view svg \{ width: 14px; height: 14px;/);
   assert.match(read('js/components/sidebar.js'), /'policies':\s+'Configure',/);
   // no page is both a destination and a stray sub-item list
   assert.doesNotMatch(nav, /subItems:/);
@@ -82,8 +82,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=152/);
-  assert.match(html, /styles\.css\?v=375/);
+  assert.match(html, /sidebar\.js\?v=153/);
+  assert.match(html, /styles\.css\?v=376/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -150,7 +150,7 @@ test('picking a search result with the mouse actually navigates', () => {
   assert.match(p, /_syncSel\(\) \{/);
   assert.match(p, /row\.addEventListener\('mousedown'/);
   assert.match(p, /row\.addEventListener\('click', \(\) => this\._go\(item\)\);/);
-  assert.match(read('index.html'), /command-palette\.js\?v=16/);
+  assert.match(read('index.html'), /command-palette\.js\?v=17/);
 });
 
 test('the collapse button is reachable, not buried under the resize handle', () => {
@@ -178,7 +178,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=375/);
+  assert.match(read('index.html'), /styles\.css\?v=376/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -209,4 +209,27 @@ test('the plugin status observer settles on WebKit, which re-fires a style mutat
   fn();
   assert.ok(calls <= 2, `observer re-entered ${calls} times`);
   assert.strictEqual(dot.style.background, 'var(--accent-primary)');
+});
+
+test('folding Policies keeps every signal reachable from outside it', () => {
+  const src = read('js/components/sidebar.js');
+  // pending just-in-time count on the parent row, mirrored by the icon-rail flyout
+  assert.match(src, /jitBadge\.id = 'jit-pending-parent-badge';/);
+  assert.match(src, /getElementById\('jit-pending-parent-badge'\)/);
+  // views keep their own badges, the cloud lock and the chord hint
+  assert.match(src, /badge\.id = 'rules-count-badge';\s+row\.appendChild/);
+  assert.match(src, /if \(locked\) row\.classList\.add\('nav-item-locked'\);/);
+  assert.match(src, /this\.CHORDS\[k\] === view\.id/);
+  // the edge indicator stays on the parent row while a view is active
+  assert.match(src, /rows\.find\(r => !r\.classList\.contains\('nav-view'\)\)/);
+  // the flyout shows icons and tooltips for views
+  assert.match(src, /if \(v\.icon\) b\.appendChild\(this\.createIcon\(v\.icon\)\);/);
+  // the palette walks views so the folded pages stay searchable, under the rail's group name
+  const pal = read('js/components/command-palette.js');
+  assert.match(pal, /\(item\.views \|\| \[\]\)\.forEach/);
+  assert.match(pal, /'mcp-policies', 'policies'\]\.includes\(id\)\) return 'Configure';/);
+  // no dead top-level branches for pages that are now views
+  assert.doesNotMatch(src, /if \(item\.id === 'rules'\)/);
+  assert.doesNotMatch(src, /if \(item\.id === 'tool-permissions'\)/);
+  assert.doesNotMatch(src, /if \(CLOUD_TIER\.has\(item\.id\)\) \{\s+const tier/);
 });

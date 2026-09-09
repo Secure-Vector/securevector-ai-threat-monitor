@@ -36,7 +36,7 @@ const Sidebar = {
         { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
           tooltip: 'Everything that decides what an agent may do, with live status for each control',
           views: [
-            { id: 'policies', label: 'Overview', icon: 'sliders' },
+            { id: 'policies', label: 'Overview', tooltip: 'Every control at a glance, with live status for each' },
             { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
               tooltip: 'Which tools each agent may call, and requests waiting on you' },
             { id: 'rules', label: 'Rules', icon: 'rules',
@@ -340,41 +340,22 @@ const Sidebar = {
                 navItem.appendChild(hint);
             }
 
-            // Add badge for rules count
-            if (item.id === 'rules') {
-                const badge = document.createElement('span');
-                badge.className = 'nav-badge';
-                badge.id = 'rules-count-badge';
-                badge.textContent = '...';
-                navItem.appendChild(badge);
-            }
-            // Pending JIT requests: an agent waiting on a human decision is the
-            // one time-sensitive signal on Tool Permissions. Filled by
-            // loadJitPendingCount().
-            if (item.id === 'tool-permissions') {
+            // Pending just-in-time requests: an agent waiting on a human
+            // decision is the one time-sensitive signal in Configure. The count
+            // sits on Policies so it shows from anywhere, including the icon
+            // rail, where the flyout mirrors it. Filled by loadJitPendingCount().
+            if (item.id === 'policies') {
                 const jitBadge = document.createElement('span');
-                jitBadge.id = 'jit-pending-badge';
+                jitBadge.id = 'jit-pending-parent-badge';
                 jitBadge.className = 'nav-count nav-count-warn';
-                jitBadge.style.display = 'none';
+                jitBadge.hidden = true;
                 navItem.appendChild(jitBadge);
             }
 
-            // Tier pill — features that require a SecureVector account get a
-            // small "Cloud" marker so users know up-front before they click.
-            // When the device isn't enrolled the pill shows a tiny lock glyph
-            // so the dimmed row reads as "locked, available" rather than broken.
-            if (CLOUD_TIER.has(item.id)) {
-                const tier = document.createElement('span');
-                tier.className = 'nav-view-tier';
-                tier.textContent = 'Cloud';
-                tier.title = isCloudLocked ? 'Needs a SecureVector account. Connect one under Cloud & Forwarders.' : 'Synced with your SecureVector account';
-                navItem.appendChild(tier);
-            }
-
-            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
+            // NEW badge — persistent for Agent Governance, session-only (30s auto-dismiss) for anything listed below.
             // Guardian ML deliberately omitted: it gets the animated "sentinel"
             // robot below instead of a NEW badge.
-            const persistNewItems = ['rules', 'governance'];
+            const persistNewItems = ['governance'];
             // Session-only NEW badges: first-view highlight that auto-dismisses
             // after 30s so the sidebar doesn't stay permanently shouty.
             const sessionNewItems = [];
@@ -1031,7 +1012,12 @@ const Sidebar = {
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
-            if (view.tooltip && !this.collapsed) row.title = view.tooltip;
+            const locked = !!view.cloud && this._enrolled !== true;
+            row.dataset.tip = locked
+                ? 'Requires a SecureVector cloud account: enroll this device to turn this on.'
+                : (view.tooltip || '');
+            if (row.dataset.tip && !this.collapsed) row.title = row.dataset.tip;
+            if (locked) row.classList.add('nav-item-locked');
             if (view.icon) row.appendChild(this.createIcon(view.icon));
             const lbl = document.createElement('span');
             lbl.textContent = view.label;
@@ -1056,11 +1042,19 @@ const Sidebar = {
                 jitBadge.style.display = 'none';
                 row.appendChild(jitBadge);
             }
-            if (view.cloud && this._enrolled !== true) {
+            if (locked) {
                 const tier = document.createElement('span');
                 tier.className = 'nav-view-tier';
                 tier.textContent = 'Cloud';
+                tier.title = 'Needs a SecureVector account. Connect one under Cloud & Forwarders.';
                 row.appendChild(tier);
+            }
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === view.id && view.id !== item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                row.appendChild(hint);
             }
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1220,7 +1214,17 @@ const Sidebar = {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'nav-flyout-view' + (this._viewActive(v) ? ' active' : '');
-            b.textContent = v.label;
+            if (v.icon) b.appendChild(this.createIcon(v.icon));
+            const lbl = document.createElement('span');
+            lbl.textContent = v.label;
+            b.appendChild(lbl);
+            if (v.tooltip) b.title = v.tooltip;
+            if (v.cloud && this._enrolled !== true) {
+                const tier = document.createElement('span');
+                tier.className = 'nav-view-tier';
+                tier.textContent = 'Cloud';
+                b.appendChild(tier);
+            }
             b.addEventListener('click', () => { this._flyoutHide(true); this.navigate(v.id); });
             fly.appendChild(b);
         });
@@ -1278,7 +1282,9 @@ const Sidebar = {
         const nav = this._indicatorNav;
         if (!ind || !nav || !nav.isConnected) return;
         const rows = [...nav.querySelectorAll('.nav-item.active')].filter(el => el.offsetParent !== null);
-        const el = rows[rows.length - 1];
+        // A view lights its label; the bar stays on the parent row so the
+        // edge marker and the tinted row always agree.
+        const el = rows.find(r => !r.classList.contains('nav-view')) || rows[rows.length - 1];
         if (!el) { ind.style.opacity = '0'; return; }
         if (instant) ind.style.transition = 'none';
         ind.style.top = `${el.offsetTop}px`;
@@ -1691,6 +1697,12 @@ const Sidebar = {
             if (badge) {
                 badge.textContent = n === 1 ? '1 waiting' : n + ' waiting';
                 badge.style.display = n > 0 ? 'inline-flex' : 'none';
+            }
+            const parent = document.getElementById('jit-pending-parent-badge');
+            if (parent) {
+                parent.textContent = String(n);
+                parent.title = n === 1 ? '1 request waiting for you' : n + ' requests waiting for you';
+                parent.hidden = n === 0;
             }
         } catch (_) { /* fail-quiet: badge just stays hidden */ }
     },

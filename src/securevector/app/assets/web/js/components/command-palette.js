@@ -35,7 +35,7 @@ const CommandPalette = {
             if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
                 'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
             if (['tool-permissions', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
-                'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Govern';
+                'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Configure';
             if (['connect-wizard', 'guide-connect-agents', 'integrations'].includes(id) || id.startsWith('proxy-')) return 'Connect';
             if (['siem-export', 'cloud-activity'].includes(id)) return 'Cloud & Forwarders';
             return '';
@@ -48,6 +48,11 @@ const CommandPalette = {
             if (item.id && !(item.subItems && !item.navigable)) push(item.id, item.label, item.tooltip);
             (item.subItems || []).forEach(sub => {
                 if (sub.id) push(sub.id, sub.label, (item.label || '') + ' ' + (sub.aliases || []).join(' '));
+            });
+            // Folded views (Traces, Threats, Policies, Cloud & Forwarders) are
+            // pages of their own; the fold hides them at rest, not from search.
+            (item.views || []).forEach(v => {
+                if (v.id && v.id !== item.id) push(v.id, v.label, (item.label || '') + ' ' + (v.tooltip || '') + ' ' + (v.aliases || []).join(' '));
             });
         });
         // A few high-value aliases people will actually type.
