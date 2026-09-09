@@ -83,8 +83,8 @@ const Community = {
     createLinks() {
         const row = document.createElement('div');
         row.className = 'sidebar-links';
-        row.appendChild(this._link(this.GITHUB_URL, 'Star SecureVector on GitHub', this._githubIcon()));
-        row.appendChild(this._link(this.DISCORD_URL, 'Join the SecureVector Discord', this._discordIcon()));
+        row.appendChild(this._link(this.GITHUB_URL, 'Give us a star on GitHub', this._githubIcon()));
+        row.appendChild(this._link(this.DISCORD_URL, 'Join us on Discord', this._discordIcon()));
         return row;
     },
 

@@ -35,8 +35,8 @@ test('the rail footer shows the two links under the theme row', () => {
   assert.match(footer, /foot\.className = 'sidebar-foot';\s*foot\.appendChild\(row\);\s*if \(window\.Community\) foot\.appendChild\(Community\.createLinks\(\)\);/);
   assert.ok(!sidebar.includes('bottomSection.appendChild(Community.createLinks())'), 'one foot row, not two');
   const src = read('js/components/community.js');
-  assert.match(src, /'Star SecureVector on GitHub'/);
-  assert.match(src, /'Join the SecureVector Discord'/);
+  assert.match(src, /'Give us a star on GitHub'/);
+  assert.match(src, /'Join us on Discord'/);
   const css = read('css/styles.css');
   assert.match(css, /\.sidebar-foot \{\s*display: flex;/);
   assert.match(css, /\.sidebar\.collapsed \.sidebar-links \{\s*display: none;/);
@@ -92,7 +92,7 @@ test('friction points carry a report link: threat drawer and uninstall screen', 
 
 test('community.js loads before the rail and the pins moved', () => {
   const html = read('index.html');
-  const community = html.indexOf('community.js?v=3');
+  const community = html.indexOf('community.js?v=4');
   const sidebar = html.indexOf('sidebar.js?v=142');
   assert.ok(community > 0 && community < sidebar);
   assert.match(html, /header\.js\?v=54/);
