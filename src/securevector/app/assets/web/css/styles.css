@@ -1604,7 +1604,7 @@ html.desktop-mac .sidebar-collapse-btn {
 .sidebar-nav {
     flex: 1;
     min-height: 0;
-    padding: 16px 12px;
+    padding: 4px 12px 16px;
     overflow-y: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -8376,17 +8376,17 @@ thead tr:hover #records-select-all,
 
 /* ---- v5.3 rail: search row, views, live counts, icon-rail flyout ---- */
 .nav-search {
-    display: flex; align-items: center; gap: 10px; width: calc(100% - 20px); margin: 10px 10px 2px;
-    padding: 7px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-default);
-    background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer;
-    transition: border-color var(--transition-fast), color var(--transition-fast);
+    display: flex; align-items: center; gap: 10px; width: calc(100% - 20px); margin: 4px 10px 0;
+    padding: 6px 10px; border-radius: var(--radius-md); border: 0;
+    background: transparent; color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
-.nav-search:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.nav-search:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-search svg { width: 15px; height: 15px; flex-shrink: 0; }
 .nav-search-label { flex: 1; text-align: left; }
 .nav-search-kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
     border: 1px solid var(--border-default); color: var(--text-secondary); }
-.sidebar.collapsed .nav-search { width: 40px; margin: 10px 12px 2px; padding: 7px 0; justify-content: center; }
+.sidebar.collapsed .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
 .sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd { display: none; }
 
 /* Views: the pages folded into a destination. Visible only under the active row. */
@@ -8424,16 +8424,16 @@ thead tr:hover #records-select-all,
 .nav-flyout-view:hover { background: var(--bg-primary); color: var(--text-primary); }
 .nav-flyout-view.active { color: var(--accent-primary); background: var(--bg-primary); }
 
+.sidebar-version { display: block; margin-top: 1px; font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .3px; color: var(--text-muted, #7d8590); }
 .sidebar.collapsed .sidebar-version { display: none; }
 
 /* ---- v5.3 rail: pulse block, sliding indicator, reveal, chord hints ---- */
-.nav-pulse { display: flex; flex-direction: column; gap: 5px; width: calc(100% - 20px); margin: 6px 10px 4px;
-    padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-default); background: var(--bg-primary);
-    color: var(--text-secondary); transition: border-color var(--transition-fast); }
-.nav-pulse:hover { border-color: var(--accent-primary); }
-.nav-pulse-main { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0;
-    background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.nav-pulse-ring { position: relative; width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%;
+.nav-pulse { display: flex; flex-direction: column; gap: 0; width: calc(100% - 20px); margin: 0 10px 2px;
+    padding: 0; border: 0; background: transparent; color: var(--text-secondary); }
+.nav-pulse-main { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 10px; border: 0;
+    border-radius: var(--radius-md); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.nav-pulse-main:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-pulse-ring { position: relative; width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
     border: 1px solid var(--border-default); display: grid; place-items: center; }
 .nav-pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted, #7d8590); }
 .nav-pulse.live .nav-pulse-dot { background: var(--accent-primary); }
@@ -8444,7 +8444,7 @@ thead tr:hover #records-select-all,
 .nav-pulse-line { flex: 1; min-width: 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-pulse-line b { color: var(--text-primary); font-weight: 600; }
 /* Posture always names its scope, so "Strong" can never be read as fleet-wide. */
-.nav-posture { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 6px;
+.nav-posture { display: flex; align-items: center; gap: 10px; width: 100%; padding: 3px 10px 4px 14px;
     border-radius: var(--radius-sm, 6px); border: 0; background: transparent; color: var(--text-secondary);
     font: inherit; font-size: 10.5px; text-align: left; cursor: pointer; }
 .nav-posture[hidden] { display: none; }
@@ -8455,7 +8455,7 @@ thead tr:hover #records-select-all,
 .nav-posture[data-band="minimal"] .nav-posture-dot { background: #ef4444; }
 .nav-posture[data-band="none"] .nav-posture-dot { background: var(--accent-primary); }
 .nav-posture-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.sidebar.collapsed .nav-pulse { width: 40px; margin: 6px 12px 4px; padding: 8px 0; align-items: center; }
+.sidebar.collapsed .nav-pulse { width: 40px; margin: 0 12px 2px; padding: 0; align-items: center; }
 .sidebar.collapsed .nav-pulse-line, .sidebar.collapsed .nav-posture { display: none; }
 .sidebar.collapsed .nav-pulse-main { justify-content: center; }
 
@@ -8485,7 +8485,7 @@ thead tr:hover #records-select-all,
 
 
 /* ---- v5.3 rail: Guide and Settings docked at the foot ---- */
-.nav-dock { padding: 6px 10px 4px; border-bottom: 1px solid var(--border-default); }
+.nav-dock { padding: 6px 10px 0; }
 .nav-dock .nav-item { padding: 7px 12px; gap: 12px; }
 .nav-dock .nav-item span { font-size: 12.5px; flex: 1; }
 .nav-dock + .guardian-pill { margin-top: 12px; }
@@ -8498,7 +8498,6 @@ thead tr:hover #records-select-all,
 .sidebar nav .nav-section-toggle { padding-top: 7px; padding-bottom: 3px; }
 .nav-views { margin-bottom: 2px; }
 .nav-item.nav-view { padding-top: 4px; padding-bottom: 4px; }
-.nav-pulse { padding: 7px 10px; gap: 4px; }
 .sidebar nav.nav-more::after { content: ''; position: sticky; bottom: 0; display: block; height: 26px;
     margin-top: -26px; pointer-events: none;
     background: linear-gradient(to bottom, transparent, var(--bg-secondary)); }
@@ -8507,7 +8506,6 @@ thead tr:hover #records-select-all,
 .sidebar nav .nav-section-toggle { padding-top: 5px; padding-bottom: 2px; }
 
 .sidebar nav { padding-bottom: 6px; }
-.nav-pulse { margin: 4px 10px 2px; }
 
 /* ============================================================
  * v5.3 desktop chrome: the SPA runs inside a pywebview window

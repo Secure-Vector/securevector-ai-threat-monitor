@@ -149,21 +149,17 @@ const Sidebar = {
         const logoTextCol = document.createElement('div');
         logoTextCol.className = 'sidebar-logo-text';
 
-        // Wordmark + version on one row (version sits right next to the brand).
-        const brandRow = document.createElement('span');
-        brandRow.style.cssText = 'display:inline-flex;align-items:baseline;gap:7px;';
-
+        // Wordmark on the first line, version on its own line beneath it.
         const logo = document.createElement('span');
         logo.className = 'sidebar-logo';
         logo.textContent = 'SecureVector';
-        brandRow.appendChild(logo);
+        logoTextCol.appendChild(logo);
 
-        // App version badge, read from the running server rather than typed
+        // App version, read from the running server rather than typed
         // here. A literal needing a manual bump every release is how the app
         // shipped 5.1.0 while announcing 5.0.0 elsewhere; /health already
         // reports the real version, so ask it. The major-only string stays as
-        // the pre-fetch value so the chip never renders empty or shifts width
-        // noticeably when the answer arrives.
+        // the pre-fetch value so the line never renders empty.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
         version.textContent = 'v5';
@@ -176,18 +172,14 @@ const Sidebar = {
                 if (/^[\w.+-]{1,20}$/.test(v)) version.textContent = 'v' + v;
             })
             .catch(() => {});   // offline or mid-restart: the fallback stands
-        // Reserve the settled width so the chip does not jump from 'v5' to
-        // 'v5.1.0' once /health answers.
-        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);min-width:5ch;display:inline-block;';
-        brandRow.appendChild(version);
-        logoTextCol.appendChild(brandRow);
+        logoTextCol.appendChild(version);
 
         // No tagline in the rail. A marketing positioning line belongs on the
         // surfaces where someone is still deciding — login, README, docs — not
         // in authenticated chrome, where the user has already adopted the
         // product. Observability and security tools conventionally leave this
         // slot for orientation (workspace, environment, tier, version); here
-        // the `v5` chip beside the wordmark already fills that role.
+        // the version line under the wordmark already fills that role.
 
         logoLink.appendChild(logoTextCol);
 
@@ -723,7 +715,7 @@ const Sidebar = {
         statusToggle.type = 'button';
         statusToggle.id = 'sidebar-status-toggle';
         statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
-        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 10px 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 0 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
         const statusChevron = document.createElement('span');
         statusChevron.setAttribute('aria-hidden', 'true');
         statusChevron.style.cssText = 'font-size: 11px; flex-shrink: 0; line-height: 1;';
