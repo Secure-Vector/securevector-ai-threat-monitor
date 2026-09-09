@@ -78,7 +78,7 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=150/);
+  assert.match(html, /sidebar\.js\?v=151/);
   assert.match(html, /styles\.css\?v=374/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
@@ -175,4 +175,34 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
   assert.match(read('index.html'), /styles\.css\?v=374/);
+});
+
+test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
+  // The desktop shell is WKWebView. Setting an inline style to the value it
+  // already holds queues a fresh mutation record there (Chromium drops it), so
+  // an observer that rewrites a style it also watches must guard the write or
+  // the callback re-enters itself forever and the app never leaves the splash.
+  const js = read('js/components/sidebar.js');
+  const start = js.indexOf('const updateStatusToggle = () => {');
+  const end = js.indexOf('new MutationObserver(updateStatusToggle)', start);
+  assert.ok(start > 0 && end > start, 'status toggle callback and observer present');
+  const body = js.slice(start, end);
+
+  let calls = 0;
+  let observer = null;
+  const dot = { dataset: {}, style: {} };
+  Object.defineProperty(dot.style, 'background', {
+    get() { return this._bg; },
+    set(v) { this._bg = v; if (observer) observer(); },   // WebKit: fires even when v is unchanged
+  });
+  const row = { style: { display: 'flex' }, textContent: 'Claude Code plugin Active', querySelector: () => dot };
+  const statusStack = { children: [row] };
+  const statusToggle = { style: {} };
+  const statusCount = {};
+  const fn = new Function('statusStack', 'statusToggle', 'statusCount', body + '; return updateStatusToggle;')(statusStack, statusToggle, statusCount);
+  observer = () => { calls++; if (calls > 50) throw new Error('observer loop'); fn(); };
+
+  fn();
+  assert.ok(calls <= 2, `observer re-entered ${calls} times`);
+  assert.strictEqual(dot.style.background, 'var(--accent-primary)');
 });

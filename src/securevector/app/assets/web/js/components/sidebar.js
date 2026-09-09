@@ -752,10 +752,18 @@ const Sidebar = {
             // plugin is active, amber while it still needs a step (staged,
             // or installed but not enabled). Runtime brand hues were the
             // one place the rail broke the single-accent rule.
+            // Write the dot only when its state changes. This callback runs
+            // from an observer that watches inline styles under the stack,
+            // and WebKit queues a mutation even for a same-value write, so
+            // an unconditional write here re-enters forever and the desktop
+            // app never leaves the splash.
             rows.forEach(row => {
                 const dot = row.querySelector('span[aria-hidden]');
                 if (!dot || !/plugin/.test(row.textContent)) return;
-                dot.style.background = /\bActive$/.test(row.textContent.trim()) ? 'var(--accent-primary)' : '#f59e0b';
+                const state = /\bActive$/.test(row.textContent.trim()) ? 'active' : 'pending';
+                if (dot.dataset.state === state) return;
+                dot.dataset.state = state;
+                dot.style.background = state === 'active' ? 'var(--accent-primary)' : '#f59e0b';
             });
         };
         new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, characterData: true, subtree: true });
