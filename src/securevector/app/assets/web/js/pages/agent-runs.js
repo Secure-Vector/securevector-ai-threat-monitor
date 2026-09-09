@@ -465,8 +465,9 @@ const AgentRunsPage = {
             .ar-layout.split .ar-listview, .ar-layout.split .ar-pane { height:var(--ar-pane-h,72vh); box-sizing:border-box; }
             .ar-layout.split .ar-listview { background:var(--bg-card,#161b22); border:1px solid var(--border-default,#30363d);
                 border-radius:14px; padding:12px 12px 8px; gap:6px; }
-            .ar-layout.split .ar-view-chips { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
-            .ar-layout.split .ar-view-chips::-webkit-scrollbar { display:none; }
+            /* Chips wrap in the narrow list pane. A single scrolling line hid
+               the last chips (Secrets) behind an invisible scrollbar. */
+            .ar-layout.split .ar-view-chips { flex-wrap:wrap; row-gap:4px; }
             .ar-layout.split .ar-pane:not(.has-trace) .ar-pane-empty { flex:1 1 auto; border-style:solid;
                 background:var(--bg-card,#161b22); }
             /* The rail keeps the columns that decide a click: name, blocked, cost. */
@@ -512,7 +513,8 @@ const AgentRunsPage = {
             .ar-rail-head b { font:700 12px ui-monospace,'JetBrains Mono',Menlo,monospace; color:var(--text-primary,#e6edf3);
                 font-variant-numeric:tabular-nums; }
             .ar-rail-live { display:inline-flex; align-items:center; gap:5px; color:var(--accent-primary,#5eadb8);
-                font-weight:700; letter-spacing:.8px; }
+                font-weight:700; letter-spacing:.8px; background:none; border:none; padding:0; cursor:pointer; font:inherit; font-weight:700; }
+            .ar-rail-live:hover { text-decoration:underline; }
             .ar-rail-live::before { content:''; width:5px; height:5px; border-radius:50%; background:var(--accent-primary,#5eadb8);
                 animation:arLivePulse 1.6s ease-in-out infinite; }
             .ar-rail-win { margin-left:auto; letter-spacing:.4px; }
@@ -1309,6 +1311,7 @@ const AgentRunsPage = {
 
     /** Does a run belong to the given triage view? */
     _viewMatch(r, v) {
+        if (v === 'live') return this._isLive(r.ended_at);
         if (v === 'flagged') return (r.blocked || 0) + (r.detections || 0) + (r.secrets || 0) > 0;
         if (v === 'blocked') return (r.blocked || 0) > 0;
         if (v === 'detected') return (r.detections || 0) > 0;
@@ -1459,8 +1462,14 @@ const AgentRunsPage = {
             const all = this._filteredRuns();
             const nLive = all.filter(r => this._isLive(r.ended_at)).length;
             rh.innerHTML = `<b>${all.length}</b>&nbsp;agent${all.length === 1 ? '' : 's'}` +
-                (nLive ? `<span class="ar-rail-live">${nLive} live</span>` : '') +
+                (nLive ? `<button type="button" class="ar-rail-live" title="Show only agents with activity in the last 2 minutes">${nLive} live</button>` : '') +
                 `<span class="ar-rail-win">last ${this.windowDays === 1 ? '24h' : this.windowDays + 'd'}</span>`;
+            const liveBtn = rh.querySelector('.ar-rail-live');
+            if (liveBtn) liveBtn.addEventListener('click', () => {
+                this.listView = (this.listView === 'live' ? 'all' : 'live');
+                if (this.selected && !this._filteredRuns().some(r => r.trace_id === this.selected)) this._showList();
+                else this.renderRuns();
+            });
         }
         // Active filter chip — clickable to clear, so the Map drill-down is reversible.
         if (this.runtimeFilter) {
@@ -1492,6 +1501,10 @@ const AgentRunsPage = {
             chips.className = 'ar-view-chips';
             const views = [
                 ['all', 'All', base.length, ''],
+                // Live = activity in the last 2 minutes, the same rule as the
+                // rail's "N live" pulse and the row badge. Accent, not red:
+                // it is a state of attention, not a security verdict.
+                ['live', 'Live', base.filter(r => this._viewMatch(r, 'live')).length, 'var(--accent-primary,#5eadb8)'],
                 ['flagged', 'Flagged', base.filter(r => this._viewMatch(r, 'flagged')).length, '#ef4444'],
                 ['blocked', 'Blocked', base.filter(r => this._viewMatch(r, 'blocked')).length, '#ef4444'],
                 ['detected', 'Detected', base.filter(r => this._viewMatch(r, 'detected')).length, '#ef4444'],
@@ -1500,12 +1513,14 @@ const AgentRunsPage = {
             views.forEach(([key, label, n, color]) => {
                 // A zero-count view is noise unless it's the one active now
                 // (a live refresh can empty the view under the user).
-                if (!n && key !== 'all' && this.listView !== key) return;
+                // Live stays even at zero: "nothing live right now" is the answer.
+                if (!n && key !== 'all' && key !== 'live' && this.listView !== key) return;
                 const c = document.createElement('button');
                 c.type = 'button';
                 c.className = 'ar-view-chip' + (this.listView === key ? ' active' : '');
                 c.innerHTML = `${this._esc(label)}&nbsp;<b${color && n ? ` style="color:${color}"` : ''}>${n}</b>`;
                 c.title = key === 'all' ? 'Every trace in this window'
+                    : key === 'live' ? 'Only agents with activity in the last 2 minutes'
                     : `Only traces with ${key === 'flagged' ? 'any security flag' : key === 'secret' ? 'secret detections' : key + ' actions'}`;
                 c.addEventListener('click', () => {
                     this.listView = (this.listView === key ? 'all' : key);
@@ -1521,7 +1536,9 @@ const AgentRunsPage = {
         if (!shown.length) {
             const msg = document.createElement('div');
             msg.className = 'ar-empty';
-            msg.innerHTML = (this.listView && this.listView !== 'all')
+            msg.innerHTML = this.listView === 'live'
+                ? `<div style="font-size:15px;margin-bottom:6px;">No agents active right now.</div><div style="font-size:13px;">Live means activity in the last 2 minutes. This view refreshes on its own; click Live again to see every agent.</div>`
+                : (this.listView && this.listView !== 'all')
                 ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.listView)} traces in this window.</div><div style="font-size:13px;">Good sign. Click the view again (or All) to see every trace.</div>`
                 : this.runtimeFilter
                     ? `<div style="font-size:15px;margin-bottom:6px;">No ${this._esc(this.runtimeFilter)} traces in this window.</div><div style="font-size:13px;">Clear the filter to see traces from other runtimes.</div>`
