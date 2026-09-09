@@ -39,7 +39,8 @@ test('the rail footer shows the two links under the theme row', () => {
   assert.match(src, /'Join us on Discord'/);
   const css = read('css/styles.css');
   assert.match(css, /\.sidebar-foot \{\s*display: flex;/);
-  assert.match(css, /\.sidebar\.collapsed \.sidebar-links \{\s*display: none;/);
+  // icon rail: links and the theme row both fold away (Settings keeps the theme)
+  assert.match(css, /\.sidebar\.collapsed \.sidebar-links,\s*\.sidebar\.collapsed \.sidebar-foot \{\s*display: none;/);
 });
 
 test('the milestone prompt asks once, first block wins, volume is the fallback', () => {
@@ -93,9 +94,9 @@ test('friction points carry a report link: threat drawer and uninstall screen', 
 test('community.js loads before the rail and the pins moved', () => {
   const html = read('index.html');
   const community = html.indexOf('community.js?v=4');
-  const sidebar = html.indexOf('sidebar.js?v=145');
+  const sidebar = html.indexOf('sidebar.js?v=146');
   assert.ok(community > 0 && community < sidebar);
   assert.match(html, /header\.js\?v=54/);
   assert.match(html, /dashboard\.js\?v=90/);
-  assert.match(html, /styles\.css\?v=369/);
+  assert.match(html, /styles\.css\?v=370/);
 });

@@ -192,7 +192,6 @@ const Sidebar = {
         nav.className = 'sidebar-nav';
 
         // Core features get an orange badge dot overlaid on their icon
-        const CORE_BADGE = new Set(['threats', 'tool-permissions', 'costs']);
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
@@ -300,25 +299,9 @@ const Sidebar = {
                 : (item.tooltip || '');
             if (navItem.dataset.tip && !this.collapsed) navItem.title = navItem.dataset.tip;
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid
-            // on the icon. (The Guardian ML sentinel robot that used to render
-            // here moved to the header — Header.createGuardianControl.)
-            const iconSvg = this.createIcon(item.icon);
-            if (CORE_BADGE.has(item.id)) {
-                const iconWrap = document.createElement('div');
-                iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
-                iconWrap.appendChild(iconSvg);
-                const iconDot = document.createElement('div');
-                iconDot.style.cssText = 'position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; border: 1.5px solid var(--bg-secondary);';
-                iconDot.title = 'Core feature';
-                iconDot.dataset.coreDot = item.id;
-                // Hide permanently if already visited
-                if (localStorage.getItem('sv-visited-core-' + item.id)) iconDot.style.display = 'none';
-                iconWrap.appendChild(iconDot);
-                navItem.appendChild(iconWrap);
-            } else {
-                navItem.appendChild(iconSvg);
-            }
+            // Icon (SVG). The Guardian ML sentinel that used to render here
+            // moved to the header (Header.createGuardianControl).
+            navItem.appendChild(this.createIcon(item.icon));
 
             // Add label
             const label = document.createElement('span');
@@ -748,6 +731,7 @@ const Sidebar = {
             const rows = Array.from(statusStack.children).filter(el => el.style.display !== 'none');
             statusToggle.style.display = rows.length ? 'flex' : 'none';
             statusCount.textContent = String(rows.length);
+            statusCount.title = rows.length === 1 ? '1 plugin reporting' : `${rows.length} plugins reporting`;
             // Colour is state, not runtime: the dot goes accent once the
             // plugin is active, amber while it still needs a step (staged,
             // or installed but not enabled). Runtime brand hues were the
@@ -2026,7 +2010,7 @@ const Sidebar = {
             ],
             costs: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
-                { tag: 'path', attrs: { d: 'M12 6v2m0 8v2M8.5 9.5a3.5 3.5 0 0 1 7 0c0 2-3.5 3-3.5 5m0 1h.01' } },
+                { tag: 'path', attrs: { d: 'M12 6.5v11M15 9.4a3.2 3.2 0 0 0-3-1.6c-1.7 0-3 .9-3 2.1s1.3 2.1 3 2.1 3 .9 3 2.1-1.3 2.1-3 2.1a3.2 3.2 0 0 1-3-1.6' } },
             ],
             history: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
@@ -2103,13 +2087,6 @@ const Sidebar = {
         this.markSeen(page);
 
         // Remove core icon badge dot on first visit
-        const coreDot = document.querySelector(`[data-core-dot="${page}"]`);
-        if (coreDot && !localStorage.getItem('sv-visited-core-' + page)) {
-            localStorage.setItem('sv-visited-core-' + page, '1');
-            coreDot.style.transition = 'opacity 0.3s';
-            coreDot.style.opacity = '0';
-            setTimeout(() => coreDot.remove(), 300);
-        }
 
         // Update active state
         document.querySelectorAll('.nav-item').forEach(item => {

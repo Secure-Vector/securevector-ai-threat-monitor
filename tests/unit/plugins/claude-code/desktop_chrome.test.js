@@ -41,7 +41,7 @@ test('the title-bar inset only applies under the desktop-mac class', () => {
   assert.match(css, /--titlebar-inset: 0px;/);
   assert.match(css, /html\.desktop-mac \.sidebar-header \{\s*height: calc\(var\(--header-height\) \+ var\(--titlebar-inset\)\);\s*padding-top: var\(--titlebar-inset\);/);
   assert.match(css, /html\.desktop-mac \.header \{[^}]*padding-top: calc\(8px \+ var\(--titlebar-inset\)\)/);
-  assert.match(css, /html\.desktop-mac \.sidebar-collapse-btn \{\s*top: calc\(72px \+ var\(--titlebar-inset\)\)/);
+  assert.match(css, /html\.desktop-mac \.sidebar-collapse-btn \{\s*top: calc\(20px \+ var\(--titlebar-inset\)\)/);
   const uses = css.split('\n').filter(l => l.includes('var(--titlebar-inset)'));
   assert.ok(uses.length >= 4);
 });
