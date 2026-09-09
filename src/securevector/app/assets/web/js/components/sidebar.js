@@ -1321,7 +1321,10 @@ const Sidebar = {
         if (typeof API === 'undefined') return;
         const box = document.getElementById('nav-pulse');
         if (!box) return;
-        const parse = (ts) => (ts ? Date.parse(String(ts).replace(' ', 'T')) : NaN);
+        // Server timestamps are naive UTC ('2026-09-08 22:51:25'). Without the
+        // 'Z', Date.parse reads them as local time, which puts recent runs in
+        // the future and counted them as live. Same rule as AgentRunsPage._ms.
+        const parse = (ts) => (ts ? Date.parse(String(ts).replace(' ', 'T') + (String(ts).endsWith('Z') || /[+-]\d\d:?\d\d$/.test(String(ts)) ? '' : 'Z')) : NaN);
         API.request('/api/traces?window_days=1&limit=100').then(r => {
             const runs = (r && r.runs) || [];
             // The window is wider than the poll interval on purpose: a run that
