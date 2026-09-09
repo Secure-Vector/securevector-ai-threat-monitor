@@ -215,13 +215,14 @@ const Sidebar = {
         // audiences use — SOC operators ("visibility into agent activity") and
         // business buyers alike — and doesn't echo the child.
         //   Visibility — what the agents are doing (dashboard, threats, observability)
-        //   Govern     — what the human controls (permissions, rules, policies)
-        //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
+        //   Configure  — what the human sets (policies, connections, forwarding)
         // Page ids are untouched, so every old deep link still lands.
+        // Two groups: what you read, and what you set. Govern used to hold
+        // Policies alone, a label for one row, and its name collided with
+        // the Agent Governance row that lives under Visibility.
         const SECTION_BEFORE = {
-            'dashboard':            'Visibility',
-            'policies':             'Govern',
-            'guide-connect-agents': 'Connect',
+            'dashboard': 'Visibility',
+            'policies':  'Configure',
         };
 
         const sections = [];
@@ -555,7 +556,7 @@ const Sidebar = {
             }
         });
 
-        // Wire the Observe / Govern / Connect section toggles. Collapse hides
+        // Wire the Visibility / Configure section toggles. Collapse hides
         // rows via a class (not inline display) so each row's own inline
         // display state — sub-nav expand/collapse, banner visibility — is
         // preserved intact when the section reopens.

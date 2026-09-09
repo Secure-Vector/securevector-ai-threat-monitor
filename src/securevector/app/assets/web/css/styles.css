@@ -8404,6 +8404,10 @@ thead tr:hover #records-select-all,
 .nav-views.open { display: block; }
 .sidebar.collapsed .nav-views { display: none !important; }
 .nav-item.nav-view { padding: 5px 10px 5px 12px; gap: 6px; font-size: 12px; margin: 0; }
+/* The parent row carries the tint and the indicator; the active view is
+   named in the accent only, so one destination never lights up twice. */
+.sidebar .nav-item.nav-view.active, [data-theme="light"] .sidebar .nav-item.nav-view.active { background: transparent; color: var(--accent-primary); font-weight: 600; }
+.sidebar .nav-item.nav-view.active:hover { background: var(--bg-hover); }
 .nav-item.nav-view span:first-child { flex: 1; min-width: 0; white-space: nowrap; }
 .nav-view-tier { font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 0 5px;
     border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); }
