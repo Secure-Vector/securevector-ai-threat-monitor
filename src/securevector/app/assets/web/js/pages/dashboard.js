@@ -1753,7 +1753,8 @@ const DashboardPage = {
 
 
     // Protection card — one home for the enforcement switches (Block Mode /
-    // Output Scan / Guardian ML) plus a Rules shortcut and live agent chips.
+    // Output Scan) plus a Rules shortcut and live agent chips. Guardian ML
+    // is a global on/off that lives in the header control, not here.
     // Confirmations go through Modal.confirm; the checkbox only flips after
     // the user confirms AND the API write succeeds (no optimistic flip).
     // Governance posture card (#187, local funnel). A 0–100 score computed
@@ -1871,21 +1872,6 @@ const DashboardPage = {
                 : 'LLM-response scanning on the proxy stops. Tool input/output is still redacted for secrets/PII.',
             apply: (on) => API.updateSettings({ scan_llm_responses: on }).then(() => {
                 Toast.success(on ? 'Output scan enabled' : 'Output scan disabled');
-            }),
-        }));
-
-        rows.appendChild(toggleRow({
-            name: 'Guardian ML',
-            desc: 'Local ML threat detection' + (settings.guardian_model_version ? ` · v${settings.guardian_model_version}` : ''),
-            checked: !!settings.guardian_ml_enabled,
-            disabled: settings.guardian_ml_available === false,
-            disabledNote: 'Model not installed: see Guardian ML in the sidebar',
-            confirmTitle: (on) => on ? 'Enable Guardian ML?' : 'Disable Guardian ML?',
-            confirmMsg: (on) => on
-                ? 'The local ML model scores every prompt alongside the rule engine. Runs entirely on this machine.'
-                : 'Detection falls back to rules only.',
-            apply: (on) => API.updateSettings({ guardian_ml_enabled: on }).then(() => {
-                Toast.success(on ? 'Guardian ML enabled' : 'Guardian ML disabled');
             }),
         }));
 

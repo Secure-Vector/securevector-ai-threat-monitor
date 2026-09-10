@@ -222,6 +222,12 @@ const API = {
         }));
     },
 
+    /** Rule-only detections Guardian cleared before recording (Threats masthead). */
+    async getGuardianCleared(days = 7) {
+        return this.request(`/api/threat-intel/cleared/summary?days=${encodeURIComponent(days)}`)
+            .catch(() => ({ window_days: days, total: 0, by_rule: {}, by_direction: {} }));
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);

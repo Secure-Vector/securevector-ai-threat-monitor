@@ -86,12 +86,18 @@ async def test_schema_version_advances_to_45(tmp_path):
     # (trace_id/span_id/runtime_kind, previews, verdict, duration) and
     # span_id/parent_span_id on tool_call_audit so tool calls nest under
     # the model turn that made them; backfills proxy trace ids.
+    # v47: guardian_cleared_events: rule-only detections the Guardian model
+    # cleared before recording, so the veto stays countable on Threats.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 46
+    assert CURRENT_SCHEMA_VERSION == 47
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 46
+    assert row["v"] == 47
+    exists = await db.fetch_one(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
+    )
+    assert exists is not None
 
 
 # --- Cleanup_old_audit_records --------------------------------------------

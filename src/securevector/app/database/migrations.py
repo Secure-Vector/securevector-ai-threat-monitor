@@ -24,6 +24,7 @@ from securevector.app.database.models import (
     MIGRATION_V31_SQL,
     MIGRATION_V34_SQL,
     MIGRATION_V35_SQL,
+    MIGRATION_V47_SQL,
 )
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,7 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         44: migrate_to_v44,
         45: migrate_to_v45,
         46: migrate_to_v46,
+        47: migrate_to_v47,
     }
 
     if version in migrations:
@@ -2346,3 +2348,19 @@ async def load_community_rules(db: DatabaseConnection) -> int:
         logger.info(f"Loaded {loaded_count} community rules from {len(rule_files)} files")
 
     return loaded_count
+
+
+async def migrate_to_v47(db: DatabaseConnection) -> None:
+    """v46 -> v47: guardian_cleared_events audit log.
+
+    Backs the "cleared by Guardian" count on the Threats page. One row per
+    rule-only detection the model cleared (see the ML veto in
+    routes/analyze.py). Idempotent: CREATE IF NOT EXISTS.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V47_SQL)
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (47, CURRENT_TIMESTAMP, 'guardian_cleared_events audit log')"
+    )
+    logger.info("Applied migration v47: guardian_cleared_events table")

@@ -633,7 +633,7 @@ const ThreatsPage = {
         content.appendChild(loading);
 
         try {
-            this.data = await API.getThreats(this.filters);
+            [this.data, this.cleared] = await Promise.all([API.getThreats(this.filters), API.getGuardianCleared(7)]);
             this.renderContent(content);
         } catch (error) {
             this.renderError(content, error);
@@ -658,6 +658,7 @@ const ThreatsPage = {
         const llmReviewed = threats.filter(t => t.llm_reviewed).length;
         const totalTokens = threats.reduce((sum, t) => sum + (t.llm_tokens_used || 0), 0);
         const highRisk = threats.filter(t => t.risk_score >= 60).length;
+        const clearedTotal = (this.cleared && this.cleared.total) || 0;
         const stat = (v, label, det, cls) =>
             `<div class="tm-stat${cls ? ' ' + cls : ''}"><div class="tm-stat-v">${v}</div>` +
             `<div class="tm-stat-l">${label}</div>` + (det ? `<div class="tm-stat-d">${det}</div>` : '') + `</div>`;
@@ -670,8 +671,17 @@ const ThreatsPage = {
             stat(highRisk.toLocaleString(), 'high risk',
                 pageNote + 'risk ≥ 60%: review these first', highRisk ? 'danger' : '') +
             stat(llmReviewed.toLocaleString(), 'AI-reviewed',
-                pageNote + (llmReviewed ? totalTokens.toLocaleString() + ' analysis tokens' : 'AI Analysis adds a second opinion'));
+                pageNote + (llmReviewed ? totalTokens.toLocaleString() + ' analysis tokens' : 'AI Analysis adds a second opinion')) +
+            stat(clearedTotal.toLocaleString(), 'cleared by Guardian',
+                clearedTotal ? 'last 7 days: rule matches the model rated benign' : 'last 7 days: nothing needed clearing');
         container.appendChild(mast);
+        if (clearedTotal) {
+            const clearedStat = mast.lastElementChild;
+            const topRules = Object.entries((this.cleared && this.cleared.by_rule) || {}).slice(0, 5)
+                .map(([id, n]) => id + ' (' + n + ')').join(', ');
+            clearedStat.title = 'Rule-only matches in prompt-manipulation and data-request categories that Guardian scored below 20% are cleared before recording. ' +
+                (topRules ? 'Most cleared: ' + topRules : '');
+        }
 
         // Threats table
         const self = this;
@@ -972,8 +982,8 @@ const ThreatsPage = {
 
         // Risk header: rule-driven risk score on top, with the Guardian ML
         // signal shown alongside (an "ML-adjusted" chip) and below (the
-        // corroborate / likely-FP badge). The ML view never overrides the
-        // stored verdict — it's surfaced so the analyst sees both numbers.
+        // corroborate / likely-FP badge). A stored row already survived the
+        // Guardian veto, so the ML number here is context, not a verdict.
         const ml = this._mlSignal(threat);
         const riskHeader = document.createElement('div');
         riskHeader.className = 'threat-detail-risk';
@@ -993,7 +1003,7 @@ const ThreatsPage = {
             const mlAdj = document.createElement('span');
             mlAdj.className = 'risk-badge ml-adjusted';
             mlAdj.textContent = 'ML-adjusted ' + mlPct + '%';
-            mlAdj.title = 'Guardian ML model probability that this is a real threat. Shown for context. It does not change the stored verdict.';
+            mlAdj.title = 'Guardian ML model probability that this is a real threat. Rule matches the model rates below 20% in its own categories are cleared before recording; this one was recorded, so the number is context.';
             riskMain.appendChild(mlAdj);
         }
 

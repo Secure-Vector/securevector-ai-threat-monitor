@@ -157,12 +157,12 @@ rules:
   name: 'SecureVector LLM-004: Model Denial of Service'
   severity: medium
   tier: community
-  pattern_type: heuristic
+  pattern_type: regex
   patterns:
-  - max_length
-  - repetitive_pattern_threshold
-  - resource_intensive_keywords
-  detection_logic: heuristic_score > threshold
+  - '\b(?:repeat|say|print|write|output)\s+(?:the\s+(?:word|phrase|letter)\s+)?\S+\s+(?:\d{3,}|(?:a\s+|one\s+)?(?:thousand|million|billion|trillion)|forever|infinitely|endlessly|indefinitely|non-?stop)\b'
+  - '\b(?:generate|produce|write|output|create)\s+(?:an?\s+)?(?:infinite|endless|never-?ending|unbounded|infinitely\s+long)\s+(?:loop|stream|list|sequence|response|output|text|string)\b'
+  - '\b(?:keep|continue)\s+(?:going|generating|writing|repeating|responding)\s+(?:forever|indefinitely|endlessly|until\s+(?:you\s+)?(?:crash|run\s+out|the\s+context))\b'
+  - '(\b\w+\b)(?:[ \t]+\1\b){30,}'
 - category: sensitive_data_exposure
   description: Detects attempts to extract sensitive information
   id: sv_llm_006_sensitive_disclosure

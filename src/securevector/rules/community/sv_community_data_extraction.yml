@@ -106,13 +106,12 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:list|show|output|dump|export|give|get|retrieve)\s+all\s+(?:customers?|users?|emails?|credentials?|passwords?|accounts?)
+  - '\b(?:list|show|output|dump|export|give|get|retrieve)\s+all\s+(?:(?:customer|user|client|patient|employee|account)s?\s+(?:data|records?|information|info|details|emails?|addresses|phone\s+numbers?|passwords?|credentials?|ssns?)|email\s+addresses|credentials?|passwords?)\b'
   - (?:list|show|output|dump|export)\s+(?:all\s+)?(?:user\s+)?(?:credentials?|passwords?|api\s+keys?|secrets?)
   - (?:list|show|output|dump|export)\s+(?:all\s+)?(?:credit\s+cards?|ssns?|social\s+security|bank\s+accounts?|financial\s+data)
   - (?:give|show)\s+me\s+all\s+(?:customer|user)\s+information
   - extract\s+all\s+(?:records|data|credentials?|passwords?)\s+from
-  - (?:output|dump|export)\s+.*(?:as\s+)?(?:json|csv|xml)
-  detection_logic: .*((?:list|show|output|dump|export|give|get|retrieve)\s+all\s+(?:customers?|users?|emails?|credentials?|passwords?|accounts?)|(?:list|show|output|dump|export)\s+(?:all\s+)?(?:user\s+)?(?:credentials?|passwords?|api\s+keys?|secrets?)|(?:list|show|output|dump|export)\s+(?:all\s+)?(?:credit\s+cards?|ssns?|social\s+security|bank\s+accounts?|financial\s+data)|(?:give|show)\s+me\s+all\s+(?:customer|user)\s+information|extract\s+all\s+(?:records|data|credentials?|passwords?)\s+from|(?:output|dump|export)\s+.*(?:as\s+)?(?:json|csv|xml)).*
+  - '\b(?:dump|export)\s+(?:all|every|the\s+(?:entire|whole|full|complete))\s+(?:\w+\s+){0,3}(?:database|db|tables?|records?|rows|users?|customers?|accounts?|contacts?|emails?|data)\s+(?:as|to|in|into)\s+(?:json|csv|xml)\b'
   threshold: 0.87
   pattern_definitions:
     pattern_1:
@@ -235,11 +234,10 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - (?:show|give|output|list|dump)\s+(?:me\s+)?(?:your\s+|all\s+)?(?:user\s+)?(?:api\s+)?(?:keys?|credentials?|passwords?|tokens?|secrets?)
+  - '(?:show|give|output|list|dump)\s+(?:me\s+)?(?:your\s+|all\s+)?(?:user\s+)?(?:api\s+)?(?:keys?|credentials?|passwords?|tokens?|secrets?)\b'
   - what\s+(?:is|are)\s+(?:your|the)\s+(?:api\s+)?(?:keys?|credentials?|passwords?)
   - (?:share|provide|export)\s+(?:your\s+|all\s+)?(?:OpenAI|Anthropic|AWS|Azure)?\s*(?:api\s+)?(?:keys?|credentials?)
   - (?:list|show|output|dump)\s+(?:all\s+)?(?:api\s+keys?\s+(?:and\s+)?|credentials?\s+(?:and\s+)?)+
-  detection_logic: .*((?:show|give|output|list|dump)\s+(?:me\s+)?(?:your\s+|all\s+)?(?:user\s+)?(?:api\s+)?(?:keys?|credentials?|passwords?|tokens?|secrets?)|what\s+(?:is|are)\s+(?:your|the)\s+(?:api\s+)?(?:keys?|credentials?|passwords?)|(?:share|provide|export)\s+(?:your\s+|all\s+)?(?:OpenAI|Anthropic|AWS|Azure)?\s*(?:api\s+)?(?:keys?|credentials?)|(?:list|show|output|dump)\s+(?:all\s+)?(?:api\s+keys?\s+(?:and\s+)?|credentials?\s+(?:and\s+)?)+).*
   threshold: 0.9
   pattern_definitions:
     pattern_1:
@@ -271,7 +269,7 @@ rules:
   tier: community
   pattern_type: regex
   patterns:
-  - '\b(?:dump|export|exfiltrate|extract|leak)\s+(?:the\s+)?(?:whole|entire|all)\s+\w+'
+  - '\b(?:dump|export|exfiltrate|extract|leak)\s+(?:the\s+)?(?:whole|entire|all|every)\s+(?:\w+\s+){0,2}(?:database|db|tables?|records?|rows|users?|customers?|accounts?|contacts?|emails?|passwords?|credentials?|secrets?|keys?|tokens?|pii|conversations?|history|memory|files?|documents?|data)\b'
   - '\b(?:all|every)\s+(?:\w+\s+){0,3}passwords?\b'
   test_cases:
   - description: Bulk table dump request

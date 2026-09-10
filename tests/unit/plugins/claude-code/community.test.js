@@ -97,6 +97,6 @@ test('community.js loads before the rail and the pins moved', () => {
   const sidebar = html.indexOf('sidebar.js?v=153');
   assert.ok(community > 0 && community < sidebar);
   assert.match(html, /header\.js\?v=54/);
-  assert.match(html, /dashboard\.js\?v=90/);
+  assert.match(html, /dashboard\.js\?v=91/);
   assert.match(html, /styles\.css\?v=376/);
 });

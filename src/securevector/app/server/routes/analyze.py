@@ -37,6 +37,37 @@ _ML_CORROBORATE_BAR = 0.60
 # below this, the model is confidently benign — the detection is flagged a
 # likely false positive (metadata only; the verdict is never suppressed).
 _ML_DISAGREE_BAR = 0.20
+# Mechanism 2 (FP suppression): a rule-only verdict whose every surviving rule
+# sits in a category the model is trained to judge, and where Guardian's
+# P(malicious) is below the disagree bar, is cleared instead of recorded. The
+# regex pack keeps recall on literal attacks (the model corroborates those at
+# 0.95+); what this removes is the mention-not-instance band: source files
+# and test fixtures that contain an attack string, notifications that happen
+# to say "export" and "json", research prompts that start with "extract all".
+# Categories the model has NOT been trained on stay rule-decided: secret and
+# PII values, code shapes and output evidence carry no semantic signal the
+# model could disagree with, so it never gets a veto there.
+_ML_VETO_BAR = _ML_DISAGREE_BAR
+_ML_VETO_CATEGORIES = frozenset({
+    "prompt_injection", "jailbreak_attempt", "indirect_prompt_injection",
+    "social_engineering", "evasion_attack", "adversarial_attack",
+    "data_extraction", "data_exfiltration", "sensitive_data_exposure",
+    "model_extraction", "model_inversion", "membership_inference",
+    "excessive_agency",
+})
+# Rules inside those categories that match a VALUE or a code shape rather
+# than a request in natural language. The model has no signal on a key
+# string, a SQL fragment or a traversal path, so these stay rule-decided.
+# Only community rules are eligible: rules the operator wrote or an org
+# pushed (source custom / synced) are policy, and a probability does not
+# overrule policy.
+_ML_VETO_EXEMPT_RULES = frozenset({
+    "sv_llm_006_sensitive_disclosure",       # key/password/token values
+    "sv_community_035_sql_injection",        # SQL fragments
+    "sv_community_038_credential_file_exfil",  # curl/scp of credential files
+    "sv_community_047_ssrf_cloud_metadata",  # metadata endpoint URLs
+    "sv_community_049_path_traversal",       # ../ paths
+})
 # Guardian is skipped entirely below these floors — fragments carry no
 # semantic signal for a char-n-gram model, and the regex pack owns short
 # literal attacks anyway.
@@ -80,6 +111,7 @@ def _strip_image_base64(text: str) -> str:
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
 from securevector.app.database.repositories.settings import SettingsRepository
+from securevector.app.database.repositories.guardian_cleared import GuardianClearedRepository
 from securevector.app.database.repositories.redactions import (
     RedactionsRepository,
     hash_matched_substring,
@@ -624,6 +656,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
         # LLM Review (if enabled)
         llm_review_info = None
+        llm_confirmed_threat = False  # reviewer's own verdict, not its agreement flag
         final_is_threat = result.is_threat
         final_risk_score = result.risk_score
         final_confidence = result.confidence
@@ -683,6 +716,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
 
                         # Combine results: adjust risk score and confidence
                         # If LLM found threat but regex didn't (or vice versa)
+                        llm_confirmed_threat = llm_result.llm_threat_assessment == "threat"
                         if llm_result.llm_threat_assessment == "threat" and not result.is_threat:
                             # LLM detected threat that regex missed
                             final_is_threat = True
@@ -712,6 +746,38 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                     reviewed=False,
                     reasoning=f"LLM review failed: {str(e)}",
                 )
+
+        # Mechanism 2 — ML veto (see _ML_VETO_CATEGORIES). Runs after LLM
+        # review so a reviewer that independently called it a threat is not
+        # overruled by the smaller model. Mirrors the calibrated-gate
+        # demotion above: the verdict, type, score and rule list all clear
+        # together, so no consumer sees "not a threat" next to a rule list.
+        ml_cleared_rules: list[str] = []
+        ml_cleared_type = None
+        if (
+            final_is_threat
+            and matched_rules
+            and ml_malicious_score is not None
+            and ml_malicious_score < _ML_VETO_BAR
+            and not llm_confirmed_threat
+            and all(getattr(r, "source", None) == "community" for r in matched_rules)
+            and all((r.category or "") in _ML_VETO_CATEGORIES for r in matched_rules)
+            and not any(r.rule_id in _ML_VETO_EXEMPT_RULES for r in matched_rules)
+        ):
+            logger.info(
+                "Cleared by Guardian — rule-only %s verdict, P(malicious)=%.2f < %.2f: rules=%s direction=%s",
+                final_threat_type,
+                ml_malicious_score,
+                _ML_VETO_BAR,
+                ",".join(r.rule_id for r in matched_rules),
+                direction,
+            )
+            ml_cleared_rules = [r.rule_id for r in matched_rules]
+            ml_cleared_type = final_threat_type
+            final_is_threat = False
+            final_threat_type = None
+            final_risk_score = 0
+            matched_rules = []
 
         # Always run redaction — regardless of whether the threat engine
         # flagged the text. Rationale:
@@ -799,6 +865,20 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
         if redaction_count > 0 and action_taken == "logged":
             action_taken = "redacted"
 
+        # A cleared detection leaves no threat row, so log it where the
+        # Threats page can count it (masthead "cleared by Guardian").
+        if ml_cleared_rules:
+            preview = (redacted_text_result or request.text) if settings.store_text_content else None
+            await GuardianClearedRepository(db).record(
+                rule_ids=ml_cleared_rules,
+                category=ml_cleared_type,
+                direction=direction,
+                ml_score=ml_malicious_score,
+                source=request.source,
+                request_id=request.request_id,
+                text_preview=preview,
+            )
+
         # Only store in database if threat detected
         record = None
         if final_is_threat:
@@ -807,9 +887,11 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
             # Use redacted text for storage
             text_to_store = redacted_text_result if redacted_text_result else request.text
 
-            # Mechanism 1 — ML/rule agreement tier for FP triage. The verdict
-            # above is already final; this only annotates HOW the model felt
-            # about it so the UI can flag likely false positives. Never demotes.
+            # Mechanism 1 — ML/rule agreement tier for FP triage. Annotates
+            # how the model felt about a verdict that survived. Rule-only
+            # verdicts the model cleared never reach this point (mechanism
+            # 2 above), so "ml_disagrees" here means a rule outside the
+            # model's scope, a value or code shape, that stands on its own.
             if ml_malicious_score is not None:
                 has_ml_rule = any(getattr(r, "source", None) == "model" for r in matched_rules)
                 has_regex_rule = any(getattr(r, "source", None) != "model" for r in matched_rules)
