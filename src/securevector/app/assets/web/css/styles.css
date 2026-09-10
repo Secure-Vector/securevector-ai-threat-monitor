@@ -8402,6 +8402,12 @@ thead tr:hover #records-select-all,
 /* Views: the pages folded into a destination. Visible only under the active row. */
 .nav-views { display: none; margin: 0 0 4px 26px; padding-left: 6px; border-left: 1px solid var(--border-default); }
 .nav-views.open { display: block; }
+.nav-views.peek { display: block; }
+.nav-item .nav-fold-chev { width: 10px; height: 10px; flex-shrink: 0; margin-left: auto; opacity: 0.45; transform: rotate(-90deg); transition: transform 0.15s, opacity 0.15s; }
+.nav-item.nav-has-views .nav-count:not([hidden]) + .nav-fold-chev { margin-left: 6px; }
+.nav-item.nav-fold-open .nav-fold-chev { transform: rotate(0deg); }
+.nav-item:hover .nav-fold-chev { opacity: 0.8; }
+.sidebar.collapsed .nav-fold-chev { display: none; }
 .sidebar.collapsed .nav-views { display: none !important; }
 .nav-item.nav-view { padding: 5px 10px 5px 12px; gap: 8px; font-size: 12px; margin: 0; }
 .nav-item.nav-view svg { width: 14px; height: 14px; opacity: .85; }

@@ -178,7 +178,6 @@ const App = {
 
         // v5.2.0 Optimizer spotlight: upgraders only, once, never stacked on
         // another modal (it self-guards on both).
-        if (window.OptimizerSpotlight) OptimizerSpotlight.maybeShow();
     },
 
     /**
@@ -437,13 +436,13 @@ const App = {
         // a six-card wall buried the v4.6.0 headliners (Guardian ML and the
         // Copilot CLI plugin) under older release notes.
         whatsNewList.appendChild(makeNewItem(
-            'NEW',
+            'DETECT',
             'Guardian ML',
             'Local AI threat detection alongside the regex rules: fully offline, nothing leaves your device, every catch labelled Rule / ML.',
             'guardian-ml'
         ));
         whatsNewList.appendChild(makeNewItem(
-            'NEW',
+            'PLUGIN',
             'GitHub Copilot CLI plugin',
             'Copilot CLI joins the guarded harnesses: native hooks, tool-permission enforcement, tamper-evident audit.',
             'proxy-copilot-cli',

@@ -352,39 +352,6 @@ const Sidebar = {
                 navItem.appendChild(jitBadge);
             }
 
-            // NEW badge — persistent for Agent Governance, session-only (30s auto-dismiss) for anything listed below.
-            // Guardian ML deliberately omitted: it gets the animated "sentinel"
-            // robot below instead of a NEW badge.
-            const persistNewItems = ['governance'];
-            // Session-only NEW badges: first-view highlight that auto-dismisses
-            // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = [];
-            const isPersist = persistNewItems.includes(item.id);
-            const isSession = sessionNewItems.includes(item.id);
-            const shouldShow = isPersist
-                ? !localStorage.getItem('sv-new-dismissed-' + item.id)
-                : isSession && !sessionStorage.getItem('sv-new-seen-' + item.id);
-            if (shouldShow) {
-                const newBadge = document.createElement('span');
-                newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: rgba(180,83,9,0.2); color: #d97706; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
-                const newText = document.createTextNode('NEW');
-                newBadge.appendChild(newText);
-                const dismissBadge = () => {
-                    if (isPersist) localStorage.setItem('sv-new-dismissed-' + item.id, '1');
-                    else sessionStorage.setItem('sv-new-seen-' + item.id, '1');
-                    newBadge.remove();
-                };
-                if (isPersist) {
-                    const closeX = document.createElement('span');
-                    closeX.textContent = '×';
-                    closeX.title = 'Dismiss';
-                    closeX.style.cssText = 'font-size: 10px; line-height: 1; cursor: pointer; opacity: 0.85; margin-left: 1px;';
-                    closeX.addEventListener('click', (e) => { e.stopPropagation(); dismissBadge(); });
-                    newBadge.appendChild(closeX);
-                }
-                navItem.appendChild(newBadge);
-                setTimeout(dismissBadge, 30000);
-            }
 
 
 
@@ -448,9 +415,54 @@ const Sidebar = {
             }
 
             if (item.views && item.views.length) {
+                // A folded destination carries a chevron: down while the fold
+                // is open, right while it is closed. Without it the Policies
+                // row reads as a leaf and the six pages behind it stay
+                // undiscovered until the first click. Hidden in the icon rail,
+                // where the flyout is the affordance.
+                const foldChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                foldChev.setAttribute('viewBox', '0 0 24 24');
+                foldChev.setAttribute('fill', 'none');
+                foldChev.setAttribute('stroke', 'currentColor');
+                foldChev.setAttribute('stroke-width', '2.4');
+                foldChev.setAttribute('aria-hidden', 'true');
+                foldChev.setAttribute('class', 'nav-fold-chev');
+                const foldChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                foldChevPath.setAttribute('d', 'M6 9l6 6 6-6');
+                foldChev.appendChild(foldChevPath);
+                navItem.classList.add('nav-has-views');
+                if (matchesSelf) navItem.classList.add('nav-fold-open');
+                navItem.appendChild(foldChev);
+
                 const viewsEl = this._renderViews(item, matchesSelf);
                 nav.appendChild(viewsEl);
                 if (currentSection) currentSection.els.push(viewsEl);
+
+                // Hover peek: a closed fold opens while the pointer rests on
+                // its row or on the peeked views, so every page behind it is
+                // one hover away without a trip through Overview. The fold
+                // closes 160ms after the pointer leaves both, long enough to
+                // cross the gap between row and views. Not in the icon rail
+                // (the flyout does that job) and a no-op once the fold is open.
+                let peekTimer = null;
+                const peekOn = () => {
+                    if (this.collapsed || viewsEl.classList.contains('open')) return;
+                    clearTimeout(peekTimer);
+                    viewsEl.classList.add('peek');
+                    navItem.classList.add('nav-fold-open');
+                };
+                const peekOff = () => {
+                    clearTimeout(peekTimer);
+                    if (viewsEl.classList.contains('open')) return;
+                    peekTimer = setTimeout(() => {
+                        viewsEl.classList.remove('peek');
+                        navItem.classList.remove('nav-fold-open');
+                    }, 160);
+                };
+                navItem.addEventListener('mouseenter', peekOn);
+                navItem.addEventListener('mouseleave', peekOff);
+                viewsEl.addEventListener('mouseenter', peekOn);
+                viewsEl.addEventListener('mouseleave', peekOff);
             }
 
             // Sub-items
@@ -1296,7 +1308,9 @@ const Sidebar = {
     // "g then key" jumps, the Linear and Gmail convention. The hints show on
     // the rows while the chord is armed, so nobody has to memorise them.
     CHORDS: { d: 'dashboard', t: 'agent-runs', h: 'threats', c: 'costs', e: 'egress', p: 'policies',
-              k: 'skill-scanner', a: 'governance', n: 'guide-connect-agents', f: 'siem-export', u: 'guide', s: 'settings' },
+              k: 'skill-scanner', a: 'governance', n: 'guide-connect-agents', f: 'siem-export', u: 'guide', s: 'settings',
+              // Pages folded under Policies: the fold must not cost a keystroke.
+              l: 'tool-permissions', r: 'rules', x: 'egress-policy', b: 'cost-settings', m: 'mcp-policies' },
 
     _chordInit() {
         if (this._chordBound) return;
@@ -2205,7 +2219,10 @@ const Sidebar = {
         // Views show under their destination only while it is the active one.
         document.querySelectorAll('.nav-views').forEach(v => {
             const parent = v.previousElementSibling;
-            v.classList.toggle('open', !!(parent && parent.classList.contains('active')));
+            const open = !!(parent && parent.classList.contains('active'));
+            v.classList.toggle('open', open);
+            v.classList.remove('peek');
+            if (parent) parent.classList.toggle('nav-fold-open', open);
         });
         requestAnimationFrame(() => this._moveIndicator(false));
     },

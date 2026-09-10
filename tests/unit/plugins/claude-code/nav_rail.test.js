@@ -82,8 +82,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=153/);
-  assert.match(html, /styles\.css\?v=376/);
+  assert.match(html, /sidebar\.js\?v=154/);
+  assert.match(html, /styles\.css\?v=377/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -178,7 +178,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=376/);
+  assert.match(read('index.html'), /styles\.css\?v=377/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -232,4 +232,29 @@ test('folding Policies keeps every signal reachable from outside it', () => {
   assert.doesNotMatch(src, /if \(item\.id === 'rules'\)/);
   assert.doesNotMatch(src, /if \(item\.id === 'tool-permissions'\)/);
   assert.doesNotMatch(src, /if \(CLOUD_TIER\.has\(item\.id\)\) \{\s+const tier/);
+});
+
+test('the Policies fold has a chevron, a hover peek and a chord for every page behind it', () => {
+  const src = read('js/components/sidebar.js');
+  const css = read('css/styles.css');
+  // chevron: down while open, right while closed, gone in the icon rail
+  assert.match(src, /foldChev\.setAttribute\('class', 'nav-fold-chev'\)/);
+  assert.match(src, /if \(matchesSelf\) navItem\.classList\.add\('nav-fold-open'\)/);
+  assert.match(css, /\.nav-item \.nav-fold-chev \{[^}]*rotate\(-90deg\)/);
+  assert.match(css, /\.nav-item\.nav-fold-open \.nav-fold-chev \{ transform: rotate\(0deg\); \}/);
+  assert.match(css, /\.sidebar\.collapsed \.nav-fold-chev \{ display: none; \}/);
+  // hover peek: closed fold only, expanded rail only, closes after the pointer leaves row and views
+  assert.match(src, /if \(this\.collapsed \|\| viewsEl\.classList\.contains\('open'\)\) return;/);
+  assert.match(src, /viewsEl\.classList\.add\('peek'\)/);
+  assert.match(src, /viewsEl\.addEventListener\('mouseleave', peekOff\)/);
+  assert.match(css, /\.nav-views\.peek \{ display: block; \}/);
+  // chords: g then a letter reaches each folded page directly
+  const chordStart = src.indexOf('CHORDS: {');
+  const chords = src.slice(chordStart, src.indexOf('_chordInit() {', chordStart));
+  for (const [key, page] of [['l', 'tool-permissions'], ['r', 'rules'], ['x', 'egress-policy'], ['b', 'cost-settings'], ['m', 'mcp-policies'], ['k', 'skill-scanner'], ['p', 'policies']]) {
+    assert.match(chords, new RegExp(`\\b${key}: '${page}'`), `chord g ${key} -> ${page}`);
+  }
+  // the map must stay a function: one letter, one page
+  const letters = [...chords.matchAll(/\b([a-z]): '/g)].map(m => m[1]);
+  assert.equal(new Set(letters).size, letters.length);
 });

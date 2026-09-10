@@ -215,10 +215,6 @@ const GettingStartedPage = {
         const siemTitleText = document.createElement('span');
         siemTitleText.textContent = 'Forward threats + tool audits to your SIEM';
         siemTitle.appendChild(siemTitleText);
-        const siemPill = document.createElement('span');
-        siemPill.style.cssText = 'font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; color: #10b981; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 2px 6px; border-radius: 4px; text-transform: uppercase;';
-        siemPill.textContent = 'New · v4.0';
-        siemTitle.appendChild(siemPill);
         siemText.appendChild(siemTitle);
         const siemDesc = document.createElement('div');
         siemDesc.style.cssText = 'font-size: 12px; color: var(--text-secondary); line-height: 1.4;';
