@@ -135,14 +135,15 @@ rules:
   name: 'SecureVector LLM-003: Training Data Poisoning Indicators'
   severity: high
   tier: community
-  pattern_type: keyword
+  pattern_type: regex
+  # Intent shapes only. The old keyword list fired on any mention of
+  # "dataset poisoning" or "backdoor trigger", so security write-ups and
+  # course notes read as attacks.
   patterns:
-  - training data manipulation
-  - dataset poisoning
-  - backdoor trigger
-  - model corruption
-  - adversarial examples in training
-  detection_logic: any
+  - '\b(?:poison|corrupt|contaminate|taint|manipulate|tamper\s+with)\s+(?:the\s+|your\s+|its\s+|our\s+)?(?:training\s+(?:data|set|corpus|examples?)|dataset|fine-?tun(?:e|ing)\s+(?:data|set))\b'
+  - '\b(?:insert|inject|plant|embed|hide|add)\s+(?:a\s+|the\s+)?(?:backdoor(?:\s+trigger)?|trigger\s+(?:phrase|token|word)|poisoned\s+(?:samples?|examples?|records?|data))\s+(?:in|into|to)\s+(?:the\s+|your\s+)?(?:training|dataset|model|fine-?tun\w*)\b'
+  - '\b(?:activate|fire|use|invoke)\s+(?:the\s+|your\s+)?backdoor\s+trigger\b'
+  - '\b(?:add|insert|slip|sneak)\s+(?:some\s+|a\s+few\s+)?adversarial\s+(?:examples?|samples?)\s+(?:in|into)\s+(?:the\s+)?training\b'
 - category: adversarial_attack
   description: Detects attempts to cause resource exhaustion or DoS
   id: sv_llm_004_model_dos
@@ -235,14 +236,15 @@ rules:
   name: 'SecureVector LLM-007: Insecure Plugin Design'
   severity: medium
   tier: community
-  pattern_type: keyword
+  pattern_type: regex
+  # Intent shapes only. "privilege escalation" and "plugin execution" as
+  # bare keywords matched changelogs, CVE summaries and this product's own
+  # documentation.
   patterns:
-  - plugin execution
-  - unsafe plugin
-  - privilege escalation
-  - plugin bypass
-  - external plugin call
-  detection_logic: any
+  - '\b(?:bypass|disable|skip|circumvent|turn\s+off|get\s+around)\s+(?:the\s+|any\s+|all\s+)?(?:plugin|tool|function|extension)\s+(?:sandbox|permissions?|validation|checks?|restrictions?|security|approval|confirmation)\b'
+  - '\b(?:escalate|elevate)\s+(?:my\s+|your\s+|the\s+|its\s+)?(?:privileges?|permissions?|access\s+level)\b'
+  - '\b(?:call|invoke|execute|run|load|install)\s+(?:an?\s+|the\s+|this\s+)?(?:unsafe|untrusted|unverified|unsigned|arbitrary|malicious|external)\s+(?:plugin|tool|extension|function)\b'
+  - '\b(?:make|let)\s+(?:the\s+)?(?:plugin|tool)\s+(?:run|execute)\s+(?:as|with)\s+(?:root|admin|administrator|elevated|full)\b'
 - category: privilege_escalation
   description: Detects attempts to abuse LLM autonomous capabilities
   id: sv_llm_008_excessive_agency
@@ -294,6 +296,8 @@ rules:
   description: Detects scenarios that may lead to overreliance on LLM outputs
   id: sv_llm_009_overreliance
   metadata:
+    # First-person infallibility claims only make sense in model output.
+    direction: outgoing
     author: AI Security Community
     created_at: '2024-01-15T00:00:00Z'
     source: securevector_community
@@ -304,14 +308,13 @@ rules:
   name: 'SecureVector LLM-009: Overreliance Detection'
   severity: low
   tier: community
-  pattern_type: keyword
+  pattern_type: regex
+  # Model-side only, first-person infallibility claims. As keywords, "100%
+  # accurate" and "never wrong" matched product copy, reviews and quoted
+  # marketing in user prompts.
   patterns:
-  - 100% accurate
-  - never wrong
-  - absolutely certain
-  - guaranteed correct
-  - infallible
-  detection_logic: any
+  - '\b(?:I\s+am|I''m|my\s+(?:answers?|responses?|information)\s+(?:is|are)|this\s+(?:answer|information|response)\s+is)\s+(?:always\s+)?(?:100\s*%\s+accurate|never\s+wrong|absolutely\s+certain|guaranteed\s+(?:to\s+be\s+)?correct|infallible|incapable\s+of\s+(?:error|being\s+wrong))\b'
+  - '\b(?:you\s+can|you\s+should)\s+(?:always\s+)?(?:trust|rely\s+on)\s+(?:me|my\s+(?:answers?|output))\s+(?:completely|blindly|without\s+(?:question|checking|verifying))\b'
 - category: model_extraction
   description: Detects attempts to extract or steal model information
   id: sv_llm_010_model_theft
