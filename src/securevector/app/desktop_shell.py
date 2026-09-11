@@ -11,6 +11,7 @@ Everything here is kept free of a live webview so it can be unit tested:
   against the current screens so a window never opens off-screen
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -89,10 +90,8 @@ def read_lock(data_dir: Optional[Path] = None) -> Optional[LockInfo]:
 
 
 def remove_lock(data_dir: Optional[Path] = None) -> None:
-    try:
+    with contextlib.suppress(OSError):
         lock_path(data_dir).unlink()
-    except OSError:
-        pass
 
 
 INSTANCE_MUTEX_NAME = "SecureVectorDesktop"
@@ -106,6 +105,8 @@ def hold_instance_mutex(name: str = INSTANCE_MUTEX_NAME) -> bool:
     global _instance_mutex_handle
     if sys.platform != "win32":
         return False
+    if _instance_mutex_handle:
+        return True
     try:
         import ctypes
 

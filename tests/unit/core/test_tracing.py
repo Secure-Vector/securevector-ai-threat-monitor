@@ -167,9 +167,12 @@ def test_tool_call_after_the_model_returns_links_to_that_turn(tracer):
 
 def test_exit_without_end_still_closes_and_error_is_recorded(tracer):
     tr, t = tracer
+    def boom():
+        raise ValueError("boom")
+
     with pytest.raises(ValueError):
         with generation(model="m", input="q"):
-            raise ValueError("boom")
+            boom()
     tr.flush()
     (span,) = spans_posted(t)
     assert span["status"]["code"] == 2 and "ValueError" in span["status"]["message"]
@@ -249,9 +252,9 @@ def test_normalize_usage_shapes():
 
 
 def test_guard_generation_alias_and_package_export():
-    import securevector
+    import importlib
 
     assert guard.generation is not None
-    assert securevector.instrument is not None
+    assert importlib.import_module("securevector").instrument is not None
     g = guard.generation(model="m", tracer=Tracer(GuardConfig(enabled=False), FakeTransport()))
     assert isinstance(g, Generation)

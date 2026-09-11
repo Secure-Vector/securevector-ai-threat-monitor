@@ -770,7 +770,7 @@ async def analyze_text(request: AnalysisRequest, http_request: Request) -> Analy
                 ml_malicious_score,
                 _ML_VETO_BAR,
                 ",".join(r.rule_id for r in matched_rules),
-                direction,
+                direction.replace("\r", "").replace("\n", ""),
             )
             ml_cleared_rules = [r.rule_id for r in matched_rules]
             ml_cleared_type = final_threat_type

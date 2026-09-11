@@ -31,7 +31,6 @@ from __future__ import annotations
 import atexit
 import contextvars
 import hashlib
-import logging
 import threading
 import time
 import uuid
@@ -54,8 +53,6 @@ from .guard import (
 
 __all__ = ["Span", "Tracer", "Generation", "generation", "encode_otlp", "normalize_usage",
            "current_generation_span", "identity", "get_tracer"]
-
-log = logging.getLogger("securevector.tracing")
 
 FLUSH_INTERVAL_S = 0.2
 FLUSH_MAX_SPANS = 200

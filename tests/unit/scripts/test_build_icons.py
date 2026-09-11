@@ -96,7 +96,8 @@ def test_icns_has_full_size_set(outputs, tmp_path):
                               (256, 1), (256, 2), (512, 1), (512, 2)]
         )
         assert names == expected
-        assert Image.open(iconset / "icon_512x512@2x.png").size == (1024, 1024)
+        largest = Image.open(iconset / "icon_512x512@2x.png")
+        assert largest.size == (1024, 1024)
     else:
         image = Image.open(icns)
         sizes = {(w, h, s) for w, h, s in image.info["sizes"]}
@@ -108,9 +109,14 @@ def test_committed_assets_are_present_and_well_formed():
     """The generated files checked into assets/ are what the build consumes."""
     ico = Image.open(ASSETS / "app-icon.ico")
     assert (256, 256) in ico.ico.sizes() and (16, 16) in ico.ico.sizes()
-    assert (ASSETS / "app-icon.icns").read_bytes()[:4] == b"icns"
-    assert Image.open(ASSETS / "app-icon-1024.png").size == (1024, 1024)
-    assert Image.open(ASSETS / "app-icon-256.png").size == (256, 256)
+    icns_magic = (ASSETS / "app-icon.icns").read_bytes()[:4]
+    assert icns_magic == b"icns"
+    png_1024 = Image.open(ASSETS / "app-icon-1024.png")
+    png_256 = Image.open(ASSETS / "app-icon-256.png")
+    assert png_1024.size == (1024, 1024)
+    assert png_256.size == (256, 256)
     # The web favicon files are inputs and stay untouched.
-    assert Image.open(ASSETS / "favicon.png").size == (42, 42)
-    assert sorted(Image.open(ASSETS / "favicon.ico").ico.sizes()) == [(32, 32)]
+    favicon_png = Image.open(ASSETS / "favicon.png")
+    favicon_ico = Image.open(ASSETS / "favicon.ico")
+    assert favicon_png.size == (42, 42)
+    assert sorted(favicon_ico.ico.sizes()) == [(32, 32)]

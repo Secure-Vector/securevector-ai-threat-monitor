@@ -278,6 +278,7 @@ def test_exempt_rule_ids_exist_in_the_community_pack():
     root = Path(analyze_mod.__file__).resolve().parents[3] / "rules" / "community"
     ids = set()
     for f in glob.glob(str(root / "*.yml")):
-        ids |= {r["id"] for r in yaml.safe_load(open(f))["rules"]}
+        with open(f) as fh:
+            ids |= {r["id"] for r in yaml.safe_load(fh)["rules"]}
     missing = analyze_mod._ML_VETO_EXEMPT_RULES - ids
     assert not missing, missing

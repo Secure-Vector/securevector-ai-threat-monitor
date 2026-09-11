@@ -312,7 +312,8 @@ async def ingest_traces(request: Request):
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("otlp ingest: span rejected: %s", exc)
                     st.rejected += 1
-                    st.first_error = st.first_error or str(exc)[:200]
+                    # Exception text can carry internals; the log has it, the client gets the class.
+                    st.first_error = st.first_error or f"span rejected: {type(exc).__name__}"
 
     payload: Dict[str, Any] = {}
     if st.rejected:
