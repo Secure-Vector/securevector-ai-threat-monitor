@@ -5584,6 +5584,11 @@ thead tr:hover #records-select-all,
 .toast-message {
     flex: 1;
     font-size: 14px;
+    line-height: 1.45;
+}
+
+.toast {
+    max-width: 440px;
 }
 
 .toast-close {

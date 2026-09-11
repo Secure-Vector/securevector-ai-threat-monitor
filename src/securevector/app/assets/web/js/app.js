@@ -176,8 +176,29 @@ const App = {
         // nudge banner and the Integrations page already cover.
         if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
 
-        // v5.2.0 Optimizer spotlight: upgraders only, once, never stacked on
-        // another modal (it self-guards on both).
+        // 5.3.0 trace notice: upgraders only (a fresh install has no old
+        // plugin to reload), shown once for a few seconds.
+        if (hasSeenGeneric) this.showTraceUpgradeNotice();
+    },
+
+    // Shown once after the 5.3.0 update. Plugin hooks now send the full tool
+    // input (up to 8 KB, secrets redacted), but the running harness keeps the
+    // old hooks until the plugin is reloaded, so the notice says exactly that.
+    TRACE_NOTICE_VERSION: '5.3.0',
+    TRACE_NOTICE_KEY: 'sv-trace-notice-acked',
+    TRACE_NOTICE_MS: 10000,
+
+    showTraceUpgradeNotice() {
+        if (!window.Toast) return;
+        let acked = null;
+        try { acked = localStorage.getItem(this.TRACE_NOTICE_KEY); } catch (_) { /* private mode */ }
+        if (acked === this.TRACE_NOTICE_VERSION) return;
+        Toast.show({
+            type: 'success',
+            duration: this.TRACE_NOTICE_MS,
+            message: 'SecureVector 5.3.0: Traces now keep the full tool input on this device, secrets redacted. Reload your plugin to turn it on.',
+        });
+        try { localStorage.setItem(this.TRACE_NOTICE_KEY, this.TRACE_NOTICE_VERSION); } catch (_) { /* private mode */ }
     },
 
     /**
