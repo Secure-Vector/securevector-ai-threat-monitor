@@ -164,7 +164,7 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
 <tr>
 <td valign="top">
 
-Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Tool inputs are stored *after* secret redaction, capped at 8 KB per field, and never leave the device. Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
+Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Tool inputs are stored *after* secret redaction, up to 8 KB per field, and never leave the device (older plugin hooks cut at 200 characters, so reinstall the plugin and reload after updating). Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
 
 </td>
 <td valign="top">
@@ -669,7 +669,7 @@ Every request is scanned for prompt injection. Every response is scanned for dat
 | **Linux DEB** | `sudo dpkg -i securevector_<version>_amd64.deb` |
 | **Linux RPM** | `sudo rpm -U securevector-<version>.x86_64.rpm` |
 
-After updating, restart SecureVector.
+After updating, restart SecureVector. Then reinstall the Guard plugin for each harness you use (Integrations, or `securevector-app --install-plugin <harness>`) and run `/reload-plugins` in Claude Code, or start a new session. The updated hooks send the full tool input, up to 8 KB per field, so Traces on this device show complete arguments instead of a 200-character cut. Secrets are still redacted, and nothing leaves the device.
 
 <br>
 
