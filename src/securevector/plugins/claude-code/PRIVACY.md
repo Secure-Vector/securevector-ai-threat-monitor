@@ -51,7 +51,7 @@ Redaction is **best-effort pattern matching, not a cryptographic guarantee.** Th
 
 Size limits enforced by the plugin before any POST:
 
-- `/api/tool-permissions/call-audit` — the `args_preview` field is truncated to 200 characters.
+- `/api/tool-permissions/call-audit` — the `args_preview` field is capped at 8 KB (8192 characters) after redaction; the app redacts and caps it again before storing.
 - `/analyze` — the `text` field is capped at 8 KB (8 000 bytes) for prompt and prose-input scans, and at 16 KB for tool-response scans (including `stdout` / `stderr` from `Bash` / `PowerShell`).
 
 ## What the plugin never collects

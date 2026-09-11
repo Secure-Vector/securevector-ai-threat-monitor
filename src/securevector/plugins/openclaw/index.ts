@@ -177,7 +177,7 @@ class SVClient {
   /** Fire-and-forget: record a tool call decision for audit trail. */
   recordToolAudit(toolName: string, verdict: ToolVerdict, sessionKey: string, argsPreview: string): void {
     // Redact common secret patterns before persisting to audit log
-    const redacted = argsPreview.slice(0, 200)
+    const redacted = argsPreview.slice(0, 8192)
       .replace(/sk-[a-zA-Z0-9]{20,}/g, "sk-[REDACTED]")
       .replace(/Bearer\s+[a-zA-Z0-9._\-]+/gi, "Bearer [REDACTED]")
       .replace(/AKIA[A-Z0-9]{16}/g, "AKIA[REDACTED]")

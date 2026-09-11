@@ -293,7 +293,7 @@ INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 """
 
 # Current schema version
-CURRENT_SCHEMA_VERSION = 45
+CURRENT_SCHEMA_VERSION = 47
 SCHEMA_DESCRIPTION = (
     "v20: hash-chain tool_call_audit for tamper-evidence; "
     "v21: device_id on scans + audit rows; "
@@ -324,7 +324,9 @@ SCHEMA_DESCRIPTION = (
     "time-boxed access to; hard denies stay non-requestable and instant-fail); "
     "v45: per-run cost enforcement — session_id on llm_cost_records (proxy run correlation), "
     "run-limit settings on app_settings (max tool calls / cost / tokens per run, loop breaker), "
-    "and a trace_id index on tool_call_audit for the per-run counter"
+    "and a trace_id index on tool_call_audit for the per-run counter; "
+    "v47: guardian_cleared_events — rule-only detections that Guardian cleared before "
+    "recording (rule ids, category, direction, score, preview) so the veto stays auditable"
 )
 
 # Migration SQL for v34 — redaction_events table.
@@ -623,4 +625,26 @@ ALTER TABLE app_settings ADD COLUMN cloud_connected_at TIMESTAMP DEFAULT NULL;
 -- Record migration
 INSERT INTO schema_version (version, applied_at, description)
 VALUES (3, CURRENT_TIMESTAMP, 'Add cloud mode fields to app_settings');
+"""
+
+
+# Migration SQL for v47 — guardian_cleared_events table.
+# One row per rule-only detection the Guardian model cleared (mechanism 2 in
+# routes/analyze.py). Keeps the veto auditable and tunable without putting a
+# non-threat row into threat_intel_records, where every consumer counts rows.
+MIGRATION_V47_SQL = """
+CREATE TABLE IF NOT EXISTS guardian_cleared_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_ids      TEXT NOT NULL,
+    category      TEXT,
+    direction     TEXT,
+    ml_score      REAL NOT NULL,
+    source        TEXT,
+    request_id    TEXT,
+    text_preview  TEXT,
+    cleared_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_guardian_cleared_time
+    ON guardian_cleared_events (cleared_at);
 """

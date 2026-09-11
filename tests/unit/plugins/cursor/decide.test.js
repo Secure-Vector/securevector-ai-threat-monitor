@@ -105,7 +105,7 @@ test('buildAuditBody redacts the args preview and tags runtime_kind=cursor', () 
   assert.equal(body.action, 'block');
   assert.equal(body.session_id, 'conv-1');
   assert.ok(!body.args_preview.includes('sk-proj-abc123def456ghi789jkl012'));
-  assert.ok(body.args_preview.length <= 200);
+  assert.ok(body.args_preview.length <= 8192);
 });
 
 test('sessionIdFrom prefers conversation_id and falls back across shapes', () => {

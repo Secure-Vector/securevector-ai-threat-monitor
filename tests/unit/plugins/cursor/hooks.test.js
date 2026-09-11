@@ -98,10 +98,10 @@ test('effectToAction maps the audit action like every sibling plugin', () => {
   assert.equal(effectToAction(undefined), 'allow');
 });
 
-test('preview redacts secrets and truncates to 200 chars', () => {
-  const out = preview('token=ghp_0123456789abcdef0123456789abcdef0123 ' + 'x'.repeat(400));
+test('preview redacts secrets and truncates to 8 KB', () => {
+  const out = preview('token=ghp_0123456789abcdef0123456789abcdef0123 ' + 'x'.repeat(10000));
   assert.ok(!out.includes('ghp_0123456789abcdef0123456789abcdef0123'));
-  assert.ok(out.length <= 200);
+  assert.ok(out.length <= 8192);
 });
 
 // --- hooks.json template -----------------------------------------------------

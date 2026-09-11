@@ -108,8 +108,30 @@ async def list_traces(
     # threats" — the list becomes a triage surface, not just a picker.
     detections = await repo.get_trace_detection_counts(window_days=window_days)
 
+    # 5.3.0: generation rows (model turns) per run, from llm_cost_records.
+    # Runs that only have model calls (no tool calls) come from here alone.
+    try:
+        gen_rows = await CostsRepository(db).get_generation_runs(window_days=window_days, limit=limit)
+    except Exception:  # noqa: BLE001 - cost table trouble must not hide tool runs
+        gen_rows = []
+    gen_by_trace = {g.get("trace_id"): g for g in gen_rows}
+
+    def _usage(g: Optional[dict]) -> dict:
+        g = g or {}
+        cost = float(g.get("cost") or 0.0)
+        return {
+            "generations": int(g.get("generations") or 0),
+            "tokens": int(g.get("tokens") or 0),
+            "cost": round(cost, 6),
+            "max_turn_cost": round(float(g.get("max_turn_cost") or 0.0), 6),
+            "flagged": int(g.get("flagged") or 0),
+            "models": [m for m in (g.get("models") or "").split(",") if m][:4],
+        }
+
     runs = []
+    seen = set()
     for r in rows:
+        seen.add(r.get("trace_id"))
         blocked = int(r.get("blocked") or 0)
         tools = (r.get("tools") or "")
         det = detections.get(r.get("trace_id")) or {}
@@ -131,7 +153,29 @@ async def list_traces(
                 secrets=int(det.get("secrets") or 0),
             ),
             "tools": [t for t in tools.split(",") if t][:8],
+            **_usage(gen_by_trace.get(r.get("trace_id"))),
         })
+    for tid, g in gen_by_trace.items():
+        if tid in seen:
+            continue
+        usage = _usage(g)
+        runs.append({
+            "trace_id": tid,
+            "runtime_kind": g.get("runtime_kind") or "unknown",
+            "session_id": g.get("session_id"),
+            "spans": 0,
+            "blocked": 0,
+            "log_only": 0,
+            "detections": 0,
+            "secrets": 0,
+            "started_at": g.get("started_at"),
+            "ended_at": g.get("ended_at"),
+            "risk": "amber" if usage["flagged"] else "green",
+            "tools": [],
+            **usage,
+        })
+    runs.sort(key=lambda x: _ts_key(x.get("ended_at")), reverse=True)
+    runs = runs[:limit]
     return {"window_days": window_days, "runs": runs}
 
 
@@ -159,7 +203,11 @@ async def get_trace(trace_id: str):
     db = get_database()
     repo = CustomToolsRepository(db)
     rows = await repo.get_trace_spans(trace_id)
-    if not rows:
+    try:
+        stored_gen_rows = await CostsRepository(db).get_trace_generations(trace_id)
+    except Exception:  # noqa: BLE001
+        stored_gen_rows = []
+    if not rows and not stored_gen_rows:
         raise HTTPException(status_code=404, detail="trace not found")
 
     # Correlate each span back to the threat record it came from (shared
@@ -167,8 +215,9 @@ async def get_trace(trace_id: str):
     # Rule+ML and the ML score. tool_call_audit doesn't carry that itself.
     detections = await repo.get_detection_sources([r.get("request_id") for r in rows])
 
-    runtime_kind = rows[0].get("runtime_kind") or "unknown"
-    session_id = rows[0].get("session_id")
+    head = rows[0] if rows else stored_gen_rows[0]
+    runtime_kind = head.get("runtime_kind") or "unknown"
+    session_id = head.get("session_id")
 
     tool_spans = []
     blocked = 0
@@ -198,6 +247,8 @@ async def get_trace(trace_id: str):
             # ml_disagrees) so SOC can deprioritise likely-FPs in Traces, not
             # only on the Threats page.
             "ml_agreement": det.get("ml_agreement") if det else None,
+            "span_id": r.get("span_id"),
+            "parent_span_id": r.get("parent_span_id"),
             # Correlation id so a detection row can deep-link to the underlying
             # threat / secret record ("see what was detected").
             "request_id": r.get("request_id") if det else None,
@@ -229,6 +280,15 @@ async def get_trace(trace_id: str):
                 apply_cost(generations, price_map)
             except Exception:  # noqa: BLE001 — cost is best-effort; leave None
                 pass
+
+    # 5.3.0: stored generation spans (OTLP ingest, Python SDK, LLM proxy)
+    # for every runtime. When a transcript-derived generation carries the
+    # same request_id as a stored one, the stored row wins so nothing is
+    # counted twice.
+    stored = [_stored_generation(g) for g in stored_gen_rows]
+    if stored:
+        stored_rids = {g["request_id"] for g in stored if g.get("request_id")}
+        generations = stored + [g for g in generations if g.get("request_id") not in stored_rids]
 
     # Performance guard: a very long session (e.g. a 47k-line transcript) can
     # yield thousands of LLM turns. Rendering them all un-virtualised is slow,
@@ -289,4 +349,69 @@ async def get_trace(trace_id: str):
         "started_at": started_at,
         "ended_at": ended_at,
         "blocked": blocked,
+        # 5.3.0 cost view: spend per model and the turn that cost the most.
+        "cost_by_model": _cost_by_model(generations),
+        "expensive_turn": _expensive_turn(merged),
     }
+
+
+def _stored_generation(g: dict) -> dict:
+    """Shape a llm_cost_records row like a transcript-derived generation."""
+    tokens_in = int(g.get("input_tokens") or 0)
+    cached = int(g.get("input_cached_tokens") or 0)
+    known = bool(g.get("pricing_known"))
+    action = g.get("verdict_action")
+    verdict = None
+    if action:
+        outcome, label, color = _VERDICT.get(action, _VERDICT["allow"])
+        verdict = {"action": action, "label": label, "color": color,
+                   "risk": g.get("verdict_risk"), "reason": g.get("verdict_reason")}
+    return {
+        "span_kind": "generation",
+        "model": g.get("model_id") or "unknown",
+        "provider": g.get("provider"),
+        "input_tokens": tokens_in,
+        "output_tokens": int(g.get("output_tokens") or 0),
+        "cache_read_tokens": cached,
+        "cache_creation_tokens": 0,
+        "stop_reason": g.get("finish_reason"),
+        "finish_reason": g.get("finish_reason"),
+        "called_at": g.get("started_at"),
+        "duration_ms": g.get("duration_ms"),
+        "request_id": g.get("request_id"),
+        "span_id": g.get("span_id"),
+        "parent_span_id": g.get("parent_span_id"),
+        "cost": round(float(g.get("total_cost_usd") or 0.0), 6) if known else None,
+        "pricing_known": known,
+        "input_preview": g.get("input_preview"),
+        "output_preview": g.get("output_preview"),
+        "input_truncated": False,
+        "output_truncated": False,
+        "verdict": verdict,
+        "source": "stored",
+    }
+
+
+def _cost_by_model(generations: list[dict]) -> list[dict]:
+    acc: dict = {}
+    for g in generations:
+        m = g.get("model") or "unknown"
+        row = acc.setdefault(m, {"model": m, "cost": 0.0, "tokens": 0, "generations": 0})
+        row["cost"] += float(g.get("cost") or 0.0)
+        row["tokens"] += int(g.get("input_tokens") or 0) + int(g.get("output_tokens") or 0)
+        row["generations"] += 1
+    out = sorted(acc.values(), key=lambda r: r["cost"], reverse=True)
+    for r in out:
+        r["cost"] = round(r["cost"], 6)
+    return out
+
+
+def _expensive_turn(merged: list[dict]) -> Optional[dict]:
+    best = None
+    for sp in merged:
+        if sp.get("span_kind") != "generation":
+            continue
+        c = float(sp.get("cost") or 0.0)
+        if c > 0 and (best is None or c > best["cost"]):
+            best = {"turn_index": sp.get("turn_index"), "cost": round(c, 6), "model": sp.get("model")}
+    return best

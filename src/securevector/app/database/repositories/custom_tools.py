@@ -10,6 +10,7 @@ import hashlib
 import logging
 from typing import Optional
 
+from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -394,6 +395,8 @@ class CustomToolsRepository:
         runtime_kind: Optional[str] = None,
         session_id: Optional[str] = None,
         request_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        parent_span_id: Optional[str] = None,
     ) -> None:
         """Record a full tool call decision (block/allow/log_only) for audit history.
 
@@ -408,7 +411,8 @@ class CustomToolsRepository:
             risk: Risk level string ("read", "write", "delete", "admin").
             reason: Human-readable reason for the decision.
             is_essential: True if matched in essential registry.
-            args_preview: First 200 chars of the tool arguments.
+            args_preview: Tool arguments. Redacted and capped at 8 KB here
+                (see securevector.app.utils.trace_text) whatever the producer sent.
             runtime_kind: Which agent runtime emitted the call — "claude-code",
                 "openclaw", etc. Metadata only; not in the v20 hash chain
                 (same precedent as device_id, see migrate_to_v21 comment).
@@ -452,6 +456,12 @@ class CustomToolsRepository:
             resolved_tool_id = tool_id or function_name
             essential_int = 1 if is_essential else 0
 
+            # Redact always, then cap, BEFORE hashing: the chain covers the
+            # stored text and every producer (plugins, OTLP, SDK, proxy) is
+            # held to the same posture regardless of what it sent.
+            args_preview, _ = sanitize_trace_text(args_preview, direction="outgoing")
+            reason, _ = sanitize_trace_text(reason, direction="outgoing")
+
             row_hash = _compute_audit_row_hash(
                 prev_hash=prev_hash,
                 seq=next_seq,
@@ -488,7 +498,6 @@ class CustomToolsRepository:
                 ) as cursor:
                     count_row = await cursor.fetchone()
                 turn_index = int(count_row["n"] or 0)
-            parent_span_id: Optional[str] = None  # reserved for future nested spans
 
             await conn.execute(
                 """
@@ -496,8 +505,8 @@ class CustomToolsRepository:
                     (tool_id, function_name, action, risk, reason, is_essential,
                      args_preview, called_at, seq, prev_hash, row_hash, device_id,
                      runtime_kind, session_id, trace_id, turn_index, parent_span_id,
-                     request_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     request_id, span_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     resolved_tool_id,
@@ -518,6 +527,7 @@ class CustomToolsRepository:
                     turn_index,
                     parent_span_id,
                     request_id,
+                    span_id,
                 ),
             )
             await conn.commit()
@@ -1312,7 +1322,7 @@ class CustomToolsRepository:
             SELECT
                 seq, turn_index, tool_id, function_name, action,
                 risk, reason, called_at, runtime_kind, args_preview,
-                request_id, session_id
+                request_id, session_id, span_id, parent_span_id
             FROM tool_call_audit
             WHERE trace_id = ?
             ORDER BY seq ASC
