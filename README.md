@@ -164,7 +164,7 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
 <tr>
 <td valign="top">
 
-Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Inputs are stored as a 200-char preview *after* secret redaction — raw payloads never persisted. Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
+Every tool call is recorded to a SHA-256-linked, tamper-evident audit log (re-verify in one click). Tool inputs are stored *after* secret redaction, capped at 8 KB per field, and never leave the device. Allow / deny / ask rules per tool, enforced at the agent runtime via PreToolUse hooks or the multi-provider proxy.
 
 </td>
 <td valign="top">

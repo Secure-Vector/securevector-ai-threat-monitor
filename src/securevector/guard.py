@@ -57,7 +57,7 @@ log = logging.getLogger("securevector.guard")
 
 DEFAULT_APP_URL = "http://127.0.0.1:8741"
 RUNTIME_KIND = "python"
-PREVIEW_LIMIT = 500
+PREVIEW_LIMIT = 8192
 SCAN_LIMIT = 102400  # the app's /analyze body cap
 
 # Keep obvious secrets out of the preview we send. The app redacts too.

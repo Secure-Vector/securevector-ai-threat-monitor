@@ -217,8 +217,8 @@ const StorylinesPage = {
             `<p style="font-size:12px;line-height:1.6;color:#333;">` +
             `This report is generated locally on the device from the tool-call audit log and agent transcripts. ` +
             `Every enforced tool call is recorded in a SHA-256 hash chain (tamper-evident). ` +
-            `Argument and LLM input/output previews are capped at 200 characters and secret-redacted before storage — ` +
-            `SecureVector never stores full prompts, responses, or command bodies. ` +
+            `Tool arguments and LLM input/output are secret-redacted before storage and kept up to 8 KB per field, ` +
+            `on this device only; nothing beyond that is stored. ` +
             `"Enforced calls" counts tool invocations that passed through policy; "blocked" counts those a deny policy or ` +
             `blocking threat rule stopped. Session and trace identifiers are the runtime's own session ids.</p>`;
 
@@ -702,15 +702,14 @@ const StorylinesPage = {
             input.className = 'story-wf-pre';
             input.textContent = sp.args_preview;
             const sec = this._anatomySection(panel, 'Tool input', input);
-            // The plugin sends only the first 200 chars, secrets redacted —
-            // SecureVector never stores full tool arguments (privacy). When the
-            // preview is at that cap, say so, so a truncated command doesn't
-            // read as a bug.
-            if ((sp.args_preview || '').length >= 200) {
+            // Arguments are secret-redacted and capped at 8 KB (the app
+            // enforces both on write). When the text is at that cap, say so,
+            // so a cut command doesn't read as a bug.
+            if ((sp.args_preview || '').length >= 8192) {
                 const cap = document.createElement('div');
                 cap.className = 'story-wf-note';
                 cap.style.marginTop = '5px';
-                cap.textContent = 'Preview only: first 200 characters, secrets redacted. SecureVector never stores the full command.';
+                cap.textContent = 'Showing the first 8 KB, secrets redacted. The rest of this command was not stored.';
                 sec.appendChild(cap);
             }
         } else {
@@ -1006,7 +1005,7 @@ const StorylinesPage = {
         const priv = document.createElement('div');
         priv.className = 'story-wf-note';
         priv.style.marginTop = '5px';
-        priv.textContent = 'Preview only: first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.';
+        priv.textContent = 'Secrets redacted. Prompts and responses are kept up to 8 KB each and stay on this device.';
         panel.appendChild(priv);
     },
 

@@ -51,7 +51,7 @@ test('agent-runs renders Generation (LLM turn) spans with redacted I/O previews'
   assert.match(src, /input_preview/);
   assert.match(src, /output_preview/);
   // Honest privacy contract carried through to the detail.
-  assert.match(src, /never stores the full prompt or response/);
+  assert.match(src, /kept up to 8 KB each and stay on this device/);
   // Generations bypass the built-in/external tool checkbox.
   assert.match(src, /Generations aren't tools/);
 });

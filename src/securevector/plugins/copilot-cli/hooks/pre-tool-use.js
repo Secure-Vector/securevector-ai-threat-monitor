@@ -43,7 +43,7 @@ const EFFECT_TO_DECISION = Object.freeze({
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ALLOW = Object.freeze({ decision: 'allow' });
-const ARGS_PREVIEW_LIMIT = 200;
+const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'copilot-cli';
 const REASON_PREFIX = 'SecureVector Guard';
 

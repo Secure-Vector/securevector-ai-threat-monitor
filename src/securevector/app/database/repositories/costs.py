@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from securevector.app.utils.trace_text import sanitize_trace_text
 from securevector.app.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -531,6 +532,10 @@ class CostsRepository:
         Cost is computed here with the same formula the proxy's CostRecorder
         uses, so a traced call and a proxied call price identically.
         """
+        # Redact always, then cap at 8 KB, for every producer (OTLP, SDK,
+        # transcript import, proxy). None stays None: the "not stored" marker.
+        input_preview, _ = sanitize_trace_text(input_preview, direction="outgoing")
+        output_preview, _ = sanitize_trace_text(output_preview, direction="llm_response")
         rate_in, rate_out = await self.resolve_rates(provider, model_id)
         pricing_known = rate_in is not None and rate_out is not None
         if pricing_known:

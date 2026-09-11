@@ -58,8 +58,8 @@ const AgentRunsPage = {
     runSearch: '',         // in-trace filter: match runs by tool / model / reason
     // Session replay (§3.1): step/play through the trace's event stream in
     // chronological order. `idx` = how many events are revealed (playhead at
-    // idx-1); the unit is the event, so replay respects the 200-char redacted
-    // preview budget — we never store or replay full bodies.
+    // idx-1); the unit is the event, so replay respects the 8 KB redacted
+    // text budget — bodies beyond that are never stored or replayed.
     _replay: { on: false, idx: 0, playing: false, speed: 1, timer: null, count: 0 },
 
     /** Stop the replay timer + reset state (called on trace change / leave). */
@@ -1126,7 +1126,7 @@ const AgentRunsPage = {
             policyTable = ObsTabs.tableHTML([{ label: 'policy / rule that fired', get: r => r.reason }, { label: 'blocks', get: r => r.count }, { label: 'tools', get: r => r.tools }, { label: 'agents', get: r => r.agents }], ledger.by_reason);
         }
         const win = this.windowDays === 1 ? '24 hours' : this.windowDays + ' days';
-        const methodology = `<h2>Methodology &amp; data posture</h2><p style="font-size:12px;line-height:1.6;color:#333;">Generated locally from the tamper-evident tool-call audit log and agent transcripts. Tool argument and LLM input/output previews are capped at 200 characters and secret-redacted before storage: SecureVector never stores full prompts, responses, or command bodies.</p>`;
+        const methodology = `<h2>Methodology &amp; data posture</h2><p style="font-size:12px;line-height:1.6;color:#333;">Generated locally from the tamper-evident tool-call audit log and agent transcripts. Tool arguments and LLM input/output are secret-redacted before storage and kept up to 8 KB per field, on this device only; nothing beyond that is stored.</p>`;
         ObsTabs.printDoc('SecureVector: Agent Activity Audit Report',
             `<h1>Agent Activity Audit Report</h1><div class="sub">Last ${win} · ${totals.sessions} sessions · ${totals.steps.toLocaleString()} enforced calls · ${totals.blocked} blocked</div>` +
             `<h2>By agent</h2>${agentTable}<h2>Policies that fired</h2>${policyTable}<h2>All sessions (${rows.length})</h2>${sessionTable}` + methodology);
@@ -2587,7 +2587,7 @@ const AgentRunsPage = {
 
     /** Expandable body for a generation: the redacted prompt (input) and model
      *  response (output) previews, plus the token/model metadata. Honest about
-     *  the privacy contract — 200-char cap, secret-redacted, and the
+     *  the privacy contract — 8 KB cap, secret-redacted, and the
      *  "not stored" state when the user's Store-text-content setting is off. */
     _genDetail(s) {
         // Chat-style I/O (the LangSmith/Langfuse/Braintrust convention): the
@@ -2641,7 +2641,7 @@ const AgentRunsPage = {
                 ? s.tools_called.map(t => this._prettyTool(t)).join(', ') : '') +
             kv('Time', this._fmtTime(s.called_at)) +
             `</dl>` +
-            `<div class="ar-gen-privacy">Preview only: first 200 characters, secrets redacted. SecureVector never stores the full prompt or response.</div>` +
+            `<div class="ar-gen-privacy">Secrets redacted. Prompts and responses are kept up to 8 KB each and stay on this device.</div>` +
             `</div>`;
     },
 
@@ -2723,7 +2723,7 @@ const AgentRunsPage = {
     _spanDetail(s, external) {
         const kv = (k, v) => v ? `<dt>${k}</dt><dd>${this._esc(v)}</dd>` : '';
         const args = s.args_preview
-            ? `<div class="ar-args"><div class="ar-args-label">Arguments (redacted preview)</div><pre>${this._esc(s.args_preview)}</pre></div>`
+            ? `<div class="ar-args"><div class="ar-args-label">Arguments (secrets redacted)</div><pre>${this._esc(s.args_preview)}</pre></div>`
             : '';
         // Detected-by row: raw HTML (badge), not escaped text — only when the
         // step is tied to a threat detection.

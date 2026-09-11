@@ -233,7 +233,7 @@ def test_preview_redacts_secrets_and_truncates():
     preview = t.audits[0]["args_preview"]
     assert "sk-[REDACTED]" in preview
     assert "sk-abcdef" not in preview
-    assert len(preview) <= 500
+    assert len(preview) <= 8192
     # The scan itself still sees the full text; only the stored preview is cut.
     assert len(t.analyzed[0][1]) > 2000
 

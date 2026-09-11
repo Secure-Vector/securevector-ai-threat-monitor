@@ -30,12 +30,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from securevector.app.utils.redaction import redact_secrets
+from securevector.app.utils.trace_text import TRACE_TEXT_CAP, sanitize_trace_text
 
-# Preview cap — mirrors the plugin-side args_preview 200-char policy so the
-# "never store the full body" contract is identical across tool spans and
-# generation spans.
-PREVIEW_CAP = 200
+# Preview cap: the shared 8 KB trace-text cap (5.3.0), the same one tool
+# spans use, so tool and generation spans carry the same amount of text.
+PREVIEW_CAP = TRACE_TEXT_CAP
 
 
 def _claude_projects_dir() -> Path:
@@ -197,9 +196,8 @@ def _preview(text: str) -> tuple[str, bool]:
     """Redact secrets, then cap at PREVIEW_CAP. Returns (preview, truncated)."""
     if not text:
         return "", False
-    redacted, _ = redact_secrets(text, direction="outgoing")
-    truncated = len(redacted) > PREVIEW_CAP
-    return (redacted[:PREVIEW_CAP], truncated)
+    out, truncated = sanitize_trace_text(text, direction="outgoing", cap=PREVIEW_CAP)
+    return (out or "", truncated)
 
 
 def build_generations(
@@ -217,7 +215,7 @@ def build_generations(
     timestamp.
 
     Each generation carries model, token counts, timestamp, and (gated on
-    ``store_text``) a redacted 200-char preview of the model's text output plus
+    ``store_text``) a redacted 8 KB preview of the model's text output plus
     the prompt that drove it. Returns [] when the transcript can't be found or
     read — the trace still renders its tool spans; generations are additive.
 
@@ -462,7 +460,7 @@ def build_generations_codex(
     delta), the model lives on ``turn_context`` records, and assistant text is
     in ``output_text`` content blocks. One generation = one model turn (the run
     of assistant text since the previous token_count). Same privacy contract:
-    metadata always; redacted 200-char preview only when store_text is on.
+    metadata always; redacted 8 KB preview only when store_text is on.
     """
     path = _find_codex_rollout(session_id)
     if path is None:
