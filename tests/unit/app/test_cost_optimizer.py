@@ -45,8 +45,12 @@ def _gen(inp=0, read=0, create=0, out=100, model="claude-x", ts=None, **kw):
     return g
 
 
+# Two days ago, so seeded transcripts always fall inside a 30-day window.
+_SEED_DAY = (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat()
+
+
 def _ts(i, step=30):
-    return f"2026-08-01T10:{(i * step) // 60:02d}:{(i * step) % 60:02d}.000Z"
+    return f"{_SEED_DAY}T10:{(i * step) // 60:02d}:{(i * step) % 60:02d}.000Z"
 
 
 # ---------------------------------------------------------------------------

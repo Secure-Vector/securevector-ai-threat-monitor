@@ -24,6 +24,7 @@ const App = {
         'proxy-langgraph': { render: (c) => IntegrationPage.render(c, 'proxy-langgraph') },
         'proxy-crewai': { render: (c) => IntegrationPage.render(c, 'proxy-crewai') },
         'proxy-hermes': { render: (c) => IntegrationPage.render(c, 'proxy-hermes') },
+        'proxy-python': { render: (c) => IntegrationPage.render(c, 'proxy-python') },
         'proxy-n8n': { render: (c) => IntegrationPage.render(c, 'proxy-n8n') },
         'proxy-ollama': { render: (c) => IntegrationPage.render(c, 'proxy-ollama') },
         'proxy-openclaw': { render: (c) => IntegrationPage.render(c, 'proxy-openclaw') },
@@ -80,6 +81,11 @@ const App = {
         // Agent Egress — observed destinations + destination policy (#198).
         // The containment self-test tab is withheld; see js/pages/egress.js.
         egress:              EgressPage,
+        policies:            PoliciesHubPage,
+        'policies-controls': PoliciesHubPage,
+        // Same page, two destinations: what agents reached (Visibility) and
+        // what they may reach (Policies).
+        'egress-policy':     EgressPolicyPage,
     },
 
     /**
@@ -101,6 +107,7 @@ const App = {
         // Render components. Global banners render per page-load (see
         // loadPage) — v5 banner policy keeps them to ONE banner, ONE place
         // (the Dashboard), so no init-time render here.
+        if (window.Community) Community.init();
         Sidebar.render();
         Header.render();
         // The floating Guardian (replaces the retired TryItChat panel):
@@ -169,9 +176,29 @@ const App = {
         // nudge banner and the Integrations page already cover.
         if (!hasSeenGeneric) this.showWelcomeIfFirstLaunch();
 
-        // v5.2.0 Optimizer spotlight: upgraders only, once, never stacked on
-        // another modal (it self-guards on both).
-        if (window.OptimizerSpotlight) OptimizerSpotlight.maybeShow();
+        // 5.3.0 trace notice: upgraders only (a fresh install has no old
+        // plugin to reload), shown once for a few seconds.
+        if (hasSeenGeneric) this.showTraceUpgradeNotice();
+    },
+
+    // Shown once after the 5.3.0 update. Plugin hooks now send the full tool
+    // input (up to 8 KB, secrets redacted), but the running harness keeps the
+    // old hooks until the plugin is reloaded, so the notice says exactly that.
+    TRACE_NOTICE_VERSION: '5.3.0',
+    TRACE_NOTICE_KEY: 'sv-trace-notice-acked',
+    TRACE_NOTICE_MS: 10000,
+
+    showTraceUpgradeNotice() {
+        if (!window.Toast) return;
+        let acked = null;
+        try { acked = localStorage.getItem(this.TRACE_NOTICE_KEY); } catch (_) { /* private mode */ }
+        if (acked === this.TRACE_NOTICE_VERSION) return;
+        Toast.show({
+            type: 'success',
+            duration: this.TRACE_NOTICE_MS,
+            message: 'SecureVector 5.3.0: Traces now keep the full tool input on this device, secrets redacted. Reload your plugin to turn it on.',
+        });
+        try { localStorage.setItem(this.TRACE_NOTICE_KEY, this.TRACE_NOTICE_VERSION); } catch (_) { /* private mode */ }
     },
 
     /**
@@ -430,13 +457,13 @@ const App = {
         // a six-card wall buried the v4.6.0 headliners (Guardian ML and the
         // Copilot CLI plugin) under older release notes.
         whatsNewList.appendChild(makeNewItem(
-            'NEW',
+            'DETECT',
             'Guardian ML',
             'Local AI threat detection alongside the regex rules: fully offline, nothing leaves your device, every catch labelled Rule / ML.',
             'guardian-ml'
         ));
         whatsNewList.appendChild(makeNewItem(
-            'NEW',
+            'PLUGIN',
             'GitHub Copilot CLI plugin',
             'Copilot CLI joins the guarded harnesses: native hooks, tool-permission enforcement, tamper-evident audit.',
             'proxy-copilot-cli',

@@ -30,7 +30,8 @@ Each row contains:
 - OpenCode's session id and a per-call correlation id derived from OpenCode's
   `callID`
 - `args_preview` — the tool's arguments, **passed through the secret redactor
-  and then truncated to 200 characters**
+  and then capped at 8 KB (8192 characters)**; the app redacts and caps it
+  again before storing
 
 ### 2. On session start — the same audit endpoint
 
@@ -54,7 +55,7 @@ logs, `grep` output, and binary dumps are never sent.
 
 Tool arguments for tools *other* than `task` and `question` — including `bash`
 command bodies and `write`/`edit` file contents — are **not** sent to `/analyze`.
-They appear only as the redacted, 200-character `args_preview` on the audit row.
+They appear only as the redacted `args_preview` on the audit row, capped at 8 KB (8192 characters), and the app redacts and caps it again before storing.
 
 ### 4. Policy lookups — `GET /api/tool-permissions/synced-overrides`, `POST /api/egress/evaluate`
 

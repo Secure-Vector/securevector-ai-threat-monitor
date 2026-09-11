@@ -17,7 +17,7 @@
 const { postJsonAndForget, fetchSyncedOverrides } = require('./client.js');
 const { redactForScan } = require('./redact.js');
 
-const ARGS_PREVIEW_LIMIT = 200;
+const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'cursor';
 const SOURCE = 'cursor-plugin';
 const OUTGOING_SCAN_LIMIT = 8000;

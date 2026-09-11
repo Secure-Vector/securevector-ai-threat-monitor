@@ -5,175 +5,63 @@
 
 const Sidebar = {
     navItems: [
+        // v5.3 rail: ten destinations in three groups, plus Guide and Settings
+        // docked at the bottom. Pages that used to be their own rows are
+        // `views` of a destination: they render indented under the active row
+        // (expanded rail) or inside the hover flyout (icon rail). Every old page
+        // id stays routable and highlights its parent via `views` or `aliases`,
+        // so deep links, the palette and Governance gap cards still land.
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-        // The single triage surface. Blocked Actions and Secret Detections are
-        // facets of this page, not rails of their own — three destinations for
-        // one question ("what did SecureVector catch or stop?") was the main
-        // source of "where do I look?". Old ids stay aliases so deep links and
-        // bookmarks keep this row highlighted.
-        // One triage surface, three lenses — same shape as Agent Observability
-        // below. The facets stay visible in the rail so they remain scannable;
-        // hiding them behind the page made them undiscoverable to anyone who
-        // never clicked in. Clicking a child opens that facet directly.
-        // The parent is a GROUP id, not a route — same shape as
-        // 'agent-activity' below. It used to be `threats`, which made the
-        // Threats facet unreachable from the rail: the group ships expanded,
-        // so the first click only collapsed it, and the click that did
-        // navigate went to subItems[0] (Blocked). Listing all three facets as
-        // children fixes reachability and puts the word "Threats" back in the
-        // rail, where it had disappeared behind the group label.
-        { id: 'threat-monitor', label: 'Threat Monitor', icon: 'shield', collapsible: true,
-          defaultExpanded: true, navigable: true,
-          tooltip: 'Threats, blocked actions and secret detections — one triage surface',
-          subItems: [
-              { id: 'threats',        label: 'Threats', tooltip: 'Prompt-injection, jailbreak and exfiltration attempts detected in agent traffic' },
-              { id: 'blocked-ledger', label: 'Blocked Actions', tooltip: 'What SecureVector prevented: blocked tool calls grouped by the policy that fired' },
-              { id: 'redactions',     label: 'Secret Detections' },
-          ]},
-        // conversion-ux — the download hook: opt-in retroactive scan of the
-        // agent history already on disk. Sits beside Threat Monitor: past vs live.
-        { id: 'instant-audit', label: 'Instant Audit', icon: 'scan', tooltip: 'What your agents already did: a local, opt-in scan of past Claude Code / Codex sessions' },
-        // Agent Replay umbrella — collapsible parent grouping the three
-        // observability views that share the same per-agent lens. Top-level
-        // 'replay' route still works as a deep-link (the Timeline sub-item
-        // lands on it), and Tool Activity / Cost & Tokens get prominent
-        // visibility under the agent-observability story instead of being
-        // buried under Configure.
-        { id: 'agent-activity', label: 'Agent Observability', icon: 'history', collapsible: true, defaultExpanded: true, navigable: true, subItems: [
-            // One destination, three lenses (Sessions / Traces / Map tabs via
-            // ObsTabs). Lands on Sessions — the complete-trace workhorse view
-            // (v5 default flip: LangSmith/Langfuse-style, traces first; the
-            // Map is the overview lens one tab away). `aliases` keep this
-            // item highlighted while the user switches tabs (separate page ids).
-            // Label stays "Sessions" (not "Agent Sessions" — redundant under
-            // the Observability parent; not "Agent Traces" — a trace is ONE
-            // turn/request, i.e. the Traces tab; Sessions is the level above,
-            // matching Langfuse/Phoenix vocabulary). Tooltip carries the def.
-            { id: 'agent-runs',     label: 'Traces', aliases: ['storylines', 'agent-map', 'agent-timeline'], tooltip: 'One trace per agent session. Open a trace to see its runs (each LLM call and tool call) with the enforcement verdict, tokens and cost on each. Replay it, or open the Map.' },
-            // Activity log + inventory (SBOM) are two lenses on the same
-            // tool_call_audit data — one destination, two tabs on the page.
-            // 'bill-of-tools' stays as an alias so deep links keep this row lit.
-            { id: 'tool-activity',  label: 'Tool Activity & Inventory', aliases: ['bill-of-tools'] },
-            // Blocked Actions and Secret Detections moved up into Threat Monitor
-            // as facets — see the note on that entry above.
-            { id: 'costs',          label: 'Cost & Tokens' },
-        ]},
-        // ---- Govern (v5 IA) ----
-        // Everything below until Connect is a control the human sets: what
-        // agents may do, which rules fire, what ML runs, what budgets cap.
-        // 2026-07-20 persona review (nav clutter): the four local-control
-        // singles fold into one collapsible group. Page ids are untouched, so
-        // every deep link (Governance gap cards, guides, palette) still lands.
-        // MCP Policies stays OUTSIDE this group on purpose — it's the
-        // CLOUD_TIER org-managed surface (#151), not a local control.
-        // Guardian ML still has no nav row — it's the header sentinel-robot
-        // control (Header.createGuardianControl); the 'guardian-ml' route
-        // stays alive for deep links.
-        { id: 'policies-controls', label: 'Policies & Controls', icon: 'lock', collapsible: true, defaultExpanded: true, subItems: [
-            { id: 'tool-permissions', label: 'Tool Permissions', tooltip: 'Allow / block / log-only tool calls. The Activity log is under Observability.' },
-            { id: 'rules', label: 'Rules', tooltip: 'Auto-block or alert on threats that match custom criteria' },
-            // Tool Permissions governs WHETHER a tool runs; egress governs WHERE
-            // it may reach. A tool allowed by name can still be denied its
-            // destination, so the two sit side by side rather than nested.
-            { id: 'egress', label: 'Agent Egress', tooltip: 'Where agents may reach, and the policy that governs it.' },
-            // Skills + Tools entries cover their primary "configure" surfaces
-            // (the Permissions / Policy tabs); the Activity / Tracking tabs
-            // are surfaced under Observability above.
-            { id: 'skill-scanner', label: 'Skills Scanner', tooltip: 'Skill scanner + skill policy management (tabs on the page)' },
-            { id: 'cost-settings', label: 'Cost Settings', tooltip: 'Budgets + pricing. The per-agent spend dashboard is under Observability.' },
-        ]},
-        // ---- Cloud section (#151) ----
-        // The cloud-account surfaces get their own labelled section
-        // (SECTION_BEFORE maps 'mcp-policies' → 'Cloud') so enrolled-device
-        // features don't blend into the local Configure items.
-        // MCP Policies — read-only viewer of cloud-synced policy bundles.
-        // Kept distinct from Tool Permissions: the trust artifact (what's
-        // pushed to me, by whom) vs the operational surface.
-        // Governance leads the Cloud section — always-visible local posture
-        // (the funnel), so it is NOT in CLOUD_TIER and stays clickable.
-        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'This device’s local protection posture: which SecureVector controls are on. Operational, not legal/compliance.' },
-        { id: 'mcp-policies', label: 'MCP Policies', icon: 'shield-check', tooltip: 'Org-managed tool rules: one change, applied to every enrolled device.' },
-        // Connect an agent — the QUICK path: pick an agent, copy a couple of
-        // commands, done. It sits directly above Integrations, which is the
-        // DETAILED per-agent reference (install/verify/uninstall, self-host,
-        // troubleshooting). Quick first, detailed second.
-        // v5 IA simplification: "Connect Wizard" is no longer a separate nav
-        // row — having Wizard + Connect Agents + Integrations read as three
-        // near-identical "connect" entries confused people (persona review:
-        // the novice "froze deciding" between them). Connect Agents is now the
-        // single door: it shows live coverage (detected · protected · not
-        // covered) AND offers the guided one-click setup (the old wizard flow)
-        // as a CTA on the page. The 'connect-wizard' route still exists for
-        // that guided flow and deep links; it's just reached from here now.
-        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', tooltip: 'Connect your agents and see coverage: which runtimes are detected, how many sessions are protected, and what is not yet covered. Guided one-click setup and manual commands both live here.' },
-        { id: 'integrations', label: 'Integrations', icon: 'integrations', collapsible: true, tooltip: 'Deep per-agent reference (install, verify, troubleshoot, self-host/auth) plus proxy-only tools (n8n, Ollama). Connect Agents is the quick path; this is the detail.', subItems: [
-            // Grouped by integration mechanism so users pick the right install
-            // path at a glance. "Plugins" = native host hooks (no proxy, no env
-            // vars): Claude Code + Codex are plugin-only; OpenClaw is primarily
-            // the plugin but its page also exposes a block-mode proxy.
-            // "Frameworks" = agent frameworks (LangChain/LangGraph/CrewAI) whose
-            // primary path is now the SecureVector SDK (tool-call layer); each
-            // page keeps an optional legacy base-URL proxy. "Proxy" = the
-            // remaining tools you point at the local proxy's base URL (n8n,
-            // Ollama). The left-nav labels stay framework-named (not "SDK").
-            // (Page ids keep their historical `proxy-` prefix to avoid breaking
-            // routes.)
-            { header: 'Plugins' },
-            { id: 'proxy-claude-code', label: 'Claude Code' },
-            { id: 'proxy-codex', label: 'Codex' },
-            { id: 'proxy-copilot-cli', label: 'GitHub Copilot CLI' },
-            { id: 'proxy-cursor', label: 'Cursor' },
-            { id: 'proxy-opencode', label: 'OpenCode' },
-            { id: 'proxy-openclaw', label: 'OpenClaw/ClawdBot' },
-            { header: 'Frameworks' },
-            { id: 'proxy-langchain', label: 'LangChain' },
-            { id: 'proxy-langgraph', label: 'LangGraph' },
-            { id: 'proxy-crewai', label: 'CrewAI' },
-            { id: 'proxy-hermes', label: 'Hermes' },
-            { header: 'Proxy' },
-            { id: 'proxy-n8n', label: 'n8n' },
-            { id: 'proxy-ollama', label: 'Ollama' },
-        ]},
-        // SIEM Forwarder + Cloud Activity are OUTBOUND pipes (data leaving this
-        // device), not "connect an agent" — lumping them under Connect bloated
-        // that section. They get their own "Cloud & Export" group so Connect
-        // stays just the two agent-connection entries.
-        { id: 'siem-export', label: 'SIEM Forwarder', icon: 'costs', tooltip: 'Forward threats and tool-call audits to Splunk, Datadog, Sentinel, QRadar, Chronicle, OTLP, or any HTTPS webhook' },
-        // Cloud Activity — full in/out visibility for the cloud↔device pipe.
-        // In CLOUD_TIER below: always shown, but dimmed/"locked" on personal-mode
-        // installs (clicking lands on its enroll-CTA empty state).
-        { id: 'cloud-activity', label: 'Cloud Activity', icon: 'history', tooltip: 'Everything flowing in and out of this device since enrollment: synced policies down, metadata-only audit up.' },
-        { id: 'guide', label: 'Guide', icon: 'book', collapsible: true, subItems: [
-            // "Connect Your Agents" is promoted to a top-level nav item (see
-            // above) so it is always visible on every viewport; it is therefore
-            // intentionally NOT duplicated here under Guide.
-            // Harness plugin guides grouped under one header — one section per
-            // harness that ships a native plugin (Claude Code, Codex, GitHub
-            // Copilot CLI, OpenClaw).
-            { header: 'Plugin setup' },
-            { id: 'guide-claude-code', label: 'Claude Code' },
-            { id: 'guide-codex', label: 'Codex' },
-            { id: 'guide-copilot-cli', label: 'GitHub Copilot CLI' },
-            { id: 'guide-cursor', label: 'Cursor' },
-            { id: 'guide-opencode', label: 'OpenCode' },
-            { id: 'guide-openclaw', label: 'OpenClaw / ClawdBot' },
-            { header: 'Framework SDKs' },
-            { id: 'guide-frameworks', label: 'LangChain · LangGraph · CrewAI · Hermes' },
-            { header: 'Reading the data' },
-            { id: 'gs-read-map', label: 'Reading the Map', section: 'section-read-map' },
-            { id: 'gs-read-runs', label: 'Reading Traces', section: 'section-read-runs' },
-            { header: 'Reference' },
-            { id: 'gs-tool-inventory', label: 'Tool Inventory', section: 'section-tool-inventory' },
-            { id: 'gs-secret-detections', label: 'Secret Detections', section: 'section-secret-detections' },
-            { id: 'gs-mcp-policies', label: 'MCP Policies', section: 'section-mcp-policies' },
-            { id: 'gs-siem-forwarder', label: 'SIEM Forwarder', section: 'section-siem-forwarder' },
-            { id: 'gs-skill-scanner', label: 'Skill Scanner', section: 'section-skill-scanner' },
-            { id: 'gs-api', label: 'API Reference', section: 'section-api' },
-            { id: 'gs-troubleshoot', label: 'Troubleshooting', section: 'section-troubleshooting' },
-        ]},
-        { id: 'settings', label: 'Settings', icon: 'settings' },
+        { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
+          tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
+          views: [
+            { id: 'agent-runs', label: 'Runs' },
+            { id: 'tool-activity', label: 'Tool Activity', aliases: ['bill-of-tools'] },
+            { id: 'instant-audit', label: 'Instant Audit' },
+          ] },
+        { id: 'threats', label: 'Threats', icon: 'shield', aliases: ['threat-monitor'], count: 'threats',
+          tooltip: 'Prompt injection, jailbreak and exfiltration attempts, plus what was blocked and which secrets were caught',
+          views: [
+            { id: 'threats', label: 'Detections' },
+            { id: 'blocked-ledger', label: 'Blocked Actions', count: 'blocked' },
+            { id: 'redactions', label: 'Secret Detections', count: 'secrets' },
+          ] },
+        { id: 'governance', label: 'Agent Governance', icon: 'gauge', tooltip: 'How protected this one device is right now, and the gaps to close' },
+        { id: 'costs', label: 'Cost & Tokens', icon: 'costs', tooltip: 'What your agents spend on model calls, per agent, model and session' },
+        { id: 'egress', label: 'Agent Egress', icon: 'proxy', count: 'egress',
+          tooltip: 'Every external host your agents reached, first seen and how often' },
+        // Configure: Policies is the one destination; each policy surface is
+        // a view with its own icon, shown under the row only while you are in
+        // it. Same fold as Traces and Threats, so the rail stays short at rest.
+        { id: 'policies', label: 'Policies', icon: 'sliders', aliases: ['policies-controls'],
+          tooltip: 'Everything that decides what an agent may do, with live status for each control',
+          views: [
+            { id: 'policies', label: 'Overview', tooltip: 'Every control at a glance, with live status for each' },
+            { id: 'tool-permissions', label: 'Tool Permissions', icon: 'lock',
+              tooltip: 'Which tools each agent may call, and requests waiting on you' },
+            { id: 'rules', label: 'Rules', icon: 'rules',
+              tooltip: 'Detection rules: the community library plus your own' },
+            { id: 'egress-policy', label: 'Egress Policy', icon: 'proxy',
+              tooltip: 'Which external hosts agents may reach' },
+            { id: 'cost-settings', label: 'Cost Settings', icon: 'costs',
+              tooltip: 'Budgets and model pricing used for spend tracking' },
+            { id: 'mcp-policies', label: 'MCP Policies', icon: 'integrations', cloud: true,
+              tooltip: 'Allow and block MCP servers, synced from your SecureVector account' },
+            { id: 'skill-scanner', label: 'Skills Scanner', icon: 'scan',
+              tooltip: 'Static scan of installed agent skills before they run' },
+          ] },
+        { id: 'guide-connect-agents', label: 'Connect Agents', icon: 'plug', aliases: ['integrations', 'proxy-claude-code', 'proxy-codex', 'proxy-copilot-cli', 'proxy-cursor', 'proxy-opencode', 'proxy-openclaw', 'proxy-python', 'proxy-langchain', 'proxy-langgraph', 'proxy-crewai', 'proxy-hermes', 'proxy-n8n', 'proxy-ollama'],
+          tooltip: 'Connect any agent: Python @guard, framework SDKs, coding-agent plugins, proxies' },
+        { id: 'siem-export', label: 'Cloud & Forwarders', icon: 'rocket',
+          tooltip: 'SIEM forwarding and Cloud Connect activity',
+          views: [
+            { id: 'siem-export', label: 'SIEM Forwarder' },
+            { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
+          ] },
+        { id: 'guide', label: 'Guide', icon: 'book', dock: true, aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
+          tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
+        { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
     ],
-
     currentPage: 'dashboard',
 
     collapsed: false,
@@ -225,8 +113,10 @@ const Sidebar = {
         if (!container) return;
 
         // Check saved collapsed state
-        this.collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
-        if (this.collapsed) container.classList.add('collapsed');
+        const savedCollapsed = localStorage.getItem('sidebar-collapsed');
+        // Icon rail by default on narrower windows; the user's choice wins once made.
+        this.collapsed = savedCollapsed !== null ? savedCollapsed === 'true' : window.innerWidth < 1280;
+        container.classList.toggle('collapsed', this.collapsed);
 
         // Restore the user's last sidebar width before rendering so the
         // expanded rail comes up at the right size on first paint.
@@ -268,21 +158,17 @@ const Sidebar = {
         const logoTextCol = document.createElement('div');
         logoTextCol.className = 'sidebar-logo-text';
 
-        // Wordmark + version on one row (version sits right next to the brand).
-        const brandRow = document.createElement('span');
-        brandRow.style.cssText = 'display:inline-flex;align-items:baseline;gap:7px;';
-
+        // Wordmark on the first line, version on its own line beneath it.
         const logo = document.createElement('span');
         logo.className = 'sidebar-logo';
         logo.textContent = 'SecureVector';
-        brandRow.appendChild(logo);
+        logoTextCol.appendChild(logo);
 
-        // App version badge, read from the running server rather than typed
+        // App version, read from the running server rather than typed
         // here. A literal needing a manual bump every release is how the app
         // shipped 5.1.0 while announcing 5.0.0 elsewhere; /health already
         // reports the real version, so ask it. The major-only string stays as
-        // the pre-fetch value so the chip never renders empty or shifts width
-        // noticeably when the answer arrives.
+        // the pre-fetch value so the line never renders empty.
         const version = document.createElement('span');
         version.className = 'sidebar-version';
         version.textContent = 'v5';
@@ -295,30 +181,26 @@ const Sidebar = {
                 if (/^[\w.+-]{1,20}$/.test(v)) version.textContent = 'v' + v;
             })
             .catch(() => {});   // offline or mid-restart: the fallback stands
-        // Reserve the settled width so the chip does not jump from 'v5' to
-        // 'v5.1.0' once /health answers.
-        version.style.cssText = 'font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.3px;color:var(--text-muted,#7d8590);min-width:5ch;display:inline-block;';
-        brandRow.appendChild(version);
-        logoTextCol.appendChild(brandRow);
+        logoTextCol.appendChild(version);
 
         // No tagline in the rail. A marketing positioning line belongs on the
         // surfaces where someone is still deciding — login, README, docs — not
         // in authenticated chrome, where the user has already adopted the
         // product. Observability and security tools conventionally leave this
         // slot for orientation (workspace, environment, tier, version); here
-        // the `v5` chip beside the wordmark already fills that role.
+        // the version line under the wordmark already fills that role.
 
         logoLink.appendChild(logoTextCol);
 
         header.appendChild(logoLink);
         container.appendChild(header);
+        container.appendChild(this._createSearchRow());
 
         // Create nav
         const nav = document.createElement('nav');
         nav.className = 'sidebar-nav';
 
         // Core features get an orange badge dot overlaid on their icon
-        const CORE_BADGE = new Set(['threat-monitor', 'tool-permissions', 'costs']);
 
         // Features that require a SecureVector cloud account — small "Cloud"
         // pill rendered next to the label so users know up-front.
@@ -342,28 +224,22 @@ const Sidebar = {
         // audiences use — SOC operators ("visibility into agent activity") and
         // business buyers alike — and doesn't echo the child.
         //   Visibility — what the agents are doing (dashboard, threats, observability)
-        //   Govern     — what the human controls (permissions, rules, policies)
+        //   Configure  — what the human sets (permissions, rules, egress, budgets, MCP, skills)
         //   Connect    — pipes in and out (wizard, integrations, SIEM, cloud)
         // Page ids are untouched, so every old deep link still lands.
         const SECTION_BEFORE = {
-            'dashboard':          'Visibility',
-            'policies-controls':  'Govern',
+            'dashboard':            'Visibility',
+            'policies':             'Configure',
             'guide-connect-agents': 'Connect',
-            'siem-export':        'Cloud & Forwarders',
-            'guide':              'Help & Settings',
         };
 
-        // Items that get a divider before them — the IA section boundaries.
-        const DIVIDER_BEFORE = new Set(['policies-controls', 'guide-connect-agents', 'siem-export', 'guide']);
-
-        // Section groups — each Observe/Govern/Connect header is a toggle
-        // that collapses every row in its group. Rows register into the
-        // current section as they render; the tail (Guide + Settings) is
-        // deliberately ungrouped and always visible.
         const sections = [];
         let currentSection = null;
 
         this.navItems.forEach(item => {
+            // Guide and Settings live in the bottom dock, the way every
+            // reference product does it, so the scrolling rail ends at Connect.
+            if (item.dock) return;
 
             // Cloud-locked = a CLOUD_TIER surface on a device that isn't known
             // to be enrolled. The row still renders (discoverability) but gets
@@ -410,13 +286,6 @@ const Sidebar = {
                 sections.push(currentSection);
             }
 
-            // Divider
-            if (DIVIDER_BEFORE.has(item.id)) {
-                const divider = document.createElement('div');
-                divider.className = 'nav-section-divider';
-                nav.appendChild(divider);
-                if (currentSection) currentSection.els.push(divider);
-            }
             const navItem = document.createElement('div');
             const hasSubItems = item.subItems && item.subItems.length > 0;
             // Collapsible parents (like Docs) stay active on their page
@@ -424,39 +293,24 @@ const Sidebar = {
             // subItem branch below), but top-level never needed it until Threat
             // Monitor absorbed the blocked/secrets ledgers — without this the row
             // goes unlit on those routes and the user cannot tell where they are.
-            const matchesSelf = item.id === this.currentPage ||
-                (item.aliases && item.aliases.includes(this.currentPage));
+            const matchesSelf = this._itemMatches(item, this.currentPage);
             const isActive = matchesSelf && (!hasSubItems || item.collapsible);
             navItem.className = 'nav-item' + (isActive ? ' active' : '') + (isCloudLocked ? ' nav-item-locked' : '');
             navItem.dataset.page = item.id;
+            const reach = this._itemPageIds(item);
+            if (reach.length) navItem.dataset.aliases = reach.join(',');
             if (item.collapsible) navItem.dataset.collapsible = 'true';
             // A locked cloud row gets an explicit "needs a cloud account"
-            // tooltip; otherwise fall back to the item's own tooltip.
-            if (isCloudLocked) {
-                navItem.title = 'Requires a SecureVector cloud account: enroll this device to turn this on.';
-            } else if (item.tooltip) {
-                navItem.title = item.tooltip;
-            }
+            // tooltip; otherwise the item's own. Native tooltip on the expanded
+            // rail only; the icon rail shows the flyout instead.
+            navItem.dataset.tip = isCloudLocked
+                ? 'Requires a SecureVector cloud account: enroll this device to turn this on.'
+                : (item.tooltip || '');
+            if (navItem.dataset.tip && !this.collapsed) navItem.title = navItem.dataset.tip;
 
-            // Add icon (SVG) — core features get an orange badge dot overlaid
-            // on the icon. (The Guardian ML sentinel robot that used to render
-            // here moved to the header — Header.createGuardianControl.)
-            const iconSvg = this.createIcon(item.icon);
-            if (CORE_BADGE.has(item.id)) {
-                const iconWrap = document.createElement('div');
-                iconWrap.style.cssText = 'position: relative; width: 20px; height: 20px; flex-shrink: 0;';
-                iconWrap.appendChild(iconSvg);
-                const iconDot = document.createElement('div');
-                iconDot.style.cssText = 'position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; border: 1.5px solid var(--bg-secondary);';
-                iconDot.title = 'Core feature';
-                iconDot.dataset.coreDot = item.id;
-                // Hide permanently if already visited
-                if (localStorage.getItem('sv-visited-core-' + item.id)) iconDot.style.display = 'none';
-                iconWrap.appendChild(iconDot);
-                navItem.appendChild(iconWrap);
-            } else {
-                navItem.appendChild(iconSvg);
-            }
+            // Icon (SVG). The Guardian ML sentinel that used to render here
+            // moved to the header (Header.createGuardianControl).
+            navItem.appendChild(this.createIcon(item.icon));
 
             // Add label
             const label = document.createElement('span');
@@ -464,59 +318,40 @@ const Sidebar = {
             label.style.cssText = 'white-space: nowrap; font-size: 12.5px; flex: 1; min-width: 0;';
             navItem.appendChild(label);
 
-            // Add badge for rules count
-            if (item.id === 'rules') {
-                const badge = document.createElement('span');
-                badge.className = 'nav-badge';
-                badge.id = 'rules-count-badge';
-                badge.textContent = '...';
-                navItem.appendChild(badge);
+            if (item.count) {
+                const cnt = document.createElement('span');
+                cnt.className = 'nav-count';
+                cnt.dataset.countFor = item.count;
+                cnt.hidden = true;
+                navItem.appendChild(cnt);
+            }
+            if (item.id === 'agent-runs') {
+                const live = document.createElement('span');
+                live.className = 'nav-live';
+                live.title = 'An agent is running right now';
+                live.hidden = true;
+                navItem.appendChild(live);
+            }
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                navItem.appendChild(hint);
             }
 
-            // Tier pill — features that require a SecureVector account get a
-            // small "Cloud" marker so users know up-front before they click.
-            // When the device isn't enrolled the pill shows a tiny lock glyph
-            // so the dimmed row reads as "locked, available" rather than broken.
-            if (CLOUD_TIER.has(item.id)) {
-                const tier = document.createElement('span');
-                tier.textContent = isCloudLocked ? '🔒 Cloud' : 'Cloud';
-                tier.style.cssText = 'flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; border-radius: 999px; background: rgba(6, 182, 212, 0.14); color: var(--cyan-600, #0891b2); border: 1px solid rgba(6, 182, 212, 0.32); line-height: 1.4;';
-                navItem.appendChild(tier);
+            // Pending just-in-time requests: an agent waiting on a human
+            // decision is the one time-sensitive signal in Configure. The count
+            // sits on Policies so it shows from anywhere, including the icon
+            // rail, where the flyout mirrors it. Filled by loadJitPendingCount().
+            if (item.id === 'policies') {
+                const jitBadge = document.createElement('span');
+                jitBadge.id = 'jit-pending-parent-badge';
+                jitBadge.className = 'nav-count nav-count-warn';
+                jitBadge.hidden = true;
+                navItem.appendChild(jitBadge);
             }
 
-            // NEW badge — persistent for Rules, session-only (30s auto-dismiss) for Skill Scanner & Skill Policy.
-            // Guardian ML deliberately omitted: it gets the animated "sentinel"
-            // robot below instead of a NEW badge.
-            const persistNewItems = ['rules', 'governance'];
-            // Session-only NEW badges: first-view highlight that auto-dismisses
-            // after 30s so the sidebar doesn't stay permanently shouty.
-            const sessionNewItems = [];
-            const isPersist = persistNewItems.includes(item.id);
-            const isSession = sessionNewItems.includes(item.id);
-            const shouldShow = isPersist
-                ? !localStorage.getItem('sv-new-dismissed-' + item.id)
-                : isSession && !sessionStorage.getItem('sv-new-seen-' + item.id);
-            if (shouldShow) {
-                const newBadge = document.createElement('span');
-                newBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 2px; font-size: 8px; font-weight: 700; padding: 1px 3px 1px 4px; border-radius: 3px; background: rgba(180,83,9,0.2); color: #d97706; letter-spacing: 0.3px; line-height: 1; flex-shrink: 0;';
-                const newText = document.createTextNode('NEW');
-                newBadge.appendChild(newText);
-                const dismissBadge = () => {
-                    if (isPersist) localStorage.setItem('sv-new-dismissed-' + item.id, '1');
-                    else sessionStorage.setItem('sv-new-seen-' + item.id, '1');
-                    newBadge.remove();
-                };
-                if (isPersist) {
-                    const closeX = document.createElement('span');
-                    closeX.textContent = '×';
-                    closeX.title = 'Dismiss';
-                    closeX.style.cssText = 'font-size: 10px; line-height: 1; cursor: pointer; opacity: 0.85; margin-left: 1px;';
-                    closeX.addEventListener('click', (e) => { e.stopPropagation(); dismissBadge(); });
-                    newBadge.appendChild(closeX);
-                }
-                navItem.appendChild(newBadge);
-                setTimeout(dismissBadge, 30000);
-            }
 
 
 
@@ -573,11 +408,61 @@ const Sidebar = {
                 // A section holding the active page must never start
                 // collapsed — a hidden "where am I" is worse than a stale
                 // collapse preference.
-                const activeHere = item.id === this.currentPage ||
-                    (item.aliases && item.aliases.includes(this.currentPage)) ||
+                const activeHere = this._itemMatches(item, this.currentPage) ||
                     (item.subItems || []).some(s => s.id === this.currentPage ||
                         (s.aliases && s.aliases.includes(this.currentPage)));
                 if (activeHere) currentSection.containsActive = true;
+            }
+
+            if (item.views && item.views.length) {
+                // A folded destination carries a chevron: down while the fold
+                // is open, right while it is closed. Without it the Policies
+                // row reads as a leaf and the six pages behind it stay
+                // undiscovered until the first click. Hidden in the icon rail,
+                // where the flyout is the affordance.
+                const foldChev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                foldChev.setAttribute('viewBox', '0 0 24 24');
+                foldChev.setAttribute('fill', 'none');
+                foldChev.setAttribute('stroke', 'currentColor');
+                foldChev.setAttribute('stroke-width', '2.4');
+                foldChev.setAttribute('aria-hidden', 'true');
+                foldChev.setAttribute('class', 'nav-fold-chev');
+                const foldChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                foldChevPath.setAttribute('d', 'M6 9l6 6 6-6');
+                foldChev.appendChild(foldChevPath);
+                navItem.classList.add('nav-has-views');
+                if (matchesSelf) navItem.classList.add('nav-fold-open');
+                navItem.appendChild(foldChev);
+
+                const viewsEl = this._renderViews(item, matchesSelf);
+                nav.appendChild(viewsEl);
+                if (currentSection) currentSection.els.push(viewsEl);
+
+                // Hover peek: a closed fold opens while the pointer rests on
+                // its row or on the peeked views, so every page behind it is
+                // one hover away without a trip through Overview. The fold
+                // closes 160ms after the pointer leaves both, long enough to
+                // cross the gap between row and views. Not in the icon rail
+                // (the flyout does that job) and a no-op once the fold is open.
+                let peekTimer = null;
+                const peekOn = () => {
+                    if (this.collapsed || viewsEl.classList.contains('open')) return;
+                    clearTimeout(peekTimer);
+                    viewsEl.classList.add('peek');
+                    navItem.classList.add('nav-fold-open');
+                };
+                const peekOff = () => {
+                    clearTimeout(peekTimer);
+                    if (viewsEl.classList.contains('open')) return;
+                    peekTimer = setTimeout(() => {
+                        viewsEl.classList.remove('peek');
+                        navItem.classList.remove('nav-fold-open');
+                    }, 160);
+                };
+                navItem.addEventListener('mouseenter', peekOn);
+                navItem.addEventListener('mouseleave', peekOff);
+                viewsEl.addEventListener('mouseenter', peekOn);
+                viewsEl.addEventListener('mouseleave', peekOff);
             }
 
             // Sub-items
@@ -683,7 +568,7 @@ const Sidebar = {
             }
         });
 
-        // Wire the Observe / Govern / Connect section toggles. Collapse hides
+        // Wire the Visibility / Configure / Connect section toggles. Collapse hides
         // rows via a class (not inline display) so each row's own inline
         // display state — sub-nav expand/collapse, banner visibility — is
         // preserved intact when the section reopens.
@@ -694,6 +579,7 @@ const Sidebar = {
                 sec.chev.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
                 sec.btn.setAttribute('aria-expanded', String(!collapsed));
                 sec.btn.title = (collapsed ? 'Expand ' : 'Collapse ') + sec.name;
+                if (this._indicator) requestAnimationFrame(() => this._moveIndicator(false));
             };
             sec.apply = apply;
             apply(localStorage.getItem(sec.key) === '1' && !sec.containsActive);
@@ -719,7 +605,25 @@ const Sidebar = {
             this._jitBadgeTimer = setInterval(() => this.loadJitPendingCount(), 30000);
         }
 
+        // Live counts on the rail: threats in the last 24 hours, egress calls
+        // blocked in the last 24 hours. The rail answers "where should I look"
+        // before a click; zero hides the pill so quiet is quiet.
+        this.loadLiveCounts();
+        if (!this._countsTimer) {
+            this._countsTimer = setInterval(() => this.loadLiveCounts(), 60000);
+        }
+
         container.appendChild(nav);
+        this._flyoutInit(container, nav);
+        this._indicatorInit(nav);
+        this._fadeInit(nav);
+        this._chordInit();
+        // First paint: rows settle in one after another; later renders are instant.
+        if (!Sidebar._revealed) {
+            Sidebar._revealed = true;
+            nav.classList.add('nav-reveal');
+            nav.querySelectorAll('.nav-item, .nav-section-label').forEach((el, i) => el.style.setProperty('--i', String(i)));
+        }
 
         // Collapse toggle button (at menu level)
         const collapseBtn = document.createElement('button');
@@ -782,6 +686,7 @@ const Sidebar = {
         // Bottom section - proxy status, try it, uninstall, server status
         const bottomSection = document.createElement('div');
         bottomSection.className = 'sidebar-bottom';
+        bottomSection.appendChild(this._createDock());
 
         // Collapsible status stack — the proxy / plugin / SIEM banners live
         // in one foldable group (the user asked to be able to put them away).
@@ -791,13 +696,20 @@ const Sidebar = {
         statusToggle.type = 'button';
         statusToggle.id = 'sidebar-status-toggle';
         statusToggle.setAttribute('aria-controls', 'sidebar-status-stack');
-        statusToggle.style.cssText = 'display: none; align-items: center; gap: 6px; margin: 10px 12px 2px; padding: 6px 10px; min-height: 26px; line-height: 1.4; background: transparent; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); width: calc(100% - 24px); text-align: left; overflow: visible;';
-        const statusChevron = document.createElement('span');
+        statusToggle.style.cssText = 'display: none; align-items: center; gap: 10px; margin: 0 10px 0; padding: 5px 12px; min-height: 24px; line-height: 1.4; background: transparent; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text-secondary); width: calc(100% - 20px); text-align: left; overflow: visible;';
+        const statusChevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        statusChevron.setAttribute('viewBox', '0 0 24 24');
+        statusChevron.setAttribute('fill', 'none');
+        statusChevron.setAttribute('stroke', 'currentColor');
+        statusChevron.setAttribute('stroke-width', '2');
         statusChevron.setAttribute('aria-hidden', 'true');
-        statusChevron.style.cssText = 'font-size: 11px; flex-shrink: 0; line-height: 1;';
+        statusChevron.style.cssText = 'width: 20px; height: 20px; flex-shrink: 0; opacity: .7; transition: transform 0.15s;';
+        const statusChevPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        statusChevPath.setAttribute('d', 'M9 6l6 6-6 6');
+        statusChevron.appendChild(statusChevPath);
         statusToggle.appendChild(statusChevron);
         const statusLabel = document.createElement('span');
-        statusLabel.textContent = 'Active plugins';
+        statusLabel.textContent = 'Plugins';
         statusToggle.appendChild(statusLabel);
         const statusCount = document.createElement('span');
         statusCount.style.cssText = 'margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 9px; line-height: 16px;';
@@ -815,7 +727,7 @@ const Sidebar = {
         const STATUS_COLLAPSE_KEY = 'sv-status-stack-collapsed';
         const applyStatusCollapsed = (collapsed) => {
             statusStack.style.display = collapsed ? 'none' : 'block';
-            statusChevron.textContent = collapsed ? '\u25b8' : '\u25be';
+            statusChevron.style.transform = collapsed ? 'none' : 'rotate(90deg)';
             statusToggle.setAttribute('aria-expanded', String(!collapsed));
             statusToggle.title = collapsed ? 'Show plugin status' : 'Hide plugin status';
         };
@@ -829,11 +741,29 @@ const Sidebar = {
         // poller flips its banner's inline display) — observe instead of
         // threading a callback through all five pollers.
         const updateStatusToggle = () => {
-            const visible = Array.from(statusStack.children).filter(el => el.style.display !== 'none').length;
-            statusToggle.style.display = visible ? 'flex' : 'none';
-            statusCount.textContent = String(visible);
+            const rows = Array.from(statusStack.children).filter(el => el.style.display !== 'none');
+            statusToggle.style.display = rows.length ? 'flex' : 'none';
+            statusCount.textContent = String(rows.length);
+            statusCount.title = rows.length === 1 ? '1 plugin reporting' : `${rows.length} plugins reporting`;
+            // Colour is state, not runtime: the dot goes accent once the
+            // plugin is active, amber while it still needs a step (staged,
+            // or installed but not enabled). Runtime brand hues were the
+            // one place the rail broke the single-accent rule.
+            // Write the dot only when its state changes. This callback runs
+            // from an observer that watches inline styles under the stack,
+            // and WebKit queues a mutation even for a same-value write, so
+            // an unconditional write here re-enters forever and the desktop
+            // app never leaves the splash.
+            rows.forEach(row => {
+                const dot = row.querySelector('span[aria-hidden]');
+                if (!dot || !/plugin/.test(row.textContent)) return;
+                const state = /\bActive$/.test(row.textContent.trim()) ? 'active' : 'pending';
+                if (dot.dataset.state === state) return;
+                dot.dataset.state = state;
+                dot.style.background = state === 'active' ? 'var(--accent-primary)' : '#f59e0b';
+            });
         };
-        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true });
+        new MutationObserver(updateStatusToggle).observe(statusStack, { attributes: true, attributeFilter: ['style'], childList: true, characterData: true, subtree: true });
         updateStatusToggle();
 
         // Guardian ML lives in the header (Header.createGuardianControl) —
@@ -896,7 +826,7 @@ const Sidebar = {
         ccPluginBanner.addEventListener('mouseenter', () => { ccPluginBanner.style.background = 'var(--bg-hover)'; });
         ccPluginBanner.addEventListener('mouseleave', () => { ccPluginBanner.style.background = 'transparent'; });
         const ccDot = document.createElement('span');
-        ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #8b5cf6; flex-shrink: 0;';
+        ccDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         ccDot.setAttribute('aria-hidden', 'true');
         ccPluginBanner.appendChild(ccDot);
         const ccText = document.createElement('span');
@@ -933,7 +863,7 @@ const Sidebar = {
         codexPluginBanner.addEventListener('mouseenter', () => { codexPluginBanner.style.background = 'var(--bg-hover)'; });
         codexPluginBanner.addEventListener('mouseleave', () => { codexPluginBanner.style.background = 'transparent'; });
         const codexDot = document.createElement('span');
-        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #c0655e; flex-shrink: 0;';
+        codexDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         codexDot.setAttribute('aria-hidden', 'true');
         codexPluginBanner.appendChild(codexDot);
         const codexText = document.createElement('span');
@@ -962,7 +892,7 @@ const Sidebar = {
         copilotPluginBanner.addEventListener('mouseenter', () => { copilotPluginBanner.style.background = 'var(--bg-hover)'; });
         copilotPluginBanner.addEventListener('mouseleave', () => { copilotPluginBanner.style.background = 'transparent'; });
         const copilotDot = document.createElement('span');
-        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #4a8fe7; flex-shrink: 0;';
+        copilotDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         copilotDot.setAttribute('aria-hidden', 'true');
         copilotPluginBanner.appendChild(copilotDot);
         const copilotText = document.createElement('span');
@@ -989,7 +919,7 @@ const Sidebar = {
         opencodePluginBanner.addEventListener('mouseenter', () => { opencodePluginBanner.style.background = 'var(--bg-hover)'; });
         opencodePluginBanner.addEventListener('mouseleave', () => { opencodePluginBanner.style.background = 'transparent'; });
         const opencodeDot = document.createElement('span');
-        opencodeDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #d99a2b; flex-shrink: 0;';
+        opencodeDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0;';
         opencodeDot.setAttribute('aria-hidden', 'true');
         opencodePluginBanner.appendChild(opencodeDot);
         const opencodeText = document.createElement('span');
@@ -1069,16 +999,358 @@ const Sidebar = {
         this.checkOpenCodePluginStatus();
     },
 
+    // ---- v5.3 rail: views, search row, live counts, icon-rail flyout ----
+
+    _itemPageIds(item) {
+        const ids = [...(item.aliases || [])];
+        (item.views || []).forEach(v => { ids.push(v.id); (v.aliases || []).forEach(a => ids.push(a)); });
+        return ids.filter(id => id !== item.id);
+    },
+
+    _itemMatches(item, page) {
+        return item.id === page || this._itemPageIds(item).includes(page);
+    },
+
+    _viewActive(view) {
+        return view.id === this.currentPage || !!(view.aliases && view.aliases.includes(this.currentPage));
+    },
+
+    _renderViews(item, open) {
+        const wrap = document.createElement('div');
+        wrap.className = 'nav-views' + (open ? ' open' : '');
+        wrap.dataset.viewsFor = item.id;
+        item.views.forEach(view => {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
+            row.dataset.page = view.id;
+            if (view.aliases) row.dataset.aliases = view.aliases.join(',');
+            const locked = !!view.cloud && this._enrolled !== true;
+            row.dataset.tip = locked
+                ? 'Requires a SecureVector cloud account: enroll this device to turn this on.'
+                : (view.tooltip || '');
+            if (row.dataset.tip && !this.collapsed) row.title = row.dataset.tip;
+            if (locked) row.classList.add('nav-item-locked');
+            if (view.icon) row.appendChild(this.createIcon(view.icon));
+            const lbl = document.createElement('span');
+            lbl.textContent = view.label;
+            row.appendChild(lbl);
+            if (view.count) {
+                const cnt = document.createElement('span');
+                cnt.className = 'nav-count';
+                cnt.dataset.countFor = view.count;
+                cnt.hidden = true;
+                row.appendChild(cnt);
+            }
+            if (view.id === 'rules') {
+                const badge = document.createElement('span');
+                badge.className = 'nav-count nav-count-quiet';
+                badge.id = 'rules-count-badge';
+                row.appendChild(badge);
+            }
+            if (view.id === 'tool-permissions') {
+                const jitBadge = document.createElement('span');
+                jitBadge.id = 'jit-pending-badge';
+                jitBadge.className = 'nav-count nav-count-warn';
+                jitBadge.style.display = 'none';
+                row.appendChild(jitBadge);
+            }
+            if (locked) {
+                const tier = document.createElement('span');
+                tier.className = 'nav-view-tier';
+                tier.textContent = 'Cloud';
+                tier.title = 'Needs a SecureVector account. Connect one under Cloud & Forwarders.';
+                row.appendChild(tier);
+            }
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === view.id && view.id !== item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                row.appendChild(hint);
+            }
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.navigate(view.id);
+            });
+            wrap.appendChild(row);
+        });
+        return wrap;
+    },
+
+    _createDock() {
+        const dock = document.createElement('div');
+        dock.className = 'nav-dock';
+        this.navItems.filter(i => i.dock).forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'nav-item nav-dock-row' + (this._itemMatches(item, this.currentPage) ? ' active' : '');
+            row.dataset.page = item.id;
+            const reach = this._itemPageIds(item);
+            if (reach.length) row.dataset.aliases = reach.join(',');
+            row.title = item.tooltip || item.label;
+            row.appendChild(this.createIcon(item.icon));
+            const label = document.createElement('span');
+            label.textContent = item.label;
+            row.appendChild(label);
+            const chordKey = Object.keys(this.CHORDS).find(k => this.CHORDS[k] === item.id);
+            if (chordKey) {
+                const hint = document.createElement('kbd');
+                hint.className = 'nav-chord-hint';
+                hint.textContent = `g ${chordKey}`;
+                row.appendChild(hint);
+            }
+            row.addEventListener('click', () => this.navigate(item.id));
+            dock.appendChild(row);
+        });
+        return dock;
+    },
+
+    _createSearchRow() {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'nav-search';
+        row.title = 'Search pages and actions';
+        row.setAttribute('aria-label', 'Search pages and actions');
+        row.appendChild(this.createIcon('search'));
+        const lbl = document.createElement('span');
+        lbl.className = 'nav-search-label';
+        lbl.textContent = 'Search';
+        row.appendChild(lbl);
+        const kbd = document.createElement('kbd');
+        kbd.className = 'nav-search-kbd';
+        kbd.textContent = /Mac/i.test(navigator.platform || '') ? '⌘K' : 'Ctrl K';
+        row.appendChild(kbd);
+        row.addEventListener('click', () => {
+            if (window.CommandPalette && typeof CommandPalette.open === 'function') CommandPalette.open();
+        });
+        return row;
+    },
+
+    // Where the rail's numbers come from. Two rules hold everywhere:
+    // a loud pill always means "something got through", and a pill that is
+    // showing means there is something you have not looked at yet.
+    _seenKey(page) { return `sv-nav-seen-${page}`; },
+
+    _seenSince(page) {
+        // Nothing looked at yet, or looked at long ago: fall back to 24 hours,
+        // so the pill can never grow without bound.
+        const floor = Date.now() - 24 * 3600 * 1000;
+        let seen = 0;
+        try { seen = Number(localStorage.getItem(this._seenKey(page))) || 0; } catch (_) { /* private mode */ }
+        return new Date(Math.max(floor, seen)).toISOString();
+    },
+
+    markSeen(page) {
+        const key = { threats: 'threats', 'blocked-ledger': 'blocked-ledger', redactions: 'redactions' }[page];
+        if (!key) return;
+        try { localStorage.setItem(this._seenKey(key), String(Date.now())); } catch (_) { /* private mode */ }
+        setTimeout(() => this.loadLiveCounts(), 300);
+    },
+
+    loadLiveCounts() {
+        const set = (key, n, title) => {
+            const v = Number(n) || 0;
+            document.querySelectorAll(`.nav-count[data-count-for="${key}"]`).forEach(el => {
+                el.textContent = v > 999 ? '999+' : String(v);
+                el.hidden = v <= 0;
+                if (title) el.title = title;
+            });
+        };
+        if (typeof API === 'undefined') return;
+        // Threats always means detections. A blocked action is a different
+        // outcome and gets its own row, never the same pill in the same colour.
+        API.getThreats({ page_size: 1, is_threat: true, start_date: this._seenSince('threats') })
+            .then(r => {
+                const n = Number((r && r.total) || 0);
+                set('threats', n, `${n} detection${n === 1 ? '' : 's'} you have not opened yet`);
+            }).catch(() => {});
+        API.getBlockedLedger({ window_days: 1 })
+            .then(r => {
+                const n = Number((r && r.summary && r.summary.blocked_total) || 0);
+                set('blocked', n, `${n} action${n === 1 ? '' : 's'} blocked in the last 24 hours`);
+            }).catch(() => {});
+        API.getRedactions(1, { limit: 1 })
+            .then(r => {
+                const n = Number((r && r.summary && r.summary.total) || 0);
+                set('secrets', n, `${n} secret${n === 1 ? '' : 's'} caught in the last 24 hours`);
+            }).catch(() => {});
+        API.getEgressDestinations(1)
+            .then(r => {
+                const n = ((r && r.destinations) || []).reduce((a, d) => a + (d.blocked || 0), 0);
+                set('egress', n, `${n} egress call${n === 1 ? '' : 's'} blocked in the last 24 hours`);
+            }).catch(() => {});
+    },
+
+    _flyoutInit(container, nav) {
+        let fly = document.getElementById('nav-flyout');
+        if (!fly) {
+            fly = document.createElement('div');
+            fly.id = 'nav-flyout';
+            fly.className = 'nav-flyout';
+            fly.hidden = true;
+            document.body.appendChild(fly);
+            fly.addEventListener('mouseenter', () => clearTimeout(this._flyHide));
+            fly.addEventListener('mouseleave', () => this._flyoutHide());
+        }
+        nav.querySelectorAll('.nav-item[data-page]:not(.nav-view):not(.nav-sub-item)').forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                if (container.classList.contains('collapsed')) this._flyoutShow(row);
+            });
+            row.addEventListener('mouseleave', () => this._flyoutHide());
+        });
+    },
+
+    _flyoutShow(row) {
+        clearTimeout(this._flyHide);
+        const item = this.navItems.find(i => i.id === row.dataset.page);
+        const fly = document.getElementById('nav-flyout');
+        if (!item || !fly) return;
+        fly.textContent = '';
+        const title = document.createElement('div');
+        title.className = 'nav-flyout-title';
+        title.textContent = item.label;
+        const cnt = row.querySelector('.nav-count');
+        if (cnt && !cnt.hidden) {
+            const c = document.createElement('span');
+            c.className = 'nav-count';
+            c.textContent = cnt.textContent;
+            title.appendChild(c);
+        }
+        fly.appendChild(title);
+        if (row.dataset.tip) {
+            const d = document.createElement('div');
+            d.className = 'nav-flyout-desc';
+            d.textContent = row.dataset.tip;
+            fly.appendChild(d);
+        }
+        (item.views || []).forEach(v => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'nav-flyout-view' + (this._viewActive(v) ? ' active' : '');
+            if (v.icon) b.appendChild(this.createIcon(v.icon));
+            const lbl = document.createElement('span');
+            lbl.textContent = v.label;
+            b.appendChild(lbl);
+            if (v.tooltip) b.title = v.tooltip;
+            if (v.cloud && this._enrolled !== true) {
+                const tier = document.createElement('span');
+                tier.className = 'nav-view-tier';
+                tier.textContent = 'Cloud';
+                b.appendChild(tier);
+            }
+            b.addEventListener('click', () => { this._flyoutHide(true); this.navigate(v.id); });
+            fly.appendChild(b);
+        });
+        const r = row.getBoundingClientRect();
+        fly.style.left = `${Math.round(r.right + 6)}px`;
+        fly.hidden = false;
+        const h = fly.offsetHeight || 120;
+        fly.style.top = `${Math.round(Math.max(8, Math.min(r.top, window.innerHeight - 8 - h)))}px`;
+    },
+
+    _flyoutHide(now) {
+        clearTimeout(this._flyHide);
+        const fly = document.getElementById('nav-flyout');
+        if (!fly) return;
+        if (now) { fly.hidden = true; return; }
+        this._flyHide = setTimeout(() => { fly.hidden = true; }, 160);
+    },
+
+    // ---- v5.3 rail: sliding indicator, chord shortcuts ----
+    // The rail is navigation only. Live agent counts live on Traces and
+    // device posture on Agent Governance; both used to be repeated here.
+
+    _fadeInit(nav) {
+        const sync = () => nav.classList.toggle('nav-more', nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4);
+        nav.addEventListener('scroll', sync, { passive: true });
+        nav.addEventListener('scrollend', sync, { passive: true });
+        window.addEventListener('resize', sync);
+        if (typeof ResizeObserver !== 'undefined') {
+            if (this._fadeRo) this._fadeRo.disconnect();
+            this._fadeRo = new ResizeObserver(sync);
+            this._fadeRo.observe(nav);
+        }
+        // The rail's own box is fixed by the layout; its contents grow and
+        // shrink as sections and views open, so watch those too.
+        if (typeof MutationObserver !== 'undefined') {
+            if (this._fadeMo) this._fadeMo.disconnect();
+            this._fadeMo = new MutationObserver(sync);
+            this._fadeMo.observe(nav, { subtree: true, attributes: true, attributeFilter: ['class', 'style'], childList: true });
+        }
+        requestAnimationFrame(sync);
+    },
+
+    _indicatorInit(nav) {
+        nav.style.position = 'relative';
+        const ind = document.createElement('div');
+        ind.className = 'nav-indicator';
+        nav.appendChild(ind);
+        this._indicator = ind;
+        this._indicatorNav = nav;
+        requestAnimationFrame(() => this._moveIndicator(true));
+    },
+
+    _moveIndicator(instant) {
+        const ind = this._indicator;
+        const nav = this._indicatorNav;
+        if (!ind || !nav || !nav.isConnected) return;
+        const rows = [...nav.querySelectorAll('.nav-item.active')].filter(el => el.offsetParent !== null);
+        // A view lights its label; the bar stays on the parent row so the
+        // edge marker and the tinted row always agree.
+        const el = rows.find(r => !r.classList.contains('nav-view')) || rows[rows.length - 1];
+        if (!el) { ind.style.opacity = '0'; return; }
+        if (instant) ind.style.transition = 'none';
+        ind.style.top = `${el.offsetTop}px`;
+        ind.style.height = `${el.offsetHeight}px`;
+        ind.style.opacity = '1';
+        if (instant) requestAnimationFrame(() => { ind.style.transition = ''; });
+    },
+
+    // "g then key" jumps, the Linear and Gmail convention. The hints show on
+    // the rows while the chord is armed, so nobody has to memorise them.
+    CHORDS: { d: 'dashboard', t: 'agent-runs', h: 'threats', c: 'costs', e: 'egress', p: 'policies',
+              k: 'skill-scanner', a: 'governance', n: 'guide-connect-agents', f: 'siem-export', u: 'guide', s: 'settings',
+              // Pages folded under Policies: the fold must not cost a keystroke.
+              l: 'tool-permissions', r: 'rules', x: 'egress-policy', b: 'cost-settings', m: 'mcp-policies' },
+
+    _chordInit() {
+        if (this._chordBound) return;
+        this._chordBound = true;
+        const typing = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+        document.addEventListener('keydown', (e) => {
+            if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+            if (this._chordArmed) {
+                clearTimeout(this._chordTimer);
+                this._chordArmed = false;
+                sidebar.classList.remove('nav-chord');
+                const page = this.CHORDS[e.key.toLowerCase()];
+                if (page) { e.preventDefault(); this.navigate(page); }
+                return;
+            }
+            if (e.key === 'g' || e.key === 'G') {
+                this._chordArmed = true;
+                sidebar.classList.add('nav-chord');
+                this._chordTimer = setTimeout(() => {
+                    this._chordArmed = false;
+                    sidebar.classList.remove('nav-chord');
+                }, 1500);
+            }
+        });
+    },
+
     toggleCollapse() {
         const container = document.getElementById('sidebar');
         this.collapsed = !this.collapsed;
         localStorage.setItem('sidebar-collapsed', this.collapsed);
 
-        if (this.collapsed) {
-            container.classList.add('collapsed');
-        } else {
-            container.classList.remove('collapsed');
-        }
+        container.classList.toggle('collapsed', this.collapsed);
+        this._flyoutHide(true);
+        setTimeout(() => this._moveIndicator(true), 260);
+        container.querySelectorAll('.nav-item[data-tip]').forEach(row => {
+            if (this.collapsed) row.removeAttribute('title');
+            else if (row.dataset.tip) row.title = row.dataset.tip;
+        });
 
         // Update icon
         const collapseBtn = container.querySelector('.sidebar-collapse-btn');
@@ -1258,7 +1530,14 @@ const Sidebar = {
             if (e.key === 'Escape') { close(); trigger.focus(); }
         });
 
-        return row;
+        // One foot row: theme on the left, GitHub and Discord as two quiet
+        // icons on the right. Same line so the rail foot stays one row; the
+        // theme hover menu keeps its own wrapper so the icons do not open it.
+        const foot = document.createElement('div');
+        foot.className = 'sidebar-foot';
+        foot.appendChild(row);
+        if (window.Community) foot.appendChild(Community.createLinks());
+        return foot;
     },
 
     setTheme(id) {
@@ -1266,6 +1545,7 @@ const Sidebar = {
         if (this.currentTheme() === id) return;
         document.documentElement.setAttribute('data-theme', id);
         try { localStorage.setItem('theme', id); } catch (_) { /* private mode */ }
+        if (window.DesktopChrome) DesktopChrome.syncTheme(id);
         this.render();
         if (window.Header) Header.render();
     },
@@ -1384,6 +1664,24 @@ const Sidebar = {
 
         modal.appendChild(content);
 
+        // The people who leave are the ones we most need to hear from. One
+        // optional line, one click, a prefilled issue; no survey.
+        if (window.Community) {
+            const leaving = document.createElement('p');
+            leaving.style.cssText = 'margin: 12px 0 0; font-size: 12px; color: var(--text-secondary);';
+            leaving.appendChild(document.createTextNode('Leaving because something did not work? '));
+            const tell = Community.createReportLink('Tell us in a GitHub issue', Community.bugUrl({ title: 'Uninstalling because: ' }));
+            tell.style.cssText = 'color: var(--accent-primary);';
+            leaving.appendChild(tell);
+            leaving.appendChild(document.createTextNode(' or '));
+            const mail = Community.createReportLink('email us', Community.mailUrl('feedback'));
+            mail.removeAttribute('target');
+            mail.style.cssText = 'color: var(--accent-primary);';
+            leaving.appendChild(mail);
+            leaving.appendChild(document.createTextNode('. Version and platform are prefilled, nothing else.'));
+            modal.appendChild(leaving);
+        }
+
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
@@ -1414,6 +1712,12 @@ const Sidebar = {
                 badge.textContent = n === 1 ? '1 waiting' : n + ' waiting';
                 badge.style.display = n > 0 ? 'inline-flex' : 'none';
             }
+            const parent = document.getElementById('jit-pending-parent-badge');
+            if (parent) {
+                parent.textContent = String(n);
+                parent.title = n === 1 ? '1 request waiting for you' : n + ' requests waiting for you';
+                parent.hidden = n === 0;
+            }
         } catch (_) { /* fail-quiet: badge just stays hidden */ }
     },
 
@@ -1440,6 +1744,7 @@ const Sidebar = {
         langchain: { icon: '🔗', label: 'LANGCHAIN PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langchain' },
         langgraph: { icon: '📊', label: 'LANGGRAPH PROXY', color: 'linear-gradient(135deg, #10b981, #059669)', page: 'proxy-langgraph' },
         crewai: { icon: '👥', label: 'CREWAI PROXY', color: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', page: 'proxy-crewai' },
+        python: { icon: '🐍', label: 'PYTHON @GUARD', color: 'linear-gradient(135deg, #8b949e, #6e7681)', page: 'proxy-python' },
         hermes: { icon: '🪽', label: 'HERMES PROXY', color: 'linear-gradient(135deg, #f59e0b, #d97706)', page: 'proxy-hermes' },
         n8n: { icon: '⚡', label: 'N8N PROXY', color: 'linear-gradient(135deg, #ef4444, #dc2626)', page: 'proxy-n8n' },
         default: { icon: '', label: 'PROXY', color: 'linear-gradient(135deg, #5eadb8, #c0655e)', page: 'integrations' },
@@ -1682,6 +1987,10 @@ const Sidebar = {
             shield: [
                 { tag: 'path', attrs: { d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' } },
             ],
+            search: [
+                { tag: 'circle', attrs: { cx: '11', cy: '11', r: '7' } },
+                { tag: 'path', attrs: { d: 'M21 21l-4.5-4.5' } },
+            ],
             // Guardian ML — a CPU/chip glyph signals "local ML model", keeping
             // it visually distinct from the two shields (Threats / MCP Policies)
             // so the nav doesn't read as a triplicated shield.
@@ -1757,7 +2066,7 @@ const Sidebar = {
             ],
             costs: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
-                { tag: 'path', attrs: { d: 'M12 6v2m0 8v2M8.5 9.5a3.5 3.5 0 0 1 7 0c0 2-3.5 3-3.5 5m0 1h.01' } },
+                { tag: 'path', attrs: { d: 'M12 6.5v11M15 9.4a3.2 3.2 0 0 0-3-1.6c-1.7 0-3 .9-3 2.1s1.3 2.1 3 2.1 3 .9 3 2.1-1.3 2.1-3 2.1a3.2 3.2 0 0 1-3-1.6' } },
             ],
             history: [
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
@@ -1831,15 +2140,9 @@ const Sidebar = {
         }
 
         this.currentPage = page;
+        this.markSeen(page);
 
         // Remove core icon badge dot on first visit
-        const coreDot = document.querySelector(`[data-core-dot="${page}"]`);
-        if (coreDot && !localStorage.getItem('sv-visited-core-' + page)) {
-            localStorage.setItem('sv-visited-core-' + page, '1');
-            coreDot.style.transition = 'opacity 0.3s';
-            coreDot.style.opacity = '0';
-            setTimeout(() => coreDot.remove(), 300);
-        }
 
         // Update active state
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -1899,8 +2202,9 @@ const Sidebar = {
 
     setActive(page) {
         this.currentPage = page;
+        this.markSeen(page);
         document.querySelectorAll('.nav-item').forEach(item => {
-            const isSubItem = item.classList.contains('nav-sub-item');
+            const isSubItem = item.classList.contains('nav-sub-item') || item.classList.contains('nav-view');
             const matchesPage = item.dataset.page === page ||
                 (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
@@ -1912,6 +2216,15 @@ const Sidebar = {
                 item.classList.toggle('active', matchesPage && (!hasSubItems || isCollapsible));
             }
         });
+        // Views show under their destination only while it is the active one.
+        document.querySelectorAll('.nav-views').forEach(v => {
+            const parent = v.previousElementSibling;
+            const open = !!(parent && parent.classList.contains('active'));
+            v.classList.toggle('open', open);
+            v.classList.remove('peek');
+            if (parent) parent.classList.toggle('nav-fold-open', open);
+        });
+        requestAnimationFrame(() => this._moveIndicator(false));
     },
 };
 

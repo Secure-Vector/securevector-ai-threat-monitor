@@ -113,7 +113,7 @@ rules:
   metadata:
     author: SecureVector Community
     created_at: '2026-02-02T00:00:00Z'
-    direction: output
+    direction: outgoing
     tags:
     - prompt_leak
     - system_instruction
@@ -129,7 +129,7 @@ rules:
   - \[SYSTEM\]|\[INST\]|\<\|system\|\>
   - \<\<SYS\>\>.*\<\</SYS\>\>
   - (?:never|do\s+not|don't)\s+(?:reveal|share|disclose)\s+(?:your|the|this)\s+(?:instructions?|prompt|rules?)
-  - (?:confidential|secret|hidden)\s+(?:instructions?|prompt|guidelines?)
+  - '\b(?:my|these\s+are\s+my|here\s+are\s+my|the\s+following\s+are\s+my)\s+(?:confidential|secret|hidden)\s+(?:instructions?|prompt|guidelines?)'
 
 - category: data_leakage
   description: Detects PII (Personally Identifiable Information) in LLM outputs
@@ -151,7 +151,7 @@ rules:
   - \b\d{3}\s\d{2}\s\d{4}\b
   - \b\d{16}\b
   - \b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b
-  - \b[A-Z]{2}\d{6,9}\b
+  - '(?<![\w-])(?-i:[A-Z]{2}\d{6,9})(?![\w-])'
   - (?:social\s+security|ssn)[:\s]*\d{3}[- ]?\d{2}[- ]?\d{4}
   - (?:credit\s+card|card\s+number)[:\s]*\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}
 

@@ -222,6 +222,12 @@ const API = {
         }));
     },
 
+    /** Rule-only detections Guardian cleared before recording (Threats masthead). */
+    async getGuardianCleared(days = 7) {
+        return this.request(`/api/threat-intel/cleared/summary?days=${encodeURIComponent(days)}`)
+            .catch(() => ({ window_days: days, total: 0, by_rule: {}, by_direction: {} }));
+    },
+
     async getThreats(params = {}) {
         const queryParams = new URLSearchParams();
         if (params.page) queryParams.set('page', params.page);
@@ -237,6 +243,7 @@ const API = {
         // All scans for one agent run (Runs page scanned-content panel).
         if (params.session_id) queryParams.set('session_id', params.session_id);
         // Range-scoped fetches (dashboard charts). Server-side filter.
+        if (params.is_threat !== undefined) queryParams.set('is_threat', String(params.is_threat));
         if (params.start_date) queryParams.set('start_date', params.start_date);
         if (params.end_date) queryParams.set('end_date', params.end_date);
         // Sessions merged trace reads a session's scans oldest-first.
