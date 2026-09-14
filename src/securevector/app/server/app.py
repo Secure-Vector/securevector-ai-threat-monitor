@@ -382,6 +382,10 @@ def create_app(host: str = "127.0.0.1", port: int = 8741) -> FastAPI:
     # active-agent-observability #142 — Agent Run Trace (runs → spans waterfall).
     from securevector.app.server.routes import traces
     app.include_router(traces.router, prefix="/api", tags=["Traces"])
+    # 5.3.0 model-run tracing: OTLP/HTTP JSON ingest for any OpenTelemetry
+    # exporter and for the Python SDK. Standard path, no /api prefix.
+    from securevector.app.server.routes import otlp
+    app.include_router(otlp.router, tags=["OTLP"])
     # Local detection — what harnesses/sessions/agents are running on this device.
     from securevector.app.server.routes import detection
     app.include_router(detection.router, prefix="/api", tags=["Detection"])

@@ -70,23 +70,14 @@ test('traces waterfall annotates optimizer turns and consumes the gen jump', () 
   assert.match(src, /cost-optimizer\/report/);
 });
 
-test('spotlight is one-time, native, upgrade-only, and wired into index + app', () => {
-  const src = read('js/components/optimizer-spotlight.js');
-  assert.match(src, /sv-optimizer-spotlight-acked/);
-  assert.match(src, /sv-welcome-seen-v2/);
-  assert.match(src, /Illustrative example, not your data/);
-  assert.doesNotMatch(src, /<img|src="[^"]*\.png/i); // native DOM, no bundled image assets
-  const idx = read('index.html');
-  assert.match(idx, /optimizer-spotlight\.js/);
-  const app = read('js/app.js');
-  assert.match(app, /OptimizerSpotlight\.maybeShow\(\)/);
-});
-
-test('what\'s-new banner is bumped to 5.2.0 and lands on the Optimizer', () => {
+test('top banners are retired: the slot renders nothing and is removed', () => {
   const src = read('js/components/global-banners.js');
-  assert.match(src, /WHATS_NEW_VERSION: '5\.2\.0'/);
-  assert.match(src, /Cost \/ Token Optimizer/);
-  assert.match(src, /_pendingTab = 'optimizer'/);
+  for (const gone of ['_buildWhatsNew', '_buildGuardianNotice', '_buildEnrolledBanner', 'Cost / Token Optimizer']) {
+    assert.ok(!src.includes(gone), gone + ' should be gone');
+  }
+  assert.match(src, /if \(slot\) slot\.remove\(\);/);
+  assert.match(src, /KEY_WHATS_NEW: 'sv-whats-new-acked'/, 'welcome screen still acks the key');
+  assert.match(read('index.html'), /global-banners\.js\?v=24/);
 });
 
 test('tour includes an Optimizer step targeting Cost & Tokens', () => {
@@ -109,8 +100,6 @@ test('optimizer UI is theme-aware and emoji-free', () => {
   const opt = src.slice(src.indexOf('= Cost / Token Optimizer tab'));
   assert.match(opt, /var\(--bg-card/);
   assert.doesNotMatch(opt, /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
-  const spot = read('js/components/optimizer-spotlight.js');
-  assert.doesNotMatch(spot, /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
 });
 
 test('no finding surfaces on the dashboard', () => {
@@ -147,7 +136,6 @@ test('guardian bot: generic assistant only — absent from optimizer surfaces', 
   // nowhere inside the Cost/Token Optimizer's own surfaces
   assert.match(read('js/components/guardian-assistant.js'), /GuardianBot\.el/);
   assert.doesNotMatch(read('js/pages/costs.js'), /GuardianBot\.el/);
-  assert.doesNotMatch(read('js/components/optimizer-spotlight.js'), /GuardianBot/);
   assert.doesNotMatch(read('js/pages/dashboard.js'), /GuardianBot\.el/);
 });
 

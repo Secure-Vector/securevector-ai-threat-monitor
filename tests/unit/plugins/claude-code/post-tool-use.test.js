@@ -80,9 +80,9 @@ test('redact strips password/secret/token kv pairs', () => {
 });
 
 
-test('redact truncates to 200 chars', () => {
-  const long = 'x'.repeat(500);
-  assert.equal(redact(long).length, 200);
+test('redact truncates to 8 KB', () => {
+  const long = 'x'.repeat(10000);
+  assert.equal(redact(long).length, 8192);
 });
 
 

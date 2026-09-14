@@ -21,7 +21,7 @@ import { redactForScan } from './redact.js';
 const RUNTIME_KIND = 'opencode';
 const SOURCE = 'opencode-plugin';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
-const ARGS_PREVIEW_LIMIT = 200;
+const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const REASON_PREFIX = 'SecureVector Guard';
 
 const ALLOW = Object.freeze({ decision: 'allow' });

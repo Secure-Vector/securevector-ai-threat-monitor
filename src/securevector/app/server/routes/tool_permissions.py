@@ -1157,6 +1157,11 @@ class AuditLogRequest(BaseModel):
     # call produced — joins the span to its threat_intel_records so Agent
     # Runs / Map can label detections Rule / ML / Rule+ML. Metadata only.
     request_id: Optional[str] = Field(None, max_length=64)
+    # Span identity (5.3.0 tracing). ``span_id`` is the producer's id for this
+    # call; ``parent_span_id`` is the generation (model turn) that requested
+    # it, so Traces can nest the tool call under it. Metadata only.
+    span_id: Optional[str] = Field(None, max_length=64)
+    parent_span_id: Optional[str] = Field(None, max_length=64)
 
 
 @router.post("/tool-permissions/call-audit")
@@ -1199,6 +1204,8 @@ async def record_call_audit(request: AuditLogRequest):
             runtime_kind=request.runtime_kind,
             session_id=request.session_id,
             request_id=request.request_id,
+            span_id=request.span_id,
+            parent_span_id=request.parent_span_id,
         )
         return {"ok": True}
 

@@ -54,8 +54,8 @@ setup(
         "mcp": [
             # NOTE: MCP dependencies require Python >=3.10
             # The base package works with 3.9+, but [mcp] extras need 3.10+
-            "mcp>=1.23.0",  # Security fix for GHSA-c2jp-c369-7pvx (was >=0.1.0)
-            "fastmcp>=2.13.0",  # Security fix (was >=0.1.0)
+            "mcp>=1.23.0,<2",  # Security fix for GHSA-c2jp-c369-7pvx; 2.x renamed FastMCP to MCPServer
+            "fastmcp>=2.13.0,<4",  # Security fix; 4.x requires mcp 2.x
         ],
         "app": [
             # Desktop application dependencies

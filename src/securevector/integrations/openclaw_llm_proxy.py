@@ -1193,7 +1193,7 @@ class LLMProxy:
                     "risk":          decision.risk,
                     "reason":        decision.reason,
                     "is_essential":  decision.is_essential,
-                    "args_preview":  (tc.arguments or "")[:200],
+                    "args_preview":  (tc.arguments or "")[:8192],
                     # Stamp the harness so Tool Inventory groups proxy traffic
                     # by integration (langchain / langgraph / n8n / …).
                     "runtime_kind":  self.integration,

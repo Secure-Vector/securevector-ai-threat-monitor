@@ -37,10 +37,14 @@ test('every proxy-* sidebar entry has a matching App.pages route', () => {
   const sidebar = readSource(path.join('components', 'sidebar.js'));
   const app = readSource('app.js');
 
-  // Sidebar declares `id: 'proxy-foo'`; only those are nav entries.
-  const sidebarIds = new Set(
-    [...sidebar.matchAll(/\bid:\s*'(proxy-[a-z0-9-]+)'/g)].map(m => m[1]),
-  );
+  // Sidebar names proxy-* pages as nav ids, search aliases and banner
+  // navigate() targets; every one of them must resolve to a route.
+  const sidebarIds = new Set([
+    ...[...sidebar.matchAll(/\bid:\s*'(proxy-[a-z0-9-]+)'/g)].map(m => m[1]),
+    ...[...sidebar.matchAll(/aliases:\s*\[([^\]]*)\]/g)]
+      .flatMap(m => [...m[1].matchAll(/'(proxy-[a-z0-9-]+)'/g)].map(x => x[1])),
+    ...[...sidebar.matchAll(/navigate\('(proxy-[a-z0-9-]+)'\)/g)].map(m => m[1]),
+  ]);
   // App.pages declares `'proxy-foo': { render: ... }`.
   const pageIds = new Set(
     [...app.matchAll(/'(proxy-[a-z0-9-]+)'\s*:\s*\{/g)].map(m => m[1]),
