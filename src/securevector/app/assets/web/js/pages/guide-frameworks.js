@@ -161,7 +161,7 @@ install(mode="enforce")`));
         // One shortcut per framework — symmetric, so LangGraph/CrewAI users get one too.
         const ctaRow = document.createElement('div');
         ctaRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;';
-        [['LangChain', 'proxy-langchain'], ['LangGraph', 'proxy-langgraph'], ['CrewAI', 'proxy-crewai'], ['Hermes', 'proxy-hermes']].forEach(([label, navId]) => {
+        [['Python @guard', 'proxy-python'], ['LangChain', 'proxy-langchain'], ['LangGraph', 'proxy-langgraph'], ['CrewAI', 'proxy-crewai'], ['Hermes', 'proxy-hermes']].forEach(([label, navId]) => {
             const cta = document.createElement('button');
             cta.type = 'button';
             cta.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 1px solid var(--accent-primary); background: transparent; color: var(--accent-primary); font-size: 13px; font-weight: 600; cursor: pointer;';

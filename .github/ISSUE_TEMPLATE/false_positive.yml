@@ -1,0 +1,66 @@
+name: False Positive
+description: A detection or block that should not have fired
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Wrong detections are the fastest way for the rules to get better. The app prefills the rule and version; please do not paste the prompt or tool output unless you are comfortable sharing it publicly.
+
+  - type: input
+    id: rule
+    attributes:
+      label: Rule id(s)
+      placeholder: "e.g. prompt_injection.ignore_instructions"
+    validations:
+      required: true
+
+  - type: input
+    id: detection
+    attributes:
+      label: Detection
+      description: Threat type, action taken, risk score.
+      placeholder: "e.g. prompt_injection, action blocked, risk 85"
+
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Which integration produced it (Claude Code hook, proxy, SDK, MCP).
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What was the agent actually doing?
+      description: A sentence or two in your own words. A redacted excerpt is welcome but not required.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: SecureVector version
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: How did you install SecureVector?
+      options:
+        - pip (securevector-ai-monitor[app])
+        - Windows installer (.exe)
+        - macOS installer (.dmg)
+        - Linux AppImage
+        - Linux DEB
+        - Linux RPM
+        - Source (git clone)

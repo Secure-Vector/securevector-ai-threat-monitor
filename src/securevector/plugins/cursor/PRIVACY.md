@@ -33,7 +33,7 @@ For anything the companion app does with hook payloads after they arrive (local 
 
 Before sending an audit preview to the local app, the plugin masks common secret shapes via `lib/redact.js`: API-key prefixes (`sk-…`, `pk-…`, `sk-proj-…`), Stripe secret keys, GitHub tokens, AWS access key IDs and secret access keys, JWTs, PEM private-key blocks, and labelled credential key/value pairs. Redaction is **best-effort pattern matching, not a cryptographic guarantee** — review [`lib/redact.js`](./lib/redact.js) before installation if your workload contains custom secret formats.
 
-Size limits enforced before any POST: `args_preview` truncated to 200 characters; `/analyze` `text` capped at 8 KB for prompt/prose scans and 16 KB for response/content scans.
+Size limits enforced before any POST: `args_preview` capped at 8 KB (8192 characters) after redaction, and the app redacts and caps it again before storing; `/analyze` `text` capped at 8 KB for prompt/prose scans and 16 KB for response/content scans.
 
 ## What the plugin never collects
 

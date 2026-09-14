@@ -93,6 +93,9 @@
 
     /* Header */
     --header-height: 64px;
+    /* Height of the native title strip that overlaps the page in the macOS
+       desktop shell. 0 in a browser; the shell sets it at startup. */
+    --titlebar-inset: 0px;
 
     /* Transitions */
     --transition-fast: 150ms ease;
@@ -367,8 +370,22 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 20px;
+    padding: 0 16px;
     border-bottom: 1px solid var(--border-default);
+}
+
+/* Desktop shell (macOS): the native title bar is transparent and the web
+   view runs under the traffic lights, so the rail header and the page header
+   both start below the title-bar inset. Both sides paint --bg-secondary, so
+   the strip reads as one piece of app chrome rather than a browser frame. */
+html.desktop-mac .sidebar-header {
+    height: calc(var(--header-height) + var(--titlebar-inset));
+    padding-top: var(--titlebar-inset);
+}
+
+html.desktop-mac .header {
+    min-height: calc(var(--header-height) + var(--titlebar-inset));
+    padding-top: calc(8px + var(--titlebar-inset));
 }
 
 .sidebar-mascot {
@@ -407,21 +424,12 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     gap: 10px;
 }
 
+/* Solid wordmark. The gradient fill was the one decorative gradient left
+   in the chrome; one accent, flat, is the rule everywhere else. */
 .sidebar-logo {
     font-size: 20px;
     font-weight: 700;
-    background: linear-gradient(to right, #8ccdd6, #5eadb8, #8ccdd6);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-[data-theme="light"] .sidebar-logo {
-    background: linear-gradient(to right, #2b8a97, #5eadb8, #2b8a97);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--accent-primary);
 }
 
 /* Brand text column — stacks the wordmark and tagline vertically next
@@ -976,7 +984,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 
 .sidebar.collapsed .nav-item {
     justify-content: center;
-    padding: 12px;
+    padding: 7px 12px;
 }
 
 .sidebar.collapsed .sidebar-theme-btn {
@@ -1002,7 +1010,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 .sidebar-collapse-btn {
     position: absolute;
     right: -12px;
-    top: 72px;
+    top: 20px;
     width: 24px;
     height: 24px;
     background: var(--bg-secondary);
@@ -1014,7 +1022,12 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     align-items: center;
     justify-content: center;
     transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-    z-index: 10;
+    z-index: 21;
+}
+
+/* Desktop shell: the button follows the rail header down by the title-bar inset. */
+html.desktop-mac .sidebar-collapse-btn {
+    top: calc(20px + var(--titlebar-inset));
 }
 
 .sidebar-collapse-btn svg {
@@ -1038,7 +1051,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
    Circle + label so it reads as a rail row rather than a stray control. */
 .sidebar-theme-fixed {
     position: relative;
-    margin: 6px 8px 8px;
+    margin: 4px 8px 6px;
 }
 
 .sidebar-theme-trigger {
@@ -1099,6 +1112,141 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 
 .sidebar-theme-fixed:hover .sidebar-theme-chev {
     opacity: 0.85;
+}
+
+/* Rail foot: the theme row and, on the same line, GitHub and Discord as two
+   quiet icons. One row, not two; the ask itself happens once, at a
+   milestone (see community.js). */
+.sidebar-foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin: 6px 8px 8px;
+}
+
+.sidebar-foot .sidebar-theme-fixed {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.sidebar-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.sidebar-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-link svg {
+    width: 16px;
+    height: 16px;
+}
+
+.sidebar-link:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-link:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+.sidebar.collapsed .sidebar-links,
+.sidebar.collapsed .sidebar-foot {
+    display: none;
+}
+
+/* Milestone card: shown once, the first time the app has earned the
+   question. Top right under the header, where it does not sit on the
+   Guardian bot or the toast stack (both bottom right). Dismissed for good
+   by any of its buttons. Nothing is sent from the app. */
+.sv-milestone {
+    position: fixed;
+    right: 24px;
+    top: calc(var(--header-height) + var(--titlebar-inset) + 12px);
+    z-index: 1090;
+    width: 340px;
+    max-width: calc(100vw - 48px);
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: slideIn 0.3s ease;
+}
+
+.sv-milestone-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.sv-milestone-body {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.sv-milestone-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.sv-milestone-action {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sv-milestone-action:hover {
+    background: var(--bg-hover);
+}
+
+.sv-milestone-action.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.sv-milestone-action.primary:hover {
+    filter: brightness(1.08);
+}
+
+.sv-milestone-action.quiet {
+    border-color: transparent;
+    color: var(--text-secondary);
+}
+
+.sv-milestone-action:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .sidebar-theme-trigger[aria-expanded="true"] .sidebar-theme-chev {
@@ -1315,11 +1463,19 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 .sidebar.collapsed #cc-plugin-active-banner,
 .sidebar.collapsed #codex-plugin-active-banner,
 .sidebar.collapsed #copilot-plugin-active-banner,
+.sidebar.collapsed #opencode-plugin-active-banner,
 .sidebar.collapsed #siem-active-banner {
     width: 36px !important;
     margin: 6px auto 0 !important;
     padding: 7px 0 !important;
     justify-content: center;
+}
+.sidebar.collapsed #cc-plugin-active-banner > :not([aria-hidden]),
+.sidebar.collapsed #codex-plugin-active-banner > :not([aria-hidden]),
+.sidebar.collapsed #copilot-plugin-active-banner > :not([aria-hidden]),
+.sidebar.collapsed #opencode-plugin-active-banner > :not([aria-hidden]),
+.sidebar.collapsed #siem-active-banner > :not([aria-hidden]) {
+    display: none;
 }
 .sidebar.collapsed #cc-plugin-banner-text,
 .sidebar.collapsed #codex-plugin-banner-text,
@@ -1448,7 +1604,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 .sidebar-nav {
     flex: 1;
     min-height: 0;
-    padding: 16px 12px;
+    padding: 2px 12px 2px;
     overflow-y: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -1465,11 +1621,11 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 }
 
 .nav-section-label {
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.9px;
-    color: var(--text-secondary);
+    letter-spacing: 0.7px;
+    color: var(--text-muted);
     padding: 12px 16px 3px;
     opacity: 0.85;
 }
@@ -1489,12 +1645,12 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     border: none;
     cursor: pointer;
     font: inherit;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.9px;
-    color: var(--text-secondary);
-    opacity: 0.85;
+    letter-spacing: 0.7px;
+    color: var(--text-muted);
+    opacity: 1;
     transition: opacity 0.15s, color 0.15s, background 0.15s;
 }
 .nav-section-toggle:hover {
@@ -1527,8 +1683,18 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
 .sidebar.collapsed .nav-item.nav-sec-hidden { display: flex !important; }
 
 .sidebar.collapsed .nav-section-label {
-    display: none;
+    display: block;
+    width: 24px;
+    height: 1px;
+    margin: 6px auto;
+    padding: 0;
+    border-radius: 0;
+    background: var(--border-default);
+    overflow: hidden;
+    pointer-events: none;
 }
+.sidebar.collapsed .nav-section-label > * { display: none; }
+.sidebar.collapsed nav > .nav-section-label:first-child { display: none; }
 
 /* Sub-items had NO rule of their own — they only ever picked up a 12px
    font-size from an inline style on the wrapper div, so an expandable parent
@@ -1583,25 +1749,6 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: none;
 }
 
-.nav-pulse-dot {
-    position: absolute;
-    top: 9px;
-    left: 30px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #f97316;
-    pointer-events: none;
-    animation: sv-pulse-ring 1.8s ease-in-out infinite;
-    z-index: 1;
-}
-
-.sidebar.collapsed .nav-pulse-dot {
-    top: 6px;
-    left: auto;
-    right: 6px;
-}
-
 /* YouTube-guide rhythm: rhythm comes from row HEIGHT, not inter-row margins —
    rows sit flush (margin 0) and the vertical padding does the breathing. */
 .nav-item {
@@ -1609,7 +1756,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 9px 16px;
+    padding: 8px 16px;
     margin-bottom: 0;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
@@ -2084,7 +2231,7 @@ h1, h2, h3, .header-title, #header-page-title, .page-title,
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 9px 24px;
+    padding: 8px 24px;
 }
 
 .mobile-menu-btn {
@@ -5437,6 +5584,11 @@ thead tr:hover #records-select-all,
 .toast-message {
     flex: 1;
     font-size: 14px;
+    line-height: 1.45;
+}
+
+.toast {
+    max-width: 440px;
 }
 
 .toast-close {
@@ -8235,4 +8387,230 @@ thead tr:hover #records-select-all,
     .card:hover {
         transform: translateY(-1px);
     }
+}
+
+/* ---- v5.3 rail: search row, views, live counts, icon-rail flyout ---- */
+.nav-search {
+    display: flex; align-items: center; gap: 10px; width: calc(100% - 20px); margin: 4px 10px 0;
+    padding: 6px 10px; border-radius: var(--radius-md); border: 0;
+    background: transparent; color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+.nav-search:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.nav-search-label { flex: 1; text-align: left; }
+.nav-search-kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    border: 1px solid var(--border-default); color: var(--text-secondary); }
+.sidebar.collapsed .nav-search { width: 40px; margin: 4px 12px 0; padding: 7px 0; justify-content: center; }
+.sidebar.collapsed .nav-search-label, .sidebar.collapsed .nav-search-kbd { display: none; }
+
+/* Views: the pages folded into a destination. Visible only under the active row. */
+.nav-views { display: none; margin: 0 0 4px 26px; padding-left: 6px; border-left: 1px solid var(--border-default); }
+.nav-views.open { display: block; }
+.nav-views.peek { display: block; }
+.nav-item .nav-fold-chev { width: 10px; height: 10px; flex-shrink: 0; margin-left: auto; opacity: 0.45; transform: rotate(-90deg); transition: transform 0.15s, opacity 0.15s; }
+.nav-item.nav-has-views .nav-count:not([hidden]) + .nav-fold-chev { margin-left: 6px; }
+.nav-item.nav-fold-open .nav-fold-chev { transform: rotate(0deg); }
+.nav-item:hover .nav-fold-chev { opacity: 0.8; }
+.sidebar.collapsed .nav-fold-chev { display: none; }
+.sidebar.collapsed .nav-views { display: none !important; }
+.nav-item.nav-view { padding: 5px 10px 5px 12px; gap: 8px; font-size: 12px; margin: 0; }
+.nav-item.nav-view svg { width: 14px; height: 14px; opacity: .85; }
+/* The parent row carries the tint and the indicator; the active view is
+   named in the accent only, so one destination never lights up twice. */
+.sidebar .nav-item.nav-view.active, [data-theme="light"] .sidebar .nav-item.nav-view.active { background: transparent; color: var(--accent-primary); font-weight: 600; }
+.sidebar .nav-item.nav-view.active:hover { background: var(--bg-hover); }
+.nav-item.nav-view > span:first-of-type { flex: 1; min-width: 0; white-space: nowrap; }
+.nav-view-tier { font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 0 5px;
+    border-radius: 999px; border: 1px solid var(--border-default); color: var(--text-secondary); }
+
+/* Live count pills. Threat counts are security state, so the pill is the alert colour;
+   quiet counts (rules) stay neutral. */
+.nav-count { margin-left: auto; flex-shrink: 0; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    line-height: 1.5; padding: 1px 7px; border-radius: 999px; background: rgba(239, 68, 68, 0.16); color: #ef4444; }
+.nav-count[hidden] { display: none; }
+.nav-count-quiet { background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border-default); }
+.nav-count-warn { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+.sidebar.collapsed .nav-item { position: relative; }
+.sidebar.collapsed .nav-item > .nav-count { display: block; position: absolute; top: 4px; right: 6px;
+    padding: 0 4px; font-size: 9px; line-height: 14px; min-width: 14px; text-align: center; }
+.sidebar.collapsed .nav-item > .nav-count[hidden] { display: none; }
+
+/* Icon-rail flyout: label, purpose and the destination's views on hover. */
+.nav-flyout { position: fixed; z-index: 1200; min-width: 220px; max-width: 300px; padding: 10px 12px;
+    background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); color: var(--text-primary); }
+.nav-flyout[hidden] { display: none; }
+.nav-flyout-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.nav-flyout-title .nav-count { margin-left: 0; }
+.nav-flyout-desc { margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+.nav-flyout-view svg { width: 14px; height: 14px; flex-shrink: 0; opacity: .85; }
+.nav-flyout-view > span:first-of-type { flex: 1; min-width: 0; }
+.nav-flyout-view { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font: inherit; font-size: 12px; margin-top: 4px;
+    padding: 6px 8px; border-radius: var(--radius-sm, 6px); border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.nav-flyout-desc + .nav-flyout-view { margin-top: 8px; }
+.nav-flyout-view:hover { background: var(--bg-primary); color: var(--text-primary); }
+.nav-flyout-view.active { color: var(--accent-primary); background: var(--bg-primary); }
+
+.sidebar-version { display: block; margin-top: 1px; font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .3px; color: var(--text-muted, #7d8590); }
+.sidebar.collapsed .sidebar-version { display: none; }
+
+/* ---- v5.3 rail: sliding indicator, reveal, chord hints ---- */
+.nav-live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-primary); flex-shrink: 0;
+    box-shadow: 0 0 0 0 rgba(94,173,184,.6); animation: navLive 1.8s ease-out infinite; }
+.nav-live[hidden] { display: none; }
+@keyframes navLive { 0% { box-shadow: 0 0 0 0 rgba(94,173,184,.6); } 100% { box-shadow: 0 0 0 7px rgba(94,173,184,0); } }
+.sidebar.collapsed .nav-item > .nav-live { position: absolute; top: 5px; left: 6px; }
+
+/* One indicator that slides between rows instead of a bar painted on each. */
+.sidebar .nav-item.active, [data-theme="light"] .sidebar .nav-item.active { box-shadow: none; }
+.nav-indicator { position: absolute; left: 2px; width: 3px; border-radius: 2px; background: var(--accent-primary);
+    opacity: 0; pointer-events: none; transition: top .26s cubic-bezier(.2,.8,.2,1), height .26s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+.sidebar.collapsed .nav-indicator { left: 2px; }
+
+.nav-reveal .nav-item, .nav-reveal .nav-section-label { animation: navIn .32s cubic-bezier(.2,.8,.2,1) both;
+    animation-delay: calc(var(--i, 0) * 16ms); }
+@keyframes navIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    .nav-reveal .nav-item, .nav-reveal .nav-section-label, .nav-live { animation: none; }
+    .nav-indicator { transition: none; }
+}
+
+.nav-chord-hint { display: none; margin-left: 6px; font-family: var(--font-mono); font-size: 9.5px; padding: 0 4px;
+    border-radius: 4px; border: 1px solid var(--accent-primary); color: var(--accent-primary); flex-shrink: 0; }
+.sidebar.nav-chord:not(.collapsed) .nav-chord-hint { display: inline-block; }
+
+
+/* ---- v5.3 rail: Guide and Settings docked at the foot ---- */
+.nav-dock { padding: 6px 10px 0; }
+.nav-dock .nav-item { padding: 6px 12px; gap: 12px; }
+.nav-dock .nav-item span { font-size: 12.5px; flex: 1; }
+.nav-dock + .guardian-pill { margin-top: 12px; }
+.sidebar.collapsed .nav-dock { padding: 6px 8px 4px; }
+.sidebar.collapsed .nav-dock .nav-item { justify-content: center; padding: 8px; }
+.sidebar.collapsed .nav-dock .nav-item span, .sidebar.collapsed .nav-dock .nav-chord-hint { display: none; }
+
+/* ---- v5.3 rail: tighter rows so ten destinations fit, and an honest scroll fade ---- */
+/* 32px rows: fifteen destinations plus three labels fit the 800px default window. */
+.sidebar nav > .nav-item { padding-top: 6px; padding-bottom: 6px; }
+.sidebar nav .nav-section-toggle { padding-top: 7px; padding-bottom: 3px; }
+.nav-views { margin-bottom: 2px; }
+.nav-item.nav-view { padding-top: 4px; padding-bottom: 4px; }
+.sidebar nav.nav-more::after { content: ''; position: sticky; bottom: 0; display: block; height: 26px;
+    margin-top: -26px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--bg-secondary)); }
+
+.sidebar nav .nav-section-divider { margin-top: 3px; margin-bottom: 3px; }
+.sidebar nav .nav-section-toggle { padding-top: 4px; padding-bottom: 2px; }
+
+.sidebar nav { padding-bottom: 2px; }
+
+/* ============================================================
+ * v5.3 desktop chrome: the SPA runs inside a pywebview window
+ * (WKWebView / WebView2), so the chrome should behave like a
+ * native window rather than a web page. Scoped to the chrome
+ * regions only; content (values, cells, code, traces, inputs)
+ * stays selectable. No drag-region property: pywebview has no
+ * drag-region support.
+ * ============================================================ */
+
+/* ---- v5.3 desktop chrome: platform UI font for body text; the bundled
+   Space Grotesk display face stays on headings and brand, Space Mono on
+   numbers and micro-labels (see the v5 type signature block above). ---- */
+:root {
+    --font-body: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---- v5.3 desktop chrome: chrome is not text. Rail, header, page title
+   rows, toolbars and filter bars, tab rows, buttons and stat labels do
+   not highlight on drag. ---- */
+.sidebar,
+.header,
+.page-header, .page-title-bar, .page-title, .section-header, .card-header,
+.filters-bar, .tab-bar, .sv-obs-tabs, .sv-obs-viewtoggle,
+button, .btn, [role="tab"],
+.stat-label, .stat-card-title,
+.ia-stat-l, .tm-stat-l, .ar-stat-l, .eg-stat-label, .bl-stat-label,
+.llm-stat-label, .mcp-stat-label {
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* Inputs inside those regions (filter bars, the rail's search and settings
+   forms) must stay editable and selectable. */
+input, textarea, select, [contenteditable="true"],
+.sidebar input, .sidebar textarea, .header input, .filters-bar input {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* ---- v5.3 desktop chrome: arrow cursor on chrome, hand only on real
+   hyperlinks, I-beam on text fields. Pages inject their own <style> after
+   this sheet with single-class cursor:pointer rules, so the chrome rule
+   is written as html body :is(...) to outrank those while still losing to
+   two-class states such as .btn.disabled (not-allowed). ---- */
+html body :is(button, .btn, .btn-icon, [role="button"], [role="tab"], .tab-btn, .sv-obs-tab,
+    .nav-item, .nav-section-toggle, .nav-search, .sidebar-collapse-btn, .sidebar-theme-trigger,
+    .sv-theme-opt, .llm-toggle, .mini-toggle, .toggle, .agent-dropdown-btn, .agent-dropdown-item,
+    .ar-filter-chip, .sv-howto-link, select, label) {
+    cursor: default;
+}
+.data-table th.sortable, .data-table th.sv-table-th-sort { cursor: default; }
+html body a[href] { cursor: pointer; }
+input:not([type]), input[type="text"], input[type="search"], input[type="number"],
+input[type="password"], input[type="url"], input[type="email"], textarea {
+    cursor: text;
+}
+
+/* ---- v5.3 desktop chrome: thin scrollbars that stay out of the way
+   until the region is hovered. Standard properties first (Chromium and
+   WebView2 ignore ::-webkit-scrollbar once these are set), WebKit pseudo
+   elements for WKWebView. ---- */
+.sidebar-nav, .page-content,
+.table-wrapper, .table-container, .sv-table-wrap,
+.ar-detail, .modal-body, .side-drawer-content, .floating-chat-messages {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    -ms-overflow-style: auto;
+}
+.sidebar-nav:hover, .page-content:hover,
+.table-wrapper:hover, .table-container:hover, .sv-table-wrap:hover,
+.ar-detail:hover, .modal-body:hover, .side-drawer-content:hover, .floating-chat-messages:hover {
+    scrollbar-color: var(--border-light) transparent;
+}
+.sidebar-nav::-webkit-scrollbar, .page-content::-webkit-scrollbar,
+.table-wrapper::-webkit-scrollbar, .table-container::-webkit-scrollbar, .sv-table-wrap::-webkit-scrollbar,
+.ar-detail::-webkit-scrollbar, .modal-body::-webkit-scrollbar, .side-drawer-content::-webkit-scrollbar,
+.floating-chat-messages::-webkit-scrollbar {
+    display: block;
+    width: 8px;
+    height: 8px;
+}
+.sidebar-nav::-webkit-scrollbar-track, .page-content::-webkit-scrollbar-track,
+.table-wrapper::-webkit-scrollbar-track, .table-container::-webkit-scrollbar-track, .sv-table-wrap::-webkit-scrollbar-track,
+.ar-detail::-webkit-scrollbar-track, .modal-body::-webkit-scrollbar-track, .side-drawer-content::-webkit-scrollbar-track,
+.floating-chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-nav::-webkit-scrollbar-thumb, .page-content::-webkit-scrollbar-thumb,
+.table-wrapper::-webkit-scrollbar-thumb, .table-container::-webkit-scrollbar-thumb, .sv-table-wrap::-webkit-scrollbar-thumb,
+.ar-detail::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb, .side-drawer-content::-webkit-scrollbar-thumb,
+.floating-chat-messages::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+.sidebar-nav:hover::-webkit-scrollbar-thumb, .page-content:hover::-webkit-scrollbar-thumb,
+.table-wrapper:hover::-webkit-scrollbar-thumb, .table-container:hover::-webkit-scrollbar-thumb, .sv-table-wrap:hover::-webkit-scrollbar-thumb,
+.ar-detail:hover::-webkit-scrollbar-thumb, .modal-body:hover::-webkit-scrollbar-thumb, .side-drawer-content:hover::-webkit-scrollbar-thumb,
+.floating-chat-messages:hover::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+}
+
+/* ---- v5.3 desktop chrome: no focus ring after a pointer click; the
+   :focus-visible rings above stay intact for keyboard users. ---- */
+button:focus:not(:focus-visible), .btn:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible),
+.nav-item:focus:not(:focus-visible), .sidebar-collapse-btn:focus:not(:focus-visible) {
+    outline: none;
 }

@@ -67,7 +67,7 @@ const EFFECT_TO_DECISION = Object.freeze({
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8741';
 const ALLOW = Object.freeze({ decision: 'allow' });
-const ARGS_PREVIEW_LIMIT = 200;
+const ARGS_PREVIEW_LIMIT = 8192; // 8 KB, redacted; the app redacts and caps again on write
 const RUNTIME_KIND = 'claude-code';
 
 
@@ -176,7 +176,7 @@ function decisionToAuditAction(decision) {
  * highest-value security events). This closes it by writing the row
  * before returning the deny decision.
  *
- * Args preview uses the same shared redactForScan + 200-char cap as
+ * Args preview uses the same shared redactForScan + 8 KB cap as
  * post-tool-use, so block rows and allow rows look identical apart from
  * the action.
  */

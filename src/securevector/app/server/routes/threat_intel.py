@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from securevector.app.database.connection import get_database
 from securevector.app.database.repositories.threat_intel import ThreatIntelRepository
+from securevector.app.database.repositories.guardian_cleared import GuardianClearedRepository
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,26 @@ class ThreatIntelListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+@router.get("/threat-intel/cleared/summary")
+async def guardian_cleared_summary(
+    days: int = Query(7, ge=1, le=365, description="Window in days"),
+    recent: int = Query(0, ge=0, le=200, description="Also return this many recent cleared events"),
+) -> dict:
+    """Rule-only detections the Guardian model cleared before recording.
+
+    These never become threat rows; this is where the veto is visible.
+    """
+    try:
+        repo = GuardianClearedRepository(get_database())
+        out = await repo.summary(window_days=days)
+        if recent:
+            out["recent"] = await repo.list_recent(limit=recent)
+        return out
+    except Exception as e:
+        logger.error(f"Failed to summarise cleared detections: {e}")
+        raise HTTPException(status_code=500, detail="Failed to summarise cleared detections")
 
 
 @router.get("/threat-intel", response_model=ThreatIntelListResponse)

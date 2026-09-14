@@ -223,7 +223,7 @@ const DashboardPage = {
             sentence = `All clear: no threats in the ${rangeLabel}`;
         } else if (allowedThrough > 0) {
             tone = 'alert';
-            sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel} — review now`;
+            sentence = `${allowedThrough} threat${allowedThrough === 1 ? '' : 's'} allowed through in the ${rangeLabel}. Review now`;
         } else {
             sentence = `${blocked.length} threat${blocked.length === 1 ? '' : 's'} caught in the ${rangeLabel}` +
                 (latest && parse(latest.created_at) ? ` — last ${rel(parse(latest.created_at))}, blocked` : '');
@@ -343,6 +343,64 @@ const DashboardPage = {
         if (syncVis) syncVis();
     },
 
+    /** Agent budget alerts as one card. Colour is reserved for the state
+     *  counts (red = over, amber = near); rows and the card border stay
+     *  neutral. Shows three rows, the rest behind "Show all". */
+    _buildAgentBudgetCard(alerts) {
+        const over = alerts.filter(a => a.over_budget).length;
+        const near = alerts.length - over;
+        const card = document.createElement('div');
+        card.style.cssText = 'padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-card);';
+        const head = document.createElement('div');
+        head.style.cssText = 'display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text-primary);';
+        const parts = [];
+        if (over) parts.push(`<span style="color:#ef4444">${over}</span> agent${over === 1 ? '' : 's'} over budget`);
+        if (near) parts.push(`<span style="color:#f59e0b">${near}</span> near limit`);
+        head.innerHTML = `<span style="flex:1;min-width:0">${parts.join(' · ')} today</span>`;
+        const goBtn = document.createElement('button');
+        goBtn.className = 'btn btn-secondary btn-sm';
+        goBtn.textContent = 'Cost settings →';
+        goBtn.addEventListener('click', () => { if (window.Sidebar) Sidebar.navigate('cost-settings'); });
+        head.appendChild(goBtn);
+        card.appendChild(head);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'margin-top: 8px; display: flex; flex-direction: column; gap: 4px;';
+        const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const row = (a) => {
+            const pct = Math.min(Math.round((a.pct_used || 0) * 100), 999);
+            const label = a.agent_id.length > 36 ? a.agent_id.slice(0, 36) + '…' : a.agent_id;
+            const state = a.over_budget ? (a.budget_action === 'block' ? 'blocked' : 'over') : 'near';
+            const color = a.over_budget ? '#ef4444' : '#f59e0b';
+            const el = document.createElement('div');
+            el.style.cssText = 'display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 12px; align-items: center; font-size: 12px; color: var(--text-secondary);';
+            el.innerHTML = `<span style="font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary)">${esc(label)}</span>` +
+                `<span style="font-family: var(--font-mono, monospace); white-space: nowrap">$${Number(a.today_spend_usd || 0).toFixed(2)} of $${Number(a.budget_usd || 0).toFixed(2)} · ${pct}${pct >= 999 ? '+' : ''}%</span>` +
+                `<span style="font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: ${color}; min-width: 52px; text-align: right">${state}</span>`;
+            return el;
+        };
+        const SHOW = 3;
+        alerts.slice(0, SHOW).forEach(a => list.appendChild(row(a)));
+        card.appendChild(list);
+        if (alerts.length > SHOW) {
+            const rest = document.createElement('div');
+            rest.style.cssText = 'display: none; flex-direction: column; gap: 4px; margin-top: 4px;';
+            alerts.slice(SHOW).forEach(a => rest.appendChild(row(a)));
+            card.appendChild(rest);
+            const toggle = document.createElement('button');
+            toggle.className = 'btn btn-secondary btn-sm';
+            toggle.style.cssText = 'margin-top: 8px;';
+            toggle.textContent = `Show all ${alerts.length}`;
+            toggle.addEventListener('click', () => {
+                const open = rest.style.display === 'flex';
+                rest.style.display = open ? 'none' : 'flex';
+                toggle.textContent = open ? `Show all ${alerts.length}` : 'Show fewer';
+            });
+            card.appendChild(toggle);
+        }
+        return card;
+    },
+
     async renderContent(container) {
         container.textContent = '';
 
@@ -419,13 +477,13 @@ const DashboardPage = {
                     ));
                 }
                 if (hasAgentAlerts) {
-                    gd.agent_alerts.filter(a => a.over_budget || a.warning).forEach(a => {
-                        alertsBox.appendChild(buildBudgetBar(
-                            a.agent_id.length > 28 ? a.agent_id.slice(0, 28) + '…' : a.agent_id,
-                            a.today_spend_usd, a.budget_usd, a.pct_used,
-                            a.over_budget, a.budget_action
-                        ));
-                    });
+                    // One compact card for every agent alert instead of a red
+                    // card per agent: the count carries the colour, rows stay
+                    // neutral, and the list folds after three so the stack
+                    // never pushes the rest of the dashboard off screen.
+                    const alerts = gd.agent_alerts.filter(a => a.over_budget || a.warning)
+                        .sort((a, b) => (b.over_budget - a.over_budget) || ((b.pct_used || 0) - (a.pct_used || 0)));
+                    alertsBox.appendChild(this._buildAgentBudgetCard(alerts));
                 }
             }
 
@@ -925,7 +983,9 @@ const DashboardPage = {
         const NEUTRAL = 'var(--text-primary)';
         const guarded = makeStat('Runtimes guarded', NEUTRAL, 'guide-connect-agents');
         const calls = makeStat(`Tool calls · ${rangeTag}`, NEUTRAL, 'tool-activity');
-        const blockedStat = makeStat(`Threats blocked · ${rangeTag}`, NEUTRAL, 'threats');
+        // Same number, same words as Agent Governance: tool actions SecureVector
+        // stopped. Block Mode blocks are a different, usually empty, count.
+        const blockedStat = makeStat(`Actions blocked · ${rangeTag}`, NEUTRAL, 'blocked-ledger');
         const criticalStat = makeStat(`Critical · ${rangeTag}`, NEUTRAL, 'threats');
         const secretsStat = makeStat(`Secrets caught · ${rangeTag}`, NEUTRAL, 'redactions');
         const spendStat = makeStat('Spend today', NEUTRAL, 'costs');
@@ -957,8 +1017,7 @@ const DashboardPage = {
         // These two are synchronous — same lookback the posture sentence uses,
         // so they are filled before any network round-trip rather than sitting
         // on the em-dash placeholder.
-        blockedStat.valEl.textContent = blocked.toLocaleString();
-        if (blocked > 0) blockedStat.valEl.style.color = '#ef4444';
+        void blocked;
         criticalStat.valEl.textContent = critical.toLocaleString();
         if (critical > 0) criticalStat.valEl.style.color = '#ef4444';
 
@@ -1017,6 +1076,20 @@ const DashboardPage = {
                     .reduce((s, d) => s + (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0), 0)
                 : 0;
             calls.valEl.textContent = toolCalls.toLocaleString();
+            const blockedActions = auditDaily && auditDaily.days
+                ? auditDaily.days.filter(d => d.day >= sinceDay).reduce((s, d) => s + (d.blocked || 0), 0)
+                : 0;
+            blockedStat.valEl.textContent = blockedActions.toLocaleString();
+            if (blockedActions > 0) blockedStat.valEl.style.color = '#ef4444';
+            // Milestone prompt: the first blocked action is the moment the app
+            // has visibly done its job; real volume (tool calls plus
+            // detections) is the fallback for machines that only observe.
+            if (window.Community) {
+                Community.consider({
+                    blocked: blockedActions,
+                    events: ((this.data && this.data.total_threats) || 0) + toolCalls,
+                });
+            }
             if (days > 1 && auditDaily && auditDaily.days) {
                 const byDay = new Map(auditDaily.days.map(d => [d.day,
                     (d.blocked || 0) + (d.allowed || 0) + (d.logged || 0)]));
@@ -1680,7 +1753,8 @@ const DashboardPage = {
 
 
     // Protection card — one home for the enforcement switches (Block Mode /
-    // Output Scan / Guardian ML) plus a Rules shortcut and live agent chips.
+    // Output Scan) plus a Rules shortcut and live agent chips. Guardian ML
+    // is a global on/off that lives in the header control, not here.
     // Confirmations go through Modal.confirm; the checkbox only flips after
     // the user confirms AND the API write succeeds (no optimistic flip).
     // Governance posture card (#187, local funnel). A 0–100 score computed
@@ -1798,21 +1872,6 @@ const DashboardPage = {
                 : 'LLM-response scanning on the proxy stops. Tool input/output is still redacted for secrets/PII.',
             apply: (on) => API.updateSettings({ scan_llm_responses: on }).then(() => {
                 Toast.success(on ? 'Output scan enabled' : 'Output scan disabled');
-            }),
-        }));
-
-        rows.appendChild(toggleRow({
-            name: 'Guardian ML',
-            desc: 'Local ML threat detection' + (settings.guardian_model_version ? ` · v${settings.guardian_model_version}` : ''),
-            checked: !!settings.guardian_ml_enabled,
-            disabled: settings.guardian_ml_available === false,
-            disabledNote: 'Model not installed: see Guardian ML in the sidebar',
-            confirmTitle: (on) => on ? 'Enable Guardian ML?' : 'Disable Guardian ML?',
-            confirmMsg: (on) => on
-                ? 'The local ML model scores every prompt alongside the rule engine. Runs entirely on this machine.'
-                : 'Detection falls back to rules only.',
-            apply: (on) => API.updateSettings({ guardian_ml_enabled: on }).then(() => {
-                Toast.success(on ? 'Guardian ML enabled' : 'Guardian ML disabled');
             }),
         }));
 
