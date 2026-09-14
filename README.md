@@ -102,14 +102,15 @@ Prefer an installer? [Windows, macOS and Linux builds](https://github.com/Secure
   <p><em>Meet the Guardian, our new on-device advisor. Pick any of its six colors.</em></p>
 </div>
 
-> **What's new in v5.2.0**
-> - **Cost / Token Optimizer** — Cost Tracking answers *how much*; the Optimizer answers *why* and *what to change*. An opt-in local scan ranks each session's waste and deep-links every finding to the exact turns in Traces. Copy a fix and it re-measures: only measured wins are celebrated.
-> - **Per-run limits** — opt-in tool-call caps, a loop breaker, and per-run cost/token ceilings on the existing deny rails, each with an audit row and a one-click, time-boxed exemption. Ships off.
-> - **SecureVector Guard for OpenCode** — the Guard plugin family gains OpenCode (1.18+) as a native in-process module, one-click installed, on the same policy rails as every other harness.
-> - **The Guardian assistant** — a docked, advisory character that orients you on whatever page you just opened, announces a blocked egress the moment it happens with one click through to the evidence, and wears whichever of six accent colors you pick (above). It never types into a session or edits your files.
-> - **An honest fill gauge** — context-fill percentage now comes from evidence in the transcript, so it can never read "118% full" again.
+> **What's new in v5.3.0**
+> - **Model-run traces** — LLM turns and tool calls now sit in one connected trace. Guarded tool calls nest beneath the turn that requested them, and each turn carries tokens, cost, duration, finish reason and a verdict. The Traces workspace keeps the agent list on the left and the selected run on the right, with a Live view for agents active in the last two minutes.
+> - **The `@guard` decorator** — bring any plain Python function under guard with one decorator. It scans arguments and returned context, then records the action in the audit trail. Observe mode records; enforce mode can stop a flagged call before the function runs.
+> - **Full trace text stays on this device** — tool inputs and previews are stored after secret redaction, up to 8 KB per field, enforced at the repository boundary so every producer behaves the same. Cloud forwarding remains metadata only.
+> - **OpenTelemetry ingest** — send GenAI traces through OTLP over HTTP JSON.
+> - **A clearer route through the product** — Visibility, Configure and Connect, with the policy surfaces folded under Policies and reachable by hover flyout or the command palette.
+> - **A native desktop shell** — single instance, remembered window size and position, native menus, and a unified macOS title bar that follows the app theme.
 >
-> Also: a redesigned Cost Summary and a full model-pricing re-verification. **Previously:** v5.1.0 shipped Agent Egress Governance, blast-radius inventory, scope-expansion alerting, and counterfactual policy replay.
+> Upgrading? Restart SecureVector, reinstall the Guard plugin for the harnesses you use, then run `/reload-plugins`. **Previously:** v5.2.0 shipped the Cost / Token Optimizer, per-run limits, the OpenCode plugin, and the Guardian assistant.
 >
 > Full release history in the [CHANGELOG](CHANGELOG.md).
 

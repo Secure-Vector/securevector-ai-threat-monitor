@@ -5,6 +5,30 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-09-13
+
+### Added
+- **Model-run traces** *(Traces)* — LLM generations now appear alongside tool calls in one connected trace. Guarded tool calls nest beneath the turn that requested them, so the model decision and the tool action stay together. Each turn carries tokens, cost, duration, finish reason and a verdict, and the header surfaces spend by model and the costliest turn. On narrow windows the split pane falls back to an accordion.
+- **Live view** *(Traces)* — agents with activity in the last two minutes, reachable from the navigation pulse. Filter chips wrap so every option stays clickable.
+- **The `@guard` decorator** *(Python SDK)* — bring any plain Python function under guard with one decorator. It scans tool arguments and returned context, then records the action in the audit trail. Observe mode records findings; enforce mode can stop a flagged call before the function runs. Output findings are recorded after execution. If the app is unavailable, calls continue unscanned with one warning per process.
+- **OpenTelemetry ingest** — send GenAI traces through OTLP over HTTP JSON at `/v1/traces`, using GenAI semantic conventions for model turns and tool calls.
+- **Native desktop shell** — single instance with window activation, remembered window size and position, native menus for documentation, logs and help, a unified macOS title bar that follows the app theme and supports dragging, and updated application icons.
+
+### Changed
+- **Trace text is stored after secret redaction, up to 8 KB per field, and never leaves the device.** Redaction and the cap are enforced at the repository boundary, so every producer gets the same posture: plugin hooks, OTLP, the SDK, the proxy and transcript import. Previously hook-collected arguments were cut at 200 characters. Cloud forwarding remains metadata only.
+- **Rebuilt navigation** — work is organised into Visibility, Configure and Connect. Traces and Threats keep their related views together, the policy surfaces fold under Policies as icon views with hover flyouts, and pending approval counts stay visible on the parent row even when folded. The command palette reaches pages and actions, including the folded policy pages.
+- **Detection tuning** — rule-only matches that Guardian rates benign are cleared and counted, six rules were tightened, and three OWASP keyword rules became intent regexes.
+- Rule feedback now carries version and rule context without copying event text into the issue link.
+- Plugin manifests for Claude Code, Codex, Copilot CLI and Cursor move to 5.3.0 in lockstep with the app.
+
+### Fixed
+- Context-fill percentage is derived from evidence in the transcript, so it cannot read above 100%.
+- Pinned `mcp` below 2 and `fastmcp` below 4. Version 2 renamed `FastMCP` to `MCPServer`, which broke the MCP health check on every supported Python version.
+- Cleared the static-analysis findings on the release: exception text no longer reaches the OTLP partial-success response, the analyze route sanitises a logged value, the desktop shell no longer swallows errors silently, and an unused logger was removed.
+
+### Upgrading
+After updating, restart SecureVector, reinstall the Guard plugin for each harness you use, and run `/reload-plugins` in Claude Code or start a new session. The updated hooks send the full tool input, up to 8 KB per field. Secrets are still redacted and nothing leaves the device.
+
 ## [5.2.0] - 2026-08-19
 
 ### Added
