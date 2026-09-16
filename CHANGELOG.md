@@ -5,6 +5,18 @@ All notable changes to SecureVector AI Threat Monitor will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Agent Terminals** *(Terminals)*: run Claude Code where every tool call is governed. Launch a task in a folder from the app and watch it in an attached terminal; each call carries a Guard verdict, an audit row, and an approval path. Tasks show their state from the harness's own hook events (working, blocked on a permission, idle), and done or failed when the process exits, with the session's Guard verdicts and pending approvals beside the terminal. A task with a pending approval is explicitly labelled **Waiting approval** in the task rail. One attached terminal at a time; scrollback is kept in memory only.
+- **Window close keeps tasks running** *(desktop)*: closing the window while a task runs hides it instead of quitting; relaunching the app brings the window back. Quit asks before stopping running tasks.
+
+### Security
+- **Governed launch**: tasks start only through an allowlisted executor; the app builds the command and an allowlisted environment, injects the hook relay itself, and refuses to launch when the Claude Code Guard plugin is not installed. The terminal control surface requires a per-install token in an HttpOnly cookie, a matching Host, and a custom header on every request, plus a matching Origin on every state change. Keystrokes are audited by line length only, never content; task events are hash-chained.
+
+### Notes
+- Schema v48: `terminal_tasks`, `terminal_events`.
+
 ## [5.2.0] - 2026-08-19
 
 ### Added

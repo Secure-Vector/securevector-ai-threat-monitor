@@ -32,7 +32,7 @@ const CommandPalette = {
             // 'blocked-ledger' and 'redactions' are facets of Threat Monitor now,
             // but stay searchable here: users look for them by name, and the
             // ids remain routable straight to the right facet.
-            if (['dashboard', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
+            if (['dashboard', 'terminals', 'threats', 'agent-activity', 'agent-map', 'storylines', 'tool-activity',
                 'blocked-ledger', 'redactions', 'costs', 'egress'].includes(id)) return 'Visibility';
             if (['tool-permissions', 'rules', 'egress-policy', 'skill-scanner', 'guardian-ml',
                 'cost-settings', 'governance', 'mcp-policies', 'policies'].includes(id)) return 'Configure';

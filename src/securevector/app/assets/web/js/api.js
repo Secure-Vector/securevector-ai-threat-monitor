@@ -995,6 +995,87 @@ const API = {
         return this.request(`/api/egress/proof/history?limit=${limit}`)
             .catch(() => ({ proofs: [] }));
     },
+
+    // --- Agent Terminals ---------------------------------------------------
+    // Auth is a cookie issued by /session plus the X-SV-Terminals header on
+    // every other call, reads included. request() replaces the whole headers
+    // object when options.headers is set, so Content-Type is restated on
+    // every write.
+    _terminalsReady: false,
+    _terminalsSessionPromise: null,
+    async terminalsSession() {
+        if (this._terminalsReady) return;
+        if (!this._terminalsSessionPromise) {
+            this._terminalsSessionPromise = this.request('/api/terminals/session').then(() => {
+                this._terminalsReady = true;
+            }).finally(() => {
+                this._terminalsSessionPromise = null;
+            });
+        }
+        return this._terminalsSessionPromise;
+    },
+    // request() throws a plain Error and doesn't attach the HTTP status, so
+    // an auth failure is identified by message: the terminals auth layer
+    // always denies with this exact detail, with "HTTP 401"/"HTTP 403" as
+    // the fallback shape if a body-less denial ever reaches us instead.
+    _terminalsIsAuthError(err) {
+        const message = (err && err.message) || '';
+        return message === 'Terminals: request not authorised' || /^HTTP 40[13]$/.test(message);
+    },
+    async _terminalsCall(endpoint, options) {
+        await this.terminalsSession();
+        try {
+            return await this.request(endpoint, options);
+        } catch (err) {
+            if (!this._terminalsIsAuthError(err)) throw err;
+            // One-shot recovery: the cookie may have been cleared or never
+            // set; re-issue the session and retry exactly once.
+            this._terminalsReady = false;
+            await this.terminalsSession();
+            return this.request(endpoint, options);
+        }
+    },
+    async _terminalsRead(endpoint) {
+        return this._terminalsCall(endpoint, { headers: { 'X-SV-Terminals': '1' } });
+    },
+    async _terminalsWrite(endpoint, body) {
+        return this._terminalsCall(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-SV-Terminals': '1' },
+            body: JSON.stringify(body || {}),
+        });
+    },
+    async terminalsExecutors() {
+        return this._terminalsRead('/api/terminals/executors');
+    },
+    async terminalsArchive(taskId) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(taskId)}/archive`, {});
+    },
+    async terminalsTasks() {
+        return this._terminalsRead('/api/terminals/tasks');
+    },
+    async terminalsTask(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}`);
+    },
+    async terminalsLaunch(executorId, workspace, title) {
+        return this._terminalsWrite('/api/terminals/tasks', { executor_id: executorId, workspace, title: title || null });
+    },
+    async terminalsStop(id) {
+        return this._terminalsWrite(`/api/terminals/tasks/${encodeURIComponent(id)}/stop`);
+    },
+    async terminalsStopAll() {
+        return this._terminalsWrite('/api/terminals/stop-all');
+    },
+    async terminalsVerdicts(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/verdicts`);
+    },
+    async terminalsEvents(id) {
+        return this._terminalsRead(`/api/terminals/tasks/${encodeURIComponent(id)}/events`);
+    },
+    terminalsSocketUrl(id) {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${location.host}/api/terminals/tasks/${encodeURIComponent(id)}/ws`;
+    },
 };
 
 // Make API globally available

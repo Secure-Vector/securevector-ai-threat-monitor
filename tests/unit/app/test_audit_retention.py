@@ -88,12 +88,14 @@ async def test_schema_version_advances_to_45(tmp_path):
     # the model turn that made them; backfills proxy trace ids.
     # v47: guardian_cleared_events: rule-only detections the Guardian model
     # cleared before recording, so the veto stays countable on Threats.
+    # v48: terminal_tasks and terminal_events for Agent Terminals — the task
+    # board plus a hash-chained audit trail for spawn/input/stop/hook/exit.
     db = await _build_db(tmp_path)
-    assert CURRENT_SCHEMA_VERSION == 47
+    assert CURRENT_SCHEMA_VERSION == 48
     row = await db.fetch_one(
         "SELECT MAX(version) AS v FROM schema_version"
     )
-    assert row["v"] == 47
+    assert row["v"] == 48
     exists = await db.fetch_one(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='guardian_cleared_events'"
     )

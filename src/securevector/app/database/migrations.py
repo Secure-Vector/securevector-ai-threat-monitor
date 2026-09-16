@@ -193,6 +193,8 @@ async def apply_migration(db: DatabaseConnection, version: int) -> None:
         45: migrate_to_v45,
         46: migrate_to_v46,
         47: migrate_to_v47,
+        48: migrate_to_v48,
+        49: migrate_to_v49,
     }
 
     if version in migrations:
@@ -2364,3 +2366,71 @@ async def migrate_to_v47(db: DatabaseConnection) -> None:
         "VALUES (47, CURRENT_TIMESTAMP, 'guardian_cleared_events audit log')"
     )
     logger.info("Applied migration v47: guardian_cleared_events table")
+
+
+MIGRATION_V48_SQL = """
+CREATE TABLE IF NOT EXISTS terminal_tasks (
+    id               TEXT PRIMARY KEY,
+    executor_id      TEXT NOT NULL,
+    workspace        TEXT NOT NULL,
+    title            TEXT,
+    status           TEXT NOT NULL DEFAULT 'starting'
+                     CHECK (status IN ('starting','working','blocked','idle','done','failed','interrupted')),
+    session_id       TEXT,
+    pid              INTEGER,
+    exit_code        INTEGER,
+    activity         TEXT,
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP,
+    ended_at         TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_terminal_tasks_status ON terminal_tasks (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_terminal_tasks_session ON terminal_tasks (session_id);
+
+CREATE TABLE IF NOT EXISTS terminal_events (
+    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    origin     TEXT NOT NULL,
+    detail     TEXT,
+    prev_hash  TEXT,
+    row_hash   TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_terminal_events_task ON terminal_events (task_id, seq);
+"""
+
+
+async def migrate_to_v48(db: DatabaseConnection) -> None:
+    """v47 -> v48: Agent Terminals tasks and hash-chained task events.
+
+    terminal_tasks is the board: one row per launched task, restored on
+    startup (running rows become 'interrupted'). terminal_events is the
+    audit trail for spawn, input, stop, hook and exit, chained like
+    tool_call_audit so tampering is detectable. Idempotent.
+    """
+    conn = await db.connect()
+    await conn.executescript(MIGRATION_V48_SQL)
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (48, CURRENT_TIMESTAMP, 'Agent Terminals tasks and events')"
+    )
+    logger.info("Applied migration v48: terminal_tasks, terminal_events")
+
+
+async def migrate_to_v49(db: DatabaseConnection) -> None:
+    """v48 -> v49: allow completed Agent Tasks to leave the active board.
+
+    This is deliberately an archive marker, never a delete: the associated
+    hash-chained terminal_events and the task row remain available to audit.
+    """
+    conn = await db.connect()
+    columns = {row[1] for row in await (await conn.execute("PRAGMA table_info(terminal_tasks)")).fetchall()}
+    if "archived_at" not in columns:
+        await conn.execute("ALTER TABLE terminal_tasks ADD COLUMN archived_at TIMESTAMP")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_terminal_tasks_active ON terminal_tasks (archived_at, created_at)")
+    await conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+        "VALUES (49, CURRENT_TIMESTAMP, 'Agent Task board archive marker')"
+    )
+    logger.info("Applied migration v49: terminal task archive marker")

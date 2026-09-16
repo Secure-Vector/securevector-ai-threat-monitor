@@ -12,6 +12,7 @@ const App = {
         threats: { render: (c) => { ThreatsPage.activeFacet = 'threats'; return ThreatsPage.render(c); } },
         // conversion-ux — retroactive scan of on-disk agent history (opt-in).
         'instant-audit': InstantAuditPage,
+        terminals: TerminalsPage,
         replay: ReplayPage,
         'agent-map': AgentMapPage,
         'agent-runs': AgentRunsPage,

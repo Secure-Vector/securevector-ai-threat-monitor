@@ -19,13 +19,13 @@ function navItemsSource() {
   return src.slice(start, end);
 }
 
-test('the rail has nine destinations plus Guide and Settings', () => {
+test('the rail has ten destinations plus Guide and Settings', () => {
   const ids = [...navItemsSource().matchAll(/^\s{8}\{ id: '([a-z0-9-]+)'/gm)].map(m => m[1]);
   // Visibility is what you read, Configure is what you set: the posture report
   // moved out of the settings group, and Skills Scanner sits with the policies where its
   // hub card already lived.
   assert.deepStrictEqual(ids, [
-    'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
+    'terminals', 'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
     'policies',
     'guide-connect-agents', 'siem-export',
     'guide', 'settings',
@@ -82,8 +82,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=154/);
-  assert.match(html, /styles\.css\?v=378/);
+  assert.match(html, /sidebar\.js\?v=156/);
+  assert.match(html, /styles\.css\?v=383/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -178,7 +178,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=378/);
+  assert.match(read('index.html'), /styles\.css\?v=383/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -257,4 +257,26 @@ test('the Policies fold has a chevron, a hover peek and a chord for every page b
   // the map must stay a function: one letter, one page
   const letters = [...chords.matchAll(/\b([a-z]): '/g)].map(m => m[1]);
   assert.equal(new Set(letters).size, letters.length);
+});
+
+// -- terminal-view.js: risky OSC handlers are disabled locally, not just
+// via the xterm.js upstream default (F2) ---------------------------------
+
+test('terminal-view.js swallows clipboard, iTerm2 file transfer, cwd and notification OSC sequences', () => {
+  const src = read('js/components/terminal-view.js');
+  const registerStart = src.indexOf('this._oscDisposables =');
+  assert.ok(registerStart >= 0, 'this._oscDisposables assignment must exist in terminal-view.js');
+  const registerEnd = src.indexOf(';', registerStart);
+  assert.ok(registerEnd >= 0, 'this._oscDisposables assignment must be terminated by a semicolon');
+  const registerCall = src.slice(registerStart, registerEnd + 1);
+  for (const osc of [52, 1337, 7, 9]) {
+    assert.match(registerCall, new RegExp(`\\b${osc}\\b`), `OSC ${osc} must be in the swallow list`);
+  }
+  assert.match(registerCall, /registerOscHandler\(osc, \(\) => true\)/);
+  const disposeStart = src.indexOf('dispose() {');
+  assert.ok(disposeStart >= 0, 'dispose() must exist in terminal-view.js');
+  const disposeEnd = src.indexOf('}\n    }\n\n    window.TerminalView');
+  assert.ok(disposeEnd >= 0, 'end-of-dispose sentinel not found; did the class layout change?');
+  const disposeBody = src.slice(disposeStart, disposeEnd);
+  assert.match(disposeBody, /\(this\._oscDisposables \|\| \[\]\)\.forEach\(\(d\) => d\.dispose\(\)\)/);
 });

@@ -71,6 +71,7 @@ PLUGIN_FILES = [
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -558,6 +559,22 @@ def _is_enabled_in_config_toml() -> bool:
         in_multiline = _enter_multiline_string(line, in_multiline)
         i += 1
     return False
+
+
+def terminal_guard_enabled() -> bool:
+    """Whether the installed Codex Guard can correlate a terminal task.
+
+    A generic enabled-plugin check is insufficient here: older installed
+    Guard versions audit Codex, but do not carry the per-task relay that
+    binds a launched PTY to its runtime session. Refuse the launch until a
+    current plugin install supplies that module.
+    """
+    install_path = _current_codex_install_path()
+    return bool(
+        _is_enabled_in_config_toml()
+        and install_path is not None
+        and (install_path / "lib" / "terminal-relay.js").is_file()
+    )
 
 
 # --- Auto-install / uninstall ----------------------------------------------

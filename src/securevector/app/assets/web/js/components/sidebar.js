@@ -5,12 +5,14 @@
 
 const Sidebar = {
     navItems: [
-        // v5.3 rail: ten destinations in three groups, plus Guide and Settings
+        // v5.3 rail: eleven destinations in three groups, plus Guide and Settings
         // docked at the bottom. Pages that used to be their own rows are
         // `views` of a destination: they render indented under the active row
         // (expanded rail) or inside the hover flyout (icon rail). Every old page
         // id stays routable and highlights its parent via `views` or `aliases`,
         // so deep links, the palette and Governance gap cards still land.
+        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
+          tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
           tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
@@ -63,6 +65,11 @@ const Sidebar = {
         { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
     ],
     currentPage: 'dashboard',
+
+    // The parent is the consolidated command centre; these direct session
+    // entries are hydrated once terminal authentication is ready.
+    _agentTaskViewsLoading: false,
+    _agentTaskViewsLoaded: false,
 
     collapsed: false,
 
@@ -399,6 +406,7 @@ const Sidebar = {
                     }
                     return;
                 }
+                if (item.id === 'terminals') sessionStorage.removeItem('sv-agent-task-id');
                 this.navigate(item.id);
             });
 
@@ -616,6 +624,7 @@ const Sidebar = {
         container.appendChild(nav);
         this._flyoutInit(container, nav);
         this._indicatorInit(nav);
+        this._loadAgentTaskViews();
         this._fadeInit(nav);
         this._chordInit();
         // First paint: rows settle in one after another; later renders are instant.
@@ -1012,6 +1021,10 @@ const Sidebar = {
     },
 
     _viewActive(view) {
+        if (view.taskId) {
+            return this.currentPage === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === view.taskId;
+        }
+        if (view.allTasks) return this.currentPage === 'terminals' && !sessionStorage.getItem('sv-agent-task-id');
         return view.id === this.currentPage || !!(view.aliases && view.aliases.includes(this.currentPage));
     },
 
@@ -1023,6 +1036,8 @@ const Sidebar = {
             const row = document.createElement('div');
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
+            if (view.taskId) row.dataset.taskId = view.taskId;
+            if (view.allTasks) row.dataset.allTasks = 'true';
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
             const locked = !!view.cloud && this._enrolled !== true;
             row.dataset.tip = locked
@@ -1031,6 +1046,14 @@ const Sidebar = {
             if (row.dataset.tip && !this.collapsed) row.title = row.dataset.tip;
             if (locked) row.classList.add('nav-item-locked');
             if (view.icon) row.appendChild(this.createIcon(view.icon));
+            if (view.taskId) {
+                const agent = document.createElement('span');
+                agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
+                agent.setAttribute('aria-hidden', 'true');
+                agent.appendChild(document.createElement('i'));
+                agent.appendChild(document.createElement('i'));
+                row.appendChild(agent);
+            }
             const lbl = document.createElement('span');
             lbl.textContent = view.label;
             row.appendChild(lbl);
@@ -1070,11 +1093,55 @@ const Sidebar = {
             }
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
+                if (view.taskId) {
+                    sessionStorage.setItem('sv-agent-task-id', view.taskId);
+                    this.navigate('terminals');
+                    return;
+                }
+                if (view.allTasks) sessionStorage.removeItem('sv-agent-task-id');
                 this.navigate(view.id);
             });
             wrap.appendChild(row);
         });
         return wrap;
+    },
+
+    _loadAgentTaskViews(force = false) {
+        if (this._agentTaskViewsLoading || (this._agentTaskViewsLoaded && !force) || !window.API) return;
+        this._agentTaskViewsLoading = true;
+        Promise.all([API.terminalsTasks(), API.getJitRequests('pending').catch(() => ({ items: [] }))])
+            .then(([result, approvals]) => {
+                const parent = this.navItems.find(item => item.id === 'terminals');
+                if (!parent) return;
+                const pendingSessions = new Set((approvals.items || []).map(item => item.session_id).filter(Boolean));
+                parent.views = [
+                    { id: 'terminals', allTasks: true, label: 'All tasks', tooltip: 'Consolidated Agent Tasks command centre' },
+                    ...(result.items || []).map(task => ({
+                        id: 'terminals', taskId: task.id,
+                        state: this._agentTaskState(task, pendingSessions.has(task.session_id)),
+                        label: task.title || task.executor_id,
+                        tooltip: `${task.executor_id} · ${task.workspace}`,
+                    })),
+                ];
+                this._agentTaskViewsLoaded = true;
+                this.render();
+            })
+            .catch(() => { this._agentTaskViewsLoaded = true; })
+            .finally(() => { this._agentTaskViewsLoading = false; });
+    },
+
+    refreshAgentTaskViews() {
+        this._agentTaskViewsLoaded = false;
+        this._loadAgentTaskViews(true);
+    },
+
+    _agentTaskState(task, waitingApproval = false) {
+        if (waitingApproval) return 'approval';
+        if (task.status === 'blocked') return 'blocked';
+        if (task.status === 'done') return 'completed';
+        if (task.status === 'interrupted') return 'interrupted';
+        if (task.status === 'failed') return 'failed';
+        return 'active';
     },
 
     _createDock() {
@@ -2072,6 +2139,10 @@ const Sidebar = {
                 { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } },
                 { tag: 'polyline', attrs: { points: '12 6 12 12 16 14' } },
             ],
+            terminal: [
+                { tag: 'path', attrs: { d: 'M4 17l6-5-6-5' } },
+                { tag: 'path', attrs: { d: 'M12 19h8' } },
+            ],
             // Document with horizontal bar lines — read as "report" without
             // colliding with the 'rules' icon (which also looks document-y).
             report: [
@@ -2208,7 +2279,10 @@ const Sidebar = {
             const matchesPage = item.dataset.page === page ||
                 (item.dataset.aliases || '').split(',').includes(page);
             if (isSubItem) {
-                item.classList.toggle('active', matchesPage);
+                const isTaskView = !!item.dataset.taskId;
+                const isSelectedTask = page === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === item.dataset.taskId;
+                const isAllTasks = item.dataset.allTasks === 'true';
+                item.classList.toggle('active', isTaskView ? isSelectedTask : (isAllTasks ? matchesPage && !sessionStorage.getItem('sv-agent-task-id') : matchesPage));
             } else {
                 const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
                 const isCollapsible = item.dataset.collapsible === 'true';
@@ -2305,4 +2379,3 @@ const SideDrawer = {
 
 window.Sidebar = Sidebar;
 window.SideDrawer = SideDrawer;
-
