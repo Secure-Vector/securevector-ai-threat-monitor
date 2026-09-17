@@ -78,6 +78,7 @@ PLUGIN_FILES = [
     "lib/decide.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -318,6 +319,17 @@ def _is_registered() -> bool:
     if not isinstance(plugins, list):
         return False
     return any(_spec_matches_staging(p) for p in plugins)
+
+
+def terminal_guard_enabled() -> bool:
+    """Whether the registered OpenCode Guard can correlate a terminal task.
+
+    A generic registered check is insufficient: an older staged Guard audits
+    OpenCode but carries no per-task relay, so a launched PTY would never bind
+    to its runtime session. Refuse the launch until a current install stages
+    that module.
+    """
+    return bool(_is_registered() and (STAGING_DIR / "lib" / "terminal-relay.js").is_file())
 
 
 def _register_with_opencode() -> Path:

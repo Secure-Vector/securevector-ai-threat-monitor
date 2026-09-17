@@ -11,8 +11,6 @@ const Sidebar = {
         // (expanded rail) or inside the hover flyout (icon rail). Every old page
         // id stays routable and highlights its parent via `views` or `aliases`,
         // so deep links, the palette and Governance gap cards still land.
-        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
-          tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
         { id: 'agent-runs', label: 'Traces', icon: 'history', aliases: ['agent-activity', 'storylines', 'agent-map', 'agent-timeline'],
           tooltip: 'Every agent run as a trace: turns, tool calls, verdicts and cost',
@@ -60,6 +58,10 @@ const Sidebar = {
             { id: 'siem-export', label: 'SIEM Forwarder' },
             { id: 'cloud-activity', label: 'Cloud Activity', cloud: true },
           ] },
+        // Agent Tasks sits last in Connect: the tasks you launch hang off it as
+        // their own rail group, so they stay near the agents they run on.
+        { id: 'terminals', label: 'Agent Tasks', icon: 'terminal',
+          tooltip: 'Launch, return to, and govern an agent task', views: [] },
         { id: 'guide', label: 'Guide', icon: 'book', dock: true, aliases: ['guide-claude-code', 'guide-codex', 'guide-copilot-cli', 'guide-cursor', 'guide-opencode', 'guide-openclaw', 'guide-frameworks', 'gs-read-map', 'gs-read-runs', 'gs-tool-inventory', 'gs-secret-detections', 'gs-mcp-policies', 'gs-siem-forwarder', 'gs-skill-scanner', 'gs-api', 'gs-troubleshoot'],
           tooltip: 'Setup guides, how to read the data, API reference, troubleshooting' },
         { id: 'settings', label: 'Settings', icon: 'settings', dock: true },
@@ -70,6 +72,7 @@ const Sidebar = {
     // entries are hydrated once terminal authentication is ready.
     _agentTaskViewsLoading: false,
     _agentTaskViewsLoaded: false,
+    _agentTaskViewsRerun: false,
 
     collapsed: false,
 
@@ -410,8 +413,19 @@ const Sidebar = {
                 this.navigate(item.id);
             });
 
+            if (item.id === 'terminals') {
+                // A hairline instead of a fourth section header: Agent Tasks is
+                // its own block under Connect, and the rail still shows three
+                // group names. Neither the divider nor the rows below it join
+                // the section: folding Connect must never hide the tasks.
+                const divider = document.createElement('div');
+                divider.className = 'nav-tasks-divider';
+                divider.setAttribute('aria-hidden', 'true');
+                nav.appendChild(divider);
+            }
             nav.appendChild(navItem);
-            if (currentSection) {
+            const foldsWithSection = currentSection && item.id !== 'terminals';
+            if (foldsWithSection) {
                 currentSection.els.push(navItem);
                 // A section holding the active page must never start
                 // collapsed — a hidden "where am I" is worse than a stale
@@ -444,7 +458,7 @@ const Sidebar = {
 
                 const viewsEl = this._renderViews(item, matchesSelf);
                 nav.appendChild(viewsEl);
-                if (currentSection) currentSection.els.push(viewsEl);
+                if (foldsWithSection) currentSection.els.push(viewsEl);
 
                 // Hover peek: a closed fold opens while the pointer rests on
                 // its row or on the peeked views, so every page behind it is
@@ -625,6 +639,12 @@ const Sidebar = {
         this._flyoutInit(container, nav);
         this._indicatorInit(nav);
         this._loadAgentTaskViews();
+        if (!this._agentTaskTimer) {
+            this._agentTaskTimer = setInterval(() => {
+                if (document.hidden) return;
+                this._loadAgentTaskViews(true);
+            }, 30000);
+        }
         this._fadeInit(nav);
         this._chordInit();
         // First paint: rows settle in one after another; later renders are instant.
@@ -1024,20 +1044,18 @@ const Sidebar = {
         if (view.taskId) {
             return this.currentPage === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === view.taskId;
         }
-        if (view.allTasks) return this.currentPage === 'terminals' && !sessionStorage.getItem('sv-agent-task-id');
         return view.id === this.currentPage || !!(view.aliases && view.aliases.includes(this.currentPage));
     },
 
     _renderViews(item, open) {
         const wrap = document.createElement('div');
-        wrap.className = 'nav-views' + (open ? ' open' : '');
+        wrap.className = 'nav-views' + (open ? ' open' : '') + (item.id === 'terminals' ? ' nav-views-tasks' : '');
         wrap.dataset.viewsFor = item.id;
         item.views.forEach(view => {
             const row = document.createElement('div');
             row.className = 'nav-item nav-view' + (this._viewActive(view) ? ' active' : '');
             row.dataset.page = view.id;
             if (view.taskId) row.dataset.taskId = view.taskId;
-            if (view.allTasks) row.dataset.allTasks = 'true';
             if (view.aliases) row.dataset.aliases = view.aliases.join(',');
             const locked = !!view.cloud && this._enrolled !== true;
             row.dataset.tip = locked
@@ -1047,12 +1065,16 @@ const Sidebar = {
             if (locked) row.classList.add('nav-item-locked');
             if (view.icon) row.appendChild(this.createIcon(view.icon));
             if (view.taskId) {
-                const agent = document.createElement('span');
-                agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
-                agent.setAttribute('aria-hidden', 'true');
-                agent.appendChild(document.createElement('i'));
-                agent.appendChild(document.createElement('i'));
-                row.appendChild(agent);
+                if (window.TaskAvatar) {
+                    row.appendChild(TaskAvatar.el({ id: view.taskId, state: view.state, size: 22 }));
+                } else {
+                    const agent = document.createElement('span');
+                    agent.className = `sv-task-agent sv-task-agent-${view.state || 'active'}`;
+                    agent.setAttribute('aria-hidden', 'true');
+                    agent.appendChild(document.createElement('i'));
+                    agent.appendChild(document.createElement('i'));
+                    row.appendChild(agent);
+                }
             }
             const lbl = document.createElement('span');
             lbl.textContent = view.label;
@@ -1098,7 +1120,6 @@ const Sidebar = {
                     this.navigate('terminals');
                     return;
                 }
-                if (view.allTasks) sessionStorage.removeItem('sv-agent-task-id');
                 this.navigate(view.id);
             });
             wrap.appendChild(row);
@@ -1107,7 +1128,14 @@ const Sidebar = {
     },
 
     _loadAgentTaskViews(force = false) {
-        if (this._agentTaskViewsLoading || (this._agentTaskViewsLoaded && !force) || !window.API) return;
+        // A forced tick (timer, external refresh) that lands while a fetch is
+        // already in flight cannot just be dropped, or a state change during
+        // the in-flight request never gets picked up. Remember it and rerun
+        // once the current fetch settles. An unforced call (e.g. render()'s
+        // first paint) never needs to latch: it only wants whatever load is
+        // already in flight to finish, not a guaranteed extra refetch.
+        if (this._agentTaskViewsLoading) { if (force) this._agentTaskViewsRerun = true; return; }
+        if ((this._agentTaskViewsLoaded && !force) || !window.API) return;
         this._agentTaskViewsLoading = true;
         Promise.all([API.terminalsTasks(), API.getJitRequests('pending').catch(() => ({ items: [] }))])
             .then(([result, approvals]) => {
@@ -1115,7 +1143,6 @@ const Sidebar = {
                 if (!parent) return;
                 const pendingSessions = new Set((approvals.items || []).map(item => item.session_id).filter(Boolean));
                 parent.views = [
-                    { id: 'terminals', allTasks: true, label: 'All tasks', tooltip: 'Consolidated Agent Tasks command centre' },
                     ...(result.items || []).map(task => ({
                         id: 'terminals', taskId: task.id,
                         state: this._agentTaskState(task, pendingSessions.has(task.session_id)),
@@ -1123,11 +1150,24 @@ const Sidebar = {
                         tooltip: `${task.executor_id} · ${task.workspace}`,
                     })),
                 ];
+                // Rows and states only: this signature does not include which
+                // row is selected, so it never forces a re-render on its own
+                // when only the attached/selected task changes.
+                const sig = parent.views.map(v => [v.taskId, v.state || '', v.label].join(':')).join('|');
                 this._agentTaskViewsLoaded = true;
-                this.render();
+                if (sig !== this._agentTaskSig) {
+                    this._agentTaskSig = sig;
+                    this.render();
+                }
             })
             .catch(() => { this._agentTaskViewsLoaded = true; })
-            .finally(() => { this._agentTaskViewsLoading = false; });
+            .finally(() => {
+                this._agentTaskViewsLoading = false;
+                if (this._agentTaskViewsRerun) {
+                    this._agentTaskViewsRerun = false;
+                    this._loadAgentTaskViews(true);
+                }
+            });
     },
 
     refreshAgentTaskViews() {
@@ -1304,7 +1344,15 @@ const Sidebar = {
                 tier.textContent = 'Cloud';
                 b.appendChild(tier);
             }
-            b.addEventListener('click', () => { this._flyoutHide(true); this.navigate(v.id); });
+            b.addEventListener('click', () => {
+                this._flyoutHide(true);
+                if (v.taskId) {
+                    sessionStorage.setItem('sv-agent-task-id', v.taskId);
+                    this.navigate('terminals');
+                    return;
+                }
+                this.navigate(v.id);
+            });
             fly.appendChild(b);
         });
         const r = row.getBoundingClientRect();
@@ -2281,8 +2329,7 @@ const Sidebar = {
             if (isSubItem) {
                 const isTaskView = !!item.dataset.taskId;
                 const isSelectedTask = page === 'terminals' && sessionStorage.getItem('sv-agent-task-id') === item.dataset.taskId;
-                const isAllTasks = item.dataset.allTasks === 'true';
-                item.classList.toggle('active', isTaskView ? isSelectedTask : (isAllTasks ? matchesPage && !sessionStorage.getItem('sv-agent-task-id') : matchesPage));
+                item.classList.toggle('active', isTaskView ? isSelectedTask : matchesPage);
             } else {
                 const hasSubItems = item.nextElementSibling && item.nextElementSibling.classList.contains('nav-sub-items');
                 const isCollapsible = item.dataset.collapsible === 'true';

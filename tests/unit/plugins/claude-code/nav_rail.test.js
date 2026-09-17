@@ -25,9 +25,9 @@ test('the rail has ten destinations plus Guide and Settings', () => {
   // moved out of the settings group, and Skills Scanner sits with the policies where its
   // hub card already lived.
   assert.deepStrictEqual(ids, [
-    'terminals', 'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
+    'dashboard', 'agent-runs', 'threats', 'governance', 'costs', 'egress',
     'policies',
-    'guide-connect-agents', 'siem-export',
+    'guide-connect-agents', 'siem-export', 'terminals',
     'guide', 'settings',
   ]);
 });
@@ -82,8 +82,8 @@ test('the Policies hub is routed and versioned', () => {
   assert.match(app, /'policies-controls': PoliciesHubPage,/);
   const html = read('index.html');
   assert.match(html, /pages\/policies\.js\?v=\d+/);
-  assert.match(html, /sidebar\.js\?v=156/);
-  assert.match(html, /styles\.css\?v=383/);
+  assert.match(html, /sidebar\.js\?v=160/);
+  assert.match(html, /styles\.css\?v=388/);
   assert.match(read('js/components/command-palette.js'), /'mcp-policies', 'policies'\]/);
 });
 
@@ -178,7 +178,7 @@ test('the desktop chrome block makes the rail behave like a window, not a page',
   // pywebview has no drag regions, so none may be declared
   assert.doesNotMatch(css, /-webkit-app-region/);
   // the pin moves with the stylesheet
-  assert.match(read('index.html'), /styles\.css\?v=383/);
+  assert.match(read('index.html'), /styles\.css\?v=388/);
 });
 
 test('the plugin status observer settles on WebKit, which re-fires a style mutation for an unchanged value', () => {
@@ -279,4 +279,27 @@ test('terminal-view.js swallows clipboard, iTerm2 file transfer, cwd and notific
   assert.ok(disposeEnd >= 0, 'end-of-dispose sentinel not found; did the class layout change?');
   const disposeBody = src.slice(disposeStart, disposeEnd);
   assert.match(disposeBody, /\(this\._oscDisposables \|\| \[\]\)\.forEach\(\(d\) => d\.dispose\(\)\)/);
+});
+
+test('Agent Tasks is its own rail group: full-width rows under a hairline', () => {
+  const src = read('js/components/sidebar.js');
+  assert.ok(src.includes('nav-views-tasks'),
+    'the task views need their own class so they can take the whole rail width');
+  assert.ok(src.includes('nav-tasks-divider'),
+    'a hairline stands in for a fourth section header');
+  assert.ok(!src.includes('allTasks'),
+    'the top-level Agent Tasks row is the all-tasks destination, so the extra row is gone');
+  const css = read('css/styles.css');
+  assert.match(css, /\.nav-views\.nav-views-tasks \.nav-item\.nav-view\.active/,
+    'an active task row must light its whole rectangle, like a top-level row');
+});
+
+test('the Agent Tasks block never folds with the Connect section', () => {
+  const sidebar = read('js/components/sidebar.js');
+  assert.ok(!sidebar.includes('currentSection.els.push(divider)'),
+    'the tasks divider must not join the Connect section');
+  assert.ok(sidebar.includes("const foldsWithSection = currentSection && item.id !== 'terminals';"),
+    'the terminals row must be excluded from the section fold');
+  assert.ok(sidebar.includes('if (foldsWithSection) currentSection.els.push(viewsEl);'),
+    'the task rows must be excluded from the section fold');
 });

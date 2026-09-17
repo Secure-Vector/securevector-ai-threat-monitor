@@ -15,6 +15,7 @@ import collections
 import logging
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -42,6 +43,8 @@ class ManagerSettings:
     plugin_dir: Callable[[], Optional[Path]]
     plugin_enabled: Callable[[], bool]
     codex_plugin_enabled: Callable[[], bool] = lambda: False
+    copilot_cli_plugin_enabled: Callable[[], bool] = lambda: False
+    opencode_plugin_enabled: Callable[[], bool] = lambda: False
     parent_env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     default_rows: int = 30
     default_cols: int = 120
@@ -134,6 +137,62 @@ class TerminalManager:
         except OSError:
             pass
 
+    def _guard_gate(self, executor_id: str) -> Tuple[Callable[[], bool], str]:
+        """The per-executor "its Guard plugin relays hook events" predicate.
+
+        An executor with no entry here has no Guard integration at all, so its
+        gate is permanently closed: a launch would be unhooked and ungoverned.
+        """
+        gates = {
+            "codex": (self.settings.codex_plugin_enabled, "Codex"),
+            "copilot-cli": (self.settings.copilot_cli_plugin_enabled, "Copilot CLI"),
+            "opencode": (self.settings.opencode_plugin_enabled, "OpenCode"),
+        }
+        if executor_id not in gates:
+            return (lambda: False), EXECUTORS[executor_id].label
+        return gates[executor_id]
+
+    def executor_status(self) -> list[dict]:
+        """One row per allowlisted executor: installed (binary on the child
+        PATH) and governed (its Guard plugin relays this app's hook events)."""
+        # Resolve against the child PATH only, exactly as build_launch does.
+        # Falling back to this process' PATH would report an executor as
+        # installed that the launched task could never find.
+        child_path = self.settings.parent_env.get("PATH") or ""
+        rows: list[dict] = []
+        for executor in EXECUTORS.values():
+            installed = bool(child_path) and shutil.which(executor.binary, path=child_path) is not None
+            if executor.id == "claude-code":
+                # The manager injects --plugin-dir when the plugin is installed
+                # but not yet enabled, so "installed" is the governance bar here.
+                governed = self.settings.plugin_dir() is not None
+                guard_label = executor.label
+            else:
+                gate, guard_label = self._guard_gate(executor.id)
+                governed = bool(gate())
+            if not installed:
+                hint = f"Install {executor.label} to launch tasks with it."
+            elif not governed:
+                # "Enable or reinstall": an upgraded-but-not-restaged plugin
+                # reads as enabled yet carries no relay, so "enable" alone
+                # would point the user at a toggle that is already on.
+                hint = (
+                    f"Enable or reinstall the {guard_label} Guard plugin in "
+                    "Integrations before launching a task."
+                )
+            else:
+                hint = ""
+            rows.append(
+                {
+                    "id": executor.id,
+                    "label": executor.label,
+                    "installed": installed,
+                    "governed": governed,
+                    "hint": hint,
+                }
+            )
+        return rows
+
     def running_count(self) -> int:
         return len(self._running)
 
@@ -147,7 +206,6 @@ class TerminalManager:
     ) -> dict:
         if executor_id not in EXECUTORS:
             raise UnknownExecutor(executor_id)
-        executor = EXECUTORS[executor_id]
         plugin_dir = None
         if executor_id == "claude-code":
             plugin_dir = self.settings.plugin_dir()
@@ -156,12 +214,13 @@ class TerminalManager:
             # If the plugin is already enabled in the user's Claude settings,
             # do not pass --plugin-dir as well: the hooks would run twice.
             inject = None if self.settings.plugin_enabled() else plugin_dir
-        elif executor_id == "codex":
-            if not self.settings.codex_plugin_enabled():
-                raise GuardHooksMissing("Install and enable the Codex Guard plugin before launching a task")
-            inject = None
         else:
-            raise GuardHooksMissing(f"No Guard integration is configured for {executor.label}")
+            gate, label = self._guard_gate(executor_id)
+            if not gate():
+                raise GuardHooksMissing(
+                    f"Install and enable the {label} Guard plugin before launching a task"
+                )
+            inject = None
         task_id = uuid.uuid4().hex[:12]
         hook_token = secrets.token_hex(16)
         task_dir = Path(self.settings.data_dir) / "terminals" / "tasks" / task_id

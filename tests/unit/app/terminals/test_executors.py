@@ -3,6 +3,7 @@
 import json
 import os
 import shlex
+import stat
 import sys
 import types
 
@@ -23,9 +24,11 @@ from securevector.app.terminals.executors import (
 
 
 def test_allowlist_contains_governed_interactive_executors():
-    assert set(EXECUTORS) == {"claude-code", "codex"}
+    assert set(EXECUTORS) == {"claude-code", "codex", "copilot-cli", "opencode"}
     assert EXECUTORS["claude-code"].binary == "claude"
     assert EXECUTORS["codex"].binary == "codex"
+    assert EXECUTORS["copilot-cli"].binary == "copilot"
+    assert EXECUTORS["opencode"].binary == "opencode"
 
 
 def test_child_env_is_allowlisted_and_scrubs_harness_nesting():
@@ -186,6 +189,99 @@ def test_codex_launch_has_no_claude_only_flags_and_pins_the_engine_endpoint(tmp_
     )
     assert launch.argv == ["/usr/local/bin/codex"]
     assert launch.env["SECUREVECTOR_ENGINE_ENDPOINT"] == "http://127.0.0.1:8899"
+
+
+def test_copilot_cli_and_opencode_launch_have_no_claude_only_flags_and_pin_the_engine_endpoint(
+    tmp_path,
+):
+    """Neither harness accepts Claude Code's --settings / --plugin-dir flags."""
+    tmp_bin = tmp_path / "bin"
+    tmp_bin.mkdir()
+    for name in ("copilot", "opencode"):
+        binary = tmp_bin / name
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    for executor_id, binary_name in (("copilot-cli", "copilot"), ("opencode", "opencode")):
+        launch = build_launch(
+            executor_id,
+            workspace=ws,
+            task_dir=tmp_path / "task",
+            port=8899,
+            task_id="t",
+            hook_token="k",
+            parent_env={"PATH": str(tmp_bin)},
+            plugin_dir=None,
+        )
+        assert os.path.basename(launch.argv[0]) == binary_name
+        assert "--settings" not in launch.argv and "--plugin-dir" not in launch.argv
+        assert launch.env["SECUREVECTOR_ENGINE_ENDPOINT"] == "http://127.0.0.1:8899"
+        assert launch.env["SV_TERMINAL_TASK_ID"] == "t"
+
+
+PARENT_WITH_HARNESS_AUTH = {
+    "PATH": "/usr/bin",
+    "GH_TOKEN": "gh",
+    "GITHUB_TOKEN": "ght",
+    "COPILOT_HOME": "/Users/x/.copilot",
+    "OPENCODE_CONFIG": "/Users/x/opencode.json",
+    "OPENCODE_CONFIG_DIR": "/Users/x/.config/opencode",
+    "OPENAI_API_KEY": "oai",
+    "XDG_STATE_HOME": "/Users/x/.local/state",
+    "FOO_SECRET": "no",
+}
+
+
+def _child_env_for(executor_id):
+    return build_child_env(
+        PARENT_WITH_HARNESS_AUTH,
+        task_id="t1",
+        port=8741,
+        hook_token="tok",
+        executor=EXECUTORS[executor_id],
+    )
+
+
+def test_harness_auth_vars_are_per_executor_not_global():
+    """A Copilot token must never reach an unrelated harness's child."""
+    copilot = _child_env_for("copilot-cli")
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "COPILOT_HOME"):
+        assert copilot[name] == PARENT_WITH_HARNESS_AUTH[name]
+    assert "OPENAI_API_KEY" not in copilot
+    assert "OPENCODE_CONFIG" not in copilot
+
+    opencode = _child_env_for("opencode")
+    assert opencode["OPENCODE_CONFIG"] == PARENT_WITH_HARNESS_AUTH["OPENCODE_CONFIG"]
+    assert opencode["OPENAI_API_KEY"] == PARENT_WITH_HARNESS_AUTH["OPENAI_API_KEY"]
+    assert "GH_TOKEN" not in opencode
+    assert "COPILOT_HOME" not in opencode
+
+    codex = _child_env_for("codex")
+    assert codex["OPENAI_API_KEY"] == PARENT_WITH_HARNESS_AUTH["OPENAI_API_KEY"]
+    assert "GH_TOKEN" not in codex
+    assert "OPENCODE_CONFIG" not in codex
+
+    claude = _child_env_for("claude-code")
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "COPILOT_HOME", "OPENCODE_CONFIG", "OPENAI_API_KEY"):
+        assert name not in claude
+
+
+def test_child_env_admits_the_shared_state_root_but_not_unknown_secrets():
+    env = _child_env_for("opencode")
+    assert env["XDG_STATE_HOME"] == PARENT_WITH_HARNESS_AUTH["XDG_STATE_HOME"]
+    assert "FOO_SECRET" not in env
+    # The OpenCode gate inspects OPENCODE_CONFIG and XDG_CONFIG_HOME only, so
+    # OPENCODE_CONFIG_DIR must never reach the child under any executor.
+    for executor_id in EXECUTORS:
+        assert "OPENCODE_CONFIG_DIR" not in _child_env_for(executor_id)
+
+
+def test_env_extra_is_declared_per_executor():
+    assert EXECUTORS["claude-code"].env_extra == ()
+    assert EXECUTORS["codex"].env_extra == ("OPENAI_API_KEY",)
+    assert EXECUTORS["copilot-cli"].env_extra == ("COPILOT_HOME", "GH_TOKEN", "GITHUB_TOKEN")
+    assert EXECUTORS["opencode"].env_extra == ("OPENCODE_CONFIG", "OPENAI_API_KEY")
 
 
 def test_build_launch_workspace_file_raises_not_a_directory(tmp_path, monkeypatch):

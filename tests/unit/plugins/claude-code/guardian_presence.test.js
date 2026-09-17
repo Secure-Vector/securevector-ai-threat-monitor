@@ -169,7 +169,7 @@ test('the reaction rides the existing per-category cooldown, not a new timer', (
 
 test('the cache-busting versions were bumped with the components', () => {
   const html = read('index.html');
-  assert.match(html, /guardian-bot\.js\?v=13/);
+  assert.match(html, /guardian-bot\.js\?v=14/);
   assert.match(html, /guardian-3d\.js\?v=18/);
   assert.match(html, /guardian-assistant\.js\?v=48/);
 });

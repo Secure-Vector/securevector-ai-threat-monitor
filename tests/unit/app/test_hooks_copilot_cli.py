@@ -32,6 +32,7 @@ EXPECTED_FILES = {
     "lib/normalize.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -205,3 +206,34 @@ def test_install_fallback_when_copilot_absent(tmp_path, monkeypatch):
     assert len(body["commands"]) == 1
     assert body["commands"][0].startswith("copilot plugin install ")
     assert not missing_home.exists()  # we never created Copilot's home
+
+
+# --- Agent Terminals governance gate -----------------------------------------
+
+
+def test_terminal_guard_enabled_false_without_the_relay_module(client, copilot_home):
+    """An older installed Guard audits Copilot but cannot correlate a task."""
+    client.post("/api/hooks/copilot-cli/install")
+    assert mod._is_registered_enabled() is True
+    relay = mod.COPILOT_CACHE_DIR / "lib" / "terminal-relay.js"
+    relay.unlink()
+    assert mod.terminal_guard_enabled() is False
+
+
+def test_terminal_guard_enabled_true_when_enabled_and_relay_installed(client, copilot_home):
+    client.post("/api/hooks/copilot-cli/install")
+    assert (mod.COPILOT_CACHE_DIR / "lib" / "terminal-relay.js").is_file()
+    assert mod.terminal_guard_enabled() is True
+
+
+def test_terminal_guard_enabled_false_when_cache_path_points_elsewhere(client, copilot_home):
+    """An entry naming the Guard but pointing Copilot at another directory
+    would load hooks this app has never written, so it is not governed."""
+    client.post("/api/hooks/copilot-cli/install")
+    data = _read_config(mod.COPILOT_CONFIG_JSON)
+    for p in data["installedPlugins"]:
+        if p.get("name") == mod.PLUGIN_NAME:
+            p["cache_path"] = str(copilot_home / "somewhere-else")
+    mod.COPILOT_CONFIG_JSON.write_text(json.dumps(data, indent=2))
+    assert mod._is_registered_enabled() is False
+    assert mod.terminal_guard_enabled() is False

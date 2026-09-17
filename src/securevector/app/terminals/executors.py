@@ -43,11 +43,27 @@ class Executor:
     # directory. Codex loads its Guard plugin from its own trusted plugin
     # registry, so passing Claude-only flags would silently break the launch.
     supports_terminal_settings: bool = False
+    # Harness-specific auth and config names, admitted only for THIS
+    # executor's child. Kept off the global allowlist so a Copilot token or an
+    # OpenAI key is never handed to an unrelated harness's process.
+    env_extra: tuple[str, ...] = ()
 
 
 _EXECUTORS: dict[str, Executor] = {
     "claude-code": Executor(id="claude-code", label="Claude Code", binary="claude", supports_terminal_settings=True),
-    "codex": Executor(id="codex", label="Codex", binary="codex"),
+    "codex": Executor(id="codex", label="Codex", binary="codex", env_extra=("OPENAI_API_KEY",)),
+    "copilot-cli": Executor(
+        id="copilot-cli",
+        label="GitHub Copilot CLI",
+        binary="copilot",
+        env_extra=("COPILOT_HOME", "GH_TOKEN", "GITHUB_TOKEN"),
+    ),
+    "opencode": Executor(
+        id="opencode",
+        label="OpenCode",
+        binary="opencode",
+        env_extra=("OPENCODE_CONFIG", "OPENAI_API_KEY"),
+    ),
 }
 EXECUTORS = types.MappingProxyType(_EXECUTORS)
 
@@ -93,6 +109,11 @@ ENV_ALLOW = frozenset(
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
         "CLAUDE_CODE_SKIP_AUTO_INSTALL",
         "CODEX_HOME",
+        # Harness-agnostic state root. OPENCODE_CONFIG_DIR is deliberately
+        # absent: the app's OpenCode gate inspects only OPENCODE_CONFIG and
+        # XDG_CONFIG_HOME, so forwarding it would let the child load a config
+        # the gate never checked.
+        "XDG_STATE_HOME",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "NO_PROXY",
@@ -111,13 +132,19 @@ ENV_NEVER = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
 
 
 def build_child_env(
-    parent: Mapping[str, str], *, task_id: str, port: int, hook_token: str
+    parent: Mapping[str, str],
+    *,
+    task_id: str,
+    port: int,
+    hook_token: str,
+    executor: Executor | None = None,
 ) -> dict[str, str]:
+    allowed = ENV_ALLOW if executor is None else ENV_ALLOW | frozenset(executor.env_extra)
     env: dict[str, str] = {}
     for key, value in parent.items():
         if key in ENV_NEVER:
             continue
-        if key in ENV_ALLOW or key.startswith(ENV_ALLOW_PREFIXES):
+        if key in allowed or key.startswith(ENV_ALLOW_PREFIXES):
             env[key] = value
     env["TERM"] = "xterm-256color"
     env["SV_TERMINAL_TASK_ID"] = task_id
@@ -191,7 +218,9 @@ def build_launch(
         raise NotADirectoryError(str(workspace)) from exc
     if not workspace.is_dir():
         raise NotADirectoryError(str(workspace))
-    env = build_child_env(parent_env, task_id=task_id, port=port, hook_token=hook_token)
+    env = build_child_env(
+        parent_env, task_id=task_id, port=port, hook_token=hook_token, executor=executor
+    )
     child_path = env.get("PATH")
     if not child_path:
         raise ExecutorUnavailable(f"{executor.label} cannot be resolved: no PATH for the task")

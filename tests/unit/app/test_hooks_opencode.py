@@ -33,6 +33,7 @@ EXPECTED_FILES = {
     "lib/decide.js",
     "lib/client.js",
     "lib/redact.js",
+    "lib/terminal-relay.js",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
@@ -219,3 +220,20 @@ def test_atomic_write_refuses_path_outside_allowed_roots(tmp_path, monkeypatch):
     outside.parent.mkdir(parents=True)
     with pytest.raises(PermissionError):
         mod._atomic_write_config(outside, {"x": 1}, [])
+
+
+# --- Agent Terminals governance gate -----------------------------------------
+
+
+def test_terminal_guard_enabled_false_without_the_relay_module(client, opencode_home):
+    """An older staged Guard audits OpenCode but cannot correlate a task."""
+    client.post("/api/hooks/opencode/install")
+    assert mod._is_registered() is True
+    (mod.STAGING_DIR / "lib" / "terminal-relay.js").unlink()
+    assert mod.terminal_guard_enabled() is False
+
+
+def test_terminal_guard_enabled_true_when_registered_and_relay_staged(client, opencode_home):
+    client.post("/api/hooks/opencode/install")
+    assert (mod.STAGING_DIR / "lib" / "terminal-relay.js").is_file()
+    assert mod.terminal_guard_enabled() is True

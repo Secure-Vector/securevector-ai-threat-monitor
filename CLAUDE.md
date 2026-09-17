@@ -143,9 +143,15 @@ alone unless they changed.
 
 ### 6.0.0 scope guard
 
-- Claude Code executor only. macOS and Linux full PTY; Windows streams-only.
+- Executors: Claude Code, Codex, GitHub Copilot CLI, and OpenCode, each
+  gated on its own Guard plugin being installed and enabled (spawn is closed
+  by default). Cursor and Gemini are not executors in 6.0.0. macOS and Linux
+  full PTY; Windows streams-only.
 - One attached terminal at a time. Tasks run in the folder the user picks
   (worktree isolation is 6.1). Executor in Python; no Node sidecar.
+- Not in 6.0.0: diff review, PR creation, merge, or any kanban or board
+  planning surface. Terminals shows the terminal, the verdict rail, and
+  approvals; review and delivery stay in the user's existing tools.
 - If late on 30 Oct, cut in this order: approvals inbox, board restore, cost
   figure. The security exit criteria, the attached-terminal demo, and the
   preview are never cut.

@@ -26,7 +26,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from securevector.app.terminals.auth import TerminalAuth, get_auth
-from securevector.app.terminals.executors import EXECUTORS, ExecutorUnavailable, UnknownExecutor
+from securevector.app.terminals.executors import ExecutorUnavailable, UnknownExecutor
 from securevector.app.terminals.manager import GuardHooksMissing, TerminalManager
 from securevector.app.terminals.pty_host import PtyUnavailable
 
@@ -67,8 +67,10 @@ async def session(request: Request, response: Response, auth: TerminalAuth = Dep
 
 
 @router.get("/executors", dependencies=[Depends(require_read)])
-async def list_executors():
-    return {"items": [{"id": e.id, "label": e.label} for e in EXECUTORS.values()]}
+async def list_executors(manager: TerminalManager = Depends(get_manager)):
+    # installed/governed let the launcher explain WHY an executor cannot be
+    # picked instead of failing at spawn time.
+    return {"items": manager.executor_status()}
 
 
 @router.get("/tasks", dependencies=[Depends(require_read)])

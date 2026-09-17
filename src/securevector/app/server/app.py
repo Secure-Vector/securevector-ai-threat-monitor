@@ -134,6 +134,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Failure here must not take the app down; the routes answer 503.
     try:
         from securevector.app.server.routes import hooks_claude_code as _hooks, hooks_codex as _codex_hooks
+        from securevector.app.server.routes import hooks_copilot_cli as _copilot_hooks
+        from securevector.app.server.routes import hooks_opencode as _opencode_hooks
         from securevector.app.terminals.auth import TerminalAuth, load_or_create_token
         from securevector.app.terminals.manager import ManagerSettings, TerminalManager
         from securevector.app.terminals.pty_host import create_pty_host
@@ -152,6 +154,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 plugin_dir=_hooks._claude_install_path,
                 plugin_enabled=_hooks._is_enabled_in_claude_settings,
                 codex_plugin_enabled=_codex_hooks.terminal_guard_enabled,
+                copilot_cli_plugin_enabled=_copilot_hooks.terminal_guard_enabled,
+                opencode_plugin_enabled=_opencode_hooks.terminal_guard_enabled,
             ),
         )
         await _manager.start(asyncio.get_running_loop())

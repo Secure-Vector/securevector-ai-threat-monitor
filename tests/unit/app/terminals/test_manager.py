@@ -108,6 +108,7 @@ def _fake_claude_bin(tmp_path) -> Path:
 
 async def _manager(
     tmp_path, host=None, plugin_installed=True, plugin_enabled=False, codex_plugin_enabled=False,
+    copilot_cli_plugin_enabled=False, opencode_plugin_enabled=False,
     retain_finished=10,
 ):
     db = DatabaseConnection(tmp_path / "t.db")
@@ -121,6 +122,8 @@ async def _manager(
         plugin_dir=lambda: (tmp_path / "plugin") if plugin_installed else None,
         plugin_enabled=lambda: plugin_enabled,
         codex_plugin_enabled=lambda: codex_plugin_enabled,
+        copilot_cli_plugin_enabled=lambda: copilot_cli_plugin_enabled,
+        opencode_plugin_enabled=lambda: opencode_plugin_enabled,
         parent_env={"PATH": str(tmp_bin), "CLAUDECODE": "1"},
     )
     m = TerminalManager(
@@ -172,6 +175,55 @@ async def test_codex_spawn_requires_its_own_guard_plugin_and_has_no_claude_flags
     assert Path(launch.argv[0]).name == "codex"
     assert "--settings" not in launch.argv and "--plugin-dir" not in launch.argv
     assert launch.env["SECUREVECTOR_ENGINE_ENDPOINT"] == "http://127.0.0.1:8741"
+
+
+@pytest.mark.asyncio
+async def test_copilot_cli_spawn_requires_its_guard_plugin(tmp_path):
+    m, ws = await _manager(tmp_path)
+    with pytest.raises(GuardHooksMissing, match="Copilot CLI Guard"):
+        await m.spawn("copilot-cli", str(ws), title=None, origin="ui")
+    assert await m.store.list_tasks() == []
+
+
+@pytest.mark.asyncio
+async def test_opencode_spawn_requires_its_guard_plugin(tmp_path):
+    m, ws = await _manager(tmp_path)
+    with pytest.raises(GuardHooksMissing, match="OpenCode Guard"):
+        await m.spawn("opencode", str(ws), title=None, origin="ui")
+    assert await m.store.list_tasks() == []
+
+
+@pytest.mark.asyncio
+async def test_executor_status_reports_installed_and_governed(tmp_path):
+    m, _ws = await _manager(tmp_path, plugin_installed=True)
+    rows = {row["id"]: row for row in m.executor_status()}
+    assert set(rows) == {"claude-code", "codex", "copilot-cli", "opencode"}
+
+    claude = rows["claude-code"]
+    assert claude["installed"] is True and claude["governed"] is True
+    assert claude["hint"] == ""
+
+    # The fake bin dir carries a codex stub, but its Guard plugin is off.
+    codex = rows["codex"]
+    assert codex["installed"] is True and codex["governed"] is False
+    assert codex["hint"] == (
+        "Enable or reinstall the Codex Guard plugin in Integrations before launching a task."
+    )
+
+    copilot = rows["copilot-cli"]
+    assert copilot["installed"] is False and copilot["governed"] is False
+    assert copilot["hint"] == "Install GitHub Copilot CLI to launch tasks with it."
+
+
+@pytest.mark.asyncio
+async def test_executor_status_reports_claude_code_ungoverned_without_plugin(tmp_path):
+    m, _ws = await _manager(tmp_path, plugin_installed=False)
+    claude = {row["id"]: row for row in m.executor_status()}["claude-code"]
+    assert claude["installed"] is True and claude["governed"] is False
+    assert claude["hint"] == (
+        "Enable or reinstall the Claude Code Guard plugin in Integrations "
+        "before launching a task."
+    )
 
 
 @pytest.mark.asyncio
